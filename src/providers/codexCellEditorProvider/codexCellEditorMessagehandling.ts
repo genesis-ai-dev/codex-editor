@@ -159,6 +159,10 @@ export async function sendMilestoneRefreshToWebview(
         const username = userInfo?.username || "anonymous";
 
         const rev = provider.getDocumentRevision(docUri);
+        const useSubdivisionNumberLabels = config.get(
+            "useSubdivisionNumberLabels",
+            false
+        );
         safePostMessageToPanel(webviewPanel, {
             type: "providerSendsInitialContentPaginated",
             rev,
@@ -171,6 +175,7 @@ export async function sendMilestoneRefreshToWebview(
             username: username,
             validationCount: validationCount,
             validationCountAudio: validationCountAudio,
+            useSubdivisionNumberLabels,
         });
 
         safePostMessageToPanel(webviewPanel, {

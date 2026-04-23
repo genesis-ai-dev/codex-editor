@@ -90,6 +90,11 @@ interface ChapterNavigationHeaderProps {
     subsectionProgress?: Record<number, ProgressPercentages>;
     allSubsectionProgress?: Record<number, Record<number, ProgressPercentages>>;
     requestSubsectionProgress?: (milestoneIdx: number) => void;
+    /**
+     * When true, milestone subdivisions display their numeric cell range even
+     * when a user-assigned name is available. Defaults to false.
+     */
+    useSubdivisionNumberLabels?: boolean;
 }
 
 export function ChapterNavigationHeader({
@@ -149,6 +154,7 @@ export function ChapterNavigationHeader({
     subsectionProgress,
     allSubsectionProgress,
     requestSubsectionProgress,
+    useSubdivisionNumberLabels = false,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -1078,6 +1084,7 @@ ChapterNavigationHeaderProps) {
                 calculateSubsectionProgress={calculateSubsectionProgress}
                 requestSubsectionProgress={requestSubsectionProgress}
                 vscode={vscode}
+                useSubdivisionNumberLabels={useSubdivisionNumberLabels}
             />
         </div>
     );

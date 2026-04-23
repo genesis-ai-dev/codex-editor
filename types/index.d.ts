@@ -1981,6 +1981,12 @@ type EditorReceiveMessages =
         validationCountAudio?: number;
         isAuthenticated?: boolean;
         userAccessLevel?: number;
+        /**
+         * When true, milestone subdivisions always display their numeric cell
+         * range even when a user-assigned name exists. Mirrors the workspace
+         * setting `codex-editor-extension.useSubdivisionNumberLabels`.
+         */
+        useSubdivisionNumberLabels?: boolean;
     }
     | {
         type: "providerSendsCellPage";
@@ -2268,6 +2274,15 @@ type EditorReceiveMessages =
     | {
         type: "updateCellsPerPage";
         cellsPerPage: number;
+    }
+    | {
+        type: "updateSubdivisionLabelPreference";
+        /**
+         * When true, milestone subdivisions always display their numeric cell
+         * range instead of the user-assigned name. Mirrors
+         * `codex-editor-extension.useSubdivisionNumberLabels`.
+         */
+        useSubdivisionNumberLabels: boolean;
     }
     | {
         type: "editorPosition";

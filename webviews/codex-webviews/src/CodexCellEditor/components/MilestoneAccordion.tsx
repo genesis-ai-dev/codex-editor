@@ -46,6 +46,13 @@ interface MilestoneAccordionProps {
     };
     requestSubsectionProgress?: (milestoneIdx: number) => void;
     vscode: any;
+    /**
+     * When true, display the numeric cell range on every subdivision even if
+     * the subdivision has a user-assigned name. Renaming and editing still
+     * work normally — the preference only affects the visible label. Defaults
+     * to false (names take precedence).
+     */
+    useSubdivisionNumberLabels?: boolean;
 }
 
 export function MilestoneAccordion({
@@ -63,6 +70,7 @@ export function MilestoneAccordion({
     calculateSubsectionProgress,
     requestSubsectionProgress,
     vscode,
+    useSubdivisionNumberLabels = false,
 }: MilestoneAccordionProps) {
     // Layout constants
     const DROPDOWN_MAX_HEIGHT_VIEWPORT_PERCENT = 60; // 60vh
@@ -1084,8 +1092,14 @@ export function MilestoneAccordion({
                                                         milestoneIdx,
                                                         subsection.key
                                                     );
-                                                    const displayName =
-                                                        cachedLocalName ?? subsection.name;
+                                                    // Respect the workspace toggle: even if a name exists
+                                                    // (local override or provider-resolved), we force the
+                                                    // numeric range to be the visible label by dropping
+                                                    // displayName. Rename UI still reflects the stored name
+                                                    // so the user can edit what's actually persisted.
+                                                    const displayName = useSubdivisionNumberLabels
+                                                        ? undefined
+                                                        : cachedLocalName ?? subsection.name;
                                                     const canRename = !!subsection.key;
 
                                                     return (

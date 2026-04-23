@@ -947,6 +947,12 @@
                         "maximum": 200,
                         "description": "Number of cells to display per page when a chapter has many cells. Helps with performance for large chapters."
                     },
+                    "codex-editor-extension.useSubdivisionNumberLabels": {
+                        "title": "Always Show Subdivision Number Ranges",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "When enabled, milestone subdivisions always display their numeric cell range (e.g. '6-15') even if a user-assigned name exists. When disabled, names take precedence and the range is shown only as a muted suffix."
+                    },
                     "codex-editor-extension.useOnlyValidatedExamples": {
                         "title": "Use Only Validated Examples",
                         "type": "boolean",
