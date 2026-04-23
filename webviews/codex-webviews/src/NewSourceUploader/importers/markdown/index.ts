@@ -268,6 +268,12 @@ export const parseFile = async (
 
         const codexCells = createCodexCellsFromSource(cells);
 
+        const codexMetadata: MarkdownNotebookMetadata = {
+            ...sourceMetadata,
+            id: uuidv4(),
+            originalFileData: undefined,
+        };
+
         const codexNotebook = {
             name: baseName,
             cells: codexCells,
