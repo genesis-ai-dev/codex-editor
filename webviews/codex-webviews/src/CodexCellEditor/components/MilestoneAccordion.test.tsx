@@ -62,6 +62,8 @@ vi.mock("lucide-react", () => ({
     Languages: () => <div data-testid="languages-icon">Languages</div>,
     Check: () => <div data-testid="check-icon">Check</div>,
     RotateCcw: () => <div data-testid="rotate-icon">RotateCcw</div>,
+    X: () => <div data-testid="x-icon">X</div>,
+    Undo2: () => <div data-testid="undo-icon">Undo2</div>,
 }));
 
 vi.mock("../../components/ui/icons/MicrophoneIcon", () => ({
@@ -940,6 +942,185 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             expect(renameCalls).toHaveLength(0);
             // Original name still shown (and range-only label preserved)
             expect(screen.getByText("Opening")).toBeInTheDocument();
+        });
+    });
+
+    describe("Subsection Delete and Reset (source only)", () => {
+        const makeSubsection = (
+            id: string,
+            label: string,
+            key: string,
+            source: "auto" | "custom",
+            startCellId?: string,
+            name?: string
+        ): Subsection => ({
+            id,
+            label,
+            startIndex: 0,
+            endIndex: 5,
+            key,
+            name,
+            startCellId,
+            source,
+        });
+
+        // Mirror the provider-produced MilestoneIndex so placement derivation
+        // reads real data (vs. the lightweight createMockMilestoneIndex).
+        const createIndexWithSubdivisions = (): MilestoneIndex => ({
+            milestones: [
+                {
+                    index: 0,
+                    cellIndex: 0,
+                    value: "Luke 1",
+                    cellCount: 30,
+                    subdivisions: [
+                        {
+                            index: 0,
+                            startRootIndex: 0,
+                            endRootIndex: 5,
+                            key: "__start__",
+                            startCellId: "v1",
+                            source: "auto",
+                        },
+                        {
+                            index: 1,
+                            startRootIndex: 5,
+                            endRootIndex: 15,
+                            key: "v6",
+                            startCellId: "v6",
+                            source: "custom",
+                        },
+                        {
+                            index: 2,
+                            startRootIndex: 15,
+                            endRootIndex: 30,
+                            key: "v16",
+                            startCellId: "v16",
+                            source: "custom",
+                        },
+                    ],
+                },
+            ],
+            totalCells: 30,
+            cellsPerPage: 50,
+        });
+
+        const mockSubsectionsFromIndex = () => [
+            makeSubsection("s-0", "1-5", "__start__", "auto", "v1"),
+            makeSubsection("s-1", "6-15", "v6", "custom", "v6"),
+            makeSubsection("s-2", "16-30", "v16", "custom", "v16", "Final"),
+        ];
+
+        it("shows remove button only for custom subsections in source", async () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                milestoneIndex: createIndexWithSubdivisions(),
+                getSubsectionsForMilestone: vi.fn(() => mockSubsectionsFromIndex()),
+            });
+
+            const removeButtons = await screen.findAllByLabelText("Remove Subdivision Break");
+            // Only the two "custom" subsections expose the delete control.
+            expect(removeButtons).toHaveLength(2);
+        });
+
+        it("does not show remove button on target documents", async () => {
+            renderMilestoneAccordion({
+                isSourceText: false,
+                milestoneIndex: createIndexWithSubdivisions(),
+                getSubsectionsForMilestone: vi.fn(() => mockSubsectionsFromIndex()),
+            });
+
+            expect(screen.queryByLabelText("Remove Subdivision Break")).not.toBeInTheDocument();
+            expect(screen.queryByLabelText("Reset Subdivisions")).not.toBeInTheDocument();
+        });
+
+        it("posts updateMilestoneSubdivisions without the removed break", async () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                milestoneIndex: createIndexWithSubdivisions(),
+                getSubsectionsForMilestone: vi.fn(() => mockSubsectionsFromIndex()),
+            });
+
+            const removeButtons = await screen.findAllByLabelText("Remove Subdivision Break");
+            // First one corresponds to the `v6` break.
+            await act(async () => {
+                fireEvent.click(removeButtons[0]);
+            });
+
+            expect(mockVscode.postMessage).toHaveBeenCalledWith({
+                command: "updateMilestoneSubdivisions",
+                content: {
+                    milestoneIndex: 0,
+                    subdivisions: [{ startCellId: "v16" }],
+                },
+            });
+        });
+
+        it("reset requires two clicks and then posts an empty placement list", async () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                milestoneIndex: createIndexWithSubdivisions(),
+                getSubsectionsForMilestone: vi.fn(() => mockSubsectionsFromIndex()),
+            });
+
+            const resetButton = await screen.findByLabelText("Reset Subdivisions");
+            await act(async () => {
+                fireEvent.click(resetButton);
+            });
+
+            // First click arms the confirmation but does not post.
+            const placementCalls = mockVscode.postMessage.mock.calls.filter(
+                (call: any[]) => call[0]?.command === "updateMilestoneSubdivisions"
+            );
+            expect(placementCalls).toHaveLength(0);
+
+            // After the click, the button's accessible label swaps to
+            // "Confirm Reset Subdivisions" to signal the armed state.
+            const confirmButton = await screen.findByLabelText("Confirm Reset Subdivisions");
+            await act(async () => {
+                fireEvent.click(confirmButton);
+            });
+
+            expect(mockVscode.postMessage).toHaveBeenCalledWith({
+                command: "updateMilestoneSubdivisions",
+                content: {
+                    milestoneIndex: 0,
+                    subdivisions: [],
+                },
+            });
+        });
+
+        it("reset button is hidden when no custom breaks exist", () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                milestoneIndex: {
+                    milestones: [
+                        {
+                            index: 0,
+                            cellIndex: 0,
+                            value: "Luke 1",
+                            cellCount: 5,
+                            subdivisions: [
+                                {
+                                    index: 0,
+                                    startRootIndex: 0,
+                                    endRootIndex: 5,
+                                    key: "__start__",
+                                    startCellId: "v1",
+                                    source: "auto",
+                                },
+                            ],
+                        },
+                    ],
+                    totalCells: 5,
+                    cellsPerPage: 50,
+                },
+                getSubsectionsForMilestone: vi.fn(() => [
+                    makeSubsection("s-0", "1-5", "__start__", "auto", "v1"),
+                ]),
+            });
+
+            expect(screen.queryByLabelText("Reset Subdivisions")).not.toBeInTheDocument();
         });
     });
 
