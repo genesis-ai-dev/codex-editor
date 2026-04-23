@@ -64,6 +64,7 @@ vi.mock("lucide-react", () => ({
     RotateCcw: () => <div data-testid="rotate-icon">RotateCcw</div>,
     X: () => <div data-testid="x-icon">X</div>,
     Undo2: () => <div data-testid="undo-icon">Undo2</div>,
+    Plus: () => <div data-testid="plus-icon">Plus</div>,
 }));
 
 vi.mock("../../components/ui/icons/MicrophoneIcon", () => ({
@@ -1121,6 +1122,194 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             });
 
             expect(screen.queryByLabelText("Reset Subdivisions")).not.toBeInTheDocument();
+        });
+    });
+
+    describe("Add Subdivision Break (source only)", () => {
+        const makeSubsection = (
+            id: string,
+            label: string,
+            key: string,
+            source: "auto" | "custom",
+            endIndex: number,
+            startCellId?: string
+        ): Subsection => ({
+            id,
+            label,
+            startIndex: 0,
+            endIndex,
+            key,
+            startCellId,
+            source,
+        });
+
+        const createSplittableIndex = (totalRootCells: number): MilestoneIndex => ({
+            milestones: [
+                {
+                    index: 0,
+                    cellIndex: 0,
+                    value: "Luke 1",
+                    cellCount: totalRootCells,
+                    subdivisions: [
+                        {
+                            index: 0,
+                            startRootIndex: 0,
+                            endRootIndex: totalRootCells,
+                            key: "__start__",
+                            startCellId: "v1",
+                            source: "auto",
+                        },
+                    ],
+                },
+            ],
+            totalCells: totalRootCells,
+            cellsPerPage: 50,
+        });
+
+        const singleAutoSubsection = (endIndex: number) => [
+            makeSubsection("s-0", `1-${endIndex}`, "__start__", "auto", endIndex, "v1"),
+        ];
+
+        it("shows the 'Add break…' button on source when the milestone has at least 2 cells", async () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                milestoneIndex: createSplittableIndex(10),
+                getSubsectionsForMilestone: vi.fn(() => singleAutoSubsection(10)),
+            });
+
+            const addBreakButton = await screen.findByLabelText("Add Subdivision Break");
+            expect(addBreakButton).toBeInTheDocument();
+        });
+
+        it("does not show the 'Add break…' button on target", () => {
+            renderMilestoneAccordion({
+                isSourceText: false,
+                milestoneIndex: createSplittableIndex(10),
+                getSubsectionsForMilestone: vi.fn(() => singleAutoSubsection(10)),
+            });
+
+            expect(screen.queryByLabelText("Add Subdivision Break")).not.toBeInTheDocument();
+        });
+
+        it("hides 'Add break…' when the milestone has only one cell (can't split)", () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                milestoneIndex: createSplittableIndex(1),
+                getSubsectionsForMilestone: vi.fn(() => singleAutoSubsection(1)),
+            });
+
+            expect(screen.queryByLabelText("Add Subdivision Break")).not.toBeInTheDocument();
+        });
+
+        it("posts addMilestoneSubdivisionAnchor with the entered cellNumber", async () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                milestoneIndex: createSplittableIndex(10),
+                getSubsectionsForMilestone: vi.fn(() => singleAutoSubsection(10)),
+            });
+
+            await act(async () => {
+                fireEvent.click(screen.getByLabelText("Add Subdivision Break"));
+            });
+
+            const input = await screen.findByLabelText("Cell number for new break");
+            await act(async () => {
+                fireEvent.change(input, { target: { value: "5" } });
+            });
+
+            // The submit button re-uses the "Add Subdivision Break" aria-label
+            // once the form is open (it IS the add action).
+            await act(async () => {
+                fireEvent.click(screen.getByLabelText("Add Subdivision Break"));
+            });
+
+            expect(mockVscode.postMessage).toHaveBeenCalledWith({
+                command: "addMilestoneSubdivisionAnchor",
+                content: {
+                    milestoneIndex: 0,
+                    cellNumber: 5,
+                },
+            });
+        });
+
+        it("surfaces an inline error for out-of-range input and does not post", async () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                milestoneIndex: createSplittableIndex(10),
+                getSubsectionsForMilestone: vi.fn(() => singleAutoSubsection(10)),
+            });
+
+            await act(async () => {
+                fireEvent.click(screen.getByLabelText("Add Subdivision Break"));
+            });
+
+            const input = await screen.findByLabelText("Cell number for new break");
+            await act(async () => {
+                fireEvent.change(input, { target: { value: "99" } });
+            });
+            await act(async () => {
+                fireEvent.click(screen.getByLabelText("Add Subdivision Break"));
+            });
+
+            // Error text is announced via aria-live.
+            expect(
+                screen.getByText("Enter a number between 2 and 10.")
+            ).toBeInTheDocument();
+            const placementCalls = mockVscode.postMessage.mock.calls.filter(
+                (call: any[]) => call[0]?.command === "addMilestoneSubdivisionAnchor"
+            );
+            expect(placementCalls).toHaveLength(0);
+        });
+
+        it("does not post when submitting an empty cellNumber", async () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                milestoneIndex: createSplittableIndex(10),
+                getSubsectionsForMilestone: vi.fn(() => singleAutoSubsection(10)),
+            });
+
+            await act(async () => {
+                fireEvent.click(screen.getByLabelText("Add Subdivision Break"));
+            });
+
+            await act(async () => {
+                fireEvent.click(screen.getByLabelText("Add Subdivision Break"));
+            });
+
+            const placementCalls = mockVscode.postMessage.mock.calls.filter(
+                (call: any[]) => call[0]?.command === "addMilestoneSubdivisionAnchor"
+            );
+            expect(placementCalls).toHaveLength(0);
+        });
+
+        it("cancel button closes the form without posting", async () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                milestoneIndex: createSplittableIndex(10),
+                getSubsectionsForMilestone: vi.fn(() => singleAutoSubsection(10)),
+            });
+
+            await act(async () => {
+                fireEvent.click(screen.getByLabelText("Add Subdivision Break"));
+            });
+
+            const input = await screen.findByLabelText("Cell number for new break");
+            await act(async () => {
+                fireEvent.change(input, { target: { value: "5" } });
+            });
+            await act(async () => {
+                fireEvent.click(screen.getByLabelText("Cancel Add Break"));
+            });
+
+            // Form closed → input gone, trigger button restored.
+            expect(
+                screen.queryByLabelText("Cell number for new break")
+            ).not.toBeInTheDocument();
+            expect(screen.getByLabelText("Add Subdivision Break")).toBeInTheDocument();
+            const placementCalls = mockVscode.postMessage.mock.calls.filter(
+                (call: any[]) => call[0]?.command === "addMilestoneSubdivisionAnchor"
+            );
+            expect(placementCalls).toHaveLength(0);
         });
     });
 

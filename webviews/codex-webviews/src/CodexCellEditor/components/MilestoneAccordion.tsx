@@ -10,7 +10,7 @@ import {
 import { ProgressDots } from "./ProgressDots";
 import { deriveSubsectionPercentages, getProgressDisplay } from "../utils/progressUtils";
 import MicrophoneIcon from "../../components/ui/icons/MicrophoneIcon";
-import { Languages, Check, RotateCcw, X, Undo2 } from "lucide-react";
+import { Languages, Check, RotateCcw, X, Undo2, Plus } from "lucide-react";
 import type { Subsection, ProgressPercentages } from "../../lib/types";
 import type { MilestoneIndex, MilestoneInfo } from "../../../../../types";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
@@ -116,6 +116,14 @@ export function MilestoneAccordion({
     const [resetConfirmMilestoneIdx, setResetConfirmMilestoneIdx] = useState<number | null>(null);
     const resetConfirmTimeoutRef = useRef<number | null>(null);
 
+    // "Add break" form state. Only one milestone can have the form open at a
+    // time; the cell-number field is a string so we can accept and validate
+    // partial input (empty, non-numeric, out of range) before posting.
+    const [addBreakMilestoneIdx, setAddBreakMilestoneIdx] = useState<number | null>(null);
+    const [addBreakCellNumber, setAddBreakCellNumber] = useState<string>("");
+    const [addBreakError, setAddBreakError] = useState<string>("");
+    const addBreakInputRef = useRef<HTMLInputElement>(null);
+
     useEffect(() => {
         return () => {
             if (resetConfirmTimeoutRef.current !== null) {
@@ -123,6 +131,14 @@ export function MilestoneAccordion({
             }
         };
     }, []);
+
+    // When the add-break form opens, focus the number input so keyboard-first
+    // users can type immediately.
+    useEffect(() => {
+        if (addBreakMilestoneIdx !== null) {
+            addBreakInputRef.current?.focus();
+        }
+    }, [addBreakMilestoneIdx]);
 
     /**
      * Rebuilds the milestone's placement list from its resolved subdivisions.
@@ -192,6 +208,72 @@ export function MilestoneAccordion({
                 subdivisions: [],
             },
         });
+    };
+
+    /**
+     * Largest valid `cellNumber` for an add-break request in the given
+     * milestone. Valid range is [2, totalRootCells]; we derive the upper
+     * bound from the last resolved subsection's `endIndex` (which is a root
+     * index, matching `SubdivisionInfo.endRootIndex` one-to-one).
+     */
+    const getMaxCellNumberForMilestone = (subsections: Subsection[]): number => {
+        if (!subsections.length) return 0;
+        return subsections[subsections.length - 1].endIndex;
+    };
+
+    const handleOpenAddBreak = (
+        e: React.MouseEvent<HTMLButtonElement>,
+        milestoneIdx: number
+    ) => {
+        e.stopPropagation();
+        if (!isSourceText) return;
+        setAddBreakMilestoneIdx(milestoneIdx);
+        setAddBreakCellNumber("");
+        setAddBreakError("");
+    };
+
+    const handleCancelAddBreak = (e?: React.MouseEvent<HTMLButtonElement>) => {
+        e?.stopPropagation();
+        setAddBreakMilestoneIdx(null);
+        setAddBreakCellNumber("");
+        setAddBreakError("");
+    };
+
+    const handleSubmitAddBreak = (
+        e: React.MouseEvent<HTMLButtonElement> | React.FormEvent<HTMLFormElement>,
+        milestoneIdx: number,
+        maxCellNumber: number
+    ) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isSourceText) return;
+        const trimmed = addBreakCellNumber.trim();
+        const parsed = Number(trimmed);
+        // Allowed range mirrors the provider: splitting at cell 1 would
+        // duplicate the implicit first subdivision, and we can't split
+        // beyond the last cell.
+        if (
+            trimmed.length === 0 ||
+            !Number.isFinite(parsed) ||
+            !Number.isInteger(parsed) ||
+            parsed < 2 ||
+            parsed > maxCellNumber
+        ) {
+            setAddBreakError(
+                maxCellNumber >= 2
+                    ? `Enter a number between 2 and ${maxCellNumber}.`
+                    : "This milestone is too short to split."
+            );
+            return;
+        }
+        vscode.postMessage({
+            command: "addMilestoneSubdivisionAnchor",
+            content: {
+                milestoneIndex: milestoneIdx,
+                cellNumber: parsed,
+            },
+        });
+        handleCancelAddBreak();
     };
 
     // Calculate position and dimensions
@@ -1158,46 +1240,162 @@ export function MilestoneAccordion({
                                                         </div>
                                                     );
                                                 })}
-                                                {isSourceText &&
-                                                    subsections.some(
+                                                {isSourceText && (() => {
+                                                    const maxCellNumber =
+                                                        getMaxCellNumberForMilestone(
+                                                            subsections
+                                                        );
+                                                    const canAddBreak = maxCellNumber >= 2;
+                                                    const isFormOpen =
+                                                        addBreakMilestoneIdx === milestoneIdx;
+                                                    const hasCustomBreaks = subsections.some(
                                                         (s) => s.source === "custom"
-                                                    ) && (
-                                                        <div className="pl-6 pr-3 pt-2">
-                                                            <button
-                                                                type="button"
-                                                                onClick={(e) =>
-                                                                    handleResetSubdivisionsClick(
-                                                                        e,
+                                                    );
+                                                    if (!canAddBreak && !hasCustomBreaks) {
+                                                        return null;
+                                                    }
+                                                    return (
+                                                        <div className="pl-6 pr-3 pt-2 flex flex-wrap items-center gap-2">
+                                                            {isFormOpen ? (
+                                                                <form
+                                                                    onSubmit={(e) =>
+                                                                        handleSubmitAddBreak(
+                                                                            e,
+                                                                            milestoneIdx,
+                                                                            maxCellNumber
+                                                                        )
+                                                                    }
+                                                                    className="flex flex-wrap items-center gap-2"
+                                                                >
+                                                                    <label
+                                                                        htmlFor={`add-break-input-${milestoneIdx}`}
+                                                                        className="text-xs text-[var(--vscode-descriptionForeground)]"
+                                                                    >
+                                                                        Break at cell
+                                                                    </label>
+                                                                    <input
+                                                                        id={`add-break-input-${milestoneIdx}`}
+                                                                        ref={addBreakInputRef}
+                                                                        type="text"
+                                                                        inputMode="numeric"
+                                                                        pattern="[0-9]*"
+                                                                        value={addBreakCellNumber}
+                                                                        onChange={(e) => {
+                                                                            setAddBreakCellNumber(
+                                                                                e.target.value
+                                                                            );
+                                                                            if (addBreakError)
+                                                                                setAddBreakError(
+                                                                                    ""
+                                                                                );
+                                                                        }}
+                                                                        onKeyDown={(e) => {
+                                                                            if (e.key === "Escape") {
+                                                                                e.preventDefault();
+                                                                                handleCancelAddBreak();
+                                                                            }
+                                                                        }}
+                                                                        aria-label="Cell number for new break"
+                                                                        aria-describedby={
+                                                                            addBreakError
+                                                                                ? `add-break-error-${milestoneIdx}`
+                                                                                : undefined
+                                                                        }
+                                                                        aria-invalid={
+                                                                            !!addBreakError
+                                                                        }
+                                                                        placeholder={`2–${maxCellNumber}`}
+                                                                        className="w-20 text-xs px-2 py-1 rounded border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--vscode-focusBorder)]"
+                                                                    />
+                                                                    <button
+                                                                        type="submit"
+                                                                        aria-label="Add Subdivision Break"
+                                                                        title={`Add a break starting at cell ${
+                                                                            addBreakCellNumber || "…"
+                                                                        }`}
+                                                                        className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-button-background text-button-foreground hover:bg-button-hoverBackground transition-colors"
+                                                                    >
+                                                                        <Check className="h-3 w-3" />
+                                                                        Add
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        aria-label="Cancel Add Break"
+                                                                        onClick={(e) =>
+                                                                            handleCancelAddBreak(e)
+                                                                        }
+                                                                        className="flex items-center gap-1 text-xs px-2 py-1 rounded text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-foreground)] hover:bg-secondary transition-colors"
+                                                                    >
+                                                                        <X className="h-3 w-3" />
+                                                                        Cancel
+                                                                    </button>
+                                                                    {addBreakError && (
+                                                                        <span
+                                                                            id={`add-break-error-${milestoneIdx}`}
+                                                                            role="alert"
+                                                                            className="text-xs text-inputValidation-errorForeground"
+                                                                        >
+                                                                            {addBreakError}
+                                                                        </span>
+                                                                    )}
+                                                                </form>
+                                                            ) : (
+                                                                canAddBreak && (
+                                                                    <button
+                                                                        type="button"
+                                                                        aria-label="Add Subdivision Break"
+                                                                        title={`Split this milestone — pick a cell between 2 and ${maxCellNumber}`}
+                                                                        onClick={(e) =>
+                                                                            handleOpenAddBreak(
+                                                                                e,
+                                                                                milestoneIdx
+                                                                            )
+                                                                        }
+                                                                        className="flex items-center gap-1 text-xs px-2 py-1 rounded text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-foreground)] hover:bg-secondary transition-colors"
+                                                                    >
+                                                                        <Plus className="h-3 w-3" />
+                                                                        Add break…
+                                                                    </button>
+                                                                )
+                                                            )}
+                                                            {hasCustomBreaks && !isFormOpen && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) =>
+                                                                        handleResetSubdivisionsClick(
+                                                                            e,
+                                                                            milestoneIdx
+                                                                        )
+                                                                    }
+                                                                    aria-label={
+                                                                        resetConfirmMilestoneIdx ===
                                                                         milestoneIdx
-                                                                    )
-                                                                }
-                                                                aria-label={
-                                                                    resetConfirmMilestoneIdx ===
+                                                                            ? "Confirm Reset Subdivisions"
+                                                                            : "Reset Subdivisions"
+                                                                    }
+                                                                    title={
+                                                                        resetConfirmMilestoneIdx ===
+                                                                        milestoneIdx
+                                                                            ? "Click again within 3s to confirm"
+                                                                            : "Remove all custom breaks in this milestone"
+                                                                    }
+                                                                    className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
+                                                                        resetConfirmMilestoneIdx ===
+                                                                        milestoneIdx
+                                                                            ? "bg-inputValidation-warningBackground text-inputValidation-warningForeground"
+                                                                            : "text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-foreground)] hover:bg-secondary"
+                                                                    }`}
+                                                                >
+                                                                    <Undo2 className="h-3 w-3" />
+                                                                    {resetConfirmMilestoneIdx ===
                                                                     milestoneIdx
-                                                                        ? "Confirm Reset Subdivisions"
-                                                                        : "Reset Subdivisions"
-                                                                }
-                                                                title={
-                                                                    resetConfirmMilestoneIdx ===
-                                                                    milestoneIdx
-                                                                        ? "Click again within 3s to confirm"
-                                                                        : "Remove all custom breaks in this milestone"
-                                                                }
-                                                                className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
-                                                                    resetConfirmMilestoneIdx ===
-                                                                    milestoneIdx
-                                                                        ? "bg-inputValidation-warningBackground text-inputValidation-warningForeground"
-                                                                        : "text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-foreground)] hover:bg-secondary"
-                                                                }`}
-                                                            >
-                                                                <Undo2 className="h-3 w-3" />
-                                                                {resetConfirmMilestoneIdx ===
-                                                                milestoneIdx
-                                                                    ? "Click again to confirm"
-                                                                    : "Reset to default breaks"}
-                                                            </button>
+                                                                        ? "Click again to confirm"
+                                                                        : "Reset to default breaks"}
+                                                                </button>
+                                                            )}
                                                         </div>
-                                                    )}
+                                                    );
+                                                })()}
                                             </div>
                                         </AccordionContent>
                                     </AccordionItem>
