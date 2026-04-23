@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { basename } from "path";
 import { CodexCellTypes } from "../../types/enums";
-import { readCodexNotebookFromUri, getActiveCells } from "./exportHandlerUtils";
+import { readCodexNotebookFromUri, getActiveCells, isContentCellType } from "./exportHandlerUtils";
 import type { ExportOptions } from "./exportHandler";
 
 /** Verse ref regex: "1TH 1:1", "GEN 1:1", etc. */
@@ -221,7 +221,7 @@ export async function exportCodexContentAsHtml(
 
                             if (!cellContent) continue;
 
-                            if (cellMetadata.type === CodexCellTypes.TEXT) {
+                            if (isContentCellType(cellMetadata.type)) {
                                 const verseRef = getVerseRefForCell(cell);
                                 if (verseRef) {
                                     const chapterMatch = verseRef.match(/\s(\d+):/);

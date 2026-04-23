@@ -15,6 +15,7 @@ import {
 } from '../../utils/workflowHelpers';
 import { processImageData } from '../../utils/imageProcessor';
 import { createObsTextCellMetadata, createObsImageCellMetadata } from './cellMetadata';
+import { getLineStartsAndLines, lineEndExclusive } from '../markdown/markdownSplit';
 import JSZip from 'jszip';
 
 const SUPPORTED_EXTENSIONS = ['md', 'zip'];
@@ -836,7 +837,7 @@ const parseObsZip = async (
  * Parses OBS markdown content into structured data
  */
 const parseObsMarkdownContent = (content: string, fileName: string): ObsStory => {
-    const lines = content.split('\n');
+    const { starts, lines: rawLines } = getLineStartsAndLines(content);
     const segments: ObsSegment[] = [];
 
     let title = '';
@@ -844,6 +845,7 @@ const parseObsMarkdownContent = (content: string, fileName: string): ObsStory =>
     let sourceReference = '';
     let currentText = '';
     let currentImages: ObsImage[] = [];
+    let blockStartLine: number | null = null;
 
     // Extract story number from filename (e.g., "01.md" -> 1)
     const fileMatch = fileName.match(/(\d+)\.md$/);
@@ -851,8 +853,8 @@ const parseObsMarkdownContent = (content: string, fileName: string): ObsStory =>
         storyNumber = parseInt(fileMatch[1]);
     }
 
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
+    for (let i = 0; i < rawLines.length; i++) {
+        const line = rawLines[i].trim();
 
         // Extract title (first line starting with #)
         if (line.startsWith('# ') && !title) {
@@ -868,6 +870,9 @@ const parseObsMarkdownContent = (content: string, fileName: string): ObsStory =>
 
         // Extract image - handle various markdown image patterns
         if (line.includes('![') && line.includes('](')) {
+            if (blockStartLine === null) {
+                blockStartLine = i;
+            }
             const imageMatches = line.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g);
             for (const match of imageMatches) {
                 const altText = match[1] || 'OBS Image';
@@ -883,24 +888,31 @@ const parseObsMarkdownContent = (content: string, fileName: string): ObsStory =>
 
         // Regular text content
         if (line && !line.startsWith('#') && !line.startsWith('_')) {
+            if (currentText === '' && blockStartLine === null) {
+                blockStartLine = i;
+            }
             currentText += (currentText ? ' ' : '') + line;
 
             // Check if this is the end of a segment (next line is empty or image)
-            const nextLine = i + 1 < lines.length ? lines[i + 1].trim() : '';
+            const nextLine = i + 1 < rawLines.length ? rawLines[i + 1].trim() : '';
             const isEndOfSegment = !nextLine || nextLine.startsWith('![OBS Image]') || nextLine.startsWith('_');
 
             if (isEndOfSegment && currentText) {
                 // Create segment with accumulated text and images
                 const html = createObsSegmentHtml(currentText, currentImages);
+                const spanStart = blockStartLine !== null ? starts[blockStartLine] : starts[i];
+                const spanEnd = lineEndExclusive(rawLines, starts, i);
                 segments.push({
                     type: 'story',
                     text: currentText,
                     html,
                     images: [...currentImages],
+                    sourceSpan: { start: spanStart, end: spanEnd },
                 });
 
                 currentText = '';
                 currentImages = [];
+                blockStartLine = null;
             }
         }
     }
@@ -944,6 +956,7 @@ interface ObsSegment {
     text: string;
     html: string;
     images: ObsImage[];
+    sourceSpan?: { start: number; end: number };
 }
 
 interface ObsStory {
