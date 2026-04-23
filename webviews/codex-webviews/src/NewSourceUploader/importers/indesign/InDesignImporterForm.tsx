@@ -14,6 +14,7 @@ import {
     createProcessedCell,
     sanitizeFileName,
     addMilestoneCellsToNotebookPair,
+    createCodexCellsFromSource,
 } from "../../utils/workflowHelpers";
 import { extractImagesFromHtml } from "../../utils/imageProcessor";
 import {
@@ -233,6 +234,7 @@ async function processIdmlFiles(
     const simplifiedCells = cells.map((cell) => ({
         id: cell.id,
         content: cell.content,
+        images: cell.images || [],
         metadata: cell.metadata,
     }));
 
@@ -266,14 +268,7 @@ async function processIdmlFiles(
         },
         codex: {
             name: baseName,
-            cells: simplifiedCells.map((cell) => ({
-                id: cell.id,
-                content: "",
-                metadata: {
-                    ...cell.metadata,
-                    originalContent: cell.content,
-                },
-            })),
+            cells: createCodexCellsFromSource(simplifiedCells),
             metadata: {
                 id: uuidv4(),
                 originalFileName: selectedFile.name,
