@@ -450,6 +450,11 @@ const CodexCellEditor: React.FC = () => {
                     const targetCount = Math.max(0, message.content.count | 0);
                     const specificCellId: string | undefined = (message as any)?.content?.cellId;
                     let completed = 0;
+                    // Create a single client for the entire batch to reuse the warmed Modal container
+                    const client = new WhisperTranscriptionClient(
+                        wsEndpoint,
+                        asrConfig.authToken
+                    );
                     for (const unit of translationUnits) {
                         if (targetCount > 0 && completed >= targetCount) break;
                         const cellId = unit.cellMarkers[0];
@@ -501,11 +506,7 @@ const CodexCellEditor: React.FC = () => {
                         // Transcribe
                         debug(
                             "batchTranscription",
-                            `Creating client for cell ${cellId}: endpoint=${wsEndpoint}, hasToken=${!!asrConfig.authToken}`
-                        );
-                        const client = new WhisperTranscriptionClient(
-                            wsEndpoint,
-                            asrConfig.authToken
+                            `Transcribing cell ${cellId}: endpoint=${wsEndpoint}, hasToken=${!!asrConfig.authToken}`
                         );
                         try {
                             // Mark cell as transcribing for UI feedback
@@ -514,7 +515,7 @@ const CodexCellEditor: React.FC = () => {
                                 next.add(cellId);
                                 return next;
                             });
-                            const result = await client.transcribe(blob);
+                            const result = await client.transcribe(blob, 60000, asrConfig.language);
                             const text = (result.text || "").trim();
                             if (text) {
                                 vscode.postMessage({
@@ -522,7 +523,7 @@ const CodexCellEditor: React.FC = () => {
                                     content: {
                                         cellId,
                                         transcribedText: text,
-                                        language: "unknown",
+                                        language: asrConfig.language || "unknown",
                                     },
                                 } as unknown as EditorPostMessages);
 
