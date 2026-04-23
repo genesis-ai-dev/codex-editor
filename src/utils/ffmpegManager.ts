@@ -14,9 +14,6 @@ import {
     writeHashMarker,
     readHashMarker,
     verifyIntegrity,
-    hasExceededRetries,
-    incrementRetryCount,
-    resetRetryCount,
 } from "./binaryIntegrityUtils";
 
 const execFile = promisify(execFileCb);
@@ -116,6 +113,17 @@ function getEffectivePlatformKey(): string {
 
 function getPlatformVersion(): string | null {
     return PLATFORM_MAP[getEffectivePlatformKey()] ?? null;
+}
+
+/**
+ * Returns true when the current OS/arch has a prebuilt FFmpeg binary
+ * available (either directly or via `PLATFORM_FALLBACK`). Callers use
+ * this to decide whether to offer a "Download and install" button at
+ * all — on unsupported platforms, downloading is impossible and the UI
+ * should surface that fact instead of showing a no-op action.
+ */
+export function isFfmpegNativelySupported(): boolean {
+    return getPlatformVersion() !== null;
 }
 
 /**
@@ -272,10 +280,10 @@ async function cleanupLegacyFiles(parentDir: string): Promise<void> {
 
 /**
  * Maximum full-flow retry attempts (download + extract + verify) for the
- * FFmpeg install. Matches git/dugite's `MAX_FULL_RETRIES = 3` so all three
+ * FFmpeg install. Matches git/dugite's `MAX_FULL_RETRIES` so all three
  * tools have consistent retry behavior visible to the user.
  */
-const MAX_FULL_RETRIES = 3;
+const MAX_FULL_RETRIES = 2;
 
 async function downloadFFmpegBinary(
     context: vscode.ExtensionContext,
@@ -287,6 +295,10 @@ async function downloadFFmpegBinary(
         return null;
     }
 
+    // Unsupported platforms must NOT enter the retry loop or bump the retry
+    // counter — the bundled-or-limited fallback is used and re-evaluated next
+    // startup. "Unsupported" is a permanent condition for this machine, not
+    // a transient failure worth retrying with backoff.
     const version = getPlatformVersion();
     if (!version) {
         console.warn(
@@ -313,16 +325,10 @@ async function downloadFFmpegBinary(
             console.warn(`[ffmpegManager] SHA-256 mismatch — binary may be corrupt, re-downloading`);
         } else if (await canExecute(binaryPath)) {
             console.log(`[ffmpegManager] Downloaded ffmpeg verified: ${binaryPath}`);
-            await resetRetryCount(context, "ffmpeg");
             return binaryPath;
         } else {
             console.warn(`[ffmpegManager] Downloaded ffmpeg exists at ${binaryPath} but failed execution check — re-downloading`);
         }
-    }
-
-    if (hasExceededRetries(context, "ffmpeg")) {
-        console.warn("[ffmpegManager] Retry limit reached — audio features will use fallback");
-        return null;
     }
 
     const effectiveKey = getEffectivePlatformKey();
@@ -334,10 +340,9 @@ async function downloadFFmpegBinary(
         // may already exist
     }
 
-    // Full-flow retry loop with exponential backoff (2s/4s), mirroring the
+    // Full-flow retry loop with exponential backoff (2s), mirroring the
     // git/dugite manager so transient failures surface consistent retry
-    // messages and recover automatically. The persistent retry counter is
-    // bumped only once after ALL attempts are exhausted.
+    // messages and recover automatically.
     let lastError: Error | undefined;
     for (let attempt = 1; attempt <= MAX_FULL_RETRIES; attempt++) {
         try {
@@ -354,7 +359,6 @@ async function downloadFFmpegBinary(
             const hash = await computeFileHash(binaryPath);
             writeHashMarker(destDir, hash);
             console.log(`[ffmpegManager] SHA-256 of installed binary: ${hash}`);
-            await resetRetryCount(context, "ffmpeg");
             console.log(`[ffmpegManager] Successfully downloaded ffmpeg: ${binaryPath}`);
             return binaryPath;
         } catch (error) {
@@ -371,7 +375,6 @@ async function downloadFFmpegBinary(
             }
         }
     }
-    await incrementRetryCount(context, "ffmpeg");
     console.error(
         `[ffmpegManager] All ${MAX_FULL_RETRIES} download attempts failed: ${lastError?.message ?? "unknown"}`,
     );
@@ -386,7 +389,6 @@ async function downloadWithProgress(
 ): Promise<string | null> {
     const binaryPath = getFfmpegBinaryPath(context);
     if (binaryPath && fs.existsSync(binaryPath) && (await canExecute(binaryPath))) {
-        await resetRetryCount(context, "ffmpeg");
         return binaryPath;
     }
 

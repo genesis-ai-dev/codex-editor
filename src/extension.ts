@@ -64,9 +64,8 @@ import { initializeAudioMerger } from "./utils/audioMerger";
 import { initializeAudioExtractor } from "./utils/audioExtractor";
 import { initializeAudioExporter } from "./exportHandler/audioExporter";
 import { checkTools, getUnavailableTools } from "./utils/toolsManager";
-import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteToolMode } from "./utils/toolPreferences";
+import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteToolMode, getAudioToolMode } from "./utils/toolPreferences";
 import { downloadFFmpeg } from "./utils/ffmpegManager";
-import { resetRetryCount } from "./utils/binaryIntegrityUtils";
 import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
 // markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
@@ -584,14 +583,32 @@ export async function activate(context: vscode.ExtensionContext) {
             unavailableTools = getUnavailableTools(toolCheckResult);
         } catch (error) {
             console.error("[Extension] checkTools() threw unexpectedly:", error);
-            toolCheckResult = { git: false, nativeGitAvailable: false, sqlite: false, nativeSqliteAvailable: false, ffmpeg: false };
+            toolCheckResult = {
+                git: false,
+                nativeGitAvailable: false,
+                sqlite: false,
+                nativeSqliteAvailable: false,
+                ffmpeg: false,
+                platformUnsupported: { git: false, sqlite: false, ffmpeg: false },
+            };
             unavailableTools = getUnavailableTools(toolCheckResult);
         }
         stepStart = trackTiming("Checking tool availability", toolCheckStart);
 
-        const ok = (v: boolean) => v ? "ok" : "MISSING";
+        const toolState = (nativeAvailable: boolean, mode: string): string => {
+            const forced = mode === "force-builtin";
+            const builtin = mode === "builtin";
+            if (nativeAvailable && !builtin && !forced) return "native";
+            if (nativeAvailable && forced)             return "available but forced to fallback";
+            if (nativeAvailable && builtin)            return "available but using fallback";
+            if (!nativeAvailable && forced)            return "missing and forced to fallback";
+            /* !nativeAvailable && (auto | builtin) */ return "missing and using fallback";
+        };
         console.info(
-            `[Extension] Tools status — git: ${ok(toolCheckResult.git)}, sqlite: ${ok(toolCheckResult.sqlite)}, ffmpeg: ${ok(toolCheckResult.ffmpeg)}`
+            `[Extension] Tools status — ` +
+            `git: ${toolState(toolCheckResult.nativeGitAvailable, getGitToolMode())}, ` +
+            `sqlite: ${toolState(toolCheckResult.nativeSqliteAvailable, getSqliteToolMode())}, ` +
+            `ffmpeg: ${toolState(toolCheckResult.ffmpeg, getAudioToolMode())}`
         );
 
         // We used to display a blocking "Missing Tools" webview at this point

@@ -5,7 +5,6 @@ import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import type { ToolCheckResult } from "../../utils/toolsManager";
 import { getAudioToolMode, getGitToolMode, getSqliteToolMode } from "../../utils/toolPreferences";
-import { resetRetryCount } from "../../utils/binaryIntegrityUtils";
 import type {
     MessagesToMissingToolsWarning,
     MessagesFromMissingToolsWarning,
@@ -380,7 +379,6 @@ export class MissingToolsWarningProvider {
         try {
             switch (tool) {
                 case "sqlite": {
-                    await resetRetryCount(this._context, "sqlite");
                     const { ensureSqliteNativeBinary } = await import("../../utils/sqliteNativeBinaryManager");
                     const { initNativeSqlite } = await import("../../utils/nativeSqlite");
                     const { isUsingNativeBackend } = await import("../../utils/sqliteDatabaseFactory");
@@ -446,7 +444,6 @@ export class MissingToolsWarningProvider {
                     break;
                 }
                 case "git": {
-                    await resetRetryCount(this._context, "git");
                     const { getAuthApi } = await import("../../extension");
                     const { resetGitBinaryPath } = await import("../../utils/dugiteGit");
                     const { setNativeGitAvailable } = await import("../../utils/toolPreferences");
@@ -468,7 +465,6 @@ export class MissingToolsWarningProvider {
                     break;
                 }
                 case "ffmpeg": {
-                    await resetRetryCount(this._context, "ffmpeg");
                     const { downloadFFmpeg } = await import("../../utils/ffmpegManager");
                     // Show the standalone progress notification so the user
                     // gets consistent feedback across all three tools.
@@ -507,6 +503,7 @@ export class MissingToolsWarningProvider {
             audioToolMode: getAudioToolMode(),
             gitToolMode: getGitToolMode(),
             sqliteToolMode: getSqliteToolMode(),
+            platformUnsupported: updated.platformUnsupported,
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
     }
@@ -522,7 +519,6 @@ export class MissingToolsWarningProvider {
                     await fs.promises.rm(dir, { recursive: true, force: true });
                     const { resetSqliteBinaryCache } = await import("../../utils/sqliteNativeBinaryManager");
                     resetSqliteBinaryCache();
-                    await resetRetryCount(this._context, "sqlite");
                     break;
                 }
                 case "ffmpeg": {
@@ -530,7 +526,6 @@ export class MissingToolsWarningProvider {
                     await fs.promises.rm(dir, { recursive: true, force: true });
                     const { resetBinaryCache } = await import("../../utils/ffmpegManager");
                     resetBinaryCache();
-                    await resetRetryCount(this._context, "ffmpeg");
                     break;
                 }
                 case "git": {
@@ -542,7 +537,6 @@ export class MissingToolsWarningProvider {
                         const gitDir = path.join(storageBase, "..", "frontier-rnd.frontier-authentication", "git");
                         await fs.promises.rm(gitDir, { recursive: true, force: true });
                     }
-                    await resetRetryCount(this._context, "git");
                     break;
                 }
             }
@@ -656,6 +650,7 @@ export class MissingToolsWarningProvider {
             sqlite: result.sqlite,
             nativeSqliteAvailable: result.nativeSqliteAvailable,
             ffmpeg: result.ffmpeg,
+            platformUnsupported: result.platformUnsupported,
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
     }
@@ -672,6 +667,7 @@ export class MissingToolsWarningProvider {
             audioToolMode: getAudioToolMode(),
             gitToolMode: getGitToolMode(),
             sqliteToolMode: getSqliteToolMode(),
+            platformUnsupported: result.platformUnsupported,
             ...flags,
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
@@ -696,6 +692,7 @@ export class MissingToolsWarningProvider {
             sqlite: result.sqlite,
             nativeSqliteAvailable: result.nativeSqliteAvailable,
             ffmpeg: result.ffmpeg,
+            platformUnsupported: result.platformUnsupported,
             mode,
         };
 

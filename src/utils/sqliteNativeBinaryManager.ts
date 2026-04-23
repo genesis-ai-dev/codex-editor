@@ -17,9 +17,6 @@ import {
     writeHashMarker,
     readHashMarker,
     verifyIntegrity,
-    hasExceededRetries,
-    incrementRetryCount,
-    resetRetryCount,
 } from "./binaryIntegrityUtils";
 
 /**
@@ -67,10 +64,10 @@ const MAX_DOWNLOAD_ATTEMPTS = 3;
 
 /**
  * Maximum full-flow retry attempts (download + extract + verify). Matches
- * git/dugite's `MAX_FULL_RETRIES = 3` so all three tools have consistent
+ * git/dugite's `MAX_FULL_RETRIES` so all three tools have consistent
  * retry behavior visible to the user.
  */
-const MAX_FULL_RETRIES = 3;
+const MAX_FULL_RETRIES = 2;
 
 /** Cached binary path (set after first successful resolution) */
 let cachedBinaryPath: string | null = null;
@@ -107,6 +104,17 @@ function getPlatformKey(): string | null {
     }
 
     return null;
+}
+
+/**
+ * Returns true when the current OS/arch has a prebuilt SQLite native
+ * addon published in the TryGhost `node-sqlite3` release we pin to.
+ * Callers use this to decide whether to offer a "Download and install"
+ * button at all — on unsupported platforms, downloading is impossible
+ * and the UI should surface that fact instead of showing a no-op action.
+ */
+export function isSqliteNativelySupported(): boolean {
+    return getPlatformKey() !== null;
 }
 
 /**
@@ -521,44 +529,35 @@ export async function ensureSqliteNativeBinary(
     // Check if binary already exists in storage AND matches expected version/integrity
     if (fs.existsSync(binaryPath) && !shouldRedownload(binaryPath, versionFilePath)) {
         if (await shouldRedownloadAsync(binaryPath, storageDir)) {
-            if (hasExceededRetries(context, "sqlite")) {
-                console.warn("[SQLite] Retry limit reached — falling back to fts5-sql-bundle");
-                return null;
-            }
-            await incrementRetryCount(context, "sqlite");
             console.warn("[SQLite] Integrity check failed — deleting cached binary for re-download");
             try { fs.unlinkSync(binaryPath); } catch { /* best-effort */ }
         } else {
-            await resetRetryCount(context, "sqlite");
             cachedBinaryPath = binaryPath;
             console.log(`[SQLite] Using cached native binary v${SQLITE3_VERSION}: ${binaryPath}`);
             return binaryPath;
         }
     }
 
-    if (hasExceededRetries(context, "sqlite")) {
-        console.warn("[SQLite] Retry limit reached — falling back to fts5-sql-bundle");
-        return null;
-    }
-
+    // Unsupported platforms: no native asset exists for this OS/arch, so skip
+    // the download entirely. The fts5-sql-bundle fallback is used permanently.
     const platformKey = getPlatformKey();
     if (!platformKey) {
         console.warn(`[SQLite] Platform ${process.platform}-${process.arch} not supported — falling back to fts5-sql-bundle`);
         return null;
     }
 
-    // Fast-fail when offline
+    // Fast-fail when offline. Any HTTP response (even 4xx/5xx) means the
+    // network is reachable — only a network-level failure (DNS, timeout,
+    // connection refused) means we're truly offline. Checking resp.ok would
+    // incorrectly treat rate-limit (403/429) responses as "offline".
     try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000);
-        const resp = await fetch("https://github.com", {
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        await fetch("https://github.com", {
             method: "HEAD",
             signal: controller.signal,
         });
         clearTimeout(timeout);
-        if (!resp.ok) {
-            throw new Error("GitHub unreachable");
-        }
     } catch {
         console.warn("[SQLite] Offline — native binary unavailable, falling back to fts5-sql-bundle");
         return null;
@@ -573,12 +572,10 @@ export async function ensureSqliteNativeBinary(
     // the work in a progress notification, so error handling and retry-count
     // bookkeeping stay identical across both paths.
     //
-    // Runs a full-flow retry loop with exponential backoff (2s/4s) mirroring
+    // Runs a full-flow retry loop with exponential backoff (2s) mirroring
     // git/dugite's behavior, so a transient failure during download, extract,
     // or verification can recover without user intervention. Each retry
-    // surfaces its state through the optional progress reporter, and the
-    // persistent retry counter is bumped only once after ALL attempts are
-    // exhausted (consistent with git).
+    // surfaces its state through the optional progress reporter.
     const runDownload = async (
         progress?: vscode.Progress<{ message?: string }>
     ): Promise<string | null> => {
@@ -588,7 +585,6 @@ export async function ensureSqliteNativeBinary(
                 const prefix = attempt > 1 ? `Retry ${attempt}/${MAX_FULL_RETRIES} — ` : "";
                 progress?.report({ message: `${prefix}Downloading...` });
                 const downloadedPath = await downloadBinary(context, platformKey);
-                await resetRetryCount(context, "sqlite");
                 progress?.report({ message: "Search is ready!" });
                 return downloadedPath;
             } catch (error) {
@@ -605,7 +601,6 @@ export async function ensureSqliteNativeBinary(
                 }
             }
         }
-        await incrementRetryCount(context, "sqlite");
         console.warn(
             `[SQLite] All ${MAX_FULL_RETRIES} download attempts failed: ${lastError?.message ?? "unknown"}`,
         );

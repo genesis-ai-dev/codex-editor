@@ -5,7 +5,8 @@ import * as fs from "fs";
 import { isNativeSqliteReady } from "./nativeSqlite";
 import { isDatabaseReady } from "./sqliteDatabaseFactory";
 import { getAudioToolMode, getGitToolMode, getSqliteToolMode } from "./toolPreferences";
-import { getFfmpegBinaryPath } from "./ffmpegManager";
+import { getFfmpegBinaryPath, isFfmpegNativelySupported } from "./ffmpegManager";
+import { isSqliteNativelySupported } from "./sqliteNativeBinaryManager";
 import type { FrontierAPI } from "../../webviews/codex-webviews/src/StartupFlow/types";
 
 const execFile = promisify(execFileCb);
@@ -19,6 +20,17 @@ export interface ToolCheckResult {
     /** True only when the native node_sqlite3 binary is loaded. */
     nativeSqliteAvailable: boolean;
     ffmpeg: boolean;
+    /**
+     * Per-tool flag set to true when the CURRENT OS/arch has no prebuilt
+     * native asset available. On these platforms the "Download and install"
+     * action is a guaranteed no-op, so the UI should render "Not available
+     * on this platform" instead of a download button.
+     */
+    platformUnsupported: {
+        git: boolean;
+        sqlite: boolean;
+        ffmpeg: boolean;
+    };
 }
 
 const REQUIRED_TOOLS_FFMPEG_KEY = "requiredTools.ffmpeg";
@@ -55,7 +67,24 @@ export async function checkTools(
         console.error("[toolsManager] ffmpeg check threw:", e);
     }
 
-    return { git, nativeGitAvailable, sqlite, nativeSqliteAvailable, ffmpeg };
+    // Per-tool "unsupported on this platform" flags.  Treat a missing
+    // Frontier API method as "supported" (optimistic default) so older
+    // auth extensions keep working; the download path itself still
+    // no-ops safely on unsupported platforms.
+    const platformUnsupported = {
+        git: frontierApi?.isGitBinaryNativelySupported?.() === false,
+        sqlite: !isSqliteNativelySupported(),
+        ffmpeg: !isFfmpegNativelySupported(),
+    };
+
+    return {
+        git,
+        nativeGitAvailable,
+        sqlite,
+        nativeSqliteAvailable,
+        ffmpeg,
+        platformUnsupported,
+    };
 }
 
 /**
