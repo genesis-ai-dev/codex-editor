@@ -2922,6 +2922,100 @@ suite("CodexCellEditorProvider Test Suite", () => {
         }
     });
 
+    test("llmCompletion skips source transcription when source is empty and no source audio exists", async function () {
+        this.timeout(15000);
+
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            this.skip();
+        }
+
+        const baseName = `llm-skip-transcribe-${Date.now()}`;
+        const codexName = `${baseName}.codex`;
+        const sourcePath = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts", `${baseName}.source`);
+        const codexPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "target", codexName);
+
+        fs.mkdirSync(path.dirname(sourcePath.fsPath), { recursive: true });
+        fs.mkdirSync(path.dirname(codexPath.fsPath), { recursive: true });
+
+        const sourceNotebook = JSON.parse(JSON.stringify(codexSubtitleContent)) as CodexNotebookAsJSONData;
+        const firstCell = sourceNotebook.cells[0] as any;
+        firstCell.value = "";
+        if (firstCell.metadata) {
+            delete firstCell.metadata.attachments;
+            delete firstCell.metadata.selectedAudioId;
+        }
+
+        const encoder = new TextEncoder();
+        await vscode.workspace.fs.writeFile(
+            sourcePath,
+            encoder.encode(JSON.stringify(sourceNotebook, null, 2))
+        );
+        await vscode.workspace.fs.writeFile(
+            codexPath,
+            encoder.encode(JSON.stringify(codexSubtitleContent, null, 2))
+        );
+
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+        const testProvider = new CodexCellEditorProvider(context);
+        const document = await testProvider.openCustomDocument(
+            codexPath,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        const { panel: webviewPanel } = createMockWebviewPanel();
+        await testProvider.resolveCustomEditor(
+            document,
+            webviewPanel,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const addQueueStub = sinon.stub(testProvider as any, "addCellToSingleCellQueue").resolves();
+
+        const originalExecuteCommand = vscode.commands.executeCommand;
+        let openWithCallCount = 0;
+        (vscode.commands as any).executeCommand = async (command: string, ...args: any[]) => {
+            if (command === "vscode.openWith") {
+                openWithCallCount++;
+                return undefined;
+            }
+            if (command === "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells") {
+                return { cellId: args[0] as string, content: "" };
+            }
+            return originalExecuteCommand.apply(vscode.commands, [command, ...args]);
+        };
+
+        try {
+            await handleMessages(
+                { command: "llmCompletion", content: { currentLineId: cellId } } as any,
+                webviewPanel,
+                document,
+                () => { /* no-op */ },
+                testProvider as any
+            );
+            await sleep(300);
+
+            assert.strictEqual(
+                openWithCallCount,
+                0,
+                "Must not open the source editor for transcription when there is no source audio"
+            );
+            assert.strictEqual(
+                addQueueStub.called,
+                true,
+                "Should enqueue LLM completion directly when transcription is not possible"
+            );
+        } finally {
+            (vscode.commands as any).executeCommand = originalExecuteCommand;
+            addQueueStub.restore();
+            document.dispose();
+            await deleteIfExists(sourcePath);
+            await deleteIfExists(codexPath);
+        }
+    });
+
     test("validateCellContent persists validatedBy on latest edit", async () => {
         const provider = new CodexCellEditorProvider(context);
         const document = await provider.openCustomDocument(
