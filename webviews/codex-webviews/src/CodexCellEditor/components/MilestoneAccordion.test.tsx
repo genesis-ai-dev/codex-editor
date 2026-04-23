@@ -758,6 +758,191 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         });
     });
 
+    describe("Subsection Rename", () => {
+        const createSubsectionWithKey = (
+            id: string,
+            label: string,
+            key: string,
+            name?: string
+        ): Subsection => ({
+            id,
+            label,
+            startIndex: 0,
+            endIndex: 5,
+            key,
+            name,
+            startCellId: key,
+            source: "custom",
+        });
+
+        it("renders rename button only for subsections that carry a key", async () => {
+            mockGetSubsectionsForMilestone = vi.fn((milestoneIdx: number) => [
+                createSubsectionWithKey(
+                    `s-${milestoneIdx}-0`,
+                    "1-5",
+                    "__start__",
+                    undefined
+                ),
+                createSubsectionWithKey(`s-${milestoneIdx}-1`, "6-10", "v6", "Second Half"),
+                // Legacy/arithmetic subsection with no key → should not expose rename
+                {
+                    id: `s-${milestoneIdx}-legacy`,
+                    label: "11-15",
+                    startIndex: 10,
+                    endIndex: 15,
+                },
+            ]);
+            renderMilestoneAccordion({
+                milestoneIndex: createMockMilestoneIndex([{ value: "Luke 1", index: 0 }]),
+                getSubsectionsForMilestone: mockGetSubsectionsForMilestone,
+            });
+
+            const renameButtons = await screen.findAllByLabelText("Rename Subsection");
+            // Two keyed subsections → two rename affordances; the legacy one is omitted.
+            expect(renameButtons).toHaveLength(2);
+        });
+
+        it("displays the name and keeps the numeric range visible", async () => {
+            mockGetSubsectionsForMilestone = vi.fn((milestoneIdx: number) => [
+                createSubsectionWithKey(`s-${milestoneIdx}-0`, "1-5", "__start__", "Intro"),
+            ]);
+            renderMilestoneAccordion({
+                milestoneIndex: createMockMilestoneIndex([{ value: "Luke 1", index: 0 }]),
+                getSubsectionsForMilestone: mockGetSubsectionsForMilestone,
+            });
+
+            // Name is primary; label is rendered alongside as a muted suffix.
+            expect(await screen.findByText("Intro")).toBeInTheDocument();
+            expect(screen.getByText("1-5")).toBeInTheDocument();
+        });
+
+        it("posts updateMilestoneSubdivisionName when the subsection rename is saved", async () => {
+            mockGetSubsectionsForMilestone = vi.fn((milestoneIdx: number) => [
+                createSubsectionWithKey(`s-${milestoneIdx}-0`, "1-5", "v1"),
+            ]);
+            renderMilestoneAccordion({
+                milestoneIndex: createMockMilestoneIndex([{ value: "Luke 1", index: 0 }]),
+                getSubsectionsForMilestone: mockGetSubsectionsForMilestone,
+            });
+
+            const renameBtn = await screen.findByLabelText("Rename Subsection");
+            await act(async () => {
+                fireEvent.click(renameBtn);
+            });
+
+            const inputs = await screen.findAllByPlaceholderText("1-5");
+            const input = inputs[0] as HTMLInputElement;
+            await act(async () => {
+                fireEvent.change(input, { target: { value: "Opening" } });
+            });
+
+            const saveBtn = screen.getByLabelText("Save Subsection Name");
+            await act(async () => {
+                fireEvent.click(saveBtn);
+            });
+
+            expect(mockVscode.postMessage).toHaveBeenCalledWith({
+                command: "updateMilestoneSubdivisionName",
+                content: {
+                    milestoneIndex: 0,
+                    subdivisionKey: "v1",
+                    newName: "Opening",
+                },
+            });
+        });
+
+        it("sends an empty string to clear the name override", async () => {
+            mockGetSubsectionsForMilestone = vi.fn((milestoneIdx: number) => [
+                createSubsectionWithKey(`s-${milestoneIdx}-0`, "1-5", "v1", "Opening"),
+            ]);
+            renderMilestoneAccordion({
+                milestoneIndex: createMockMilestoneIndex([{ value: "Luke 1", index: 0 }]),
+                getSubsectionsForMilestone: mockGetSubsectionsForMilestone,
+            });
+
+            const renameBtn = await screen.findByLabelText("Rename Subsection");
+            await act(async () => {
+                fireEvent.click(renameBtn);
+            });
+
+            const input = screen.getByDisplayValue("Opening") as HTMLInputElement;
+            await act(async () => {
+                fireEvent.change(input, { target: { value: "" } });
+            });
+
+            const saveBtn = screen.getByLabelText("Save Subsection Name");
+            await act(async () => {
+                fireEvent.click(saveBtn);
+            });
+
+            expect(mockVscode.postMessage).toHaveBeenCalledWith({
+                command: "updateMilestoneSubdivisionName",
+                content: {
+                    milestoneIndex: 0,
+                    subdivisionKey: "v1",
+                    newName: "",
+                },
+            });
+        });
+
+        it("does not post anything when the name is unchanged", async () => {
+            mockGetSubsectionsForMilestone = vi.fn((milestoneIdx: number) => [
+                createSubsectionWithKey(`s-${milestoneIdx}-0`, "1-5", "v1", "Opening"),
+            ]);
+            renderMilestoneAccordion({
+                milestoneIndex: createMockMilestoneIndex([{ value: "Luke 1", index: 0 }]),
+                getSubsectionsForMilestone: mockGetSubsectionsForMilestone,
+            });
+
+            const renameBtn = await screen.findByLabelText("Rename Subsection");
+            await act(async () => {
+                fireEvent.click(renameBtn);
+            });
+
+            const saveBtn = screen.getByLabelText("Save Subsection Name");
+            await act(async () => {
+                fireEvent.click(saveBtn);
+            });
+
+            const renameCalls = mockVscode.postMessage.mock.calls.filter(
+                (call: any[]) => call[0]?.command === "updateMilestoneSubdivisionName"
+            );
+            expect(renameCalls).toHaveLength(0);
+        });
+
+        it("cancel button leaves the existing name untouched", async () => {
+            mockGetSubsectionsForMilestone = vi.fn((milestoneIdx: number) => [
+                createSubsectionWithKey(`s-${milestoneIdx}-0`, "1-5", "v1", "Opening"),
+            ]);
+            renderMilestoneAccordion({
+                milestoneIndex: createMockMilestoneIndex([{ value: "Luke 1", index: 0 }]),
+                getSubsectionsForMilestone: mockGetSubsectionsForMilestone,
+            });
+
+            const renameBtn = await screen.findByLabelText("Rename Subsection");
+            await act(async () => {
+                fireEvent.click(renameBtn);
+            });
+
+            const input = screen.getByDisplayValue("Opening") as HTMLInputElement;
+            await act(async () => {
+                fireEvent.change(input, { target: { value: "Something Else" } });
+            });
+
+            const cancelBtn = screen.getByLabelText("Cancel Rename");
+            await act(async () => {
+                fireEvent.click(cancelBtn);
+            });
+
+            const renameCalls = mockVscode.postMessage.mock.calls.filter(
+                (call: any[]) => call[0]?.command === "updateMilestoneSubdivisionName"
+            );
+            expect(renameCalls).toHaveLength(0);
+            // Original name still shown (and range-only label preserved)
+            expect(screen.getByText("Opening")).toBeInTheDocument();
+        });
+    });
+
     describe("Edit Mode - Accordion Close (no refresh on close)", () => {
         it("should not send refreshWebviewAfterMilestoneEdits when accordion closes after saving (provider pushes updates immediately on save)", async () => {
             const { rerender } = renderMilestoneAccordion();
