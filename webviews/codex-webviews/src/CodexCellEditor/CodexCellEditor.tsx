@@ -242,6 +242,11 @@ const CodexCellEditor: React.FC = () => {
         (window as any)?.initialData?.validationCountAudio ?? null
     );
 
+    // Workspace preference: force numeric labels on subdivisions. Initialized
+    // from the provider's first content payload and kept in sync via
+    // `updateSubdivisionLabelPreference` messages; default false when absent.
+    const [useSubdivisionNumberLabels, setUseSubdivisionNumberLabels] = useState<boolean>(false);
+
     // Track cells currently transcribing audio (to show the same loading effect as translations)
     const [transcribingCells, setTranscribingCells] = useState<Set<string>>(new Set());
 
@@ -2333,6 +2338,17 @@ const CodexCellEditor: React.FC = () => {
                 if (event.data.userAccessLevel !== undefined) {
                     setUserAccessLevel(event.data.userAccessLevel);
                 }
+                if (event.data.useSubdivisionNumberLabels !== undefined) {
+                    setUseSubdivisionNumberLabels(
+                        Boolean(event.data.useSubdivisionNumberLabels)
+                    );
+                }
+            }
+
+            if (event.data.type === "updateSubdivisionLabelPreference") {
+                setUseSubdivisionNumberLabels(
+                    Boolean(event.data.useSubdivisionNumberLabels)
+                );
             }
         },
         []
@@ -3216,6 +3232,7 @@ const CodexCellEditor: React.FC = () => {
                             subsectionProgress={subsectionProgress[currentMilestoneIndex]}
                             allSubsectionProgress={subsectionProgress}
                             requestSubsectionProgress={requestSubsectionProgressForMilestone}
+                            useSubdivisionNumberLabels={useSubdivisionNumberLabels}
                         />
                     </div>
                 </div>
