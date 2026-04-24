@@ -762,11 +762,21 @@ type CodexData = Timestamps & {
      */
     subdivisions?: MilestoneSubdivisionPlacement[];
     /**
-     * Optional target-side localized name overrides for a milestone's subdivisions.
-     * Keyed by `startCellId` (or "__start__" for the implicit first subdivision).
-     * Only meaningful on target milestone cells.
+     * Document-local name overrides for a milestone's subdivisions. Keyed by
+     * `startCellId` (or "__start__" for the implicit first subdivision). Stored
+     * on either source or target milestone cells; the document that owns the
+     * map is the one applying the override. Always wins over
+     * `subdivisionNamesFromSource`.
      */
     subdivisionNames?: { [subdivisionKey: string]: string; };
+    /**
+     * Mirrored copy of the source document's `subdivisionNames` map. Only
+     * populated on TARGET milestone cells. Used as the fallback display name
+     * when the target's own `subdivisionNames` doesn't have an entry — lets a
+     * translator see source-side labels by default while still being free to
+     * rename their own copy.
+     */
+    subdivisionNamesFromSource?: { [subdivisionKey: string]: string; };
 };
 
 /**
