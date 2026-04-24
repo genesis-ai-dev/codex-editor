@@ -197,20 +197,35 @@ const validateFile = async (file: File): Promise<FileValidationResult> => {
 // Legacy parsing functions removed - now using WebVTTParser and parseSRTContent
 
 /**
- * Parses a subtitle file into notebook cells using proper libraries
+ * Matches a cue payload whose first non-whitespace token is a <v ...> voice span.
+ * Supports both closed (`</v>`) and open-ended voice spans (per WebVTT spec).
+ * Capture groups:
+ *   1: the speaker / annotation text
+ *   2: the inner cue text
  */
-type SubtitleImportOptions = {
-    /**
-     * When true, include per-cell labels ("1", "2", "3", ...).
-     * When false (default), omit `cellLabel` entirely and rely on cue timings.
-     */
-    includeCellLabels?: boolean;
+const VOICE_TAG_RE = /^\s*<v(?:\.[^>\s]+)*\s+([^>]+)>([\s\S]*?)(?:<\/v>\s*)?$/;
+
+/**
+ * Pulls a leading `<v speaker>...</v>` (or open-ended `<v speaker>...`) off a cue
+ * payload and returns the extracted speaker as `cellLabel` plus the unwrapped text.
+ * Returns `{ cellLabel: null, text: cueText }` when no voice tag is present.
+ */
+const extractVoiceLabel = (cueText: string): { cellLabel: string | null; text: string; } => {
+    const match = cueText.match(VOICE_TAG_RE);
+    if (!match) return { cellLabel: null, text: cueText };
+    const speaker = match[1].trim();
+    const inner = match[2];
+    return speaker.length > 0
+        ? { cellLabel: speaker, text: inner }
+        : { cellLabel: null, text: cueText };
 };
 
+/**
+ * Parses a subtitle file into notebook cells using proper libraries
+ */
 export const parseFile = async (
     file: File,
-    onProgress?: ProgressCallback,
-    options?: SubtitleImportOptions
+    onProgress?: ProgressCallback
 ): Promise<ImportResult> => {
     console.log(
         '[RYDER] calling parseFile');
@@ -258,11 +273,13 @@ export const parseFile = async (
         // Add cells using the ProcessedCell format
         for (let index = 0; index < parsed.cues.length; index++) {
             const cue = parsed.cues[index];
-            const cellLabel = null;
+            // Pull any leading <v speaker>...</v> off the payload and route the speaker
+            // into cellLabel so voice-tag labels round-trip through the importer.
+            const { cellLabel, text } = extractVoiceLabel(cue.text);
 
             // Create cell metadata with UUID, globalReferences, and chapterNumber
             const { cellId, metadata } = createSubtitleCellMetadata({
-                text: cue.text,
+                text,
                 startTime: cue.startTime,
                 endTime: cue.endTime,
                 format: format,
@@ -273,7 +290,7 @@ export const parseFile = async (
 
             cells.push({
                 id: cellId,
-                content: cue.text,
+                content: text,
                 images: [],
                 metadata: metadata,
             });
