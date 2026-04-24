@@ -67,6 +67,7 @@ export async function openInterfaceSettings() {
             "useSubdivisionNumberLabels",
             false
         );
+        const maxSubdivisionLength = config.get<number>("maxSubdivisionLength", 0);
 
         panel.webview.postMessage({
             command: "init",
@@ -74,6 +75,7 @@ export async function openInterfaceSettings() {
                 highlightSearchResults,
                 cellsPerPage,
                 useSubdivisionNumberLabels,
+                maxSubdivisionLength,
             },
         });
     };
@@ -132,6 +134,23 @@ export async function openInterfaceSettings() {
                 );
                 break;
             }
+
+            case "updateMaxSubdivisionLength": {
+                // 0 means "off" — the resolver falls back to using `cellsPerPage`
+                // as the threshold. Anything else is clamped to the package.json
+                // bounds so corrupted input can't sneak through.
+                const raw = Number(message.value);
+                if (!Number.isFinite(raw)) break;
+                const rounded = Math.round(raw);
+                const clamped = rounded <= 0 ? 0 : Math.max(0, Math.min(5000, rounded));
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                await config.update(
+                    "maxSubdivisionLength",
+                    clamped,
+                    vscode.ConfigurationTarget.Workspace
+                );
+                break;
+            }
         }
     });
 
@@ -141,7 +160,8 @@ export async function openInterfaceSettings() {
         if (
             e.affectsConfiguration("codex-editor-extension.highlightSearchResults") ||
             e.affectsConfiguration("codex-editor-extension.cellsPerPage") ||
-            e.affectsConfiguration("codex-editor-extension.useSubdivisionNumberLabels")
+            e.affectsConfiguration("codex-editor-extension.useSubdivisionNumberLabels") ||
+            e.affectsConfiguration("codex-editor-extension.maxSubdivisionLength")
         ) {
             sendInit();
         }
