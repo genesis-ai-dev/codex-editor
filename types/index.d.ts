@@ -628,6 +628,24 @@ export type EditorPostMessages =
         };
     }
     | {
+        /**
+         * Add a new subdivision break anchored at the Nth root content cell of the
+         * given milestone (1-based, so `cellNumber=11` means "split starting at the
+         * 11th content cell of this milestone"). The provider resolves the number
+         * to a `startCellId`, merges it into the existing placement list, and
+         * mirrors the updated list to the paired target document.
+         *
+         * Writes are rejected from non-source documents at the provider layer;
+         * callers should also hide the UI on target.
+         */
+        command: "addMilestoneSubdivisionAnchor";
+        content: {
+            milestoneIndex: number;
+            /** 1-based position of the split point within the milestone's root cells. */
+            cellNumber: number;
+        };
+    }
+    | {
         command: "refreshWebviewAfterMilestoneEdits";
         content?: Record<string, never>;
     }

@@ -8,6 +8,7 @@ import {
     findSubdivisionIndexForRoot,
     resolveSubdivisions,
 } from "../../providers/codexCellEditorProvider/utils/subdivisionUtils";
+import { __testOnlyMessageHandlers } from "../../providers/codexCellEditorProvider/codexCellEditorMessagehandling";
 import {
     swallowDuplicateCommandRegistrations,
     createTempCodexFile,
@@ -423,6 +424,170 @@ suite("Milestone Subdivisions Test Suite", () => {
                 "auto",
                 "Clearing placements should fall back to arithmetic pagination",
             );
+        });
+
+        // -----------------------------------------------------------------
+        // addMilestoneSubdivisionAnchor handler — resolves cellNumber → cellId
+        // server-side and delegates to the shared commit pipeline.
+        // -----------------------------------------------------------------
+        suite("addMilestoneSubdivisionAnchor handler", () => {
+            /**
+             * Mint a fake source URI so the handler's `isSourceFileFlexible`
+             * check passes without us needing to actually back the document
+             * with a .bible or .source file on disk.
+             */
+            function stampSourceUri(document: CodexCellDocument) {
+                // `uri` is a plain public field (see CodexCellDocument),
+                // so a direct assignment is enough to override it.
+                (document as any).uri = vscode.Uri.parse("file:///test.source");
+            }
+
+            /**
+             * Stubs the provider touch-points the shared commit helper uses so
+             * the handler can run without a real webview round-trip:
+             *  - `saveCustomDocument` becomes a no-op (we assert in-memory only)
+             *  - `getPairedNotebookUri` returns null (no mirror step)
+             *  - `refreshWebview` is swallowed
+             *  - `currentMilestoneSubsectionMap` is empty, taking the simple
+             *    refresh path in `sendMilestoneRefreshToWebview`.
+             */
+            function stubProviderForHandlerTest(p: CodexCellEditorProvider) {
+                sinon.stub(p, "saveCustomDocument").resolves();
+                sinon.stub(p, "getPairedNotebookUri").returns(null);
+                sinon.stub(p, "refreshWebview").resolves();
+                (p as any).currentMilestoneSubsectionMap = new Map();
+                // Author hook is a no-op for the integration path.
+                sinon.stub(CodexCellDocument.prototype as any, "refreshAuthor").resolves();
+            }
+
+            async function invokeAddAnchor({
+                document,
+                milestoneIndex,
+                cellNumber,
+            }: {
+                document: CodexCellDocument;
+                milestoneIndex: number;
+                cellNumber: number;
+            }): Promise<void> {
+                const handler = __testOnlyMessageHandlers["addMilestoneSubdivisionAnchor"];
+                assert.ok(handler, "addMilestoneSubdivisionAnchor handler must be registered");
+                await handler({
+                    event: {
+                        command: "addMilestoneSubdivisionAnchor",
+                        content: { milestoneIndex, cellNumber },
+                    } as any,
+                    document,
+                    webviewPanel: {} as any,
+                    provider,
+                    updateWebview: () => { /* no-op */ },
+                });
+            }
+
+            test("adds a new anchor at the Nth root cell", async () => {
+                const cells = buildCellsWithSubdivisions();
+                const document = await createDocumentWithCells(cells);
+                stampSourceUri(document);
+                stubProviderForHandlerTest(provider);
+
+                await invokeAddAnchor({ document, milestoneIndex: 0, cellNumber: 6 });
+
+                // The 6th root cell is v6 (array positions 0..9 → cell ids v1..v10).
+                const index = document.buildMilestoneIndex(50);
+                const subs = index.milestones[0].subdivisions ?? [];
+                assert.strictEqual(subs.length, 2, "Expected exactly one new break → two subsections");
+                assert.strictEqual(subs[1].startCellId, "v6");
+                assert.strictEqual(subs[1].source, "custom");
+            });
+
+            test("appends anchor to existing placements (preserves source names)", async () => {
+                const cells = buildCellsWithSubdivisions([
+                    { startCellId: "v4", name: "Middle" },
+                ]);
+                const document = await createDocumentWithCells(cells);
+                stampSourceUri(document);
+                stubProviderForHandlerTest(provider);
+
+                await invokeAddAnchor({ document, milestoneIndex: 0, cellNumber: 8 });
+
+                const index = document.buildMilestoneIndex(50);
+                const subs = index.milestones[0].subdivisions ?? [];
+                // Expect 3 subsections: v1..v3, v4..v7, v8..v10.
+                assert.strictEqual(subs.length, 3);
+                assert.strictEqual(subs[1].startCellId, "v4");
+                assert.strictEqual(subs[1].name, "Middle", "Existing source-side name is preserved");
+                assert.strictEqual(subs[2].startCellId, "v8");
+                assert.strictEqual(subs[2].source, "custom");
+            });
+
+            test("cellNumber at the first cell is rejected (no-op)", async () => {
+                const cells = buildCellsWithSubdivisions();
+                const document = await createDocumentWithCells(cells);
+                stampSourceUri(document);
+                stubProviderForHandlerTest(provider);
+
+                await invokeAddAnchor({ document, milestoneIndex: 0, cellNumber: 1 });
+
+                const index = document.buildMilestoneIndex(50);
+                const subs = index.milestones[0].subdivisions ?? [];
+                // No breaks added — still the lone auto subdivision.
+                assert.strictEqual(subs.length, 1);
+                assert.strictEqual(subs[0].source, "auto");
+            });
+
+            test("cellNumber beyond last cell is rejected", async () => {
+                const cells = buildCellsWithSubdivisions();
+                const document = await createDocumentWithCells(cells);
+                stampSourceUri(document);
+                stubProviderForHandlerTest(provider);
+
+                await invokeAddAnchor({ document, milestoneIndex: 0, cellNumber: 99 });
+
+                const index = document.buildMilestoneIndex(50);
+                const subs = index.milestones[0].subdivisions ?? [];
+                assert.strictEqual(subs.length, 1, "Out-of-range cellNumber must not produce a break");
+            });
+
+            test("idempotent: re-adding the same anchor does not duplicate", async () => {
+                const cells = buildCellsWithSubdivisions([{ startCellId: "v6" }]);
+                const document = await createDocumentWithCells(cells);
+                stampSourceUri(document);
+                stubProviderForHandlerTest(provider);
+
+                // v6 is already the 6th root cell; adding again should no-op.
+                await invokeAddAnchor({ document, milestoneIndex: 0, cellNumber: 6 });
+
+                const index = document.buildMilestoneIndex(50);
+                const subs = index.milestones[0].subdivisions ?? [];
+                assert.strictEqual(subs.length, 2, "Anchor set must remain the same size");
+                const anchors = subs
+                    .filter((s) => s.source === "custom" && s.index > 0)
+                    .map((s) => s.startCellId);
+                assert.deepStrictEqual(anchors, ["v6"]);
+            });
+
+            test("rejects writes from non-source documents", async () => {
+                const cells = buildCellsWithSubdivisions();
+                const document = await createDocumentWithCells(cells);
+                // Leave URI pointing at the temp .codex file → should be rejected.
+                stubProviderForHandlerTest(provider);
+                const warnStub = sinon.stub(vscode.window, "showWarningMessage");
+
+                await invokeAddAnchor({ document, milestoneIndex: 0, cellNumber: 5 });
+
+                assert.strictEqual(
+                    warnStub.calledWith(
+                        "Subdivision breaks can only be added from the source file."
+                    ),
+                    true,
+                    "Non-source writes must surface a warning"
+                );
+                const index = document.buildMilestoneIndex(50);
+                assert.strictEqual(
+                    index.milestones[0].subdivisions?.length ?? 0,
+                    1,
+                    "Non-source writes must not mutate the document"
+                );
+            });
         });
 
         test("legacy behavior preserved when no subdivisions on milestone", async () => {
