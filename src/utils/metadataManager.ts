@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
 import { ProjectUserVersionEntry } from "@types";
 import { addProjectMetadataEdit } from "./editMapUtils";
 
@@ -450,13 +452,38 @@ export class MetadataManager {
     }
 
     /**
+     * Resolve the running Codex app version, preferring the value stamped into
+     * `product.json` during the Codex build. For patch-rebuild builds, that
+     * value is the full `RELEASE_VERSION` (e.g. `1.108.12007`), while
+     * `vscode.version` may only reflect the upstream MS tag (e.g. `1.108.1`).
+     * Falls back to `vscode.version` when `product.json` can't be read (e.g.
+     * in the web host or during tests).
+     */
+    private static getCodexAppVersion(): string | undefined {
+        try {
+            const appRoot = vscode.env.appRoot;
+            if (appRoot) {
+                const productJsonPath = path.join(appRoot, "product.json");
+                const raw = fs.readFileSync(productJsonPath, "utf8");
+                const product = JSON.parse(raw) as { version?: unknown; };
+                if (typeof product.version === "string" && product.version.length > 0) {
+                    return product.version;
+                }
+            }
+        } catch {
+            // fall through to vscode.version
+        }
+        return vscode.version || undefined;
+    }
+
+    /**
      * Record the current user's Codex editor version in the metadata `users` array.
      * Called on project open and after sync so deploy-compatibility checks can see
      * which binary each collaborator is running.
      */
     static async ensureCurrentUserVersionRecorded(workspaceUri: vscode.Uri): Promise<void> {
         try {
-            const codexVersion = vscode.version;
+            const codexVersion = this.getCodexAppVersion();
             if (!codexVersion) {
                 return;
             }
