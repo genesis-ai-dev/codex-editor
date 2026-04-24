@@ -713,19 +713,23 @@ export function MilestoneAccordion({
         return milestone?.value || "";
     };
 
-    const handleEditMilestoneClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const beginEditMilestone = (e: React.MouseEvent<HTMLElement>, milestoneIdx: number): void => {
         e.stopPropagation();
-        const displayedMilestone = getDisplayedMilestone();
-        if (displayedMilestone) {
-            setOriginalMilestoneValue(displayedMilestone.value);
-            setEditedMilestoneValue(displayedMilestone.value);
-            setIsEditingMilestone(true);
-            // Focus the input after state update
-            setTimeout(() => {
-                inputRef.current?.focus();
-                inputRef.current?.select();
-            }, 0);
-        }
+        const milestone = milestoneIndex?.milestones[milestoneIdx];
+        if (!milestone) return;
+
+        // Ensure the edited milestone is what the header will render.
+        setExpandedMilestone(milestoneIdx.toString());
+
+        const displayValue = localMilestoneValues[milestoneIdx] || milestone.value;
+        setOriginalMilestoneValue(displayValue);
+        setEditedMilestoneValue(displayValue);
+        setIsEditingMilestone(true);
+
+        setTimeout(() => {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+        }, 0);
     };
 
     const handleSaveMilestone = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -945,20 +949,6 @@ export function MilestoneAccordion({
                             </>
                         ) : (
                             <>
-                                {/* Pencil only appears once the user has opened
-                                    settings mode via the gear, so the default
-                                    accordion view stays read-only. */}
-                                {isSettingsMode && (
-                                    <VSCodeButton
-                                        aria-label="Edit Milestone"
-                                        appearance="icon"
-                                        title="Edit Milestone"
-                                        onClick={handleEditMilestoneClick}
-                                        disabled={false}
-                                    >
-                                        <i className="codicon codicon-edit"></i>
-                                    </VSCodeButton>
-                                )}
                                 <VSCodeButton
                                     aria-label="Toggle Milestone Settings"
                                     appearance="icon"
@@ -1088,6 +1078,32 @@ export function MilestoneAccordion({
                                                         {displayValue}
                                                     </span>
                                                     <div className="flex items-center gap-2 flex-shrink-0">
+                                                        {isSettingsMode && (
+                                                            <>
+                                                                <VSCodeButton
+                                                                    aria-label="Rename Milestone"
+                                                                    appearance="icon"
+                                                                    title="Rename milestone"
+                                                                    onClick={(e) =>
+                                                                        beginEditMilestone(
+                                                                            e,
+                                                                            milestoneIdx
+                                                                        )
+                                                                    }
+                                                                >
+                                                                    <i className="codicon codicon-edit" />
+                                                                </VSCodeButton>
+                                                                <VSCodeButton
+                                                                    aria-hidden="true"
+                                                                    appearance="icon"
+                                                                    disabled
+                                                                    tabIndex={-1}
+                                                                    className="opacity-15 pointer-events-none"
+                                                                >
+                                                                    <Trash2 className="h-4 w-4" />
+                                                                </VSCodeButton>
+                                                            </>
+                                                        )}
                                                         <div
                                                             className={`flex items-center ${audioDisplay.colorClass}`}
                                                             style={getIconStyle(
@@ -1294,7 +1310,7 @@ export function MilestoneAccordion({
                                                                                     appearance="icon"
                                                                                     disabled
                                                                                     tabIndex={-1}
-                                                                                    className="opacity-15"
+                                                                                    className="opacity-15 pointer-events-none"
                                                                                 >
                                                                                     <Trash2 className="h-4 w-4" />
                                                                                 </VSCodeButton>
@@ -1451,7 +1467,7 @@ export function MilestoneAccordion({
                                                                                     milestoneIdx
                                                                                 )
                                                                             }
-                                                                            className="flex items-center gap-1 text-xs px-2 py-1 rounded text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-foreground)] hover:bg-secondary transition-colors"
+                                                                            className="flex items-center gap-1 text-xs pl-0 pr-2 py-1 rounded text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-foreground)] hover:bg-secondary transition-colors"
                                                                         >
                                                                             <Plus className="h-3 w-3" />
                                                                             Add break…
