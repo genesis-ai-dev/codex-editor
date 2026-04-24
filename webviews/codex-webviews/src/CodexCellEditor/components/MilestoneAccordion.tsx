@@ -177,7 +177,7 @@ export function MilestoneAccordion({
     };
 
     const handleDeleteSubsection = (
-        e: React.MouseEvent<HTMLButtonElement>,
+        e: React.MouseEvent<HTMLElement>,
         milestoneIdx: number,
         subsection: Subsection
     ) => {
@@ -790,7 +790,7 @@ export function MilestoneAccordion({
     };
 
     const handleSubsectionEditClick = (
-        e: React.MouseEvent<HTMLButtonElement>,
+        e: React.MouseEvent<HTMLElement>,
         milestoneIdx: number,
         subsectionIdx: number,
         subsection: Subsection
@@ -808,7 +808,9 @@ export function MilestoneAccordion({
         }, 0);
     };
 
-    const handleSaveSubsectionName = (e: React.MouseEvent<HTMLButtonElement> | React.KeyboardEvent) => {
+    const handleSaveSubsectionName = (
+        e: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>
+    ) => {
         e.stopPropagation();
         if (!editingSubsection) return;
         const trimmed = editedSubsectionName.trim();
@@ -831,7 +833,9 @@ export function MilestoneAccordion({
         setEditingSubsection(null);
     };
 
-    const handleRevertSubsectionName = (e: React.MouseEvent<HTMLButtonElement> | React.KeyboardEvent) => {
+    const handleRevertSubsectionName = (
+        e: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>
+    ) => {
         e.stopPropagation();
         setEditingSubsection(null);
     };
@@ -1277,14 +1281,17 @@ export function MilestoneAccordion({
                                                                                     <Trash2 className="h-4 w-4 text-[var(--vscode-errorForeground)]" />
                                                                                 </VSCodeButton>
                                                                             ) : (
-                                                                                /* Invisible phantom keeps pencil icons aligned vertically */
-                                                                                <span
+                                                                                /* Greyed-out ghost trash can — purely decorative, but uses the
+                                                                                   same button wrapper so spacing matches deletable rows. */
+                                                                                <VSCodeButton
                                                                                     aria-hidden="true"
-                                                                                    className="pointer-events-none invisible inline-flex items-center justify-center"
-                                                                                    style={{ width: 28, height: 28 }}
+                                                                                    appearance="icon"
+                                                                                    disabled
+                                                                                    tabIndex={-1}
+                                                                                    className="opacity-15"
                                                                                 >
                                                                                     <Trash2 className="h-4 w-4" />
-                                                                                </span>
+                                                                                </VSCodeButton>
                                                                             )
                                                                         )}
                                                                     </>
