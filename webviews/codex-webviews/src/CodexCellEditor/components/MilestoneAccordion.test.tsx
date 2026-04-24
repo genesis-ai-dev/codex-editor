@@ -15,6 +15,7 @@ vi.mock("@vscode/webview-ui-toolkit/react", () => ({
         appearance,
         title,
         "aria-label": ariaLabel,
+        "aria-pressed": ariaPressed,
     }: any) => (
         <button
             onClick={onClick}
@@ -22,6 +23,7 @@ vi.mock("@vscode/webview-ui-toolkit/react", () => ({
             data-appearance={appearance}
             title={title}
             aria-label={ariaLabel}
+            aria-pressed={ariaPressed}
         >
             {children}
         </button>
@@ -177,6 +179,12 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             calculateSubsectionProgress: mockCalculateSubsectionProgress,
             requestSubsectionProgress: mockRequestSubsectionProgress,
             vscode: mockVscode,
+            // Most editing-flow tests assert directly against the title pencil,
+            // per-subsection pencils, and add-break controls. Those affordances
+            // are now gated behind the gear/settings toggle, so we open the
+            // accordion already in settings mode by default and let the
+            // dedicated gear-toggle tests override this with `false`.
+            initialSettingsMode: true,
         };
 
         return render(<MilestoneAccordion {...defaultProps} {...props} />);
@@ -1358,6 +1366,141 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 (call: any[]) => call[0]?.command === "addMilestoneSubdivisionAnchor"
             );
             expect(placementCalls).toHaveLength(0);
+        });
+    });
+
+    describe("Settings mode (gear toggle)", () => {
+        it("hides edit affordances by default and reveals them after clicking the gear", async () => {
+            renderMilestoneAccordion({ initialSettingsMode: false });
+
+            // Default (read-only) state: gear is the only edit-related control
+            // in the header, the title pencil is gone, and per-subsection
+            // pencils + add-break / reset footers stay hidden.
+            expect(screen.queryByLabelText("Edit Milestone")).not.toBeInTheDocument();
+            expect(screen.queryByLabelText("Rename Subsection")).not.toBeInTheDocument();
+            expect(screen.queryByLabelText("Add Subdivision Break")).not.toBeInTheDocument();
+            const gearButton = screen.getByLabelText("Toggle Milestone Settings");
+            expect(gearButton).toHaveAttribute("aria-pressed", "false");
+
+            await act(async () => {
+                fireEvent.click(gearButton);
+            });
+
+            expect(screen.getByLabelText("Edit Milestone")).toBeInTheDocument();
+            expect(screen.getByLabelText("Toggle Milestone Settings")).toHaveAttribute(
+                "aria-pressed",
+                "true"
+            );
+        });
+
+        it("reveals per-subsection rename pencils when settings mode is open", async () => {
+            // Subsections need a `key` for the rename pencil to render at all
+            // (per the canRename guard); supply one so we can verify the gear
+            // toggle uncovers them.
+            renderMilestoneAccordion({
+                initialSettingsMode: false,
+                getSubsectionsForMilestone: vi.fn(() => [
+                    {
+                        id: "sub-0-1",
+                        label: "1–5",
+                        startIndex: 0,
+                        endIndex: 5,
+                        key: "__start__",
+                    } as Subsection,
+                ]),
+            });
+
+            expect(screen.queryByLabelText("Rename Subsection")).not.toBeInTheDocument();
+
+            await act(async () => {
+                fireEvent.click(screen.getByLabelText("Toggle Milestone Settings"));
+            });
+
+            const renamePencils = screen.getAllByLabelText("Rename Subsection");
+            expect(renamePencils.length).toBeGreaterThan(0);
+        });
+
+        it("shows the Add Subdivision Break footer only on source documents in settings mode", async () => {
+            renderMilestoneAccordion({
+                initialSettingsMode: false,
+                isSourceText: true,
+            });
+
+            expect(screen.queryByLabelText("Add Subdivision Break")).not.toBeInTheDocument();
+
+            await act(async () => {
+                fireEvent.click(screen.getByLabelText("Toggle Milestone Settings"));
+            });
+
+            // Once the gear opens settings, source-only "Add break…" buttons
+            // become reachable. (Target documents never see these regardless
+            // of the gear; that's covered by the existing "Add Break — target"
+            // tests.)
+            expect(screen.getAllByLabelText("Add Subdivision Break").length).toBeGreaterThan(0);
+        });
+
+        it("collapses settings mode again when the accordion is closed and reopened", async () => {
+            const { rerender } = renderMilestoneAccordion({ initialSettingsMode: false });
+
+            await act(async () => {
+                fireEvent.click(screen.getByLabelText("Toggle Milestone Settings"));
+            });
+            expect(screen.getByLabelText("Edit Milestone")).toBeInTheDocument();
+
+            // Close and reopen — the user should land back in read-only mode
+            // so an accidental click on the gear isn't sticky across sessions.
+            await act(async () => {
+                rerender(
+                    <MilestoneAccordion
+                        isOpen={false}
+                        onClose={mockOnClose}
+                        milestoneIndex={createMockMilestoneIndex([
+                            { value: "Chapter 1", index: 0 },
+                        ])}
+                        currentMilestoneIndex={0}
+                        currentSubsectionIndex={0}
+                        getSubsectionsForMilestone={mockGetSubsectionsForMilestone}
+                        requestCellsForMilestone={mockRequestCellsForMilestone}
+                        allSubsectionProgress={undefined}
+                        unsavedChanges={false}
+                        isSourceText={false}
+                        anchorRef={mockAnchorRef}
+                        calculateSubsectionProgress={mockCalculateSubsectionProgress}
+                        requestSubsectionProgress={mockRequestSubsectionProgress}
+                        vscode={mockVscode}
+                        initialSettingsMode={false}
+                    />
+                );
+            });
+            await act(async () => {
+                rerender(
+                    <MilestoneAccordion
+                        isOpen={true}
+                        onClose={mockOnClose}
+                        milestoneIndex={createMockMilestoneIndex([
+                            { value: "Chapter 1", index: 0 },
+                        ])}
+                        currentMilestoneIndex={0}
+                        currentSubsectionIndex={0}
+                        getSubsectionsForMilestone={mockGetSubsectionsForMilestone}
+                        requestCellsForMilestone={mockRequestCellsForMilestone}
+                        allSubsectionProgress={undefined}
+                        unsavedChanges={false}
+                        isSourceText={false}
+                        anchorRef={mockAnchorRef}
+                        calculateSubsectionProgress={mockCalculateSubsectionProgress}
+                        requestSubsectionProgress={mockRequestSubsectionProgress}
+                        vscode={mockVscode}
+                        initialSettingsMode={false}
+                    />
+                );
+            });
+
+            expect(screen.queryByLabelText("Edit Milestone")).not.toBeInTheDocument();
+            expect(screen.getByLabelText("Toggle Milestone Settings")).toHaveAttribute(
+                "aria-pressed",
+                "false"
+            );
         });
     });
 

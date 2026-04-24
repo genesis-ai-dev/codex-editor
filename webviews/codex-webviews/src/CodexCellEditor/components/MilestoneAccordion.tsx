@@ -53,6 +53,14 @@ interface MilestoneAccordionProps {
      * to false (names take precedence).
      */
     useSubdivisionNumberLabels?: boolean;
+    /**
+     * When true, the accordion mounts with the gear/settings affordances
+     * already revealed (title pencil, per-subsection pencils always visible,
+     * "Add break…" / "Reset" footer controls visible). Useful for tests and
+     * for parents that want to deep-link straight into editing. Defaults to
+     * `false`, matching the read-only default UX.
+     */
+    initialSettingsMode?: boolean;
 }
 
 export function MilestoneAccordion({
@@ -71,6 +79,7 @@ export function MilestoneAccordion({
     requestSubsectionProgress,
     vscode,
     useSubdivisionNumberLabels = false,
+    initialSettingsMode = false,
 }: MilestoneAccordionProps) {
     // Layout constants
     const DROPDOWN_MAX_HEIGHT_VIEWPORT_PERCENT = 60; // 60vh
@@ -97,6 +106,10 @@ export function MilestoneAccordion({
     const [editedMilestoneValue, setEditedMilestoneValue] = useState("");
     const [originalMilestoneValue, setOriginalMilestoneValue] = useState("");
     const inputRef = useRef<HTMLInputElement>(null);
+    // Settings mode reveals destructive / structural controls (title pencil,
+    // per-subsection pencils, add-break / reset footers). Default off so the
+    // accordion stays read-only on first open; the gear button toggles it.
+    const [isSettingsMode, setIsSettingsMode] = useState(initialSettingsMode);
     // Local cache of edited milestone values to show changes immediately before webview refresh
     const [localMilestoneValues, setLocalMilestoneValues] = useState<Record<number, string>>({});
 
@@ -406,7 +419,14 @@ export function MilestoneAccordion({
     useEffect(() => {
         if (!isOpen) {
             setIsEditingMilestone(false);
+            // Also collapse the gear/settings affordances so reopening the
+            // accordion always starts from the read-only baseline (matches
+            // initialSettingsMode default and avoids "stuck open" surprises).
+            setIsSettingsMode(initialSettingsMode);
         }
+        // We intentionally only re-run on `isOpen` changes; resetting on
+        // initialSettingsMode flips would surprise live edits.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
 
     // Clear local cache when milestoneIndex prop changes (after webview refresh)
@@ -919,15 +939,45 @@ export function MilestoneAccordion({
                                 </VSCodeButton>
                             </>
                         ) : (
-                            <VSCodeButton
-                                aria-label="Edit Milestone"
-                                appearance="icon"
-                                title="Edit Milestone"
-                                onClick={handleEditMilestoneClick}
-                                disabled={false}
-                            >
-                                <i className="codicon codicon-edit"></i>
-                            </VSCodeButton>
+                            <>
+                                {/* Pencil only appears once the user has opened
+                                    settings mode via the gear, so the default
+                                    accordion view stays read-only. */}
+                                {isSettingsMode && (
+                                    <VSCodeButton
+                                        aria-label="Edit Milestone"
+                                        appearance="icon"
+                                        title="Edit Milestone"
+                                        onClick={handleEditMilestoneClick}
+                                        disabled={false}
+                                    >
+                                        <i className="codicon codicon-edit"></i>
+                                    </VSCodeButton>
+                                )}
+                                <VSCodeButton
+                                    aria-label="Toggle Milestone Settings"
+                                    appearance="icon"
+                                    title={
+                                        isSettingsMode
+                                            ? "Close milestone settings"
+                                            : "Open milestone settings"
+                                    }
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setIsSettingsMode((prev) => !prev);
+                                    }}
+                                    aria-pressed={isSettingsMode}
+                                >
+                                    <i
+                                        className="codicon codicon-settings-gear"
+                                        style={
+                                            isSettingsMode
+                                                ? { color: "var(--vscode-focusBorder)" }
+                                                : undefined
+                                        }
+                                    />
+                                </VSCodeButton>
+                            </>
                         )}
                     </div>
                     <VSCodeButton
@@ -1185,7 +1235,13 @@ export function MilestoneAccordion({
                                                                     </>
                                                                 ) : (
                                                                     <>
-                                                                        {canRename && (
+                                                                        {/* Per-subsection edit affordances live behind the
+                                                                            gear/settings toggle. When off, neither the rename
+                                                                            pencil nor the remove "X" should be reachable, so we
+                                                                            don't render them at all (avoids tab-stops and stale
+                                                                            tooltips). When on, they're always visible — no more
+                                                                            hover-only reveal. */}
+                                                                        {isSettingsMode && canRename && (
                                                                             <VSCodeButton
                                                                                 aria-label="Rename Subsection"
                                                                                 appearance="icon"
@@ -1198,12 +1254,12 @@ export function MilestoneAccordion({
                                                                                         subsection
                                                                                     )
                                                                                 }
-                                                                                className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
                                                                             >
                                                                                 <i className="codicon codicon-edit" />
                                                                             </VSCodeButton>
                                                                         )}
-                                                                        {isSourceText &&
+                                                                        {isSettingsMode &&
+                                                                            isSourceText &&
                                                                             subsection.source ===
                                                                                 "custom" &&
                                                                             subsection.startCellId && (
@@ -1218,7 +1274,6 @@ export function MilestoneAccordion({
                                                                                             subsection
                                                                                         )
                                                                                     }
-                                                                                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
                                                                                 >
                                                                                     <X className="h-4 w-4" />
                                                                                 </VSCodeButton>
@@ -1254,7 +1309,7 @@ export function MilestoneAccordion({
                                                         </div>
                                                     );
                                                 })}
-                                                {isSourceText && (() => {
+                                                {isSourceText && isSettingsMode && (() => {
                                                     const maxCellNumber =
                                                         getMaxCellNumberForMilestone(
                                                             subsections
@@ -1318,7 +1373,7 @@ export function MilestoneAccordion({
                                                                         aria-invalid={
                                                                             !!addBreakError
                                                                         }
-                                                                        placeholder={`2–${maxCellNumber}`}
+                                                                        placeholder="322"
                                                                         className="w-20 text-xs px-2 py-1 rounded border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--vscode-focusBorder)]"
                                                                     />
                                                                     <button
