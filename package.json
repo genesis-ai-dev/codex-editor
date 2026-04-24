@@ -954,6 +954,14 @@
                         "default": false,
                         "description": "When enabled, milestone subdivisions always display their numeric cell range (e.g. '6-15') even if a user-assigned name exists. When disabled, names take precedence and the range is shown only as a muted suffix."
                     },
+                    "codex-editor-extension.maxSubdivisionLength": {
+                        "title": "Maximum Subdivision Length",
+                        "type": "number",
+                        "default": 0,
+                        "minimum": 0,
+                        "maximum": 5000,
+                        "description": "Maximum number of cells the editor will leave inside a single subdivision. Stretches between user-defined breaks that exceed this length are sub-chunked using 'Cells Per Page'. Set to 0 to disable (in which case 'Cells Per Page' itself acts as the threshold). Useful when you want a higher 'Cells Per Page' default but still allow short logical pages between custom breaks to remain unbroken."
+                    },
                     "codex-editor-extension.useOnlyValidatedExamples": {
                         "title": "Use Only Validated Examples",
                         "type": "boolean",
