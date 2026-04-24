@@ -49,12 +49,38 @@ function InterfaceSettingsApp() {
     // Search Settings state
     const [highlightSearchResults, setHighlightSearchResults] = useState(true);
 
+    // Pagination / Subdivision Settings state. `cellsPerPageInput` is a string
+    // so the field accepts intermediate/invalid values during typing; we parse
+    // and clamp on blur/Enter before posting.
+    const [cellsPerPage, setCellsPerPage] = useState(50);
+    const [cellsPerPageInput, setCellsPerPageInput] = useState("50");
+    const [useSubdivisionNumberLabels, setUseSubdivisionNumberLabels] = useState(false);
+    // `maxSubdivisionLength = 0` means "off" — the resolver falls back to
+    // using cellsPerPage as the threshold. Storage stays a single number so
+    // the package.json schema remains simple, but the UI exposes a toggle +
+    // input pair to make the "off" state feel intentional.
+    const [maxSubdivisionLength, setMaxSubdivisionLength] = useState(0);
+    const [maxSubdivisionLengthInput, setMaxSubdivisionLengthInput] = useState("0");
+    const maxSubdivisionLengthEnabled = maxSubdivisionLength > 0;
+
     useEffect(() => {
         const handler = (event: MessageEvent) => {
             const message = event.data;
             if (message.command === "init") {
                 if (typeof message.data?.highlightSearchResults === "boolean") {
                     setHighlightSearchResults(message.data.highlightSearchResults);
+                }
+                if (typeof message.data?.cellsPerPage === "number") {
+                    setCellsPerPage(message.data.cellsPerPage);
+                    setCellsPerPageInput(String(message.data.cellsPerPage));
+                }
+                if (typeof message.data?.useSubdivisionNumberLabels === "boolean") {
+                    setUseSubdivisionNumberLabels(message.data.useSubdivisionNumberLabels);
+                }
+                if (typeof message.data?.maxSubdivisionLength === "number") {
+                    const v = Math.max(0, Math.floor(message.data.maxSubdivisionLength));
+                    setMaxSubdivisionLength(v);
+                    setMaxSubdivisionLengthInput(v > 0 ? String(v) : "");
                 }
             }
         };
@@ -79,6 +105,83 @@ function InterfaceSettingsApp() {
     const handleToggleHighlightSearch = (checked: boolean) => {
         setHighlightSearchResults(checked);
         vscode.postMessage({ command: "updateHighlightSearchResults", value: checked });
+    };
+
+    const CELLS_PER_PAGE_MIN = 5;
+    const CELLS_PER_PAGE_MAX = 200;
+
+    const commitCellsPerPage = () => {
+        const parsed = parseInt(cellsPerPageInput, 10);
+        if (!Number.isFinite(parsed)) {
+            setCellsPerPageInput(String(cellsPerPage));
+            return;
+        }
+        const clamped = Math.max(CELLS_PER_PAGE_MIN, Math.min(CELLS_PER_PAGE_MAX, parsed));
+        if (clamped === cellsPerPage) {
+            setCellsPerPageInput(String(cellsPerPage));
+            return;
+        }
+        setCellsPerPage(clamped);
+        setCellsPerPageInput(String(clamped));
+        vscode.postMessage({ command: "updateCellsPerPage", value: clamped });
+    };
+
+    const handleToggleUseSubdivisionNumberLabels = (checked: boolean) => {
+        setUseSubdivisionNumberLabels(checked);
+        vscode.postMessage({
+            command: "updateUseSubdivisionNumberLabels",
+            value: checked,
+        });
+    };
+
+    const MAX_SUBDIVISION_LENGTH_MIN = 1;
+    const MAX_SUBDIVISION_LENGTH_MAX = 5000;
+
+    const sendMaxSubdivisionLength = (value: number) => {
+        setMaxSubdivisionLength(value);
+        setMaxSubdivisionLengthInput(value > 0 ? String(value) : "");
+        vscode.postMessage({
+            command: "updateMaxSubdivisionLength",
+            value,
+        });
+    };
+
+    const commitMaxSubdivisionLength = () => {
+        const parsed = parseInt(maxSubdivisionLengthInput, 10);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+            // Empty / non-numeric / non-positive input → revert to the last
+            // committed value's display rather than silently turning the
+            // setting off.
+            setMaxSubdivisionLengthInput(
+                maxSubdivisionLength > 0 ? String(maxSubdivisionLength) : ""
+            );
+            return;
+        }
+        const clamped = Math.max(
+            MAX_SUBDIVISION_LENGTH_MIN,
+            Math.min(MAX_SUBDIVISION_LENGTH_MAX, parsed)
+        );
+        if (clamped === maxSubdivisionLength) {
+            setMaxSubdivisionLengthInput(String(clamped));
+            return;
+        }
+        sendMaxSubdivisionLength(clamped);
+    };
+
+    const handleToggleMaxSubdivisionLength = (checked: boolean) => {
+        if (checked) {
+            // Default the input to roughly twice the current page size, which
+            // is the most common "let small uneven pages stay intact" setup.
+            const seed = Math.max(
+                cellsPerPage * 2,
+                MAX_SUBDIVISION_LENGTH_MIN
+            );
+            sendMaxSubdivisionLength(
+                Math.min(seed, MAX_SUBDIVISION_LENGTH_MAX)
+            );
+        } else {
+            sendMaxSubdivisionLength(0);
+        }
     };
 
     return (
@@ -258,6 +361,108 @@ function InterfaceSettingsApp() {
                             >
                                 Apply Changes
                             </Button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Pagination & Subdivisions Section */}
+                <div className="border rounded p-4">
+                    <div className="font-medium mb-4 flex items-center gap-2">
+                        <i
+                            className="codicon codicon-list-ordered"
+                            style={{ color: "var(--ring)" }}
+                        />
+                        Pagination & Subdivisions
+                    </div>
+
+                    <div className="space-y-5">
+                        {/* Cells per page */}
+                        <div className="flex items-center justify-between gap-4">
+                            <div className="min-w-0">
+                                <div className="font-medium">Cells per page</div>
+                                <div className="text-sm opacity-70">
+                                    Default page size for milestones without custom breaks
+                                    .
+                                </div>
+                            </div>
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={cellsPerPageInput}
+                                onChange={(e) =>
+                                    setCellsPerPageInput(e.target.value.replace(/[^0-9]/g, ""))
+                                }
+                                onBlur={commitCellsPerPage}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        (e.target as HTMLInputElement).blur();
+                                    }
+                                }}
+                                className="w-24 bg-transparent border border-border rounded px-2 py-1 text-sm text-right"
+                                aria-label="Cells per page"
+                            />
+                        </div>
+
+                        {/* Always show number ranges */}
+                        {false && (
+                            <div className="flex items-center justify-between gap-4">
+                                <div className="min-w-0">
+                                    <div className="font-medium">
+                                        Always show subdivision number ranges
+                                    </div>
+                                    <div className="text-sm opacity-70">
+                                        Display the numeric cell range (e.g. "6-15") even when a
+                                        subdivision has a name. Names are shown otherwise.
+                                    </div>
+                                </div>
+                                <Switch
+                                    checked={useSubdivisionNumberLabels}
+                                    onCheckedChange={handleToggleUseSubdivisionNumberLabels}
+                                />
+                            </div>
+                        )}
+
+                        {/* Maximum subdivision length */}
+                        <div className="flex items-center justify-between gap-4">
+                            <div className="min-w-0">
+                                <div className="font-medium">
+                                    Maximum subdivision length
+                                </div>
+                                <div className="text-sm opacity-70">
+                                    Pagination allows ranges between user added subdivisions up to this length
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                {maxSubdivisionLengthEnabled && (
+                                    <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        value={maxSubdivisionLengthInput}
+                                        onChange={(e) =>
+                                            setMaxSubdivisionLengthInput(
+                                                e.target.value.replace(/[^0-9]/g, "")
+                                            )
+                                        }
+                                        onBlur={commitMaxSubdivisionLength}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                                e.preventDefault();
+                                                (e.target as HTMLInputElement).blur();
+                                            }
+                                        }}
+                                        className="w-24 bg-transparent border border-border rounded px-2 py-1 text-sm text-right"
+                                        aria-label="Maximum subdivision length"
+                                        placeholder={String(cellsPerPage * 2)}
+                                    />
+                                )}
+                                <Switch
+                                    checked={maxSubdivisionLengthEnabled}
+                                    onCheckedChange={handleToggleMaxSubdivisionLength}
+                                />
+                            </div>
                         </div>
                     </div>
                 </div>
