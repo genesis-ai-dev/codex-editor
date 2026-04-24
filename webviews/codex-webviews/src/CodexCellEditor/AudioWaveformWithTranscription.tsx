@@ -26,6 +26,7 @@ interface AudioWaveformWithTranscriptionProps {
     audioValidationPopoverProps: AudioValidationPopoverProps;
     validationStatusProps: ValidationStatusIconProps;
     author?: string;
+    targetDuration?: number | null; // Target duration (in seconds) derived from cell timestamps.
 }
 
 const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionProps> = ({
@@ -42,9 +43,11 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     onShowRecorder,
     validationStatusProps,
     audioValidationPopoverProps,
+    targetDuration,
     author,
 }) => {
     const [audioSrc, setAudioSrc] = useState<string>("");
+    const [audioDuration, setAudioDuration] = useState<number | null>(null);
 
     // Prefer the provided URL (can be blob: or data:). Fall back to creating an object URL from the blob.
     useEffect(() => {
@@ -59,6 +62,50 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
         }
         setAudioSrc("");
     }, [audioBlob, audioUrl]);
+
+
+    // Decode the audio blob to get its actual duration (best-effort).
+    // Only needed when a target duration is supplied so we can render the comparison bar.
+    useEffect(() => {
+        let cancelled = false;
+
+        if (!targetDuration || !audioBlob) {
+            setAudioDuration(null);
+            return;
+        }
+
+        (async () => {
+            try {
+                const arrayBuffer = await audioBlob.arrayBuffer();
+                if (cancelled) return;
+                const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+                if (!AudioCtx) return;
+                const audioCtx = new AudioCtx();
+                try {
+                    const decoded = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+                    if (cancelled) return;
+                    if (isFinite(decoded.duration) && decoded.duration > 0) {
+                        setAudioDuration(decoded.duration);
+                    } else {
+                        setAudioDuration(null);
+                    }
+                } finally {
+                    try {
+                        audioCtx.close();
+                    } catch {
+                        void 0;
+                    }
+                }
+            } catch {
+                if (!cancelled) setAudioDuration(null);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [audioBlob, targetDuration]);
+
 
     return (
         <div className="bg-[var(--vscode-editor-background)] flex flex-col gap-y-3 p-3 sm:p-4 rounded-md shadow w-full relative">
@@ -136,6 +183,43 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     />
                 </div>
             )}
+
+            {/* Timestamp length comparison bar (actual recorded audio vs. target from cell timestamps) */}
+            {targetDuration &&
+                targetDuration > 0 &&
+                (() => {
+                    const actual = audioDuration && audioDuration > 0 ? audioDuration : 0;
+                    const rawPercentage = actual > 0 ? (actual / targetDuration) * 100 : 0;
+                    const progressPercentage = Math.min(100, rawPercentage);
+                    const shouldStopFilling = rawPercentage >= 100;
+                    const barColor =
+                        rawPercentage <= 90
+                            ? "rgb(34, 197, 94)" // green-500
+                            : rawPercentage <= 100
+                            ? "rgb(234, 179, 8)" // yellow-500
+                            : "rgb(239, 68, 68)"; // red-500
+
+                    return (
+                        <div className="w-full space-y-2 px-2">
+                            <div className="relative w-full h-3 bg-blue-200/60 rounded-full overflow-hidden">
+                                <div
+                                    className="h-full rounded-full transition-all duration-100"
+                                    style={{
+                                        width: `${shouldStopFilling ? 100 : progressPercentage}%`,
+                                        backgroundColor: barColor,
+                                    }}
+                                />
+                            </div>
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                                <span>
+                                    {audioDuration !== null ? `${actual.toFixed(2)}s` : "—"}
+                                </span>
+                                <span>Timestamp Length</span>
+                                <span>{targetDuration.toFixed(2)}s</span>
+                            </div>
+                        </div>
+                    );
+                })()}
 
             {/* Action buttons at bottom */}
             <div className="flex flex-wrap items-center justify-center gap-2 px-2">
