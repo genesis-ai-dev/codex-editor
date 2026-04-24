@@ -204,6 +204,11 @@
                 "category": "Codex Editor"
             },
             {
+                "command": "codex-editor-extension.toggleTelemetry",
+                "title": "Toggle Telemetry (PostHog)",
+                "category": "Codex Editor"
+            },
+            {
                 "command": "codex-editor-extension.forceReindex",
                 "title": "Force Reindex",
                 "icon": "$(refresh)",
@@ -907,6 +912,18 @@
                         "default": "",
                         "description": "Limits context building to specified books. Leave empty to include all. We recommend to leave empty for best results."
                     },
+                    "codex-editor-extension.telemetryEnabled": {
+                        "title": "Enable Telemetry",
+                        "type": "boolean",
+                        "default": true,
+                        "description": "When enabled, anonymous usage telemetry and error reports are sent via PostHog to help improve the editor."
+                    },
+                    "codex-editor-extension.sessionRecordingEnabled": {
+                        "title": "Session Recording",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "When enabled, session replays are buffered locally and only sent when an error occurs, to help diagnose issues."
+                    },
                     "codex-editor-extension.debugMode": {
                         "title": "Debugging Mode",
                         "type": "boolean",
@@ -1149,6 +1166,7 @@
         "pdf-parse": "^1.1.1",
         "pdfjs-dist": "4.0.379",
         "pnpm": "^8.15.5",
+        "posthog-node": "^5.21.2",
         "proc-log": "^5.0.0",
         "react-wordcloud": "^1.2.7",
         "sax": "^1.4.1",

@@ -10,6 +10,7 @@ import * as vscode from "vscode";
 import { getFFmpegPath } from "./ffmpegManager";
 import { mergeWavFiles } from "./wavUtils";
 import { getAudioToolMode } from "./toolPreferences";
+import { captureEvent } from "./telemetry";
 
 const getSpawn = (): ((command: string, args?: readonly string[]) => any) | null => {
     try {
@@ -56,6 +57,11 @@ export const mergeAudioFiles = async (
             return result;
         }
         console.info("[audioMerger] FFmpeg merge failed or unavailable — falling back to pure-JS WAV merge");
+        captureEvent("tool_fallback_used", {
+            tool: "audio",
+            reason: "ffmpeg_merge_failed",
+            mode: getAudioToolMode(),
+        });
     } else {
         console.info("[audioMerger] Built-in audio mode active — using pure-JS WAV merge");
     }

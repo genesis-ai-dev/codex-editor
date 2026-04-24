@@ -10,7 +10,8 @@
 import type { IAsyncDatabase } from "./sqliteTypes";
 import { isNativeSqliteReady, AsyncDatabase } from "./nativeSqlite";
 import { isFts5SqliteReady, Fts5AsyncDatabase } from "./fts5Sqlite";
-import { shouldUseNativeSqlite } from "./toolPreferences";
+import { shouldUseNativeSqlite, getSqliteToolMode } from "./toolPreferences";
+import { captureEvent } from "./telemetry";
 
 /**
  * Open a database file using the preferred backend.
@@ -35,6 +36,11 @@ export const openDatabase = async (filepath: string): Promise<IAsyncDatabase> =>
     // Preferred backend not available — gracefully fall back to whatever IS ready.
     // This mirrors how audio/git tools work: the preference is advisory, not a hard gate.
     if (isNativeSqliteReady()) {
+        captureEvent("tool_fallback_used", {
+            tool: "sqlite",
+            reason: "preferred_backend_unavailable",
+            mode: getSqliteToolMode(),
+        });
         return AsyncDatabase.open(filepath);
     }
 

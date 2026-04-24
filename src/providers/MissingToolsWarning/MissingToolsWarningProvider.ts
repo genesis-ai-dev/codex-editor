@@ -6,6 +6,7 @@ import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import type { ToolCheckResult } from "../../utils/toolsManager";
 import { getAudioToolMode, getGitToolMode, getSqliteToolMode } from "../../utils/toolPreferences";
 import { resetRetryCount } from "../../utils/binaryIntegrityUtils";
+import { captureEvent } from "../../utils/telemetry";
 import type {
     MessagesToMissingToolsWarning,
     MessagesFromMissingToolsWarning,
@@ -274,6 +275,9 @@ export class MissingToolsWarningProvider {
         const { setAudioToolMode } = await import("../../utils/toolPreferences");
         const current = getAudioToolMode();
         const next = current === "auto" ? "builtin" : "auto";
+        if (next === "builtin") {
+            captureEvent("tool_fallback_used", { tool: "audio", reason: "user_chose_fallback", mode: next });
+        }
         await setAudioToolMode(next);
 
         const { checkTools } = await import("../../utils/toolsManager");
@@ -292,6 +296,9 @@ export class MissingToolsWarningProvider {
         const { setGitToolMode } = await import("../../utils/toolPreferences");
         const current = getGitToolMode();
         const next = current === "auto" ? "builtin" : "auto";
+        if (next === "builtin") {
+            captureEvent("tool_fallback_used", { tool: "git", reason: "user_chose_fallback", mode: next });
+        }
         await setGitToolMode(next);
 
         const { checkTools } = await import("../../utils/toolsManager");
@@ -324,6 +331,9 @@ export class MissingToolsWarningProvider {
         const { setSqliteToolMode } = await import("../../utils/toolPreferences");
         const current = getSqliteToolMode();
         const next = current === "auto" ? "builtin" : "auto";
+        if (next === "builtin") {
+            captureEvent("tool_fallback_used", { tool: "sqlite", reason: "user_chose_fallback", mode: next });
+        }
 
         // If switching to the WASM fallback, ensure it's initialized
         if (next === "builtin") {

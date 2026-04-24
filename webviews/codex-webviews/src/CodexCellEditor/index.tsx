@@ -1,5 +1,7 @@
+import "../shared/posthog";
 import React, { useEffect, useState, useMemo } from "react";
 import ReactDOM from "react-dom/client";
+import { ErrorBoundary } from "../shared/ErrorBoundary";
 import App from "./CodexCellEditor";
 // import "./App.css";
 import "../tailwind.css";
@@ -77,7 +79,11 @@ const Index: React.FC = () => {
     );
 };
 
-ReactDOM.createRoot(document.getElementById("root")!).render(<Index />);
+ReactDOM.createRoot(document.getElementById("root")!).render(
+    <ErrorBoundary>
+        <Index />
+    </ErrorBoundary>
+);
 
 // Send webviewReady message when the webview is mounted
 window.addEventListener("load", () => {
