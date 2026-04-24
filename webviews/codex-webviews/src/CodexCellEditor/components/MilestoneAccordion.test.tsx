@@ -1282,6 +1282,54 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             expect(placementCalls).toHaveLength(0);
         });
 
+        it("respects useSubdivisionNumberLabels=true by showing numeric range instead of name", async () => {
+            const named: Subsection[] = [
+                {
+                    id: "s-0",
+                    label: "1-5",
+                    startIndex: 0,
+                    endIndex: 5,
+                    key: "__start__",
+                    startCellId: "v1",
+                    source: "auto",
+                    name: "Genealogy",
+                },
+            ];
+            renderMilestoneAccordion({
+                isSourceText: false,
+                milestoneIndex: createSplittableIndex(5),
+                getSubsectionsForMilestone: vi.fn(() => named),
+                useSubdivisionNumberLabels: true,
+            });
+
+            // Name is suppressed in favor of the numeric range; the name must
+            // NOT appear anywhere as the primary label.
+            expect(screen.queryByText("Genealogy")).not.toBeInTheDocument();
+            expect(screen.getByText("1-5")).toBeInTheDocument();
+        });
+
+        it("default behavior (useSubdivisionNumberLabels=false) shows the name", async () => {
+            const named: Subsection[] = [
+                {
+                    id: "s-0",
+                    label: "1-5",
+                    startIndex: 0,
+                    endIndex: 5,
+                    key: "__start__",
+                    startCellId: "v1",
+                    source: "auto",
+                    name: "Genealogy",
+                },
+            ];
+            renderMilestoneAccordion({
+                isSourceText: false,
+                milestoneIndex: createSplittableIndex(5),
+                getSubsectionsForMilestone: vi.fn(() => named),
+            });
+
+            expect(screen.getByText("Genealogy")).toBeInTheDocument();
+        });
+
         it("cancel button closes the form without posting", async () => {
             renderMilestoneAccordion({
                 isSourceText: true,

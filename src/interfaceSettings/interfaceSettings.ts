@@ -62,11 +62,18 @@ export async function openInterfaceSettings() {
     const sendInit = () => {
         const config = vscode.workspace.getConfiguration("codex-editor-extension");
         const highlightSearchResults = config.get<boolean>("highlightSearchResults", true);
+        const cellsPerPage = config.get<number>("cellsPerPage", 50);
+        const useSubdivisionNumberLabels = config.get<boolean>(
+            "useSubdivisionNumberLabels",
+            false
+        );
 
         panel.webview.postMessage({
             command: "init",
             data: {
                 highlightSearchResults,
+                cellsPerPage,
+                useSubdivisionNumberLabels,
             },
         });
     };
@@ -99,6 +106,48 @@ export async function openInterfaceSettings() {
                 );
                 break;
             }
+
+            case "updateCellsPerPage": {
+                // Clamp to the range declared in package.json so invalid input
+                // cannot corrupt pagination. Pull bounds from the schema-defined
+                // minimum/maximum rather than hardcoding them in multiple places.
+                const raw = Number(message.value);
+                if (!Number.isFinite(raw)) break;
+                const clamped = Math.max(5, Math.min(200, Math.round(raw)));
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                await config.update(
+                    "cellsPerPage",
+                    clamped,
+                    vscode.ConfigurationTarget.Workspace
+                );
+                break;
+            }
+
+            case "updateUseSubdivisionNumberLabels": {
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                await config.update(
+                    "useSubdivisionNumberLabels",
+                    Boolean(message.value),
+                    vscode.ConfigurationTarget.Workspace
+                );
+                break;
+            }
         }
+    });
+
+    // Keep the panel in sync when settings change from elsewhere (e.g. the
+    // VS Code Settings UI). Disposed together with the panel below.
+    const configListener = vscode.workspace.onDidChangeConfiguration((e) => {
+        if (
+            e.affectsConfiguration("codex-editor-extension.highlightSearchResults") ||
+            e.affectsConfiguration("codex-editor-extension.cellsPerPage") ||
+            e.affectsConfiguration("codex-editor-extension.useSubdivisionNumberLabels")
+        ) {
+            sendInit();
+        }
+    });
+
+    panel.onDidDispose(() => {
+        configListener.dispose();
     });
 }

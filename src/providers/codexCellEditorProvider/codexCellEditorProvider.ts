@@ -123,6 +123,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return config.get("cellsPerPage", 50); // Default to 50 cells per page
     }
 
+    /**
+     * User preference that forces subdivision labels to display their numeric
+     * cell range instead of any user-assigned name. Read lazily so a workspace
+     * settings change is picked up on the next render without a webview reload.
+     */
+    private get USE_SUBDIVISION_NUMBER_LABELS(): boolean {
+        const config = vscode.workspace.getConfiguration("codex-editor-extension");
+        return config.get("useSubdivisionNumberLabels", false);
+    }
+
     private bumpDocumentRevision(documentUri: string): number {
         const next = (this.documentRevisions.get(documentUri) ?? 0) + 1;
         this.documentRevisions.set(documentUri, next);
@@ -302,6 +312,22 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     safePostMessageToPanel(panel, {
                         type: "updateCellsPerPage",
                         cellsPerPage: newCellsPerPage,
+                    });
+                });
+            }
+
+            if (
+                e.affectsConfiguration(
+                    "codex-editor-extension.useSubdivisionNumberLabels"
+                )
+            ) {
+                // Push the new preference to all open webviews so subdivision
+                // labels switch between name/number mode without a reload.
+                const newPref = this.USE_SUBDIVISION_NUMBER_LABELS;
+                this.webviewPanels.forEach((panel) => {
+                    safePostMessageToPanel(panel, {
+                        type: "updateSubdivisionLabelPreference",
+                        useSubdivisionNumberLabels: newPref,
                     });
                 });
             }
@@ -886,6 +912,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     validationCountAudio: validationCountAudio,
                     isAuthenticated: isAuthenticated,
                     userAccessLevel: userAccessLevel,
+                    useSubdivisionNumberLabels: this.USE_SUBDIVISION_NUMBER_LABELS,
                 });
 
                 // Record the initial position so subsequent updateWebview() calls
@@ -2621,6 +2648,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 username: username,
                 validationCount: validationCount,
                 validationCountAudio: validationCountAudio,
+                useSubdivisionNumberLabels: this.USE_SUBDIVISION_NUMBER_LABELS,
             });
 
             this.postMessageToWebview(webviewPanel, {
