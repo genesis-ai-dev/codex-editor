@@ -969,8 +969,7 @@ async function exportCodexContentAsUsfmRoundtrip(
         async (progress) => {
             const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
 
-            // Import USFM exporter from experimental (now standalone implementation)
-            const experimentalExporter = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/usfm/experimental/usfmExporter");
+            const experimentalExporter = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/usfm/usfmExporter");
             const exportUsfmRoundtrip = experimentalExporter.exportUsfmRoundtrip;
 
             // For each selected codex file, reconstruct the USFM with translations
@@ -989,8 +988,20 @@ async function exportCodexContentAsUsfmRoundtrip(
                     // Check if this is a USFM file (experimental or standalone)
                     const importerType = (codexNotebook.metadata as any)?.importerType;
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
+                    const hasStructureMetadata = !!(codexNotebook.metadata as any)?.structureMetadata?.originalUsfmContent;
+                    const metaOriginalName: string = (codexNotebook.metadata as any)?.originalFileName ||
+                        (codexNotebook.metadata as any)?.originalName || '';
+                    const hasUsfmExtension = /\.(usfm|sfm)$/i.test(metaOriginalName);
 
-                    if (importerType !== 'usfm-experimental' && corpusMarker !== 'usfm') {
+                    const isUsfmFile =
+                        importerType === 'usfm-experimental' ||
+                        importerType === 'usfm' ||
+                        corpusMarker === 'usfm' ||
+                        hasStructureMetadata ||
+                        ((corpusMarker === 'NT' || corpusMarker === 'OT') && hasUsfmExtension) ||
+                        hasUsfmExtension;
+
+                    if (!isUsfmFile) {
                         console.warn(`[USFM Export] Skipping ${fileName} - not imported with USFM importer (importerType: ${importerType}, corpusMarker: ${corpusMarker})`);
                         vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with USFM importer`);
                         continue;
