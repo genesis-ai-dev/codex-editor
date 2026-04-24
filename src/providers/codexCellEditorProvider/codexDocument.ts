@@ -92,6 +92,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     // Cache for milestone index to avoid rebuilding on every call
     private _cachedMilestoneIndex: MilestoneIndex | null = null;
     private _cachedMilestoneIndexCellsPerPage: number | null = null;
+    private _cachedMilestoneIndexMaxSubdivisionLength: number | null = null;
     private _cachedMilestoneIndexCellCount: number = 0;
     private _lastUpdatedMilestoneIndexCellCount: number = 0;
 
@@ -1282,6 +1283,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     private invalidateMilestoneIndexCache(): void {
         this._cachedMilestoneIndex = null;
         this._cachedMilestoneIndexCellsPerPage = null;
+        this._cachedMilestoneIndexMaxSubdivisionLength = null;
         this._cachedMilestoneIndexCellCount = 0;
         this._lastUpdatedMilestoneIndexCellCount = 0;
     }
@@ -1374,7 +1376,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
     private resolveSubdivisionsForMilestoneCell(
         cellIndex: number,
         nextMilestoneCellIndex: number,
-        cellsPerPage: number
+        cellsPerPage: number,
+        maxSubdivisionLength?: number
     ): SubdivisionInfo[] {
         const cells = this._documentData.cells || [];
         const rootContentCellIds = this.getRootContentCellIdsInRange(
@@ -1383,13 +1386,23 @@ export class CodexCellDocument implements vscode.CustomDocument {
         );
         const milestoneCell = cells[cellIndex];
         const data = milestoneCell?.metadata?.data as
-            | { subdivisions?: MilestoneSubdivisionPlacement[]; subdivisionNames?: { [key: string]: string; }; }
+            | {
+                subdivisions?: MilestoneSubdivisionPlacement[];
+                subdivisionNames?: { [key: string]: string; };
+                subdivisionNamesFromSource?: { [key: string]: string; };
+            }
             | undefined;
         return resolveSubdivisions({
             rootContentCellIds,
             placements: data?.subdivisions,
             nameOverrides: data?.subdivisionNames,
+            // `subdivisionNamesFromSource` only ever appears on TARGET milestone
+            // cells (mirrored by source-side handlers). On source documents the
+            // field is absent so passing it through is a no-op. Either way the
+            // resolver consults it as a fallback after the document's own map.
+            fallbackNameOverrides: data?.subdivisionNamesFromSource,
             cellsPerPage,
+            maxSubdivisionLength,
         });
     }
 
@@ -1398,16 +1411,25 @@ export class CodexCellDocument implements vscode.CustomDocument {
      * This index is cached and reused until cells are modified.
      * 
      * @param cellsPerPage Number of cells per page for sub-pagination within milestones
+     * @param maxSubdivisionLength Optional cap above which a stretch between
+     *  user-defined breaks gets sub-chunked by `cellsPerPage`. Pass 0/undefined
+     *  for the legacy "always chunk past a page" behaviour.
      * @returns MilestoneIndex containing milestone information and pagination settings
      */
-    public buildMilestoneIndex(cellsPerPage: number = 50): MilestoneIndex {
+    public buildMilestoneIndex(
+        cellsPerPage: number = 50,
+        maxSubdivisionLength: number = 0
+    ): MilestoneIndex {
         const cells = this._documentData.cells || [];
         const currentCellCount = cells.length;
 
-        // Check if we can use the cached index
+        // Check if we can use the cached index. The cache key now also
+        // includes `maxSubdivisionLength` so flipping that workspace setting
+        // produces a fresh subdivision layout instead of stale slices.
         if (
             this._cachedMilestoneIndex !== null &&
             this._cachedMilestoneIndexCellsPerPage === cellsPerPage &&
+            this._cachedMilestoneIndexMaxSubdivisionLength === maxSubdivisionLength &&
             this._cachedMilestoneIndexCellCount === currentCellCount
         ) {
             return this._cachedMilestoneIndex;
@@ -1521,6 +1543,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 placements: undefined,
                 nameOverrides: undefined,
                 cellsPerPage,
+                maxSubdivisionLength,
             });
 
             const result: MilestoneIndex = {
@@ -1532,6 +1555,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // Cache the result
             this._cachedMilestoneIndex = result;
             this._cachedMilestoneIndexCellsPerPage = cellsPerPage;
+            this._cachedMilestoneIndexMaxSubdivisionLength = maxSubdivisionLength;
             this._cachedMilestoneIndexCellCount = currentCellCount;
 
             return result;
@@ -1546,7 +1570,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             milestone.subdivisions = this.resolveSubdivisionsForMilestoneCell(
                 milestone.cellIndex,
                 endCellIndex,
-                cellsPerPage
+                cellsPerPage,
+                maxSubdivisionLength
             );
         }
 
@@ -1559,6 +1584,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Cache the result
         this._cachedMilestoneIndex = result;
         this._cachedMilestoneIndexCellsPerPage = cellsPerPage;
+        this._cachedMilestoneIndexMaxSubdivisionLength = maxSubdivisionLength;
         this._cachedMilestoneIndexCellCount = currentCellCount;
 
         return result;
@@ -1663,7 +1689,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
      * @param cellsPerPage Number of cells per page for sub-pagination (default: 50)
      * @returns An object with milestoneIndex and subsectionIndex, or null if not found
      */
-    public findMilestoneAndSubsectionForCell(cellId: string, cellsPerPage: number = 50): { milestoneIndex: number; subsectionIndex: number; } | null {
+    public findMilestoneAndSubsectionForCell(cellId: string, cellsPerPage: number = 50, maxSubdivisionLength: number = 0): { milestoneIndex: number; subsectionIndex: number; } | null {
         const cells = this._documentData.cells || [];
 
         // Normalize cellId by trimming whitespace
@@ -1681,7 +1707,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         // Build milestone index to get milestone information
-        const milestoneInfo = this.buildMilestoneIndex(cellsPerPage);
+        const milestoneInfo = this.buildMilestoneIndex(cellsPerPage, maxSubdivisionLength);
 
         // Find which milestone this cell belongs to
         for (let i = 0; i < milestoneInfo.milestones.length; i++) {
@@ -1867,7 +1893,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
         milestoneIndex: number,
         cellsPerPage: number = 50,
         minimumValidationsRequired: number = 1,
-        minimumAudioValidationsRequired: number = 1
+        minimumAudioValidationsRequired: number = 1,
+        maxSubdivisionLength: number = 0
     ): Record<number, {
         percentTranslationsCompleted: number;
         percentAudioTranslationsCompleted: number;
@@ -1892,7 +1919,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }> = {};
 
         const cells = this._documentData.cells || [];
-        const milestoneInfo = this.buildMilestoneIndex(cellsPerPage);
+        const milestoneInfo = this.buildMilestoneIndex(cellsPerPage, maxSubdivisionLength);
 
         // Validate milestone index
         if (milestoneIndex < 0 || milestoneIndex >= milestoneInfo.milestones.length) {
@@ -1929,6 +1956,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             placements: undefined,
             nameOverrides: undefined,
             cellsPerPage,
+            maxSubdivisionLength,
         });
         const totalSubsections = Math.max(1, subdivisions.length);
 
@@ -2069,10 +2097,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public getCellsForMilestone(
         milestoneIndex: number,
         subsectionIndex: number = 0,
-        cellsPerPage: number = 50
+        cellsPerPage: number = 50,
+        maxSubdivisionLength: number = 0
     ): QuillCellContent[] {
         const cells = this._documentData.cells || [];
-        const milestoneInfo = this.buildMilestoneIndex(cellsPerPage);
+        const milestoneInfo = this.buildMilestoneIndex(cellsPerPage, maxSubdivisionLength);
 
         // Validate milestone index
         if (milestoneIndex < 0 || milestoneIndex >= milestoneInfo.milestones.length) {
@@ -2137,6 +2166,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             placements: undefined,
             nameOverrides: undefined,
             cellsPerPage,
+            maxSubdivisionLength,
         });
         const totalSubsections = Math.max(1, subdivisions.length);
         const validSubsectionIndex = Math.min(
@@ -2278,8 +2308,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
      * @param cellsPerPage Number of cells per page
      * @returns Number of subsections (pages) for this milestone
      */
-    public getSubsectionCountForMilestone(milestoneIndex: number, cellsPerPage: number = 50): number {
-        const milestoneInfo = this.buildMilestoneIndex(cellsPerPage);
+    public getSubsectionCountForMilestone(milestoneIndex: number, cellsPerPage: number = 50, maxSubdivisionLength: number = 0): number {
+        const milestoneInfo = this.buildMilestoneIndex(cellsPerPage, maxSubdivisionLength);
 
         if (milestoneIndex < 0 || milestoneIndex >= milestoneInfo.milestones.length) {
             return 0;
@@ -3034,10 +3064,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const isModifyingDeletedFlag = 'deleted' in newData;
         // Subdivision-related changes alter pagination, so the cached index must
         // be invalidated alongside the deleted-flag case. Name-only overrides
-        // also flow through this path so that resolved `MilestoneInfo.subdivisions`
-        // picks up new names on next render.
+        // (both local and the source-mirror fallback) also flow through this
+        // path so that resolved `MilestoneInfo.subdivisions` picks up new names
+        // on next render.
         const isModifyingSubdivisions =
-            'subdivisions' in newData || 'subdivisionNames' in newData;
+            'subdivisions' in newData ||
+            'subdivisionNames' in newData ||
+            'subdivisionNamesFromSource' in newData;
         const shouldInvalidateCache =
             isMilestoneCell && (isModifyingDeletedFlag || isModifyingSubdivisions);
 

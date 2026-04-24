@@ -211,6 +211,131 @@ suite("Milestone Subdivisions Test Suite", () => {
             assert.strictEqual(findSubdivisionIndexForRoot(subs, 7), 2);
             assert.strictEqual(findSubdivisionIndexForRoot(subs, 99), -1);
         });
+
+        // -------------------------------------------------------------------
+        // Adaptive chunking: long stretches between user breaks get sub-paged
+        // -------------------------------------------------------------------
+
+        test("user break inside a long milestone still triggers per-page sub-chunking", () => {
+            // 700 roots, cellsPerPage=50, one custom break at root 432 (cell c432).
+            // Expected: [0,50), [50,100)…[400,432), then [432,482)…[682,700).
+            const rootIds = ids(700);
+            const result = resolveSubdivisions({
+                rootContentCellIds: rootIds,
+                placements: [{ startCellId: "c432" }],
+                cellsPerPage: 50,
+            });
+            // Exactly one stretch boundary was added by the user, so the only "custom"
+            // entries should be the implicit-first stretch (now custom because a break
+            // exists) and the c432 anchor itself. Everything else is auto-derived.
+            const customStarts = result.filter((s) => s.source === "custom").map((s) => s.startRootIndex);
+            assert.deepStrictEqual(customStarts, [0, 432]);
+            // Sanity-check the boundaries on either side of the user break.
+            const indexAtBreak = result.findIndex((s) => s.startRootIndex === 432);
+            assert.notStrictEqual(indexAtBreak, -1, "expected a subdivision starting at root 432");
+            const beforeBreak = result[indexAtBreak - 1];
+            assert.strictEqual(beforeBreak.endRootIndex, 432, "stretch ending at the user break should not bleed past it");
+            assert.strictEqual(beforeBreak.startRootIndex, 400, "auto chunks should respect cellsPerPage=50");
+            // The trailing stretch should be paged from 432 in 50-cell increments.
+            const afterStarts = result
+                .slice(indexAtBreak)
+                .map((s) => s.startRootIndex);
+            assert.deepStrictEqual(
+                afterStarts.slice(0, 4),
+                [432, 482, 532, 582],
+                "trailing stretch should be sub-chunked starting at the user break"
+            );
+            // And the very last subdivision should end at the milestone boundary, not past it.
+            assert.strictEqual(result[result.length - 1].endRootIndex, 700);
+        });
+
+        test("maxSubdivisionLength preserves stretches shorter than the threshold", () => {
+            // 200 roots, custom breaks at 70 and 173. cellsPerPage=70, threshold=120.
+            // Expected stretches: [0,70) len 70 → kept; [70,173) len 103 → kept (under 120);
+            // [173,200) len 27 → kept. So three subdivisions, all "custom" anchors.
+            const rootIds = ids(200);
+            const result = resolveSubdivisions({
+                rootContentCellIds: rootIds,
+                placements: [{ startCellId: "c70" }, { startCellId: "c173" }],
+                cellsPerPage: 70,
+                maxSubdivisionLength: 120,
+            });
+            assert.strictEqual(result.length, 3);
+            assert.deepStrictEqual(
+                result.map((s) => [s.startRootIndex, s.endRootIndex]),
+                [[0, 70], [70, 173], [173, 200]]
+            );
+            // All three are user-defined origins, so they should all be "custom".
+            assert.deepStrictEqual(result.map((s) => s.source), ["custom", "custom", "custom"]);
+        });
+
+        test("maxSubdivisionLength still sub-chunks stretches that exceed it", () => {
+            // 300 roots, no custom breaks, cellsPerPage=50, threshold=120.
+            // 300 > 120 so we should sub-chunk into 50-cell pages.
+            const rootIds = ids(300);
+            const result = resolveSubdivisions({
+                rootContentCellIds: rootIds,
+                cellsPerPage: 50,
+                maxSubdivisionLength: 120,
+            });
+            assert.strictEqual(result.length, 6);
+            assert.deepStrictEqual(
+                result.map((s) => s.startRootIndex),
+                [0, 50, 100, 150, 200, 250]
+            );
+        });
+
+        // -------------------------------------------------------------------
+        // Source-name fallback: target inherits source's labels by default
+        // -------------------------------------------------------------------
+
+        test("fallbackNameOverrides supplies names when local override is missing", () => {
+            const rootIds = ids(20);
+            const result = resolveSubdivisions({
+                rootContentCellIds: rootIds,
+                placements: [{ startCellId: "c10" }],
+                fallbackNameOverrides: {
+                    [FIRST_SUBDIVISION_KEY]: "Source Intro",
+                    c10: "Source Conclusion",
+                },
+                cellsPerPage: 50,
+            });
+            assert.strictEqual(result.length, 2);
+            assert.strictEqual(result[0].name, "Source Intro");
+            assert.strictEqual(result[1].name, "Source Conclusion");
+        });
+
+        test("local nameOverrides win over fallbackNameOverrides", () => {
+            const rootIds = ids(20);
+            const result = resolveSubdivisions({
+                rootContentCellIds: rootIds,
+                placements: [{ startCellId: "c10" }],
+                nameOverrides: { c10: "Target Conclusion" },
+                fallbackNameOverrides: {
+                    [FIRST_SUBDIVISION_KEY]: "Source Intro",
+                    c10: "Source Conclusion",
+                },
+                cellsPerPage: 50,
+            });
+            // First subdivision: no local override → falls back to source.
+            assert.strictEqual(result[0].name, "Source Intro");
+            // Second subdivision: local wins.
+            assert.strictEqual(result[1].name, "Target Conclusion");
+        });
+
+        test("empty-string local override does NOT mask source fallback", () => {
+            // Important contract: clearing a name on the target should re-expose
+            // the inherited source name, not display "" / a numeric fallback.
+            const rootIds = ids(20);
+            const result = resolveSubdivisions({
+                rootContentCellIds: rootIds,
+                placements: [{ startCellId: "c10" }],
+                nameOverrides: { c10: "" },
+                fallbackNameOverrides: { c10: "Source Conclusion" },
+                cellsPerPage: 50,
+            });
+            assert.strictEqual(result[1].name, "Source Conclusion");
+        });
     });
 
     // ---------------------------------------------------------------------------
@@ -586,6 +711,285 @@ suite("Milestone Subdivisions Test Suite", () => {
                     index.milestones[0].subdivisions?.length ?? 0,
                     1,
                     "Non-source writes must not mutate the document"
+                );
+            });
+        });
+
+        // -----------------------------------------------------------------
+        // updateMilestoneSubdivisionName handler — auto-chunk promotion
+        // -----------------------------------------------------------------
+        //
+        // Naming an auto-generated break (on the source side) is treated as
+        // the translator committing to that break: it gets promoted from a
+        // derived arithmetic chunk to a persistent placement so downstream
+        // changes to `cellsPerPage` / `maxSubdivisionLength` don't displace
+        // or orphan the name.
+        suite("updateMilestoneSubdivisionName handler promotes auto-chunks", () => {
+            function stampSourceUri(document: CodexCellDocument) {
+                (document as any).uri = vscode.Uri.parse("file:///test.source");
+            }
+
+            function stubProviderForHandlerTest(p: CodexCellEditorProvider) {
+                sinon.stub(p, "saveCustomDocument").resolves();
+                sinon.stub(p, "getPairedNotebookUri").returns(null);
+                sinon.stub(p, "refreshWebview").resolves();
+                (p as any).currentMilestoneSubsectionMap = new Map();
+                sinon.stub(CodexCellDocument.prototype as any, "refreshAuthor").resolves();
+            }
+
+            async function invokeRename({
+                document,
+                milestoneIndex,
+                subdivisionKey,
+                newName,
+            }: {
+                document: CodexCellDocument;
+                milestoneIndex: number;
+                subdivisionKey: string;
+                newName: string;
+            }): Promise<void> {
+                const handler = __testOnlyMessageHandlers["updateMilestoneSubdivisionName"];
+                assert.ok(handler, "updateMilestoneSubdivisionName handler must be registered");
+                await handler({
+                    event: {
+                        command: "updateMilestoneSubdivisionName",
+                        content: { milestoneIndex, subdivisionKey, newName },
+                    } as any,
+                    document,
+                    webviewPanel: {} as any,
+                    provider,
+                    updateWebview: () => { /* no-op */ },
+                });
+            }
+
+            /** Builds a milestone with `rootCount` content cells + no placements. */
+            function buildLargeMilestone(rootCount: number) {
+                const cells: any[] = [
+                    {
+                        kind: 2,
+                        languageId: "scripture",
+                        value: "Luke 1",
+                        metadata: { type: CodexCellTypes.MILESTONE, id: "m1" },
+                    },
+                ];
+                for (let i = 1; i <= rootCount; i++) {
+                    cells.push({
+                        kind: 2,
+                        languageId: "scripture",
+                        value: `v${i}`,
+                        metadata: { type: CodexCellTypes.TEXT, id: `v${i}` },
+                    });
+                }
+                return cells;
+            }
+
+            test("naming an auto-chunk adds a persistent placement", async () => {
+                // 150 cells, cellsPerPage=50 → auto chunks at v1, v51, v101.
+                // Naming the v51 chunk should promote it to a real placement.
+                const document = await createDocumentWithCells(buildLargeMilestone(150));
+                stampSourceUri(document);
+                stubProviderForHandlerTest(provider);
+
+                await invokeRename({
+                    document,
+                    milestoneIndex: 0,
+                    subdivisionKey: "v51",
+                    newName: "Section B",
+                });
+
+                const milestoneCell = document.getCellByIndex(0);
+                const data = milestoneCell?.metadata?.data as {
+                    subdivisions?: { startCellId: string; name?: string; }[];
+                    subdivisionNames?: { [k: string]: string; };
+                };
+                assert.deepStrictEqual(
+                    data.subdivisions,
+                    [{ startCellId: "v51", name: "Section B" }],
+                    "Renaming v51 should promote it into subdivisions[]"
+                );
+                assert.strictEqual(
+                    data.subdivisionNames?.["v51"],
+                    "Section B",
+                    "The subdivisionNames override should track in parallel"
+                );
+            });
+
+            test("renaming an already-placed anchor syncs name on the placement", async () => {
+                // Start with a placement that has no name, then rename it.
+                const cells: any[] = [
+                    {
+                        kind: 2,
+                        languageId: "scripture",
+                        value: "Luke 1",
+                        metadata: {
+                            type: CodexCellTypes.MILESTONE,
+                            id: "m1",
+                            data: { subdivisions: [{ startCellId: "v5" }] },
+                        },
+                    },
+                ];
+                for (let i = 1; i <= 10; i++) {
+                    cells.push({
+                        kind: 2,
+                        languageId: "scripture",
+                        value: `v${i}`,
+                        metadata: { type: CodexCellTypes.TEXT, id: `v${i}` },
+                    });
+                }
+                const document = await createDocumentWithCells(cells);
+                stampSourceUri(document);
+                stubProviderForHandlerTest(provider);
+
+                await invokeRename({
+                    document,
+                    milestoneIndex: 0,
+                    subdivisionKey: "v5",
+                    newName: "Second Half",
+                });
+
+                const milestoneCell = document.getCellByIndex(0);
+                const data = milestoneCell?.metadata?.data as {
+                    subdivisions?: { startCellId: string; name?: string; }[];
+                };
+                assert.deepStrictEqual(
+                    data.subdivisions,
+                    [{ startCellId: "v5", name: "Second Half" }],
+                    "Existing placement should have its name updated"
+                );
+            });
+
+            test("clearing a name leaves the placement intact (demotion not implied)", async () => {
+                // Pre-promote v5 with a name, then clear it. Placement should
+                // remain so the user still sees a break there; only the name
+                // is removed.
+                const cells: any[] = [
+                    {
+                        kind: 2,
+                        languageId: "scripture",
+                        value: "Luke 1",
+                        metadata: {
+                            type: CodexCellTypes.MILESTONE,
+                            id: "m1",
+                            data: {
+                                subdivisions: [{ startCellId: "v5", name: "Named" }],
+                                subdivisionNames: { v5: "Named" },
+                            },
+                        },
+                    },
+                ];
+                for (let i = 1; i <= 10; i++) {
+                    cells.push({
+                        kind: 2,
+                        languageId: "scripture",
+                        value: `v${i}`,
+                        metadata: { type: CodexCellTypes.TEXT, id: `v${i}` },
+                    });
+                }
+                const document = await createDocumentWithCells(cells);
+                stampSourceUri(document);
+                stubProviderForHandlerTest(provider);
+
+                await invokeRename({
+                    document,
+                    milestoneIndex: 0,
+                    subdivisionKey: "v5",
+                    newName: "",
+                });
+
+                const milestoneCell = document.getCellByIndex(0);
+                const data = milestoneCell?.metadata?.data as {
+                    subdivisions?: { startCellId: string; name?: string; }[];
+                    subdivisionNames?: { [k: string]: string; };
+                };
+                assert.deepStrictEqual(
+                    data.subdivisions,
+                    [{ startCellId: "v5" }],
+                    "Placement should remain; only the name is cleared"
+                );
+                assert.strictEqual(
+                    data.subdivisionNames?.["v5"],
+                    undefined,
+                    "The override map should no longer carry this key"
+                );
+            });
+
+            test("naming the implicit first subdivision does NOT create a placement", async () => {
+                const document = await createDocumentWithCells(buildLargeMilestone(10));
+                stampSourceUri(document);
+                stubProviderForHandlerTest(provider);
+
+                await invokeRename({
+                    document,
+                    milestoneIndex: 0,
+                    subdivisionKey: FIRST_SUBDIVISION_KEY,
+                    newName: "Intro",
+                });
+
+                const milestoneCell = document.getCellByIndex(0);
+                const data = milestoneCell?.metadata?.data as {
+                    subdivisions?: { startCellId: string; name?: string; }[];
+                    subdivisionNames?: { [k: string]: string; };
+                };
+                assert.ok(
+                    !data.subdivisions || data.subdivisions.length === 0,
+                    "First subdivision has no placement; must not be promoted"
+                );
+                assert.strictEqual(data.subdivisionNames?.[FIRST_SUBDIVISION_KEY], "Intro");
+            });
+
+            test("clearing a name on an unplaced auto-chunk does not create a placement", async () => {
+                // Edge: user opens the rename field, types nothing, then
+                // blurs. We should not invent a placement just because they
+                // touched the control.
+                const document = await createDocumentWithCells(buildLargeMilestone(150));
+                stampSourceUri(document);
+                stubProviderForHandlerTest(provider);
+
+                await invokeRename({
+                    document,
+                    milestoneIndex: 0,
+                    subdivisionKey: "v51",
+                    newName: "",
+                });
+
+                const milestoneCell = document.getCellByIndex(0);
+                const data = milestoneCell?.metadata?.data as {
+                    subdivisions?: { startCellId: string; name?: string; }[];
+                };
+                assert.ok(
+                    !data.subdivisions || data.subdivisions.length === 0,
+                    "Empty rename on an auto-chunk must not promote it"
+                );
+            });
+
+            test("target-side rename never adds a placement", async () => {
+                // Target docs are pointed at .codex (not .source), so the
+                // handler's promotion branch must not run. Verify by leaving
+                // the temp .codex URI in place.
+                const document = await createDocumentWithCells(buildLargeMilestone(150));
+                // Intentionally skip stampSourceUri.
+                stubProviderForHandlerTest(provider);
+
+                await invokeRename({
+                    document,
+                    milestoneIndex: 0,
+                    subdivisionKey: "v51",
+                    newName: "Target Name",
+                });
+
+                const milestoneCell = document.getCellByIndex(0);
+                const data = milestoneCell?.metadata?.data as {
+                    subdivisions?: { startCellId: string; name?: string; }[];
+                    subdivisionNames?: { [k: string]: string; };
+                };
+                assert.ok(
+                    !data.subdivisions || data.subdivisions.length === 0,
+                    "Target-side renames must not introduce placements (source-authoritative)"
+                );
+                assert.strictEqual(
+                    data.subdivisionNames?.["v51"],
+                    "Target Name",
+                    "Target rename still lands in local subdivisionNames override"
                 );
             });
         });

@@ -22,6 +22,8 @@ import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 import { isSourceFileFlexible } from "../../utils/fileTypeUtils";
+import { FIRST_SUBDIVISION_KEY } from "./utils/subdivisionUtils";
+import type { MilestoneSubdivisionPlacement } from "../../../types";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -135,7 +137,12 @@ export async function sendMilestoneRefreshToWebview(
     if (currentPosition) {
         const config = vscode.workspace.getConfiguration("codex-editor-extension");
         const cellsPerPage = config.get("cellsPerPage", 50);
-        const milestoneIndex = document.buildMilestoneIndex(cellsPerPage);
+        const maxSubdivisionLengthRaw = config.get<number>("maxSubdivisionLength", 0);
+        const maxSubdivisionLength =
+            typeof maxSubdivisionLengthRaw === "number" && maxSubdivisionLengthRaw > 0
+                ? Math.floor(maxSubdivisionLengthRaw)
+                : 0;
+        const milestoneIndex = document.buildMilestoneIndex(cellsPerPage, maxSubdivisionLength);
 
         const validationCount = vscode.workspace.getConfiguration("codex-project-manager").get("validationCount", 1);
         const validationCountAudio = vscode.workspace.getConfiguration("codex-project-manager").get("validationCountAudio", 1);
@@ -143,7 +150,7 @@ export async function sendMilestoneRefreshToWebview(
         milestoneIndex.milestoneProgress = milestoneProgress;
 
         const isSourceText = document.uri.toString().includes(".source");
-        const cells = document.getCellsForMilestone(currentPosition.milestoneIndex, currentPosition.subsectionIndex, cellsPerPage);
+        const cells = document.getCellsForMilestone(currentPosition.milestoneIndex, currentPosition.subsectionIndex, cellsPerPage, maxSubdivisionLength);
         const processedCells = provider.mergeRangesAndProcess(cells, provider.isCorrectionEditorMode, isSourceText);
 
         const sourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
@@ -292,7 +299,14 @@ async function commitMilestoneSubdivisionPlacements({
         return;
     }
 
-    // Mirror placements (without names) to the paired target document.
+    // Mirror placements (with names) and the source's full `subdivisionNames`
+    // map onto the paired target. Names ride along on the placement objects so
+    // a user-set source name shows on the target by default; the source-name
+    // map is mirrored separately into `subdivisionNamesFromSource` so the
+    // target can fall back on it for the implicit first subdivision and for
+    // entries renamed via the rename pencil (which writes to
+    // `subdivisionNames`, not into placement.name).
+    //
     // Tracks the target document we successfully mirrored to so we can refresh
     // its webview after the source-side refresh below. Only set when the
     // mirror actually wrote new data; left null when the target is unpaired,
@@ -329,12 +343,37 @@ async function commitMilestoneSubdivisionPlacements({
                         targetMilestone.cellIndex
                     );
                     if (targetMilestoneCell?.metadata?.id) {
-                        const mirroredPlacements = sanitized.map((p) => ({
-                            startCellId: p.startCellId,
-                        }));
+                        // Preserve `name` so a target translator sees source
+                        // labels by default until they override locally.
+                        const mirroredPlacements = sanitized.map((p) => {
+                            const out: { startCellId: string; name?: string; } = {
+                                startCellId: p.startCellId,
+                            };
+                            if (typeof p.name === "string" && p.name.length > 0) {
+                                out.name = p.name;
+                            }
+                            return out;
+                        });
+
+                        // Snapshot the source's localized subdivision names so
+                        // the target can present them as defaults. Only string
+                        // values are forwarded.
+                        const sourceData = sourceMilestoneCell.metadata?.data as
+                            | { subdivisionNames?: { [k: string]: string; }; }
+                            | undefined;
+                        const mirroredSourceNames: { [k: string]: string; } = {};
+                        if (sourceData?.subdivisionNames) {
+                            for (const [k, v] of Object.entries(sourceData.subdivisionNames)) {
+                                if (typeof v === "string" && v.length > 0) {
+                                    mirroredSourceNames[k] = v;
+                                }
+                            }
+                        }
+
                         await targetDocument.refreshAuthor();
                         targetDocument.updateCellData(targetMilestoneCell.metadata.id, {
                             subdivisions: mirroredPlacements,
+                            subdivisionNamesFromSource: mirroredSourceNames,
                         });
                         await provider.saveCustomDocument(targetDocument, cancellationToken);
                         mirroredTargetDocument = targetDocument;
@@ -1613,9 +1652,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         // Names live on a separate `subdivisionNames` map so source and target
         // can be renamed independently. Empty string clears the override.
-        const existingNames =
-            (milestoneCell.metadata?.data as { subdivisionNames?: { [k: string]: string; }; } | undefined)
-                ?.subdivisionNames ?? {};
+        const existingData = milestoneCell.metadata?.data as
+            | {
+                subdivisionNames?: { [k: string]: string; };
+                subdivisions?: MilestoneSubdivisionPlacement[];
+            }
+            | undefined;
+        const existingNames = existingData?.subdivisionNames ?? {};
         const nextNames: { [k: string]: string; } = { ...existingNames };
         const trimmed = typeof newName === "string" ? newName.trim() : "";
         if (trimmed.length === 0) {
@@ -1624,7 +1667,106 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             nextNames[subdivisionKey] = trimmed;
         }
 
+        // Promotion rule: when a SOURCE translator gives a name to a subdivision,
+        // treat that name as a commitment that this break is meaningful and
+        // should survive changes to `cellsPerPage` / `maxSubdivisionLength`.
+        // Auto-generated chunks normally have no entry in `subdivisions`, so we
+        // add one here. For keys that are already placements we sync `.name` on
+        // the placement object too, keeping the two naming paths in lockstep
+        // (the `subdivisionNames` map and the mirror that rides on the
+        // placement itself). The implicit first subdivision is never promoted:
+        // it has no placement and can't have one.
+        const isSource = isSourceFileFlexible(document.uri);
+        const existingPlacements = Array.isArray(existingData?.subdivisions)
+            ? existingData.subdivisions
+            : [];
+        let promotionPlacements: { startCellId: string; name?: string; }[] | null = null;
+        if (isSource && subdivisionKey !== FIRST_SUBDIVISION_KEY) {
+            const normalize = (
+                p: MilestoneSubdivisionPlacement | undefined
+            ): { startCellId: string; name?: string; } | null => {
+                if (!p || typeof p.startCellId !== "string") return null;
+                const out: { startCellId: string; name?: string; } = {
+                    startCellId: p.startCellId,
+                };
+                if (typeof p.name === "string" && p.name.length > 0) {
+                    out.name = p.name;
+                }
+                return out;
+            };
+            const alreadyPlaced = existingPlacements.some(
+                (p) => p?.startCellId === subdivisionKey
+            );
+            if (alreadyPlaced) {
+                // Sync this placement's `.name` with the new override so
+                // mirror-to-target carries the name on the placement object.
+                // Other placements are normalized but otherwise untouched.
+                promotionPlacements = existingPlacements
+                    .map((p) => {
+                        if (!p || typeof p.startCellId !== "string") return null;
+                        if (p.startCellId !== subdivisionKey) return normalize(p);
+                        const updated: { startCellId: string; name?: string; } = {
+                            startCellId: p.startCellId,
+                        };
+                        if (trimmed.length > 0) updated.name = trimmed;
+                        return updated;
+                    })
+                    .filter((p): p is { startCellId: string; name?: string; } => p !== null);
+            } else if (trimmed.length > 0) {
+                // Promote an auto-chunk to a real placement. The resolver uses
+                // each auto-chunk's `startCellId` as its key, so the incoming
+                // key IS a valid root cell id — but we still double-check
+                // before writing to guard against stale UI state.
+                const validRootIds = new Set(
+                    document.getRootContentCellIdsForMilestone(milestoneIndex)
+                );
+                if (validRootIds.has(subdivisionKey)) {
+                    const normalized = existingPlacements
+                        .map(normalize)
+                        .filter((p): p is { startCellId: string; name?: string; } => p !== null);
+                    promotionPlacements = [
+                        ...normalized,
+                        { startCellId: subdivisionKey, name: trimmed },
+                    ];
+                }
+            }
+        }
+
         const cancellationToken = new vscode.CancellationTokenSource().token;
+
+        // Promotion path: write the updated names, then hand off to the shared
+        // helper which writes `subdivisions`, saves once, and mirrors both
+        // placements and `subdivisionNamesFromSource` to the paired target
+        // (including a target-side webview refresh). We `return` early because
+        // the helper takes over the remainder of the flow.
+        if (promotionPlacements !== null) {
+            try {
+                await document.refreshAuthor();
+                document.updateCellData(milestoneCell.metadata.id, {
+                    subdivisionNames: nextNames,
+                });
+            } catch (error) {
+                console.error(
+                    "[updateMilestoneSubdivisionName] Failed to stage name update before promotion:",
+                    error
+                );
+                vscode.window.showErrorMessage(
+                    `Failed to rename subdivision: ${error instanceof Error ? error.message : String(error)}`
+                );
+                return;
+            }
+            await commitMilestoneSubdivisionPlacements({
+                document,
+                webviewPanel,
+                provider,
+                milestoneIndex,
+                incomingPlacements: promotionPlacements,
+                logPrefix: "[updateMilestoneSubdivisionName]",
+                errorPrefix: "Failed to rename subdivision",
+            });
+            return;
+        }
+
         try {
             await document.refreshAuthor();
             document.updateCellData(milestoneCell.metadata.id, { subdivisionNames: nextNames });
@@ -1640,7 +1782,77 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             return;
         }
 
+        // When a SOURCE document renames a subdivision, mirror that name into
+        // the paired target's `subdivisionNamesFromSource` map so the target
+        // shows the new label immediately as a fallback. The target's own
+        // `subdivisionNames` (if any) still wins. We deliberately skip this
+        // mirror when the rename is happening on a target document — names on
+        // either side are designed to be independently editable.
+        let mirroredTargetDocument: CodexCellDocument | null = null;
+        if (isSourceFileFlexible(document.uri)) {
+            try {
+                const pairedUri = provider.getPairedNotebookUri(document.uri);
+                if (pairedUri) {
+                    const targetDocument = await provider.getOrOpenDocumentForUri(pairedUri);
+                    const targetMilestoneIndexObj = targetDocument.buildMilestoneIndex();
+                    const targetMilestone = targetMilestoneIndexObj.milestones[milestoneIndex];
+                    if (targetMilestone) {
+                        const sourceRootIds = document.getRootContentCellIdsForMilestone(milestoneIndex);
+                        const targetRootIds = targetDocument.getRootContentCellIdsForMilestone(milestoneIndex);
+                        const rootsMatch =
+                            sourceRootIds.length === targetRootIds.length &&
+                            sourceRootIds.every((id, i) => id === targetRootIds[i]);
+                        if (rootsMatch) {
+                            const targetMilestoneCell = targetDocument.getCellByIndex(
+                                targetMilestone.cellIndex
+                            );
+                            if (targetMilestoneCell?.metadata?.id) {
+                                const targetData = targetMilestoneCell.metadata?.data as
+                                    | { subdivisionNamesFromSource?: { [k: string]: string; }; }
+                                    | undefined;
+                                const nextMirror = { ...(targetData?.subdivisionNamesFromSource ?? {}) };
+                                if (trimmed.length === 0) {
+                                    delete nextMirror[subdivisionKey];
+                                } else {
+                                    nextMirror[subdivisionKey] = trimmed;
+                                }
+                                await targetDocument.refreshAuthor();
+                                targetDocument.updateCellData(targetMilestoneCell.metadata.id, {
+                                    subdivisionNamesFromSource: nextMirror,
+                                });
+                                await provider.saveCustomDocument(targetDocument, cancellationToken);
+                                mirroredTargetDocument = targetDocument;
+                            }
+                        }
+                    }
+                }
+            } catch (mirrorError) {
+                console.error(
+                    "[updateMilestoneSubdivisionName] Failed to mirror to target:",
+                    mirrorError
+                );
+            }
+        }
+
         await sendMilestoneRefreshToWebview(document, webviewPanel, provider);
+
+        if (mirroredTargetDocument) {
+            const targetPanel = provider.getWebviewPanelForUri(mirroredTargetDocument.uri);
+            if (targetPanel) {
+                try {
+                    await sendMilestoneRefreshToWebview(
+                        mirroredTargetDocument,
+                        targetPanel,
+                        provider
+                    );
+                } catch (refreshError) {
+                    console.error(
+                        "[updateMilestoneSubdivisionName] Failed to refresh paired target webview:",
+                        refreshError
+                    );
+                }
+            }
+        }
     },
 
     updateNotebookMetadata: async ({ event, document, webviewPanel, provider }) => {
@@ -3701,9 +3913,19 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         try {
             const config = vscode.workspace.getConfiguration("codex-editor-extension");
             const cellsPerPage = config.get("cellsPerPage", 50);
+            const maxSubdivisionLengthRaw = config.get<number>("maxSubdivisionLength", 0);
+            const maxSubdivisionLength =
+                typeof maxSubdivisionLengthRaw === "number" && maxSubdivisionLengthRaw > 0
+                    ? Math.floor(maxSubdivisionLengthRaw)
+                    : 0;
 
             // Get cells for the requested milestone/subsection
-            const cells = document.getCellsForMilestone(milestoneIndex, subsectionIndex, cellsPerPage);
+            const cells = document.getCellsForMilestone(
+                milestoneIndex,
+                subsectionIndex,
+                cellsPerPage,
+                maxSubdivisionLength
+            );
 
             // Get all cells in the milestone for footnote offset calculation
             const allCellsInMilestone = document.getAllCellsForMilestone(milestoneIndex);
