@@ -10,7 +10,7 @@ import {
 import { ProgressDots } from "./ProgressDots";
 import { deriveSubsectionPercentages, getProgressDisplay } from "../utils/progressUtils";
 import MicrophoneIcon from "../../components/ui/icons/MicrophoneIcon";
-import { Languages, Check, RotateCcw, X, Undo2, Plus } from "lucide-react";
+import { Languages, Check, RotateCcw, X, Undo2, Plus, Trash2 } from "lucide-react";
 import type { Subsection, ProgressPercentages } from "../../lib/types";
 import type { MilestoneIndex, MilestoneInfo } from "../../../../../types";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
@@ -1258,11 +1258,10 @@ export function MilestoneAccordion({
                                                                                 <i className="codicon codicon-edit" />
                                                                             </VSCodeButton>
                                                                         )}
-                                                                        {isSettingsMode &&
+                                                                        {isSettingsMode && (
                                                                             isSourceText &&
-                                                                            subsection.source ===
-                                                                                "custom" &&
-                                                                            subsection.startCellId && (
+                                                                            subsection.source === "custom" &&
+                                                                            subsection.startCellId ? (
                                                                                 <VSCodeButton
                                                                                     aria-label="Remove Subdivision Break"
                                                                                     appearance="icon"
@@ -1275,9 +1274,19 @@ export function MilestoneAccordion({
                                                                                         )
                                                                                     }
                                                                                 >
-                                                                                    <X className="h-4 w-4" />
+                                                                                    <Trash2 className="h-4 w-4 text-[var(--vscode-errorForeground)]" />
                                                                                 </VSCodeButton>
-                                                                            )}
+                                                                            ) : (
+                                                                                /* Invisible phantom keeps pencil icons aligned vertically */
+                                                                                <span
+                                                                                    aria-hidden="true"
+                                                                                    className="pointer-events-none invisible inline-flex items-center justify-center"
+                                                                                    style={{ width: 28, height: 28 }}
+                                                                                >
+                                                                                    <Trash2 className="h-4 w-4" />
+                                                                                </span>
+                                                                            )
+                                                                        )}
                                                                     </>
                                                                 )}
                                                                 {!isEditingThisRow && (
@@ -1455,7 +1464,7 @@ export function MilestoneAccordion({
                                                                             : "text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-foreground)] hover:bg-secondary"
                                                                     }`}
                                                                 >
-                                                                    <Undo2 className="h-3 w-3" />
+                                                                    <Trash2 className="h-3 w-3 text-[var(--vscode-errorForeground)]" />
                                                                     {resetConfirmMilestoneIdx ===
                                                                     milestoneIdx
                                                                         ? "Click again to confirm"
