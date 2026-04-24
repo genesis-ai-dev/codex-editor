@@ -1732,6 +1732,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     /**
+     * Returns the open webview panel for `uri` if one is currently registered.
+     * Used by background flows (e.g. mirroring source-side subdivision edits to
+     * the paired target) so they can push a refresh without owning the panel
+     * directly. Returns `undefined` when no panel is open for the URI.
+     */
+    public getWebviewPanelForUri(uri: vscode.Uri): vscode.WebviewPanel | undefined {
+        return this.webviewPanels.get(uri.toString());
+    }
+
+    /**
      * Returns an open `CodexCellDocument` for `uri` when one is already backing
      * a webview panel; otherwise opens a fresh instance via
      * `openCustomDocument`. Callers receive a document they can mutate and save

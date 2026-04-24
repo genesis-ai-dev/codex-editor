@@ -293,6 +293,11 @@ async function commitMilestoneSubdivisionPlacements({
     }
 
     // Mirror placements (without names) to the paired target document.
+    // Tracks the target document we successfully mirrored to so we can refresh
+    // its webview after the source-side refresh below. Only set when the
+    // mirror actually wrote new data; left null when the target is unpaired,
+    // out of sync, or the mirror failed.
+    let mirroredTargetDocument: CodexCellDocument | null = null;
     try {
         const pairedUri = provider.getPairedNotebookUri(document.uri);
         if (pairedUri) {
@@ -332,6 +337,7 @@ async function commitMilestoneSubdivisionPlacements({
                             subdivisions: mirroredPlacements,
                         });
                         await provider.saveCustomDocument(targetDocument, cancellationToken);
+                        mirroredTargetDocument = targetDocument;
                     }
                 }
             }
@@ -343,6 +349,30 @@ async function commitMilestoneSubdivisionPlacements({
     }
 
     await sendMilestoneRefreshToWebview(document, webviewPanel, provider);
+
+    // Push a refresh to the paired target webview if it's currently open.
+    // Cost is one extra postMessage + a milestone-index rebuild on the target
+    // (already cached and invalidated by `updateCellData`), so the marginal
+    // overhead per source-side break edit is negligible. When no target
+    // webview is open we skip silently — it'll pick up the change on next
+    // load via the persisted file.
+    if (mirroredTargetDocument) {
+        const targetPanel = provider.getWebviewPanelForUri(mirroredTargetDocument.uri);
+        if (targetPanel) {
+            try {
+                await sendMilestoneRefreshToWebview(
+                    mirroredTargetDocument,
+                    targetPanel,
+                    provider
+                );
+            } catch (refreshError) {
+                console.error(
+                    `${logPrefix} Failed to refresh paired target webview:`,
+                    refreshError
+                );
+            }
+        }
+    }
 }
 
 /**
