@@ -7,9 +7,15 @@ import React, {
     forwardRef,
     useImperativeHandle,
 } from "react";
-import Quill from "quill";
+import Quill, { Delta, Op } from "quill";
 import "quill/dist/quill.snow.css";
 import { getCleanedHtml } from "./utils";
+import {
+    isSuperscriptibleDigit,
+    superscriptFontGroup,
+    toSuperscriptDigit,
+    toSuperscriptDigits,
+} from "./utils/superscriptUtils";
 import { EditHistory, EditorPostMessages } from "../../../../types";
 import { EditMapUtils, isValueEdit } from "../../../../src/utils/editMapUtils";
 import { EditType } from "../../../../types/enums";
@@ -76,11 +82,91 @@ class FootnoteFormat extends Inline {
     }
 }
 
+// Wraps Unicode superscript digit characters so we can normalize per-block font
+// metrics (see superscriptUtils.superscriptFontGroup).
+class CodexSdigitFormat extends Inline {
+    static blotName = "csdigit";
+    static tagName = "span";
+    static className = "codex-unicode-sdigit";
+
+    static create(value: "lat" | "phon"): HTMLElement {
+        const node = super.create() as HTMLElement;
+        node.setAttribute("data-csdigit", value);
+        return node;
+    }
+
+    static formats(node: HTMLElement): "lat" | "phon" {
+        return (node.getAttribute("data-csdigit") as "lat" | "phon") || "phon";
+    }
+}
+
 // Register formats
 Quill.register({
     "formats/autocomplete": AutocompleteFormat,
     "formats/footnote": FootnoteFormat,
+    "formats/csdigit": CodexSdigitFormat,
 });
+
+// Clipboard text matcher: split pasted plain-text ops so ⁰⁴–⁹ get `csdigit`
+// (and CSS size bump). Without this, pasted Unicode is “bare” in the font
+// and ¹²³ still look larger than ⁰⁴–⁹.
+function matchSuperscriptUnicodeDigits(
+  _node: Text,
+  delta: Delta,
+  _scroll: unknown
+): Delta {
+  return delta.reduce((newDelta: Delta, op: Op) => {
+    if (typeof op.insert !== "string") {
+      return newDelta.push(op as never);
+    }
+    if (op.insert.length === 0) {
+      return newDelta.push(op as never);
+    }
+    const base = (op.attributes ?? {}) as Record<string, unknown>;
+    const attrsForChar = (ch: string): Record<string, unknown> | undefined => {
+      const g = superscriptFontGroup(ch);
+      const out: Record<string, unknown> = { ...base };
+      if (g) {
+        out.csdigit = g;
+      } else {
+        delete out.csdigit;
+      }
+      return Object.keys(out).length > 0 ? out : undefined;
+    };
+    const keyOf = (a: Record<string, unknown> | undefined) =>
+      a ? JSON.stringify(a, Object.keys(a).sort()) : "";
+
+    let run = "";
+    let pendingAttrs: Record<string, unknown> | undefined;
+    let pendingKey = "";
+
+    const flush = () => {
+      if (run.length === 0) {
+        return;
+      }
+      newDelta.insert(
+        run,
+        pendingAttrs && Object.keys(pendingAttrs).length > 0 ? pendingAttrs : undefined
+      );
+      run = "";
+    };
+
+    for (const ch of Array.from(op.insert)) {
+      const a = attrsForChar(ch);
+      const k = keyOf(a);
+      if (run && k === pendingKey) {
+        run += ch;
+      } else {
+        flush();
+        run = ch;
+        pendingAttrs = a;
+        pendingKey = k;
+      }
+    }
+    flush();
+    return newDelta;
+  }, new Delta());
+}
 
 const DEBUG_ENABLED = false;
 function debug(message: string, ...args: any[]): void {
@@ -291,6 +377,62 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const [originalCellContent, setOriginalCellContent] = useState("");
     const [skipOnChange, setSkipOnChange] = useState(false);
 
+    // Sticky superscript-mode: when active, the next digit typed is inserted
+    // as its Unicode superscript equivalent (for Saurashtra-style phonetic
+    // markers). Toggled via the "x²" toolbar button or Ctrl/Cmd+. .
+    const superscriptModeRef = useRef(false);
+    // Quill 2 mounts the toolbar as a sibling of the element passed to
+    // `new Quill(...)`, so `editorRef.current.querySelector` can't find it.
+    // We capture the button reference at init time and reuse it here.
+    const superscriptButtonRef = useRef<HTMLElement | null>(null);
+
+    // Drive the active styling from our own `ql-super-sticky` class instead of
+    // Quill's `ql-active`. Quill's toolbar module overwrites `ql-active` on
+    // every selection-change to reflect the formats at the cursor, and since
+    // `superDigit` isn't a registered Parchment format the class would be
+    // stripped whenever the user clicks into the editor or types.
+    const updateSuperscriptButtonState = (active: boolean) => {
+        const button = superscriptButtonRef.current;
+        if (!button) return;
+        button.classList.toggle("ql-super-sticky", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+    };
+
+    const exitSuperscriptMode = () => {
+        if (!superscriptModeRef.current) return;
+        superscriptModeRef.current = false;
+        updateSuperscriptButtonState(false);
+    };
+
+    const handleSuperscriptToggle = () => {
+        const quill = quillRef.current;
+        if (!quill) return;
+        const selection = quill.getSelection();
+        if (selection && selection.length > 0) {
+            const selectedText = quill.getText(selection.index, selection.length);
+            const converted = toSuperscriptDigits(selectedText);
+            if (converted !== selectedText) {
+                const formats = quill.getFormat(selection.index, selection.length);
+                quill.history.cutoff();
+                quill.deleteText(selection.index, selection.length, "user");
+                let pos = selection.index;
+                for (const ch of Array.from(converted)) {
+                    const g = superscriptFontGroup(ch);
+                    const fmt = g ? { ...formats, csdigit: g } : formats;
+                    quill.insertText(pos, ch, fmt, "user");
+                    pos += 1;
+                }
+                quill.setSelection(selection.index, converted.length, "user");
+                quill.history.cutoff();
+            }
+            exitSuperscriptMode();
+            return;
+        }
+        const next = !superscriptModeRef.current;
+        superscriptModeRef.current = next;
+        updateSuperscriptButtonState(next);
+    };
+
     // Handle keyboard events for inline footnote editing
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -322,6 +464,9 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 modules: {
                     toolbar: {
                         container: TOOLBAR_OPTIONS,
+                        handlers: {
+                            superDigit: () => handleSuperscriptToggle(),
+                        },
                     },
                     keyboard: {
                         bindings: {
@@ -335,10 +480,24 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                     return true;
                                 },
                             },
+                            superDigitToggle: {
+                                key: 190, // "." key – paired with Ctrl/Cmd via shortKey
+                                shortKey: true,
+                                handler: () => {
+                                    handleSuperscriptToggle();
+                                    return false;
+                                },
+                            },
                         },
                     },
                 },
             });
+            const clipboardModule = quill.getModule("clipboard") as {
+                addMatcher: (selector: number, matcher: typeof matchSuperscriptUnicodeDigits) => void;
+                convert: (args: { html?: string; text?: string }) => Delta;
+            };
+            clipboardModule.addMatcher(Node.TEXT_NODE, matchSuperscriptUnicodeDigits);
+
             // Apply minimal direct styles; rely on CSS file for look-and-feel
             const toolbar = editorRef.current.querySelector(".ql-toolbar");
             const container = editorRef.current.querySelector(".ql-container");
@@ -346,6 +505,21 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             if (toolbar) {
                 // Keep transitions smooth; primary styling handled in CSS
                 toolbar.setAttribute("style", "transition: all 0.2s ease; overflow: hidden;");
+            }
+
+            const toolbarModule = quill.getModule("toolbar") as
+                | { container?: HTMLElement }
+                | null;
+            const superButton =
+                toolbarModule?.container?.querySelector<HTMLElement>(".ql-superDigit") ?? null;
+            superscriptButtonRef.current = superButton;
+            if (superButton) {
+                superButton.setAttribute(
+                    "title",
+                    "Superscript digit (Ctrl/Cmd+.) – select digits to convert, or toggle to type superscript digits"
+                );
+                superButton.setAttribute("aria-label", "Superscript digit");
+                superButton.setAttribute("aria-pressed", "false");
             }
 
             const triggerPostPasteProcessing = () => {
@@ -405,15 +579,24 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 if (!text) return;
 
                 const sel = quillRef.current.getSelection(true);
+                const insertPlainWithSdigit = (index: number) => {
+                    let pos = index;
+                    for (const ch of Array.from(text)) {
+                        const g = superscriptFontGroup(ch);
+                        const fmt = g ? { ...formats, csdigit: g } : formats;
+                        quillRef.current!.insertText(pos, ch, fmt, "user");
+                        pos += 1;
+                    }
+                    quillRef.current!.setSelection(index + text.length, 0, "silent");
+                };
                 if (sel) {
                     if (sel.length > 0) {
                         quillRef.current.deleteText(sel.index, sel.length, "user");
                     }
-                    quillRef.current.insertText(sel.index, text, formats, "user");
-                    quillRef.current.setSelection(sel.index + text.length, 0, "silent");
+                    insertPlainWithSdigit(sel.index);
                 } else {
                     const end = quillRef.current.getLength() - 1;
-                    quillRef.current.insertText(end, text, formats, "user");
+                    insertPlainWithSdigit(end);
                 }
 
                 prePasteFormats = null;
@@ -596,6 +779,39 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
             quill.root.addEventListener("keydown", handleKeyDown);
 
+            const handleSuperscriptKeyDown = (event: KeyboardEvent) => {
+                if (!superscriptModeRef.current || !quillRef.current) return;
+                if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+                const key = event.key;
+
+                if (isSuperscriptibleDigit(key)) {
+                    event.preventDefault();
+                    const q = quillRef.current;
+                    const superChar = toSuperscriptDigit(key);
+                    const sel = q.getSelection(true);
+                    if (!sel) return;
+                    q.history.cutoff();
+                    if (sel.length > 0) {
+                        q.deleteText(sel.index, sel.length, "user");
+                    }
+                    const base = q.getFormat(sel);
+                    const g = superscriptFontGroup(superChar);
+                    const fmt = g ? { ...base, csdigit: g } : base;
+                    q.insertText(sel.index, superChar, fmt, "user");
+                    q.setSelection(sel.index + superChar.length, 0, "user");
+                    q.history.cutoff();
+                    return;
+                }
+
+                if (key === "Escape") {
+                    event.preventDefault();
+                    exitSuperscriptMode();
+                }
+            };
+
+            quill.root.addEventListener("keydown", handleSuperscriptKeyDown, true);
+
             // Clear footnote selection on click
             const clearFootnoteSelection = () => {
                 if (selectedFootnoteMarker) {
@@ -609,7 +825,13 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             quillRef.current = quill;
 
             if (props.initialValue) {
-                quill.root.innerHTML = props.initialValue;
+                // Parse through the clipboard pipeline so TEXT_NODE matchers apply
+                // (wraps ⁰⁴–⁹ for consistent sizing vs ¹²³). Raw innerHTML skips that.
+                const initialDelta = clipboardModule.convert({
+                    html: props.initialValue,
+                    text: "",
+                });
+                quill.setContents(initialDelta, "silent");
 
                 // Position cursor at the end of the content for immediate editing
                 setTimeout(() => {
@@ -1719,7 +1941,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 // Existing constants and interfaces
 const TOOLBAR_OPTIONS = [
     [{ header: [false, 1, 2, 3] }],
-    ["bold", "italic", "underline", "strike", "blockquote", "link"],
+    ["bold", "italic", "underline", "strike", "blockquote", "link", "superDigit"],
     [{ list: "ordered" }, { list: "bullet" }],
     [{ indent: "-1" }, { indent: "+1" }],
 ];
