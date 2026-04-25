@@ -291,6 +291,173 @@ suite('MetadataManager Tests', () => {
             assert.strictEqual(versions.versions?.codexEditor, '0.22.90');       // suppressed
             assert.strictEqual(versions.versions?.frontierAuthentication, '0.4.25'); // ratcheted
         });
+
+        suite('Conductor-effective pins (mid-sync window)', () => {
+            const CONDUCTOR_CMD = 'codex.conductor.getEffectivePinnedExtensions';
+            type PinMap = Record<string, { version: string; url?: string; }> | undefined;
+            let originalExecuteCommand: typeof vscode.commands.executeCommand;
+            let conductorResponse: PinMap | (() => Promise<PinMap>) | 'throw';
+
+            setup(() => {
+                originalExecuteCommand = vscode.commands.executeCommand;
+                conductorResponse = undefined;
+                (vscode.commands as any).executeCommand = async (cmd: string, ...args: any[]) => {
+                    if (cmd === CONDUCTOR_CMD) {
+                        if (conductorResponse === 'throw') {
+                            throw new Error('Conductor unavailable (test stub)');
+                        }
+                        return typeof conductorResponse === 'function'
+                            ? await conductorResponse()
+                            : conductorResponse;
+                    }
+                    return originalExecuteCommand.call(vscode.commands, cmd, ...args);
+                };
+            });
+
+            teardown(() => {
+                (vscode.commands as any).executeCommand = originalExecuteCommand;
+            });
+
+            test('Conductor pin suppresses ratchet when disk has no pinnedExtensions (bug repro)', async () => {
+                // Simulates the post-reload, pre-merge window: metadata.json on disk has
+                // no pinnedExtensions, but Conductor storage has the remote pin.
+                const initial = {
+                    meta: { requiredExtensions: { codexEditor: '0.24.0' } }
+                };
+                await vscode.workspace.fs.writeFile(metadataPath,
+                    new TextEncoder().encode(JSON.stringify(initial, null, 4)));
+
+                conductorResponse = {
+                    'project-accelerate.codex-editor-extension': {
+                        version: '0.28.5',
+                        url: 'https://example.invalid/ext.vsix'
+                    }
+                };
+
+                const result = await MetadataManager.updateExtensionVersions(testWorkspaceUri, {
+                    codexEditor: '0.28.5'
+                });
+
+                assert.strictEqual(result.success, true);
+                const versions = await MetadataManager.getExtensionVersions(testWorkspaceUri);
+                // Must NOT have ratcheted — Conductor says this ext is pinned.
+                assert.strictEqual(versions.versions?.codexEditor, '0.24.0');
+            });
+
+            test('Conductor throws → falls back to on-disk pins', async () => {
+                const initial = {
+                    meta: {
+                        requiredExtensions: { codexEditor: '0.22.90' },
+                        pinnedExtensions: {
+                            'project-accelerate.codex-editor-extension': { version: '0.22.90', url: '' }
+                        }
+                    }
+                };
+                await vscode.workspace.fs.writeFile(metadataPath,
+                    new TextEncoder().encode(JSON.stringify(initial, null, 4)));
+
+                conductorResponse = 'throw';
+
+                const result = await MetadataManager.updateExtensionVersions(testWorkspaceUri, {
+                    codexEditor: '0.22.91'
+                });
+
+                assert.strictEqual(result.success, true);
+                const versions = await MetadataManager.getExtensionVersions(testWorkspaceUri);
+                // Suppressed via on-disk fallback pin.
+                assert.strictEqual(versions.versions?.codexEditor, '0.22.90');
+            });
+
+            test('Conductor returns empty object and disk has no pins → ratchet proceeds', async () => {
+                const initial = {
+                    meta: { requiredExtensions: { codexEditor: '0.22.0' } }
+                };
+                await vscode.workspace.fs.writeFile(metadataPath,
+                    new TextEncoder().encode(JSON.stringify(initial, null, 4)));
+
+                conductorResponse = {};
+
+                const result = await MetadataManager.updateExtensionVersions(testWorkspaceUri, {
+                    codexEditor: '0.22.91'
+                });
+
+                assert.strictEqual(result.success, true);
+                const versions = await MetadataManager.getExtensionVersions(testWorkspaceUri);
+                assert.strictEqual(versions.versions?.codexEditor, '0.22.91');
+            });
+
+            test('Conductor state flipped while queued → uses fresh pins (race guard)', async () => {
+                // Reproduces the race where updateExtensionVersions snapshots the
+                // Conductor *before* acquiring the per-workspace write queue slot.
+                // If another write is ahead of us in the queue, the Conductor state
+                // can change between our snapshot and our callback running. The
+                // callback must read pins fresh inside the queue.
+                const initial = {
+                    meta: { requiredExtensions: { codexEditor: '0.24.0' } }
+                };
+                await vscode.workspace.fs.writeFile(metadataPath,
+                    new TextEncoder().encode(JSON.stringify(initial, null, 4)));
+
+                // Conductor starts unpinned.
+                conductorResponse = {};
+
+                // Hold the queue with a slow write we control.
+                let releaseSlowWrite: () => void = () => { };
+                const slowWritePromise = MetadataManager.safeUpdateMetadata(
+                    testWorkspaceUri,
+                    async (m: any) => {
+                        await new Promise<void>(resolve => { releaseSlowWrite = resolve; });
+                        return m;
+                    }
+                );
+
+                // Kick off the ratchet call. It queues behind the slow write.
+                const updatePromise = MetadataManager.updateExtensionVersions(
+                    testWorkspaceUri,
+                    { codexEditor: '0.28.5' }
+                );
+
+                // Simulate Frontier flipping Conductor storage to "pinned" while
+                // the ratchet call is parked in the queue.
+                await new Promise(resolve => setTimeout(resolve, 20));
+                conductorResponse = {
+                    'project-accelerate.codex-editor-extension': { version: '0.28.5', url: '' }
+                };
+
+                // Release the queue; the ratchet callback now runs and MUST see
+                // the current Conductor state, not the stale pre-queue snapshot.
+                releaseSlowWrite();
+                await slowWritePromise;
+                await updatePromise;
+
+                const versions = await MetadataManager.getExtensionVersions(testWorkspaceUri);
+                assert.strictEqual(versions.versions?.codexEditor, '0.24.0');
+            });
+
+            test('Conductor pins only frontier → codexEditor still ratchets', async () => {
+                const initial = {
+                    meta: {
+                        requiredExtensions: { codexEditor: '0.24.0', frontierAuthentication: '0.4.0' }
+                    }
+                };
+                await vscode.workspace.fs.writeFile(metadataPath,
+                    new TextEncoder().encode(JSON.stringify(initial, null, 4)));
+
+                conductorResponse = {
+                    'frontier-rnd.frontier-authentication': { version: '0.4.0', url: '' }
+                };
+
+                const result = await MetadataManager.updateExtensionVersions(testWorkspaceUri, {
+                    codexEditor: '0.28.5',
+                    frontierAuthentication: '0.4.25'
+                });
+
+                assert.strictEqual(result.success, true);
+                const versions = await MetadataManager.getExtensionVersions(testWorkspaceUri);
+                assert.strictEqual(versions.versions?.codexEditor, '0.28.5');          // ratcheted
+                assert.strictEqual(versions.versions?.frontierAuthentication, '0.4.0'); // suppressed
+            });
+        });
     });
 
     suite('User version tracking (users array)', () => {
