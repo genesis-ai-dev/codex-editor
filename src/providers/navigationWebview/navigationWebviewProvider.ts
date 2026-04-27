@@ -15,6 +15,7 @@ import { getAuthApi } from "../../extension";
 import { CustomNotebookMetadata, ProjectMetadata } from "../../../types";
 import { getCorrespondingSourceUri, findCodexFilesByBookAbbr } from "../../utils/codexNotebookUtils";
 import { CodexCellEditorProvider } from "../codexCellEditorProvider/codexCellEditorProvider";
+import { openCodexDocumentWithSourcePair } from "../../utils/openCodexDocumentWithSourcePair";
 
 interface CodexMetadata {
     id: string;
@@ -111,71 +112,10 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     const uri = vscode.Uri.file(normalizedPath);
 
                     if (message.type === "codexDocument") {
-                        // First, find and open the corresponding source file
-                        try {
-                            const workspaceFolderUri =
-                                vscode.workspace.workspaceFolders?.[0].uri;
-                            if (workspaceFolderUri) {
-                                const baseFileName = path.basename(normalizedPath);
-                                const sourceFileName = baseFileName.replace(
-                                    ".codex",
-                                    ".source"
-                                );
-                                const sourceUri = vscode.Uri.joinPath(
-                                    workspaceFolderUri,
-                                    ".project",
-                                    "sourceTexts",
-                                    sourceFileName
-                                );
-
-                                // Open the source file in the left-most group (ViewColumn.One)
-                                await vscode.commands.executeCommand(
-                                    "vscode.openWith",
-                                    sourceUri,
-                                    "codex.cellEditor",
-                                    { viewColumn: vscode.ViewColumn.One }
-                                );
-
-                                // Wait for source webview to be ready before opening target
-                                try {
-                                    const { CodexCellEditorProvider } = await import("../codexCellEditorProvider/codexCellEditorProvider");
-                                    const provider = CodexCellEditorProvider.getInstance();
-                                    if (provider) {
-                                        await provider.waitForWebviewReady(sourceUri.toString(), 3000);
-                                    } else {
-                                        // Fallback: small delay if provider not yet initialized
-                                        await new Promise(resolve => setTimeout(resolve, 100));
-                                    }
-                                } catch (e) {
-                                    // Fallback: small delay on error
-                                    await new Promise(resolve => setTimeout(resolve, 100));
-                                }
-
-                                // Open the codex file in the right-most group (ViewColumn.Two)
-                                await vscode.commands.executeCommand(
-                                    "vscode.openWith",
-                                    uri,
-                                    "codex.cellEditor",
-                                    { viewColumn: vscode.ViewColumn.Two }
-                                );
-                            } else {
-                                // Fallback if no workspace folder is found
-                                await vscode.commands.executeCommand(
-                                    "vscode.openWith",
-                                    uri,
-                                    "codex.cellEditor"
-                                );
-                            }
-                        } catch (sourceError) {
-                            console.warn("Could not open source file:", sourceError);
-                            // If source file opening fails, just open the codex file in the right-most group
-                            await vscode.commands.executeCommand(
-                                "vscode.openWith",
-                                uri,
-                                "codex.cellEditor",
-                                { viewColumn: vscode.ViewColumn.Two }
-                            );
-                        }
+                        await openCodexDocumentWithSourcePair(
+                            uri,
+                            vscode.workspace.workspaceFolders?.[0]?.uri
+                        );
                     } else {
                         const doc = await vscode.workspace.openTextDocument(uri);
                         await vscode.window.showTextDocument(doc);

@@ -24,6 +24,7 @@ interface ProjectMetadata {
     edits?: any[];
     users?: ProjectUserVersionEntry[];
     chatSystemMessage?: string;
+    aiInstructionsCompleted?: boolean;
     [key: string]: unknown;
 }
 
@@ -609,6 +610,80 @@ export class MetadataManager {
                         metadata.edits = [];
                     }
                     addProjectMetadataEdit(metadata, ["chatSystemMessage"], value, currentAuthor);
+                }
+
+                return metadata;
+            },
+            { author: currentAuthor }
+        );
+
+        return { success: result.success, error: result.error };
+    }
+
+    /**
+     * Get aiInstructionsCompleted flag from metadata.json. Indicates whether the user
+     * has completed the one-time AI translation instructions / system message setup
+     * for this project. Defaults to false.
+     */
+    static async getAIInstructionsCompleted(workspaceFolderUri?: vscode.Uri): Promise<boolean> {
+        const workspaceFolder = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) {
+            return false;
+        }
+
+        const result = await this.safeReadMetadata<ProjectMetadata>(workspaceFolder);
+
+        if (result.success && result.metadata) {
+            return Boolean((result.metadata as any).aiInstructionsCompleted);
+        }
+
+        return false;
+    }
+
+    /**
+     * Set aiInstructionsCompleted flag in metadata.json with edit tracking.
+     */
+    static async setAIInstructionsCompleted(
+        value: boolean,
+        workspaceFolderUri?: vscode.Uri,
+        author?: string
+    ): Promise<{ success: boolean; error?: string }> {
+        const workspaceFolder = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) {
+            return { success: false, error: "No workspace folder found" };
+        }
+
+        let currentAuthor = author;
+        if (!currentAuthor) {
+            try {
+                const { getAuthApi } = await import("../extension");
+                const authApi = await getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                if (userInfo?.username) {
+                    currentAuthor = userInfo.username;
+                }
+            } catch (error) {
+                // Silent fallback
+            }
+            currentAuthor = currentAuthor || "unknown";
+        }
+
+        const result = await this.safeUpdateMetadata<ProjectMetadata>(
+            workspaceFolder,
+            (metadata) => {
+                const original = (metadata as any).aiInstructionsCompleted;
+                (metadata as any).aiInstructionsCompleted = value;
+
+                if (original !== value) {
+                    if (!metadata.edits) {
+                        metadata.edits = [];
+                    }
+                    addProjectMetadataEdit(
+                        metadata,
+                        ["aiInstructionsCompleted"],
+                        value,
+                        currentAuthor
+                    );
                 }
 
                 return metadata;
