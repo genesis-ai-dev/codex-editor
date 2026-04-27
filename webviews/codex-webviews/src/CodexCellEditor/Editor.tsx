@@ -9,11 +9,8 @@ import React, {
 } from "react";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
-import registerQuillSpellChecker, {
-    getCleanedHtml,
-    QuillSpellChecker,
-} from "./react-quill-spellcheck";
-import { EditHistory, EditorPostMessages, SpellCheckResponse } from "../../../../types";
+import { getCleanedHtml } from "./utils";
+import { EditHistory, EditorPostMessages } from "../../../../types";
 import { EditMapUtils, isValueEdit } from "../../../../src/utils/editMapUtils";
 import { EditType } from "../../../../types/enums";
 
@@ -29,10 +26,6 @@ const icons: any = Quill.import("ui/icons");
 // Assuming you have access to the VSCode API here
 const vscode: any = (window as any).vscodeApi;
 
-// Register the QuillSpellChecker with the VSCode API
-registerQuillSpellChecker(Quill, vscode);
-// Removed custom icon registrations for non-native buttons
-
 // Define the shape of content change callback
 export interface EditorContentChanged {
     html: string;
@@ -46,11 +39,12 @@ export interface EditorProps {
     editHistory: EditHistory[];
     onChange?: (changes: EditorContentChanged) => void;
     onDirtyChange?: (dirty: boolean, rawHtml: string) => void;
-    spellCheckResponse?: SpellCheckResponse | null;
     textDirection: "ltr" | "rtl";
     setIsEditingFootnoteInline: (isEditing: boolean) => void;
     isEditingFootnoteInline: boolean;
     footnoteOffset?: number;
+    pasteAsPlainText?: boolean;
+    onCharacterCountChange?: (count: number) => void;
 }
 
 // Fix the imports with correct typing
@@ -62,10 +56,6 @@ class AutocompleteFormat extends Inline {
     static tagName = "span";
 }
 
-class OpenLibraryFormat extends Inline {
-    static blotName = "openLibrary";
-    static tagName = "span";
-}
 
 // Define Footnote Format
 class FootnoteFormat extends Inline {
@@ -89,7 +79,6 @@ class FootnoteFormat extends Inline {
 // Register formats
 Quill.register({
     "formats/autocomplete": AutocompleteFormat,
-    "formats/openLibrary": OpenLibraryFormat,
     "formats/footnote": FootnoteFormat,
 });
 
@@ -103,7 +92,6 @@ function debug(message: string, ...args: any[]): void {
 // Export interface for imperative handle
 export interface EditorHandles {
     autocomplete: () => void;
-    openLibrary: () => void;
     showEditHistory: () => void;
     getSelectionText: () => string;
     addFootnote: () => void;
@@ -261,8 +249,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const { setIsEditingFootnoteInline, isEditingFootnoteInline } = props;
     const [isToolbarExpanded, setIsToolbarExpanded] = useState(false);
     const [isToolbarVisible, setIsToolbarVisible] = useState(false);
-    const [showModal, setShowModal] = useState(false);
-    const [wordsToAdd, setWordsToAdd] = useState<string[]>([]);
     const [isEditorEmpty, setIsEditorEmpty] = useState(true);
     const [editHistory, setEditHistory] = useState<EditHistoryEntry[]>([]);
     const initialContentRef = useRef<string>("");
@@ -270,6 +256,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const { setUnsavedChanges } = useContext(UnsavedChangesContext);
     const quillRef = useRef<Quill | null>(null);
     const editorRef = useRef<HTMLDivElement>(null);
+    const pasteAsPlainTextRef = useRef(props.pasteAsPlainText ?? false);
 
     const [currentAuthor, setCurrentAuthor] = useState<string>(
         (window as any).initialData?.userInfo?.username || "anonymous"
@@ -281,6 +268,10 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
     const [footnoteCount, setFootnoteCount] = useState(1);
     const [characterCount, setCharacterCount] = useState(0);
+
+    useEffect(() => {
+        props.onCharacterCountChange?.(characterCount);
+    }, [characterCount, props.onCharacterCountChange]);
 
     // Track the baseline content for dirty checking (updated when LLM content is set)
     const quillInitialContentRef = useRef<string>("");
@@ -318,6 +309,10 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         };
     }, [isEditingFootnoteInline]);
 
+    useEffect(() => {
+        pasteAsPlainTextRef.current = props.pasteAsPlainText ?? false;
+    }, [props.pasteAsPlainText]);
+
     // Initialize Quill editor
     useEffect(() => {
         if (editorRef.current && !quillRef.current) {
@@ -342,7 +337,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             },
                         },
                     },
-                    spellChecker: {},
                 },
             });
             // Apply minimal direct styles; rely on CSS file for look-and-feel
@@ -354,9 +348,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 toolbar.setAttribute("style", "transition: all 0.2s ease; overflow: hidden;");
             }
 
-            // Add paste event listener to handle paste operations
-            quill.root.addEventListener("paste", () => {
-                // Set unsaved changes immediately when paste is detected
+            const triggerPostPasteProcessing = () => {
                 setUnsavedChanges(true);
 
                 // Use setTimeout to ensure the paste operation completes, then process content
@@ -381,7 +373,82 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             html: finalContent,
                         });
                     }
-                }, 50); // Slightly longer timeout to ensure paste is complete
+                }, 50);
+            };
+
+            // Pending toolbar formats (e.g. bold + italic) that should be
+            // applied to pasted content. Captured in the capture phase before
+            // Quill's clipboard module runs, then consumed in the bubble phase.
+            let prePasteFormats: ReturnType<Quill["getFormat"]> | null = null;
+            let prePasteLength: number | null = null;
+
+            // Capture-phase listener fires before Quill's clipboard module.
+            // When plain-text mode is active it intercepts the event entirely;
+            // otherwise it just snapshots the active formats for the bubble handler.
+            quill.root.addEventListener("paste", (event: ClipboardEvent) => {
+                if (!quillRef.current) return;
+
+                const formats = quillRef.current.getFormat();
+                const hasActiveFormats = Object.keys(formats).length > 0;
+
+                if (hasActiveFormats) {
+                    prePasteFormats = formats;
+                    prePasteLength = quillRef.current.getLength();
+                }
+
+                if (!pasteAsPlainTextRef.current) return;
+
+                event.preventDefault();
+                event.stopPropagation();
+
+                const text = event.clipboardData?.getData("text/plain") ?? "";
+                if (!text) return;
+
+                const sel = quillRef.current.getSelection(true);
+                if (sel) {
+                    if (sel.length > 0) {
+                        quillRef.current.deleteText(sel.index, sel.length, "user");
+                    }
+                    quillRef.current.insertText(sel.index, text, formats, "user");
+                    quillRef.current.setSelection(sel.index + text.length, 0, "silent");
+                } else {
+                    const end = quillRef.current.getLength() - 1;
+                    quillRef.current.insertText(end, text, formats, "user");
+                }
+
+                prePasteFormats = null;
+                prePasteLength = null;
+                triggerPostPasteProcessing();
+            }, { capture: true });
+
+            // Bubble-phase listener handles the normal (rich) paste path.
+            // When plain-text mode is active the event never reaches here
+            // because the capture-phase handler stops propagation.
+            quill.root.addEventListener("paste", () => {
+                if (prePasteFormats && prePasteLength !== null && quillRef.current) {
+                    const formats = prePasteFormats;
+                    const prevLen = prePasteLength;
+                    prePasteFormats = null;
+                    prePasteLength = null;
+
+                    // Quill processes clipboard content asynchronously, so
+                    // wait for it to finish before applying the formats.
+                    setTimeout(() => {
+                        if (!quillRef.current) return;
+                        const newLen = quillRef.current.getLength();
+                        const insertedCount = newLen - prevLen;
+                        if (insertedCount <= 0) return;
+
+                        const sel = quillRef.current.getSelection();
+                        const insertStart = (sel?.index ?? newLen - 1) - insertedCount;
+                        if (insertStart < 0) return;
+
+                        for (const [name, value] of Object.entries(formats)) {
+                            quillRef.current.formatText(insertStart, insertedCount, name, value, "silent");
+                        }
+                    }, 0);
+                }
+                triggerPostPasteProcessing();
             });
 
             // Add Microsoft Word-style footnote deletion behavior
@@ -704,14 +771,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         footnote.classList.remove("footnote-selected");
                     });
 
-                    // Clean up spell checker
-                    const spellChecker = quillRef.current.getModule(
-                        "spellChecker"
-                    ) as QuillSpellChecker;
-                    if (spellChecker) {
-                        spellChecker.dispose();
-                    }
-
                     // Clear the reference
                     quillRef.current = null;
                 }
@@ -760,49 +819,13 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         } as EditorPostMessages);
     };
 
-    const handleAddWords = () => {
-        if (wordsToAdd.length > 0) {
-            window.vscodeApi.postMessage({
-                command: "addWord",
-                words: wordsToAdd,
-            });
-        }
-        setShowModal(false);
-    };
-
-    // Add message listener for prompt response
+    // Add message listener for LLM completion response
     useMessageHandler(
         "editor-promptResponse",
         (event: MessageEvent) => {
             if (quillRef.current) {
                 const quill = quillRef.current;
-                if (event.data.type === "providerSendsPromptedEditResponse") {
-                    const editedContent = event.data.content;
-                    // Use Quill's API to set content with "api" source (not "user")
-                    quill.clipboard.dangerouslyPasteHTML(editedContent, "api");
-
-                    // Update baseline for dirty checking - LLM content is the new "initial" state
-                    quillInitialContentRef.current = quill.root.innerHTML;
-
-                    // Mark as LLM content needing approval
-                    isLLMContentNeedingApprovalRef.current = true;
-
-                    // Manually update all state for programmatic changes
-                    const textContent = quill.getText();
-                    const charCount = textContent.trim().length;
-                    setCharacterCount(charCount);
-
-                    // Call onChange with processed content
-                    const contentIsEmpty = isQuillEmpty(quill);
-                    const finalContent = contentIsEmpty
-                        ? ""
-                        : processQuillContentForSaving(getCleanedHtml(quill.root.innerHTML));
-                    props.onChange?.({ html: finalContent });
-
-                    // Mark as dirty to ensure save button appears
-                    props.onDirtyChange?.(true, quill.root.innerHTML);
-                    setUnsavedChanges(true);
-                } else if (event.data.type === "providerSendsLLMCompletionResponse") {
+                if (event.data.type === "providerSendsLLMCompletionResponse") {
                     const completionText = event.data.content.completion;
                     const completionCellId = event.data.content.cellId;
 
@@ -1185,16 +1208,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 content: { currentLineId: props.currentLineId, addContentToValue: false },
             });
         },
-        openLibrary: () => {
-            const quill = quillRef.current!;
-            const words = quill
-                .getText()
-                .split(/[\s\n.,!?]+/)
-                .filter((w) => w.length > 0)
-                .filter((w, i, self) => self.indexOf(w) === i);
-            setWordsToAdd(words);
-            setShowModal(true);
-        },
         showEditHistory: () => {
             setEditHistoryForCell(props.editHistory);
             setShowHistoryModal(true);
@@ -1418,20 +1431,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             : {}
                     }
                 ></div>
-                <div
-                    style={{
-                        display: "flex",
-                        justifyContent: "flex-end",
-                        alignItems: "center",
-                        marginTop: "4px",
-                        padding: "2px 4px",
-                        fontSize: "0.8em",
-                        color: "var(--vscode-descriptionForeground)",
-                        backgroundColor: "transparent",
-                    }}
-                >
-                    <span>{characterCount} characters</span>
-                </div>
             </div>
             {showHistoryModal && (
                 <div
@@ -1709,41 +1708,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             >
                                 No edit history available
                             </div>
-                        )}
-                    </div>
-                </div>
-            )}
-            {showModal && (
-                <div
-                    style={{
-                        position: "fixed",
-                        top: "50%",
-                        left: "50%",
-                        transform: "translate(-50%, -50%)",
-                        backgroundColor: "var(--vscode-editor-background)",
-                        padding: "20px",
-                        border: "1px solid var(--vscode-editor-foreground)",
-                        borderRadius: "4px",
-                        zIndex: 1000,
-                    }}
-                >
-                    <h3>Add Words to Dictionary</h3>
-                    <p style={{ margin: "10px 0" }}>
-                        {wordsToAdd.length > 0
-                            ? `Add all words to the dictionary?`
-                            : "No words found in the content."}
-                    </p>
-                    <div
-                        style={{
-                            display: "flex",
-                            gap: "10px",
-                            justifyContent: "flex-end",
-                            marginTop: "20px",
-                        }}
-                    >
-                        <button onClick={() => setShowModal(false)}>Cancel</button>
-                        {wordsToAdd.length > 0 && (
-                            <button onClick={handleAddWords}>Add Words</button>
                         )}
                     </div>
                 </div>

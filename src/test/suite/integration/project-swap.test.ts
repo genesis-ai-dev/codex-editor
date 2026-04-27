@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
-import * as git from "isomorphic-git";
+import * as dugiteGit from "../../../utils/dugiteGit";
 import { ProjectMetadata, ProjectSwapEntry, ProjectSwapInfo, ProjectSwapUserEntry } from "../../../../types";
 import { sortSwapEntries, normalizeProjectSwapInfo } from "../../../utils/projectSwapManager";
 
@@ -14,6 +14,7 @@ suite("Integration: Project Swap Flow", () => {
     let originalFetch: typeof globalThis.fetch;
 
     suiteSetup(() => {
+        dugiteGit.useEmbeddedGitBinary();
         // Stub fetch to avoid actual network calls
         originalFetch = (globalThis as any).fetch;
         (globalThis as any).fetch = async (input: any, init?: any) => {
@@ -278,7 +279,7 @@ suite("Integration: Project Swap Flow", () => {
             fs.writeFileSync(uncommittedFile, "Local uncommitted content");
 
             // Check git status shows uncommitted
-            const status = await git.statusMatrix({ fs, dir: oldProjectDir });
+            const status = await dugiteGit.statusMatrix(oldProjectDir);
             const localChangesStatus = status.find(([filepath]) => filepath === "local-changes.txt");
             assert.ok(localChangesStatus, "local-changes.txt should be in status matrix");
 
@@ -390,12 +391,12 @@ suite("Integration: Project Swap Flow", () => {
             const gitDir = path.join(newProjectDir, ".git");
             assert.ok(fs.existsSync(gitDir), ".git directory should exist");
 
-            const logs = await git.log({ fs, dir: newProjectDir, depth: 10 });
+            const logs = await dugiteGit.log(newProjectDir, { depth: 10 });
             assert.ok(logs.length >= 1, "Should have at least one commit");
         });
 
         test("git remote is set correctly after swap", async () => {
-            const remotes = await git.listRemotes({ fs, dir: newProjectDir });
+            const remotes = await dugiteGit.listRemotes(newProjectDir);
             const origin = remotes.find(r => r.remote === "origin");
 
             assert.ok(origin, "origin remote should be set");
@@ -1360,25 +1361,15 @@ async function createProjectStructure(
     );
 
     // Initialize git
-    await git.init({ fs, dir: projectDir, defaultBranch: "main" });
-    await git.addRemote({
-        fs,
-        dir: projectDir,
-        remote: "origin",
-        url: options.gitUrl,
-    });
+    await dugiteGit.init(projectDir);
+    await dugiteGit.addRemote(projectDir, "origin", options.gitUrl);
 
     // Create initial commit
     const testFile = path.join(projectDir, "test.txt");
     fs.writeFileSync(testFile, "test content", "utf-8");
-    await git.add({ fs, dir: projectDir, filepath: "metadata.json" });
-    await git.add({ fs, dir: projectDir, filepath: "test.txt" });
-    await git.commit({
-        fs,
-        dir: projectDir,
-        message: "Initial commit",
-        author: { name: "Test", email: "test@example.com" },
-    });
+    await dugiteGit.add(projectDir, "metadata.json");
+    await dugiteGit.add(projectDir, "test.txt");
+    await dugiteGit.commit(projectDir, "Initial commit", { name: "Test", email: "test@example.com" });
 }
 
 function createSwapEntry(overrides: Partial<ProjectSwapEntry> = {}): ProjectSwapEntry {

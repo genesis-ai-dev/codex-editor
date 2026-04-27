@@ -26,6 +26,9 @@ export type ProcessedNotebookMetadataBase = NotebookImportMetadataCore & {
 
     /** Used by round-trip importers/exporters (stored in attachments/originals by the provider). */
     originalFileData?: ArrayBuffer; // Fixme: this needs to be removed it's making files real big
+
+    /** When true, translated cells are validated against the source HTML structure during editing and export. */
+    enforceHtmlStructure?: boolean;
 };
 
 export type MarkdownFeatures = {
@@ -40,6 +43,9 @@ export type MarkdownFeatures = {
 
 export interface MarkdownNotebookMetadata extends ProcessedNotebookMetadataBase {
     importerType: "markdown";
+    /** Round-trip: stored original bytes are UTF-8 of post-footnote processed text (aligns with cell sourceSpan). */
+    markdownRoundTripSource?: "processed-utf8";
+    corpusMarker?: "markdown";
     elementCount?: number;
     headingCount?: number;
     listItemCount?: number;

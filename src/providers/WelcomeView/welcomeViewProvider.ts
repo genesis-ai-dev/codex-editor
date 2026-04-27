@@ -134,8 +134,8 @@ export class WelcomeViewProvider {
             const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
             const metadata = JSON.parse(metadataContent.toString());
 
-            const sourceLanguage = metadata.languages?.find((l: any) => l.projectStatus === "source");
-            const targetLanguage = metadata.languages?.find((l: any) => l.projectStatus === "target");
+            const sourceLanguage = metadata.languages?.find((l: any) => l?.projectStatus === "source");
+            const targetLanguage = metadata.languages?.find((l: any) => l?.projectStatus === "target");
 
             if (sourceLanguage && targetLanguage) {
                 debug("[WelcomeView] Project is properly set up, redirecting to project manager");
@@ -324,10 +324,17 @@ export class WelcomeViewProvider {
                     await vscode.commands.executeCommand("codex-editor.mainMenu.focus");
                     break;
 
-                case "closeProject":
-                    // Close the current folder/project
-                    await vscode.commands.executeCommand("workbench.action.closeFolder");
+                case "closeProject": {
+                    const answer = await vscode.window.showWarningMessage(
+                        "Are you sure you want to close this project?",
+                        { modal: true },
+                        "Yes"
+                    );
+                    if (answer === "Yes") {
+                        await vscode.commands.executeCommand("workbench.action.closeFolder");
+                    }
                     break;
+                }
             }
         });
 
@@ -344,6 +351,7 @@ export class WelcomeViewProvider {
         const codiconsUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this._extensionUri,
+                "out",
                 "node_modules",
                 "@vscode/codicons",
                 "dist",

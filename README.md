@@ -4,7 +4,7 @@ The Codex Translation Editor Extension is a powerful Visual Studio Code extensio
 
 > Note: this extension is in active development and may have bugs or incomplete features. Please report any issues or suggestions on the [GitHub repository](https://github.com/genesis-ai-dev/codex-editor).
 
-Read more about Codex Translation Editor Extension in the [documentation](https://codex-editor.gitbook.io/).
+Read more about Codex Translation Editor Extension in the [documentation](https://docs.codexeditor.app/docs).
 
 ## Features
 
@@ -40,7 +40,6 @@ You can also use the "Create Codex Notebook" command to generate a new Codex Not
 -   **Search Passages**: View search passages to compare translations.
 -   **Comments**: Manage and view comments on your translations.
 -   **Scripture Explorer**: Navigate through your scripture files easily.
--   **Dictionary Table**: Access a comprehensive dictionary for translation help.
 
 ### Configuration
 
@@ -84,16 +83,6 @@ codex-editor % cd webviews/codex-webviews
 codex-webviews % pnpm i
 codex-webviews % pnpm run build:all
 
-
-## build the editable-react-table
-#FIXME: if you get this error -
-#         you may have to do:
-#           `pnpm add @types/react`
-#           `pnpm add @types/react-dom`
-#         and then run build command again
-dictionary-side-panel % cd ../editable-react-table
-editable-react-table % pnpm i
-editable-react-table % pnpm run build
 
 # Now, let's go back to the root of the project and start the extension
 ChatSideBar % cd ../..

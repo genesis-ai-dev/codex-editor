@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
 import { waitForExtensionActivation } from "../../utils/vscode";
 import { FrontierAPI } from "../../../webviews/codex-webviews/src/StartupFlow/types";
-import git from "isomorphic-git";
-import * as fs from "fs";
+import * as dugiteGit from "../../utils/dugiteGit";
 import { getAuthApi } from "../../extension";
 
 interface AuthState {
@@ -150,7 +149,7 @@ export class PreflightCheck {
         } catch (error) {
             debugLog("Error during auth extension check:", error);
             console.error("Error during auth extension check:", error);
-            state.authState.error = "Failed to check authentication status";
+            state.authState.error = "Failed to check login status";
         } finally {
             state.authState.isLoading = false;
         }
@@ -200,15 +199,8 @@ export class PreflightCheck {
                 try {
                     // Use Promise.race with timeout to avoid hanging on slow git operations
                     const gitCheckPromise = Promise.all([
-                        git.resolveRef({
-                            fs,
-                            dir: workspacePath,
-                            ref: "HEAD",
-                        }),
-                        git.listRemotes({
-                            fs,
-                            dir: workspacePath,
-                        })
+                        dugiteGit.resolveRef(workspacePath, "HEAD"),
+                        dugiteGit.listRemotes(workspacePath),
                     ]);
 
                     // Add 2 second timeout for git operations
@@ -216,7 +208,7 @@ export class PreflightCheck {
                         setTimeout(() => reject(new Error("Git operation timeout")), 2000)
                     );
 
-                    const [headRef, remotes] = await Promise.race([gitCheckPromise, timeoutPromise]) as [any, any[]];
+                    const [, remotes] = await Promise.race([gitCheckPromise, timeoutPromise]) as [string, Array<{ remote: string; url: string; }>];
 
                     state.gitState.isGitRepo = true;
                     state.gitState.hasRemote = remotes.length > 0;
@@ -247,6 +239,9 @@ export const registerPreflightCommand = (context: vscode.ExtensionContext) => {
     debugLog("Registering preflight command");
     const preflightCheck = new PreflightCheck();
     const disposables: vscode.Disposable[] = [];
+
+    // Ensure auth subscription is cleaned up on deactivation
+    disposables.push(new vscode.Disposable(() => preflightCheck.dispose()));
 
     const preflightCommand = vscode.commands.registerCommand(
         "codex-project-manager.preflight",

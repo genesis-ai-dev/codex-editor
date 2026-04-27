@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { basename } from "path";
 import { extractVerseRefFromLine } from "../utils/verseRefUtils";
-import { readCodexNotebookFromUri, getActiveCells } from "./exportHandlerUtils";
+import { readCodexNotebookFromUri, getActiveCells, isContentCellType } from "./exportHandlerUtils";
 import type { ExportOptions } from "./exportHandler";
 
 const DEBUG = false;
@@ -20,7 +20,7 @@ export async function exportCodexContentAsPlaintext(
         debug("Starting exportCodexContentAsPlaintext");
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
         debug("Workspace folders found:", workspaceFolders);
@@ -82,7 +82,7 @@ export async function exportCodexContentAsPlaintext(
                                 chapterContent = `${currentChapter}\n`;
                                 debug(`New chapter: ${currentChapter}`);
                             } else if (
-                                cellMetadata.type === "text" &&
+                                isContentCellType(cellMetadata.type) &&
                                 cellMetadata.id
                             ) {
                                 debug(`Processing verse cell: ${cellMetadata.id}`);

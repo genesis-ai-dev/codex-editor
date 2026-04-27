@@ -25,7 +25,6 @@ type MetaGeneratorEditMap = ["meta", "generator"];
 type MetaEditMap = ["meta"];
 type MetaFieldEditMap = ["meta", string];
 type LanguagesEditMap = ["languages"];
-type SpellcheckIsEnabledEditMap = ["spellcheckIsEnabled"];
 type DeletedCorpusMarkerEditMap = ["deletedCorpusMarker"];
 type DeletedFileEditMap = ["deletedFile"];
 
@@ -140,10 +139,6 @@ export const EditMapUtils = {
 
     languages(): LanguagesEditMap {
         return ["languages"];
-    },
-
-    spellcheckIsEnabled(): SpellcheckIsEnabledEditMap {
-        return ["spellcheckIsEnabled"];
     },
 
     deletedCorpusMarker(): DeletedCorpusMarkerEditMap {

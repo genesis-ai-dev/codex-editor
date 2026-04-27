@@ -27,7 +27,7 @@ import { initializeStateStore } from "../../stateStore";
 import { SyncManager } from "../../projectManager/syncManager";
 
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
-import { getNonce } from "../dictionaryTable/utilities/getNonce";
+import { getNonce } from "../../utils/getNonce";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import path from "path";
 import * as fs from "fs";
@@ -39,6 +39,8 @@ import {
     updateCachedSubsection as updateCachedSubsectionUtil,
     getPreferredEditorTab as getPreferredEditorTabUtil,
     updatePreferredEditorTab as updatePreferredEditorTabUtil,
+    getPasteAsPlainText as getPasteAsPlainTextUtil,
+    updatePasteAsPlainText as updatePasteAsPlainTextUtil,
 } from "./utils/workspaceStateUtils";
 import { processVideoUrl } from "./utils/videoUtils";
 import {
@@ -559,7 +561,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             enableScripts: true,
             localResourceRoots: [
                 vscode.Uri.joinPath(this.context.extensionUri, "src", "assets"),
-                vscode.Uri.joinPath(this.context.extensionUri, "node_modules", "@vscode", "codicons", "dist"),
+                vscode.Uri.joinPath(this.context.extensionUri, "out", "node_modules", "@vscode", "codicons", "dist"),
                 vscode.Uri.joinPath(this.context.extensionUri, "webviews", "codex-webviews", "dist")
             ]
         };
@@ -845,9 +847,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                         if (ws) {
                             const { extractProjectIdFromUrl, fetchProjectMembers } = await import("../../utils/remoteUpdatingManager");
-                            const git = await import("isomorphic-git");
-                            const fs = await import("fs");
-                            const remotes = await git.listRemotes({ fs, dir: ws.uri.fsPath });
+                            const dugiteGitModule = await import("../../utils/dugiteGit");
+                            const remotes = await dugiteGitModule.listRemotes(ws.uri.fsPath);
                             const origin = remotes.find((r) => r.remote === "origin");
 
                             if (origin?.url) {
@@ -1122,7 +1123,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         };
         const jumpToCellListenerDispose = workspaceStoreListener("cellToJumpTo", (value) => {
             debug("Jump to cell event received:", value);
-            navigateToSection(value);
+            // Pre-populate the target position so that updateWebview() — which runs before
+            // navigateToSection in the pending queue — sends a refreshCurrentPage at the
+            // correct milestone instead of resetting to chapter 1 for newly-opened files.
+            const position = document.findMilestoneAndSubsectionForCell(value, this.CELLS_PER_PAGE);
+            if (position) {
+                this.currentMilestoneSubsectionMap.set(document.uri.toString(), position);
+            }
+            this.scheduleWebviewUpdate(document.uri.toString(), () => {
+                navigateToSection(value);
+            });
         });
 
         // Set up document change listeners
@@ -1493,6 +1503,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         await updatePreferredEditorTabUtil(this.context.workspaceState, tab);
     }
 
+    public getPasteAsPlainText(): boolean {
+        return getPasteAsPlainTextUtil(this.context.workspaceState);
+    }
+
+    public async updatePasteAsPlainText(enabled: boolean) {
+        await updatePasteAsPlainTextUtil(this.context.workspaceState, enabled);
+    }
+
     private getHtmlForWebview(
         webview: vscode.Webview,
         document: CodexCellDocument,
@@ -1508,6 +1526,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const codiconsUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this.context.extensionUri,
+                "out",
                 "node_modules",
                 "@vscode/codicons",
                 "dist",
@@ -2416,6 +2435,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             safePostMessageToPanel(webviewPanel, message);
         } catch (error) {
             console.error("Failed to post message to webview:", error);
+        }
+    }
+
+    public scrollOtherPanelsToCell(cellId: string, senderPanel: vscode.WebviewPanel) {
+        for (const [, panel] of this.webviewPanels.entries()) {
+            if (panel !== senderPanel) {
+                safePostMessageToPanel(panel, {
+                    type: "scrollToCell",
+                    cellId,
+                } as any);
+            }
         }
     }
 
@@ -3474,7 +3504,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     currentCellId,
                                     singleCompletion,
                                     EditType.LLM_GENERATION,
-                                    shouldUpdateValue
+                                    shouldUpdateValue,
+                                    false,
+                                    false,
+                                    completionResult.generationId
                                 );
                                 this.updateSingleCellTranslation(1.0);
                                 debug("LLM completion result (identical variants)", { completion: singleCompletion?.slice?.(0, 80) });
@@ -3533,7 +3566,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         currentCellId,
                         singleCompletion,
                         EditType.LLM_GENERATION,
-                        shouldUpdateValue
+                        shouldUpdateValue,
+                        false,
+                        false,
+                        completionResult.generationId
                     );
 
                     // If this was a preview-only update, persist the edit to disk immediately so edit history is saved
