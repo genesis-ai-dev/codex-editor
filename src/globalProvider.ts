@@ -2,7 +2,7 @@ import vscode from "vscode";
 import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/codexCellEditorProvider";
 import { CustomWebviewProvider } from "./providers/parallelPassagesWebview/customParallelPassagesWebviewProvider";
 import { GlobalContentType, GlobalMessage } from "../types";
-import { getNonce } from "./providers/dictionaryTable/utilities/getNonce";
+import { getNonce } from "./utils/getNonce";
 import { safePostMessageToView } from "./utils/webviewUtils";
 
 
@@ -102,6 +102,7 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
         const codiconsUri = webviewView.webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this._context.extensionUri,
+                "out",
                 "node_modules",
                 "@vscode/codicons",
                 "dist",

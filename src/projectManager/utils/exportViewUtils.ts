@@ -1,6 +1,13 @@
 import * as vscode from "vscode";
 import { CodexNotebookAsJSONData } from "../../../types";
 
+export {
+    EXPORT_OPTIONS_BY_FILE_TYPE,
+    isExportCategoryVisibleForGroup,
+    IMPORTER_PLUGIN_ID_TO_EXPORT_GROUP_KEY,
+    getExportGroupKeyForImporterPlugin,
+} from "../../../sharedUtils/exportOptionsEligibility";
+
 /** Display name for each file type group in the export view */
 export const FILE_TYPE_DISPLAY_NAMES: Record<string, string> = {
     audio: "Audio Files",
@@ -14,47 +21,87 @@ export const FILE_TYPE_DISPLAY_NAMES: Record<string, string> = {
     maculabible: "Macula Bible",
     obs: "Bible Stories",
     biblica: "Biblica Study Notes",
-    reach4life: "Reach4Life",
     spreadsheet: "Spreadsheet with Audio data",
-    pdf: "PDF Files",
+    paratext: "Paratext Projects",
     unknown: "Other Files",
 };
+
+export interface FileGroupEntry {
+    path: string;
+    name: string;
+    displayName: string;
+    hasTranslations: boolean;
+    hasAudio: boolean;
+}
 
 export interface FileGroup {
     groupKey: string;
     displayName: string;
-    files: Array<{ path: string; name: string; displayName: string }>;
+    files: FileGroupEntry[];
 }
-
-/**
- * Config for which file types see which export options.
- * - roundTrip: file types that support round-trip export
- * - usfm: eBible, USFM, and Macula Bible files
- * - html: eBible, USFM, and Macula Bible files
- * - subtitles: only subtitle files (shown at top, expanded)
- * - All others (plaintext, html, xliff, audio, backtranslations, dataExport): all file types
- */
-export const EXPORT_OPTIONS_BY_FILE_TYPE: Record<string, string[]> = {
-    roundTrip: [
-        "docx",
-        "indesign",
-        "biblica",
-        "reach4life",
-        "pdf",
-        "obs",
-        "tms",
-        "usfm",
-        "spreadsheet",
-    ],
-    // USFM and HTML generation for eBible, USFM, Macula Bible, and unknown (older projects without importer type)
-    usfm: ["ebible", "usfm", "maculabible", "unknown"],
-    html: ["ebible", "usfm", "maculabible", "unknown"],
-    subtitles: ["subtitles", "unknown"],
-};
 
 async function readCodexNotebookFromUri(uri: vscode.Uri): Promise<CodexNotebookAsJSONData> {
     const fileData = await vscode.workspace.fs.readFile(uri);
     return JSON.parse(Buffer.from(fileData).toString()) as CodexNotebookAsJSONData;
+}
+
+type CellEntry = CodexNotebookAsJSONData["cells"][number];
+
+function isActiveTextCell(cell: CellEntry): boolean {
+    const meta = cell.metadata as Record<string, unknown> | undefined;
+    if (!meta) {
+        return false;
+    }
+    const cellType = meta.type as string | undefined;
+    if (cellType !== "text") {
+        return false;
+    }
+    const data = meta.data as { merged?: boolean; deleted?: boolean; } | undefined;
+    return !(data?.merged) && !(data?.deleted);
+}
+
+function cellHasNonEmptyValue(cell: CellEntry): boolean {
+    if (!cell.value) {
+        return false;
+    }
+    const stripped = cell.value.replace(/<[^>]*>/g, "").trim();
+    return stripped.length > 0;
+}
+
+function cellHasAudioAttachment(cell: CellEntry): boolean {
+    const attachments = (cell.metadata as Record<string, unknown>)?.attachments as
+        | Record<string, { type?: string; isDeleted?: boolean; isMissing?: boolean; url?: string; }>
+        | undefined;
+    if (!attachments) {
+        return false;
+    }
+    return Object.values(attachments).some(
+        (att) => att.type === "audio" && !att.isDeleted && !att.isMissing && !!att.url
+    );
+}
+
+/** Scan notebook cells to determine whether the file has any text translations or audio. */
+export function analyzeNotebookContent(notebook: CodexNotebookAsJSONData): {
+    hasTranslations: boolean;
+    hasAudio: boolean;
+} {
+    let hasTranslations = false;
+    let hasAudio = false;
+    for (const cell of notebook.cells) {
+        if (!isActiveTextCell(cell)) {
+            continue;
+        }
+        if (!hasTranslations && cellHasNonEmptyValue(cell)) {
+            hasTranslations = true;
+        }
+        if (!hasAudio && cellHasAudioAttachment(cell)) {
+            hasAudio = true;
+        }
+        if (hasTranslations && hasAudio) {
+            break;
+        }
+    }
+    return { hasTranslations, hasAudio };
 }
 
 /**
@@ -163,6 +210,11 @@ function getGroupKeyFromMetadata(metadata: Record<string, unknown>): string {
         return "maculabible";
     }
 
+    // Paratext scripture projects (USFM-like; subtitle export gating differs from generic "unknown")
+    if (importerType === "paratext" || fileType === "paratext") {
+        return "paratext";
+    }
+
     // USFM Files (usfm, sfm)
     if (
         corpusMarker === "usfm" ||
@@ -179,18 +231,6 @@ function getGroupKeyFromMetadata(metadata: Record<string, unknown>): string {
     // Bible Stories (OBS)
     if (corpusMarker === "obs" || importerType === "obs") {
         return "obs";
-    }
-
-    // PDF Files (backward compatibility)
-    if (
-        corpusMarker === "pdf" ||
-        corpusMarker === "pdf-importer" ||
-        corpusMarker === "pdf-sentence" ||
-        importerType === "pdf" ||
-        fileType === "pdf" ||
-        (originalFileName && /\.pdf$/i.test(originalFileName))
-    ) {
-        return "pdf";
     }
 
     // Spreadsheet with Audio data (CSV, TSV)
@@ -216,7 +256,7 @@ function getGroupKeyFromMetadata(metadata: Record<string, unknown>): string {
 export async function groupCodexFilesByImporterType(
     codexUris: vscode.Uri[]
 ): Promise<FileGroup[]> {
-    const groupsMap = new Map<string, Array<{ path: string; name: string; displayName: string }>>();
+    const groupsMap = new Map<string, FileGroupEntry[]>();
 
     for (const uri of codexUris) {
         try {
@@ -228,6 +268,7 @@ export async function groupCodexFilesByImporterType(
                 (typeof metadata?.fileDisplayName === "string" && metadata.fileDisplayName.trim()) ||
                 name.replace(/\.codex$/i, "") ||
                 name;
+            const { hasTranslations, hasAudio } = analyzeNotebookContent(notebook);
 
             if (!groupsMap.has(groupKey)) {
                 groupsMap.set(groupKey, []);
@@ -236,6 +277,8 @@ export async function groupCodexFilesByImporterType(
                 path: uri.fsPath,
                 name,
                 displayName: fileDisplayName,
+                hasTranslations,
+                hasAudio,
             });
         } catch {
             const name = uri.fsPath.split(/[/\\]/).pop() || "";
@@ -246,6 +289,8 @@ export async function groupCodexFilesByImporterType(
                 path: uri.fsPath,
                 name,
                 displayName: name.replace(/\.codex$/i, "") || name,
+                hasTranslations: false,
+                hasAudio: false,
             });
         }
     }
@@ -265,7 +310,6 @@ export async function groupCodexFilesByImporterType(
         biblica: 11,
         reach4life: 12,
         spreadsheet: 13,
-        pdf: 14,
         unknown: 99,
     };
 

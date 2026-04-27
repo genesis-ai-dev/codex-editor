@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
 import { ProjectUserVersionEntry } from "@types";
 import { addProjectMetadataEdit } from "./editMapUtils";
 
@@ -450,13 +452,38 @@ export class MetadataManager {
     }
 
     /**
+     * Resolve the running Codex app version, preferring the value stamped into
+     * `product.json` during the Codex build. For patch-rebuild builds, that
+     * value is the full `RELEASE_VERSION` (e.g. `1.108.12007`), while
+     * `vscode.version` may only reflect the upstream MS tag (e.g. `1.108.1`).
+     * Falls back to `vscode.version` when `product.json` can't be read (e.g.
+     * in the web host or during tests).
+     */
+    private static getCodexAppVersion(): string | undefined {
+        try {
+            const appRoot = vscode.env.appRoot;
+            if (appRoot) {
+                const productJsonPath = path.join(appRoot, "product.json");
+                const raw = fs.readFileSync(productJsonPath, "utf8");
+                const product = JSON.parse(raw) as { version?: unknown; };
+                if (typeof product.version === "string" && product.version.length > 0) {
+                    return product.version;
+                }
+            }
+        } catch {
+            // fall through to vscode.version
+        }
+        return vscode.version || undefined;
+    }
+
+    /**
      * Record the current user's Codex editor version in the metadata `users` array.
      * Called on project open and after sync so deploy-compatibility checks can see
      * which binary each collaborator is running.
      */
     static async ensureCurrentUserVersionRecorded(workspaceUri: vscode.Uri): Promise<void> {
         try {
-            const codexVersion = vscode.version;
+            const codexVersion = this.getCodexAppVersion();
             if (!codexVersion) {
                 return;
             }
@@ -526,8 +553,8 @@ export class MetadataManager {
 
         if (result.success && result.metadata) {
             const metadata = result.metadata as any;
-            sourceLanguage = metadata.languages?.find((l: any) => l.projectStatus === "source");
-            targetLanguage = metadata.languages?.find((l: any) => l.projectStatus === "target");
+            sourceLanguage = metadata.languages?.find((l: any) => l?.projectStatus === "source");
+            targetLanguage = metadata.languages?.find((l: any) => l?.projectStatus === "target");
         }
 
         if (!sourceLanguage || !targetLanguage) {
@@ -659,25 +686,10 @@ export class MetadataManager {
 }
 
 /**
- * Register commands that frontier-authentication can call to write to metadata.json
- * This implements the "single writer" principle - only codex-editor writes to metadata.json
+ * Register commands that frontier-authentication can call to read metadata.json.
+ * All writes to metadata.json happen internally via MetadataManager (single-writer principle).
  */
 export function registerMetadataCommands(context: vscode.ExtensionContext): void {
-    // Command for frontier-authentication to update extension versions
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-editor.updateMetadataExtensionVersions",
-            async (versions: { codexEditor?: string; frontierAuthentication?: string }): Promise<{ success: boolean; error?: string }> => {
-                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                if (!workspaceFolder) {
-                    return { success: false, error: "No workspace folder open" };
-                }
-
-                return MetadataManager.updateExtensionVersions(workspaceFolder.uri, versions);
-            }
-        )
-    );
-
     // Command for frontier-authentication to read extension versions
     context.subscriptions.push(
         vscode.commands.registerCommand(

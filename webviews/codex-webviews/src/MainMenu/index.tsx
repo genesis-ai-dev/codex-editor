@@ -9,7 +9,9 @@ import {
     TextDisplaySettingsModal,
     type TextDisplaySettings,
 } from "../components/TextDisplaySettingsModal";
-import { vscode } from "../EditableReactTable/utilities/vscode";
+import { getVSCodeAPI } from "../shared/vscodeApi";
+
+const vscode = getVSCodeAPI();
 import "../tailwind.css";
 
 // Inline editable field component
@@ -106,6 +108,7 @@ function EditableField({
 const SHOULD_SHOW_RELEASE_NOTES_LINK = true;
 const RELEASE_NOTES_URL = "https://docs.codexeditor.app/docs/releases/latest/";
 
+
 interface ProjectManagerState {
     projectOverview: any | null;
     webviewReady: boolean;
@@ -143,6 +146,7 @@ interface State {
     syncDelayMinutes: number;
     isFrontierExtensionEnabled: boolean;
     isAuthenticated: boolean;
+    isGitAvailable: boolean;
 }
 
 function MainMenu() {
@@ -172,12 +176,11 @@ function MainMenu() {
         syncDelayMinutes: 5,
         isFrontierExtensionEnabled: true,
         isAuthenticated: false,
+        isGitAvailable: true,
     });
 
     const network = useNetworkState();
     const isOnline = network?.online ?? true;
-
-    const [isTextDisplaySettingsOpen, setIsTextDisplaySettingsOpen] = useState(false);
 
     // Optimistic local state for validation counters so rapid clicks work correctly.
     // Without this, each click reads from the stale server-confirmed state (which
@@ -200,18 +203,38 @@ function MainMenu() {
         state.projectState.projectOverview?.validationCountAudio ??
         1;
 
-    // Clear optimistic override once the server has caught up to the local value
+    // Clear optimistic override once the server has caught up to the local value.
+    // A short settlement delay prevents stale state updates (from racing
+    // onDidChangeConfiguration / file-watcher refreshes) from regressing the
+    // display after the correct server value has already cleared the local.
+    const validationSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const validationAudioSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     useEffect(() => {
         const serverCount = state.projectState.projectOverview?.validationCount;
         if (localValidationCount !== null && serverCount === localValidationCount) {
-            setLocalValidationCount(null);
+            validationSettleRef.current = setTimeout(() => {
+                setLocalValidationCount((current) =>
+                    current === serverCount ? null : current
+                );
+            }, 500);
+            return () => {
+                if (validationSettleRef.current) clearTimeout(validationSettleRef.current);
+            };
         }
     }, [state.projectState.projectOverview?.validationCount, localValidationCount]);
 
     useEffect(() => {
         const serverCount = state.projectState.projectOverview?.validationCountAudio;
         if (localValidationCountAudio !== null && serverCount === localValidationCountAudio) {
-            setLocalValidationCountAudio(null);
+            validationAudioSettleRef.current = setTimeout(() => {
+                setLocalValidationCountAudio((current) =>
+                    current === serverCount ? null : current
+                );
+            }, 500);
+            return () => {
+                if (validationAudioSettleRef.current) clearTimeout(validationAudioSettleRef.current);
+            };
         }
     }, [state.projectState.projectOverview?.validationCountAudio, localValidationCountAudio]);
 
@@ -224,6 +247,8 @@ function MainMenu() {
             if (localCountFallbackRef.current) clearTimeout(localCountFallbackRef.current);
             if (localCountAudioFallbackRef.current)
                 clearTimeout(localCountAudioFallbackRef.current);
+            if (validationSettleRef.current) clearTimeout(validationSettleRef.current);
+            if (validationAudioSettleRef.current) clearTimeout(validationAudioSettleRef.current);
         };
     }, []);
 
@@ -244,7 +269,7 @@ function MainMenu() {
                 } catch (error) {
                     console.error("Could not send validation count:", error);
                 }
-            }, 150);
+            }, 1200);
 
             // Safety net: clear optimistic state after 5s in case server never confirms
             localCountFallbackRef.current = setTimeout(() => {
@@ -272,7 +297,7 @@ function MainMenu() {
                 } catch (error) {
                     console.error("Could not send audio validation count:", error);
                 }
-            }, 150);
+            }, 1200);
 
             localCountAudioFallbackRef.current = setTimeout(() => {
                 setLocalValidationCountAudio(null);
@@ -308,6 +333,7 @@ function MainMenu() {
                             message.data.isFrontierExtensionEnabled ??
                             prevState.isFrontierExtensionEnabled,
                         isAuthenticated: message.data.isAuthenticated ?? prevState.isAuthenticated,
+                        isGitAvailable: message.data.isGitAvailable ?? prevState.isGitAvailable,
                     }));
                     break;
                 case "updateStateChanged":
@@ -350,7 +376,6 @@ function MainMenu() {
                         },
                     }));
                     break;
-                // Speech-to-text settings moved to Copilot Settings panel
             }
         };
 
@@ -436,18 +461,11 @@ function MainMenu() {
         handleProjectAction("triggerSync");
     };
 
-    // Speech-to-text settings controls moved to Copilot Settings panel
-
-    const handleApplyTextDisplaySettings = (settings: TextDisplaySettings) => {
-        try {
-            vscode.postMessage({
-                command: "applyTextDisplaySettings",
-                data: settings,
-            });
-        } catch (error) {
-            console.error("Could not apply text display settings:", error);
-        }
+    const handleDownloadSyncRuntime = () => {
+        handleProjectAction("downloadSyncRuntime");
     };
+
+    // Speech-to-text settings controls moved to Copilot Settings panel
 
     const getLanguageDisplay = (languageObj: any): string => {
         if (!languageObj) return "Missing";
@@ -855,18 +873,28 @@ function MainMenu() {
                                                     }
                                                 }}
                                                 disabled={
+                                                    !state.isGitAvailable ||
                                                     projectState.isPublishingInProgress ||
+                                                    projectState.isImportInProgress ||
                                                     !isOnline ||
                                                     !state.isFrontierExtensionEnabled
                                                 }
+                                                title={!state.isGitAvailable ? "Sync unavailable — missing sync tools" : undefined}
                                                 size="sm"
                                                 className="flex-shrink-0"
                                             >
-                                                {projectState.isPublishingInProgress ? (
+                                                {!state.isGitAvailable ? (
+                                                    "Sync Unavailable"
+                                                ) : projectState.isPublishingInProgress ? (
                                                     <>
                                                         <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
                                                         {projectState.publishingStage ||
                                                             "Publishing..."}
+                                                    </>
+                                                ) : projectState.isImportInProgress ? (
+                                                    <>
+                                                        <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
+                                                        Importing...
                                                     </>
                                                 ) : !isOnline ? (
                                                     "Offline"
@@ -893,10 +921,12 @@ function MainMenu() {
                                     isImportInProgress={projectState.isImportInProgress ?? false}
                                     isFrontierExtensionEnabled={state.isFrontierExtensionEnabled}
                                     isAuthenticated={state.isAuthenticated}
+                                    isGitAvailable={state.isGitAvailable}
                                     onToggleAutoSync={handleToggleAutoSync}
                                     onChangeSyncDelay={handleChangeSyncDelay}
                                     onTriggerSync={handleTriggerSync}
                                     onLogin={handleLogin}
+                                    onDownloadSyncRuntime={handleDownloadSyncRuntime}
                                 />
                             )}
 
@@ -932,8 +962,9 @@ function MainMenu() {
                                             },
                                             {
                                                 icon: "codicon-text-size",
-                                                label: "Text Display",
-                                                action: () => setIsTextDisplaySettingsOpen(true),
+                                                label: "Interface Settings",
+                                                action: () =>
+                                                    handleProjectAction("openInterfaceSettings"),
                                             },
                                             {
                                                 icon: "codicon-symbol-array",
@@ -1074,12 +1105,6 @@ function MainMenu() {
                 Codex Editor {projectState.appVersion ? `v${projectState.appVersion}` : ""}
             </div>
 
-            {/* Text Display Settings Modal */}
-            <TextDisplaySettingsModal
-                isOpen={isTextDisplaySettingsOpen}
-                onClose={() => setIsTextDisplaySettingsOpen(false)}
-                onApply={handleApplyTextDisplaySettings}
-            />
         </div>
     );
 }

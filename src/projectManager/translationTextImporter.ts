@@ -13,7 +13,7 @@ export async function importTranslations(
     context: vscode.ExtensionContext,
     fileUri: vscode.Uri,
     sourceNotebookId: string,
-    progress?: vscode.Progress<{ message?: string }>,
+    progress?: vscode.Progress<{ message?: string; }>,
     token?: vscode.CancellationToken
 ): Promise<void> {
     try {
@@ -46,17 +46,17 @@ export async function importTranslations(
             throw new vscode.CancellationError();
         }
 
-        progress?.report({ message: "Merging translations into Codex notebook..." });
+        progress?.report({ message: "Importing translations..." });
         const updatedNotebook = mergeTranslations(existingNotebook, fileContentString);
 
         if (token?.isCancellationRequested) {
             throw new vscode.CancellationError();
         }
 
-        progress?.report({ message: "Serializing updated Codex notebook..." });
+        progress?.report({ message: "Saving changes..." });
         const serializedContent = await serializer.serializeNotebook(updatedNotebook, token);
 
-        progress?.report({ message: "Writing updated Codex notebook to disk..." });
+        progress?.report({ message: "Writing to file..." });
         await vscode.workspace.fs.writeFile(codexUri, serializedContent);
 
         vscode.window.showInformationMessage("Translations imported successfully.");

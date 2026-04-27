@@ -8,6 +8,7 @@ const path = require("path");
 const webpack = require("webpack");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 
+
 //@ts-check
 /** @typedef {import('webpack').Configuration} WebpackConfig **/
 
@@ -27,9 +28,10 @@ const extensionConfig = {
     externals: {
         vscode: "commonjs vscode", // the vscode-module is created on-the-fly and must be excluded. Add other modules that cannot be webpack'ed, 📖 -> https://webpack.js.org/configuration/externals/
         // modules added here also need to be added in the .vscodeignore file
-        "fts5-sql-bundle": "commonjs fts5-sql-bundle",
+        "fts5-sql-bundle": "commonjs fts5-sql-bundle", // WASM-based SQLite fallback — must remain external so locateFile can resolve the .wasm at runtime
         vm: "commonjs vm",
         encoding: "commonjs encoding",
+        dugite: "commonjs dugite", // Must be external so its embedded binary resolution works (needs real __dirname and process.platform)
         // Note: tar is NOT external - it's bundled so audio import can extract FFmpeg on-demand
     },
     resolve: {
@@ -44,7 +46,6 @@ const extensionConfig = {
                 __dirname,
                 "webviews/codex-webviews/src/NewSourceUploader/types.ts"
             ),
-            sqldb: path.resolve(__dirname, "src/sqldb"),
         },
         fallback: {
             path: false,
@@ -85,18 +86,11 @@ const extensionConfig = {
                 include: /node_modules/,
                 type: "javascript/auto",
             },
-            {
-                test: /\.wasm$/,
-                type: "asset/resource",
-            },
         ],
     },
     devtool: "nosources-source-map",
     infrastructureLogging: {
         level: "log", // enables logging required for problem matchers
-    },
-    experiments: {
-        asyncWebAssembly: true,
     },
     plugins: [
         new webpack.ProvidePlugin({
@@ -123,6 +117,14 @@ const extensionConfig = {
                     from: "node_modules/fts5-sql-bundle/package.json",
                     to: "node_modules/fts5-sql-bundle/package.json",
                 },
+                {
+                    from: "node_modules/@vscode/codicons/dist/codicon.css",
+                    to: "node_modules/@vscode/codicons/dist/codicon.css",
+                },
+                {
+                    from: "node_modules/@vscode/codicons/dist/codicon.ttf",
+                    to: "node_modules/@vscode/codicons/dist/codicon.ttf",
+                },
             ],
         }),
     ],
@@ -131,53 +133,11 @@ const extensionConfig = {
     },
     ignoreWarnings: [
         {
-            module: /node_modules\/vscode-languageserver-types/,
-        },
-        {
             module: /node_modules\/mocha/,
         },
     ],
 };
 
-const serverConfig = {
-    name: "server",
-    target: "node",
-    mode: "none",
-    entry: "./src/tsServer/server.ts",
-    output: {
-        path: path.resolve(__dirname, "out"),
-        filename: "server.js",
-        libraryTarget: "commonjs2",
-    },
-    node: {
-        __dirname: false,
-        __filename: false,
-        global: false,
-    },
-    externals: {
-        vscode: "commonjs vscode",
-    },
-    resolve: {
-        extensions: [".ts", ".js"],
-        alias: {
-            "@": path.resolve(__dirname, "src"),
-        },
-    },
-    module: {
-        rules: [
-            {
-                test: /\.ts$/,
-                exclude: /node_modules/,
-                use: [
-                    {
-                        loader: "ts-loader",
-                    },
-                ],
-            },
-        ],
-    },
-    devtool: "nosources-source-map",
-};
 
 const testConfig = {
     name: "test",
@@ -194,6 +154,7 @@ const testConfig = {
         vscode: "commonjs vscode",
         child_process: "commonjs child_process", // Required for audioMigration utility
         util: "commonjs util", // Required for promisify
+        dugite: "commonjs dugite", // Must be external so its embedded binary resolution works (needs real __dirname and process.platform)
         // Note: tar is NOT external - it's bundled so audio import can extract FFmpeg on-demand
     },
     resolve: {
@@ -309,6 +270,7 @@ const testRunnerConfig = {
     },
     externals: {
         vscode: "commonjs vscode",
+        dugite: "commonjs dugite",
     },
     resolve: {
         extensions: [".ts", ".js"],
@@ -332,4 +294,4 @@ const testRunnerConfig = {
     devtool: "nosources-source-map",
 };
 
-module.exports = [extensionConfig, serverConfig, testConfig, testRunnerConfig];
+module.exports = [extensionConfig, testConfig, testRunnerConfig];

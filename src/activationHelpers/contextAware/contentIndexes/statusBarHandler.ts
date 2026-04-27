@@ -19,7 +19,7 @@ export class IndexingStatusBarHandler {
 
         // Add command to status bar item
         this.statusBarItem.command = 'codex-editor-extension.forceReindex';
-        
+
         this.statusBarItem.show();
         this.indexCountsItem.show();
         this.progressBarItem.show();

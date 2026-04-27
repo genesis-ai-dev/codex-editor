@@ -7,6 +7,7 @@ import { BaseWebviewProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { CodexCellEditorProvider } from "../codexCellEditorProvider/codexCellEditorProvider";
 import { updateWorkspaceState } from "../../utils/workspaceEventListener";
+import { getCorrespondingSourceUri, getCorrespondingCodexUri } from "../../utils/codexNotebookUtils";
 
 function normalizeUri(uri: string): string {
     if (!uri) return "";
@@ -154,11 +155,40 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             const parsedUri = vscode.Uri.parse(uri);
             const stringUri = parsedUri.toString();
             if (stringUri.includes(".codex") || stringUri.includes(".source")) {
-                await vscode.commands.executeCommand("vscode.openWith", parsedUri, "codex.cellEditor");
-                updateWorkspaceState(this._context, {
-                    key: "cellToJumpTo",
-                    value: cellId,
-                });
+                const isSource = stringUri.includes(".source");
+                const sourceUri = isSource ? parsedUri : getCorrespondingSourceUri(parsedUri);
+                const codexUri = isSource ? getCorrespondingCodexUri(parsedUri) : parsedUri;
+
+                let opened = false;
+
+                if (sourceUri) {
+                    try {
+                        await vscode.workspace.fs.stat(sourceUri);
+                        await vscode.commands.executeCommand(
+                            "vscode.openWith", sourceUri, "codex.cellEditor",
+                            { viewColumn: vscode.ViewColumn.One }
+                        );
+                        opened = true;
+                    } catch { /* file doesn't exist */ }
+                }
+
+                if (codexUri) {
+                    try {
+                        await vscode.workspace.fs.stat(codexUri);
+                        await vscode.commands.executeCommand(
+                            "vscode.openWith", codexUri, "codex.cellEditor",
+                            { viewColumn: vscode.ViewColumn.Two }
+                        );
+                        opened = true;
+                    } catch { /* file doesn't exist */ }
+                }
+
+                if (opened) {
+                    updateWorkspaceState(this._context, {
+                        key: "cellToJumpTo",
+                        value: cellId,
+                    });
+                }
             }
         } catch (error) {
             console.error(`Failed to open file: ${uri}`, error);
@@ -207,16 +237,33 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         }
     }
 
-    // Reset ready state when webview is recreated
+    private configDisposable: vscode.Disposable | undefined;
+
     protected onWebviewResolved(): void {
         this._isWebviewReady = false;
+
+        this.configDisposable?.dispose();
+        this.configDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration("codex-editor-extension.highlightSearchResults")) {
+                this.sendHighlightSearchResultsSetting();
+            }
+        });
     }
 
-    // Override the onWebviewReady hook to send pending data
     protected onWebviewReady(): void {
         this._isWebviewReady = true;
         this.sendPendingSearch();
         this.sendPendingEnableReplace();
+        this.sendHighlightSearchResultsSetting();
+    }
+
+    private sendHighlightSearchResultsSetting(): void {
+        const config = vscode.workspace.getConfiguration("codex-editor-extension");
+        const value = config.get<boolean>("highlightSearchResults", true);
+        safePostMessageToView(this._view, {
+            command: "setHighlightSearchResults",
+            value,
+        });
     }
 
     protected async handleMessage(message: any): Promise<void> {

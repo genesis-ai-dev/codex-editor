@@ -1,4 +1,5 @@
 import { CodexNotebookAsJSONData } from "@types";
+import { CodexCellTypes } from "../../types/enums";
 
 export const removeHtmlTags = (content: string) => {
     return content
@@ -39,10 +40,13 @@ export function generateSrtData(
     let output = "";
     let index = 1;
 
-    // Filter out merged cells before processing
     const activeCells = cells.filter((unit) => {
         const metadata = unit.metadata;
-        return !metadata?.data?.merged;
+        return (
+            !metadata?.data?.merged &&
+            metadata?.type !== CodexCellTypes.MILESTONE &&
+            metadata?.data?.startTime != null
+        );
     });
 
     activeCells.forEach((unit) => {
