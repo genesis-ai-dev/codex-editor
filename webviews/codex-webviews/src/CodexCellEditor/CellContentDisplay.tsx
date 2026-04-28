@@ -435,7 +435,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 return { borderColor: "red" };
             }
             if (htmlStructureError) {
-                return { borderColor: "var(--vscode-charts-yellow, #ca8a04)" };
+                return {
+                    borderColor: "var(--vscode-charts-yellow, #ca8a04)",
+                    animation: "htmlStructureErrorGlowFade 1.5s ease-out forwards",
+                };
             }
 
             // Explicitly reset border properties when no translation state
@@ -640,6 +643,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     isScrollHighlighted ? "cell-scroll-highlight" : ""
                 }`}
                 style={{
+                    border: "1px solid transparent",
                     backgroundColor: getBackgroundColor(),
                     direction: textDirection,
                     ...getBorderStyle(),
@@ -648,7 +652,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     gap: isSourceText ? "0.25rem" : "0.0625rem",
                     padding: "0.25rem",
                     cursor: isSourceText && !isCorrectionEditorMode ? "default" : "pointer",
-                    border: "1px solid transparent",
                     borderRadius: "4px",
                     overflow: "visible",
                     maxWidth: "100%",

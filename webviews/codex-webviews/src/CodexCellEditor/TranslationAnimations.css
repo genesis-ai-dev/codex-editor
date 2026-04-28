@@ -127,3 +127,14 @@
     animation: scrollHighlightFlash 1.5s ease-out;
     border-radius: 4px;
 }
+
+@keyframes htmlStructureErrorGlowFade {
+    0% {
+        border-color: var(--vscode-charts-yellow, #ca8a04);
+        box-shadow: 0 0 14px 3px rgba(202, 138, 4, 0.45);
+    }
+    100% {
+        border-color: rgba(202, 138, 4, 0);
+        box-shadow: 0 0 0 0 rgba(202, 138, 4, 0);
+    }
+}
