@@ -1237,7 +1237,7 @@ function NavigationView() {
                             structure. Mismatches are flagged during editing and export.
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="flex justify-end items-center gap-3 mt-4 mb-4">
+                    <div className="flex items-center gap-3 mt-4 mb-4">
                         <Label
                             htmlFor="html-enforcement-toggle"
                             className="cursor-pointer font-medium"
