@@ -28,6 +28,7 @@ interface CodexMetadata {
     corpusMarker?: string;
     progress?: number;
     fileDisplayName?: string;
+    enforceHtmlStructure?: boolean;
 }
 
 interface BibleBookInfo {
