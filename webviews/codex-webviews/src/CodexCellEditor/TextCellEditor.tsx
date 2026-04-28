@@ -341,8 +341,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
     const [recordingStatus, setRecordingStatus] = useState<string>("");
     const [isAudioSaving, setIsAudioSaving] = useState<boolean>(false);
+    const [countdown, setCountdown] = useState<number | null>(null);
+    const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
+    const [recordingElapsedTime, setRecordingElapsedTime] = useState<number>(0);
     const audioSaveRequestIdRef = useRef<string | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
+    const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const saveAudioToCellRef = useRef<((blob: Blob) => void) | null>(null);
     const [confirmingDiscard, setConfirmingDiscard] = useState(false);
     const [showRecorder, setShowRecorder] = useState(() => {
         try {
@@ -432,6 +438,20 @@ const CellEditor: React.FC<CellEditorProps> = ({
         return () => {
             if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
             if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+        };
+    }, []);
+
+    // Cleanup recording timers on unmount
+    useEffect(() => {
+        return () => {
+            if (countdownIntervalRef.current) {
+                clearInterval(countdownIntervalRef.current);
+                countdownIntervalRef.current = null;
+            }
+            if (recordingTimerRef.current) {
+                clearInterval(recordingTimerRef.current);
+                recordingTimerRef.current = null;
+            }
         };
     }, []);
 
@@ -1142,15 +1162,174 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // (backtranslation tab was removed; no automatic switching needed)
 
     // Audio recording functions
-
-    // Audio recording functions
-    const startRecording = async () => {
+    const startRecording = () => {
         // Prevent recording if cell is locked
         if (isCellLocked) {
             setRecordingStatus("Cannot record: cell is locked");
             return;
         }
 
+        // If already recording or countdown active, do nothing (stopRecording handles stopping)
+        if (isRecording || countdown !== null) {
+            return;
+        }
+
+        setCountdown(3);
+        setRecordingStatus("Starting in 3...");
+    };
+
+    const stopRecording = () => {
+        // Cancel countdown if in progress
+        if (countdown !== null) {
+            setCountdown(null);
+            setRecordingStatus("");
+            if (countdownIntervalRef.current) {
+                clearInterval(countdownIntervalRef.current);
+                countdownIntervalRef.current = null;
+            }
+            return;
+        }
+
+        // Stop actual recording
+        if (mediaRecorder && mediaRecorder.state !== "inactive") {
+            mediaRecorder.stop();
+        }
+
+        // Clean up timers
+        if (recordingTimerRef.current) {
+            clearInterval(recordingTimerRef.current);
+            recordingTimerRef.current = null;
+        }
+        setRecordingStartTime(null);
+        setRecordingElapsedTime(0);
+    };
+
+    const saveAudioToCell = useCallback(
+        (blob: Blob) => {
+            setIsAudioSaving(true);
+            setRecordingStatus("Saving audio…");
+
+            // Generate a unique ID for the audio file
+            const normalizedCellId = cellMarkers[0].replace(/\s+/g, "-").toLowerCase();
+            const uniqueId = `audio-${normalizedCellId}-${Date.now()}-${Math.random()
+                .toString(36)
+                .substr(2, 9)}`;
+            const documentSegment = cellMarkers[0].split(" ")[0]; // Extract "JUD" from "JUD 1:1"
+
+            // Normalize file extension from MIME type
+            const normalizeExtension = (mimeType: string): string => {
+                if (!mimeType || !mimeType.includes("/")) return "webm";
+
+                let ext = mimeType.split("/")[1] || "webm";
+
+                // Remove codec parameters (e.g., "webm;codecs=opus" -> "webm")
+                ext = ext.split(";")[0];
+
+                // Normalize non-standard MIME types (e.g., "x-m4a" -> "m4a")
+                if (ext.startsWith("x-")) {
+                    ext = ext.substring(2);
+                }
+
+                // Handle common MIME type aliases
+                if (ext === "mp4" || ext === "mpeg") {
+                    return "m4a";
+                }
+
+                // Validate against supported formats
+                const allowedExtensions = new Set([
+                    "webm",
+                    "wav",
+                    "mp3",
+                    "m4a",
+                    "ogg",
+                    "aac",
+                    "flac",
+                ]);
+                return allowedExtensions.has(ext) ? ext : "webm";
+            };
+
+            const fileExtension = normalizeExtension(blob.type);
+
+            // Convert blob to base64 for transfer to provider
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+                const base64data = reader.result as string;
+
+                // Attempt to compute simple metadata using Web Audio API (best-effort)
+                let meta: any = {
+                    mimeType: blob.type || undefined,
+                    sizeBytes: blob.size,
+                };
+                try {
+                    const arrayBuf = await blob.arrayBuffer();
+                    // Decode to PCM to obtain duration and channels
+                    const audioCtx = new (window.AudioContext ||
+                        (window as any).webkitAudioContext)({
+                        sampleRate: 48000,
+                    } as any);
+                    const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+                    const durationSec = decoded.duration;
+                    const channels = decoded.numberOfChannels;
+                    // Approximated bitrate in kbps: size(bytes)*8 / duration(seconds) / 1000
+                    const bitrateKbps =
+                        durationSec > 0
+                            ? Math.round((blob.size * 8) / durationSec / 1000)
+                            : undefined;
+                    meta = {
+                        ...meta,
+                        sampleRate: decoded.sampleRate,
+                        channels,
+                        durationSec,
+                        bitrateKbps,
+                    };
+                    try {
+                        audioCtx.close();
+                    } catch {
+                        void 0;
+                    }
+                } catch {
+                    // ignore metadata decode errors
+                }
+                // Send to provider to save file
+                const requestId =
+                    typeof crypto !== "undefined" &&
+                    typeof (crypto as any).randomUUID === "function"
+                        ? (crypto as any).randomUUID()
+                        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                audioSaveRequestIdRef.current = requestId;
+
+                const messageContent: EditorPostMessages = {
+                    command: "saveAudioAttachment",
+                    requestId,
+                    content: {
+                        cellId: cellMarkers[0],
+                        audioData: base64data,
+                        audioId: uniqueId,
+                        fileExtension: fileExtension,
+                        metadata: meta,
+                    },
+                };
+
+                window.vscodeApi.postMessage(messageContent);
+
+                // Store the audio ID temporarily
+                sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, uniqueId);
+
+                // Set the audioBlob (audioUrl will be derived automatically)
+                setAudioBlob(blob);
+            };
+            reader.readAsDataURL(blob);
+        },
+        [cellMarkers]
+    );
+
+    // Keep ref updated with saveAudioToCell function
+    useEffect(() => {
+        saveAudioToCellRef.current = saveAudioToCell;
+    }, [saveAudioToCell]);
+
+    // Actual recording function - called after countdown completes
+    const startActualRecording = useCallback(async () => {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             setRecordingStatus("Microphone not supported in this browser");
             return;
@@ -1197,10 +1376,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
             recorder.onstart = () => {
                 setIsRecording(true);
                 setRecordingStatus("Recording...");
+                setRecordingStartTime(Date.now());
+                setRecordingElapsedTime(0);
             };
 
             recorder.onstop = () => {
                 setIsRecording(false);
+                setRecordingStartTime(null);
+                setRecordingElapsedTime(0);
                 // Keep Blob type simple to avoid downstream extension parsing issues
                 const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
                 setAudioBlob(blob);
@@ -1218,7 +1401,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 stream.getTracks().forEach((track) => track.stop());
 
                 // Save audio to cell data
-                saveAudioToCell(blob);
+                if (saveAudioToCellRef.current) {
+                    saveAudioToCellRef.current(blob);
+                }
                 setShowRecorder(false);
             };
 
@@ -1227,118 +1412,78 @@ const CellEditor: React.FC<CellEditorProps> = ({
         } catch (err) {
             setRecordingStatus("Microphone access denied");
             console.error("Error accessing microphone:", err);
+            setCountdown(null);
         }
-    };
+    }, [audioUrl]);
 
-    const stopRecording = () => {
-        if (mediaRecorder && mediaRecorder.state !== "inactive") {
-            mediaRecorder.stop();
+    // Countdown timer effect - handles 3→2→1→0 countdown before recording starts
+    useEffect(() => {
+        if (countdown === null || countdown < 0) {
+            // Clean up interval if countdown is not active
+            if (countdownIntervalRef.current) {
+                clearInterval(countdownIntervalRef.current);
+                countdownIntervalRef.current = null;
+            }
+            return;
         }
-    };
 
-    const saveAudioToCell = (blob: Blob) => {
-        setIsAudioSaving(true);
-        setRecordingStatus("Saving audio…");
-
-        // Generate a unique ID for the audio file
-        const normalizedCellId = cellMarkers[0].replace(/\s+/g, "-").toLowerCase();
-        const uniqueId = `audio-${normalizedCellId}-${Date.now()}-${Math.random()
-            .toString(36)
-            .substr(2, 9)}`;
-        const documentSegment = cellMarkers[0].split(" ")[0]; // Extract "JUD" from "JUD 1:1"
-
-        // Normalize file extension from MIME type
-        const normalizeExtension = (mimeType: string): string => {
-            if (!mimeType || !mimeType.includes("/")) return "webm";
-
-            let ext = mimeType.split("/")[1] || "webm";
-
-            // Remove codec parameters (e.g., "webm;codecs=opus" -> "webm")
-            ext = ext.split(";")[0];
-
-            // Normalize non-standard MIME types (e.g., "x-m4a" -> "m4a")
-            if (ext.startsWith("x-")) {
-                ext = ext.substring(2);
+        if (countdown === 0) {
+            // Countdown finished, start actual recording
+            if (countdownIntervalRef.current) {
+                clearInterval(countdownIntervalRef.current);
+                countdownIntervalRef.current = null;
             }
+            setCountdown(null);
+            // Call the actual recording start function
+            startActualRecording();
+            return;
+        }
 
-            // Handle common MIME type aliases
-            if (ext === "mp4" || ext === "mpeg") {
-                return "m4a";
-            }
-
-            // Validate against supported formats
-            const allowedExtensions = new Set(["webm", "wav", "mp3", "m4a", "ogg", "aac", "flac"]);
-            return allowedExtensions.has(ext) ? ext : "webm";
-        };
-
-        const fileExtension = normalizeExtension(blob.type);
-
-        // Convert blob to base64 for transfer to provider
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-            const base64data = reader.result as string;
-
-            // Attempt to compute simple metadata using Web Audio API (best-effort)
-            let meta: any = {
-                mimeType: blob.type || undefined,
-                sizeBytes: blob.size,
-            };
-            try {
-                const arrayBuf = await blob.arrayBuffer();
-                // Decode to PCM to obtain duration and channels
-                const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({
-                    sampleRate: 48000,
-                } as any);
-                const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-                const durationSec = decoded.duration;
-                const channels = decoded.numberOfChannels;
-                // Approximated bitrate in kbps: size(bytes)*8 / duration(seconds) / 1000
-                const bitrateKbps =
-                    durationSec > 0 ? Math.round((blob.size * 8) / durationSec / 1000) : undefined;
-                meta = {
-                    ...meta,
-                    sampleRate: decoded.sampleRate,
-                    channels,
-                    durationSec,
-                    bitrateKbps,
-                };
-                try {
-                    audioCtx.close();
-                } catch {
-                    void 0;
+        // Set up interval to decrement countdown every second
+        countdownIntervalRef.current = setInterval(() => {
+            setCountdown((prev) => {
+                if (prev === null || prev <= 0) {
+                    return null;
                 }
-            } catch {
-                // ignore metadata decode errors
+                const next = prev - 1;
+                setRecordingStatus(next > 0 ? `Starting in ${next}...` : "Starting...");
+                return next;
+            });
+        }, 1000);
+
+        return () => {
+            if (countdownIntervalRef.current) {
+                clearInterval(countdownIntervalRef.current);
+                countdownIntervalRef.current = null;
             }
-            // Send to provider to save file
-            const requestId =
-                typeof crypto !== "undefined" && typeof (crypto as any).randomUUID === "function"
-                    ? (crypto as any).randomUUID()
-                    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-            audioSaveRequestIdRef.current = requestId;
-
-            const messageContent: EditorPostMessages = {
-                command: "saveAudioAttachment",
-                requestId,
-                content: {
-                    cellId: cellMarkers[0],
-                    audioData: base64data,
-                    audioId: uniqueId,
-                    fileExtension: fileExtension,
-                    metadata: meta,
-                },
-            };
-
-            window.vscodeApi.postMessage(messageContent);
-
-            // Store the audio ID temporarily
-            sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, uniqueId);
-
-            // Set the audioBlob (audioUrl will be derived automatically)
-            setAudioBlob(blob);
         };
-        reader.readAsDataURL(blob);
-    };
+    }, [countdown, startActualRecording]);
+
+    // Recording elapsed time tracker - updates every 100ms while recording
+    useEffect(() => {
+        if (!isRecording || recordingStartTime === null) {
+            // Reset elapsed time when not recording
+            if (recordingTimerRef.current) {
+                clearInterval(recordingTimerRef.current);
+                recordingTimerRef.current = null;
+            }
+            setRecordingElapsedTime(0);
+            return;
+        }
+
+        // Update elapsed time every 100ms for smooth progress bar
+        recordingTimerRef.current = setInterval(() => {
+            const elapsed = (Date.now() - recordingStartTime) / 1000;
+            setRecordingElapsedTime(elapsed);
+        }, 100);
+
+        return () => {
+            if (recordingTimerRef.current) {
+                clearInterval(recordingTimerRef.current);
+                recordingTimerRef.current = null;
+            }
+        };
+    }, [isRecording, recordingStartTime]);
 
     const discardAudio = () => {
         // Clean up audioBlob and audioUrl
@@ -2234,9 +2379,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 });
                             }}
                         />
-                        <span className="text-xs text-muted-foreground">
-                            Paste as plain text
-                        </span>
+                        <span className="text-xs text-muted-foreground">Paste as plain text</span>
                     </label>
                     <span className="text-xs text-muted-foreground">
                         {characterCount} characters
@@ -2773,10 +2916,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     audioUrl.startsWith("http")
                                 ) ? (
                                     <div className="bg-[var(--vscode-editor-background)] p-3 sm:p-4 rounded-md shadow w-full">
-                                        {!audioUrl && (
+                                        {(!audioUrl || showRecorder) && (
                                             <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md shadow-sm">
-                                                <div className="flex items-center justify-center h-20 text-[var(--vscode-foreground)] text-sm">
-                                                    {audioAttachments &&
+                                                <div className="flex items-center justify-center text-[var(--vscode-foreground)] text-sm">
+                                                    {!showRecorder &&
+                                                    audioAttachments &&
                                                     (audioAttachments[cellMarkers[0]] ===
                                                         "available" ||
                                                         audioAttachments[cellMarkers[0]] ===
@@ -2829,48 +2973,127 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             })()}
                                                         </div>
                                                     ) : (
-                                                        <span>
-                                                            No audio attached to this cell yet.
-                                                        </span>
+                                                        (() => {
+                                                            // Calculate target duration from cell timestamps
+                                                            const targetDuration =
+                                                                cellTimestamps?.startTime !==
+                                                                    undefined &&
+                                                                cellTimestamps?.endTime !==
+                                                                    undefined
+                                                                    ? cellTimestamps.endTime -
+                                                                      cellTimestamps.startTime
+                                                                    : null;
+
+                                                            // Calculate progress percentage
+                                                            const progressPercentage =
+                                                                targetDuration &&
+                                                                recordingElapsedTime > 0
+                                                                    ? Math.min(
+                                                                          100,
+                                                                          (recordingElapsedTime /
+                                                                              targetDuration) *
+                                                                              100
+                                                                      )
+                                                                    : 0;
+
+                                                            // Determine if recording should stop filling (over 100%)
+                                                            const shouldStopFilling =
+                                                                progressPercentage >= 100;
+
+                                                            return (
+                                                                <div className="flex flex-col items-center gap-4 w-full">
+                                                                    {/* Circular Button */}
+                                                                    <Button
+                                                                        onClick={
+                                                                            isRecording ||
+                                                                            countdown !== null
+                                                                                ? stopRecording
+                                                                                : startRecording
+                                                                        }
+                                                                        disabled={isCellLocked}
+                                                                        className={cn(
+                                                                            "h-24 w-24 rounded-full text-2xl font-bold transition-all",
+                                                                            isRecording
+                                                                                ? "animate-pulse bg-red-600 hover:bg-red-700 border-0"
+                                                                                : countdown !== null
+                                                                                ? "bg-green-500 hover:bg-green-600 border-0"
+                                                                                : "bg-blue-600 hover:bg-blue-700 border-0",
+                                                                            isCellLocked
+                                                                                ? "opacity-50 cursor-not-allowed"
+                                                                                : ""
+                                                                        )}
+                                                                        title={
+                                                                            isCellLocked
+                                                                                ? "Cannot record: cell is locked"
+                                                                                : isRecording
+                                                                                ? "Stop Recording"
+                                                                                : countdown !== null
+                                                                                ? `Starting in ${countdown}...`
+                                                                                : "Start Recording"
+                                                                        }
+                                                                    >
+                                                                        {isRecording ? (
+                                                                            <Square className="h-8 w-8" />
+                                                                        ) : countdown !== null ? (
+                                                                            countdown
+                                                                        ) : (
+                                                                            <Mic className="h-8 w-8" />
+                                                                        )}
+                                                                    </Button>
+
+                                                                    {/* Progress Bar (only when we have a timestamp-derived target) */}
+                                                                    {targetDuration ? (
+                                                                        <div className="w-full space-y-2">
+                                                                            <div className="relative w-full h-3 bg-blue-200/60 rounded-full overflow-hidden">
+                                                                                <div
+                                                                                    className="h-full rounded-full transition-all duration-100"
+                                                                                    style={{
+                                                                                        width: `${
+                                                                                            shouldStopFilling
+                                                                                                ? 100
+                                                                                                : progressPercentage
+                                                                                        }%`,
+                                                                                        backgroundColor:
+                                                                                            progressPercentage <=
+                                                                                            90
+                                                                                                ? "rgb(34, 197, 94)" // green-500
+                                                                                                : progressPercentage <=
+                                                                                                  99
+                                                                                                ? "rgb(234, 179, 8)" // yellow-500
+                                                                                                : "rgb(239, 68, 68)", // red-500
+                                                                                    }}
+                                                                                />
+                                                                            </div>
+                                                                            <div className="flex justify-between text-xs text-muted-foreground">
+                                                                                <span>
+                                                                                    {isRecording ||
+                                                                                    recordingElapsedTime >
+                                                                                        0
+                                                                                        ? `${recordingElapsedTime.toFixed(
+                                                                                              1
+                                                                                          )}s`
+                                                                                        : "0s"}
+                                                                                </span>
+                                                                                <span>
+                                                                                    Timestamp Length
+                                                                                </span>
+                                                                                <span>
+                                                                                    {targetDuration.toFixed(
+                                                                                        1
+                                                                                    )}
+                                                                                    s
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : null}
+                                                                </div>
+                                                            );
+                                                        })()
                                                     )}
                                                 </div>
                                             </div>
                                         )}
                                         <div className="flex flex-wrap items-center justify-center gap-2 mt-3 px-2">
-                                            <Button
-                                                onClick={
-                                                    isRecording ? stopRecording : startRecording
-                                                }
-                                                variant={isRecording ? "secondary" : "default"}
-                                                disabled={isCellLocked}
-                                                className={`h-8 px-2 text-xs ${
-                                                    isRecording ? "animate-pulse" : ""
-                                                } ${
-                                                    isCellLocked
-                                                        ? "opacity-50 cursor-not-allowed"
-                                                        : ""
-                                                }`}
-                                                title={
-                                                    isCellLocked
-                                                        ? "Cannot record: cell is locked"
-                                                        : isRecording
-                                                        ? "Stop Recording"
-                                                        : "Start Recording"
-                                                }
-                                            >
-                                                {isRecording ? (
-                                                    <>
-                                                        <Square className="h-3 w-3 mr-1" />
-                                                        Stop Recording
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <CircleDotDashed className="h-3 w-3 mr-1" />
-                                                        Start Recording
-                                                    </>
-                                                )}
-                                            </Button>
-
                                             <Button
                                                 variant="outline"
                                                 className="flex items-center justify-center h-8 px-2 text-xs"
@@ -2958,11 +3181,32 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             onRequestRemove={() => setConfirmingDiscard(true)}
                                             onShowHistory={() => setShowAudioHistory(true)}
                                             historyCount={audioHistoryCount}
-                                            onShowRecorder={() => setShowRecorder(true)}
+                                            onShowRecorder={() => {
+                                                setShowRecorder(true);
+                                                // Reset recording state when re-recording
+                                                setCountdown(null);
+                                                setRecordingStartTime(null);
+                                                setRecordingElapsedTime(0);
+                                                if (countdownIntervalRef.current) {
+                                                    clearInterval(countdownIntervalRef.current);
+                                                    countdownIntervalRef.current = null;
+                                                }
+                                                if (recordingTimerRef.current) {
+                                                    clearInterval(recordingTimerRef.current);
+                                                    recordingTimerRef.current = null;
+                                                }
+                                            }}
                                             disabled={!audioBlob}
                                             validationStatusProps={audioValidationIconProps}
                                             audioValidationPopoverProps={
                                                 audioValidationPopoverProps
+                                            }
+                                            targetDuration={
+                                                cellTimestamps?.startTime !== undefined &&
+                                                cellTimestamps?.endTime !== undefined
+                                                    ? cellTimestamps.endTime -
+                                                      cellTimestamps.startTime
+                                                    : null
                                             }
                                         />
 
