@@ -14,11 +14,12 @@ import { v4 as uuidv4 } from 'uuid';
 export interface EbibleVerseCellMetadataParams {
     book: string; // Book name or code (e.g., "GEN", "Genesis")
     chapter: number; // Chapter number
-    verse: number; // Verse number
+    verse: number; // Verse number (start of range when verseEnd is set)
+    verseEnd?: number; // End verse for merged ranges (e.g., verse=1 verseEnd=2 → "1-2")
     text: string; // Verse text content
-    reference?: string; // Optional verse reference string (e.g., "GEN 1:1")
+    reference?: string; // Optional verse reference string (e.g., "GEN 1:1" or "GEN 1:1-2")
     fileName?: string; // Optional file name
-    cellLabel?: string; // Optional cell label (usually verse number)
+    cellLabel?: string; // Optional cell label (usually verse number or range like "1-2")
 }
 
 /**
@@ -72,9 +73,10 @@ function getBookCode(book: string): string {
 /**
  * Creates global references from verse data
  */
-function createGlobalReferences(book: string, chapter: number, verse: number): string[] {
+function createGlobalReferences(book: string, chapter: number, verse: number, verseEnd?: number): string[] {
     const bookCode = getBookCode(book);
-    return [`${bookCode} ${chapter}:${verse}`];
+    const verseStr = verseEnd ? `${verse}-${verseEnd}` : `${verse}`;
+    return [`${bookCode} ${chapter}:${verseStr}`];
 }
 
 /**
@@ -82,14 +84,20 @@ function createGlobalReferences(book: string, chapter: number, verse: number): s
  * Generates a UUID for the cell ID
  */
 export function createEbibleVerseCellMetadata(params: EbibleVerseCellMetadataParams): { metadata: any; cellId: string; } {
-    // Generate UUID for cell ID
     const cellId = uuidv4();
 
-    // Create global references
-    const globalReferences = createGlobalReferences(params.book, params.chapter, params.verse);
+    const globalReferences = createGlobalReferences(
+        params.book, params.chapter, params.verse, params.verseEnd
+    );
 
-    // Determine cell label
-    const cellLabel = params.cellLabel || String(params.verse);
+    const defaultLabel = params.verseEnd
+        ? `${params.verse}-${params.verseEnd}`
+        : String(params.verse);
+    const cellLabel = params.cellLabel || defaultLabel;
+
+    const defaultRef = params.verseEnd
+        ? `${params.book} ${params.chapter}:${params.verse}-${params.verseEnd}`
+        : `${params.book} ${params.chapter}:${params.verse}`;
 
     return {
         cellId,
@@ -97,16 +105,17 @@ export function createEbibleVerseCellMetadata(params: EbibleVerseCellMetadataPar
             id: cellId,
             type: CodexCellTypes.TEXT,
             edits: [],
-            chapterNumber: String(params.chapter), // Chapter number for milestone detection
-            verseReference: params.reference || `${params.book} ${params.chapter}:${params.verse}`,
+            chapterNumber: String(params.chapter),
+            verseReference: params.reference || defaultRef,
             book: params.book,
             chapter: params.chapter,
             verse: params.verse,
-            cellLabel: cellLabel,
+            ...(params.verseEnd && { verseEnd: params.verseEnd }),
+            cellLabel,
             originalText: params.text,
             data: {
                 originalText: params.text,
-                globalReferences: globalReferences,
+                globalReferences,
             },
         }
     };

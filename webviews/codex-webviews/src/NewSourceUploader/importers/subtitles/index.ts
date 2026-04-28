@@ -11,6 +11,7 @@ import {
     createProgress,
     validateFileExtension,
     addMilestoneCellsToNotebookPair,
+    createCodexCellsFromSource,
 } from '../../utils/workflowHelpers';
 import { WebVTTParser } from 'webvtt-parser';
 import { englishSubtitlesRaw, tigrinyaSubtitlesRaw, sourceOfTruthMapping } from './testData';
@@ -301,19 +302,7 @@ export const parseFile = async (
             },
         };
 
-        // Create codex cells (empty content for translation)
-        const codexCells = cells.map(sourceCell => ({
-            id: sourceCell.id,
-            content: '', // Empty for translation
-            images: sourceCell.images,
-            metadata: {
-                ...sourceCell.metadata,
-                data: {
-                    ...sourceCell.metadata?.data,
-                    originalText: sourceCell.content,
-                },
-            },
-        }));
+        const codexCells = createCodexCellsFromSource(cells);
 
         const codexNotebook: ProcessedNotebook = {
             name: baseName,
