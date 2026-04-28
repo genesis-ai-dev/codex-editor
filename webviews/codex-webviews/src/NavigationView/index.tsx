@@ -577,27 +577,26 @@ function NavigationView() {
     };
 
     const handleHtmlEnforcementToggle = (checked: boolean) => {
-        setState((prev) => ({
-            ...prev,
-            htmlEnforcementModal: {
-                ...prev.htmlEnforcementModal,
-                enforceHtmlStructure: checked,
-            },
-        }));
-    };
+        setState((prev) => {
+            const { item } = prev.htmlEnforcementModal;
+            if (item) {
+                vscode.postMessage({
+                    command: "setEnforceHtmlStructure",
+                    content: {
+                        bookAbbr: item.label,
+                        enforceHtmlStructure: checked,
+                    },
+                });
+            }
 
-    const handleHtmlEnforcementSave = () => {
-        const { item, enforceHtmlStructure } = state.htmlEnforcementModal;
-        if (!item) return;
-
-        vscode.postMessage({
-            command: "setEnforceHtmlStructure",
-            content: {
-                bookAbbr: item.label,
-                enforceHtmlStructure,
-            },
+            return {
+                ...prev,
+                htmlEnforcementModal: {
+                    ...prev.htmlEnforcementModal,
+                    enforceHtmlStructure: checked,
+                },
+            };
         });
-        handleHtmlEnforcementClose();
     };
 
     const handleRenameModalClose = () => {
@@ -1218,7 +1217,11 @@ function NavigationView() {
                     <DialogHeader className="text-left">
                         <DialogTitle
                             className="text-base font-semibold mb-2"
-                            style={{ fontSize: "16px", fontWeight: "600", color: "var(--vscode-foreground)" }}
+                            style={{
+                                fontSize: "16px",
+                                fontWeight: "600",
+                                color: "var(--vscode-foreground)",
+                            }}
                         >
                             HTML Enforcement
                         </DialogTitle>
@@ -1234,33 +1237,25 @@ function NavigationView() {
                             structure. Mismatches are flagged during editing and export.
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="flex items-center gap-3 mt-4 mb-4">
-                        <Switch
-                            id="html-enforcement-toggle"
-                            checked={state.htmlEnforcementModal.enforceHtmlStructure}
-                            onCheckedChange={handleHtmlEnforcementToggle}
-                        />
+                    <div className="flex justify-end items-center gap-3 mt-4 mb-4">
                         <Label
                             htmlFor="html-enforcement-toggle"
                             className="cursor-pointer font-medium"
                             style={{ color: "var(--vscode-foreground)" }}
                         >
-                            {state.htmlEnforcementModal.enforceHtmlStructure ? "Enabled" : "Disabled"}
+                            {state.htmlEnforcementModal.enforceHtmlStructure
+                                ? "Enabled"
+                                : "Disabled"}
                         </Label>
-                        <ShieldCheck
-                            className={`h-4 w-4 ml-auto ${
-                                state.htmlEnforcementModal.enforceHtmlStructure
-                                    ? "text-primary"
-                                    : "text-muted-foreground"
-                            }`}
+                        <Switch
+                            id="html-enforcement-toggle"
+                            checked={state.htmlEnforcementModal.enforceHtmlStructure}
+                            onCheckedChange={handleHtmlEnforcementToggle}
                         />
                     </div>
                     <DialogFooter className="flex gap-3 justify-end">
                         <Button variant="secondary" onClick={handleHtmlEnforcementClose}>
-                            Cancel
-                        </Button>
-                        <Button onClick={handleHtmlEnforcementSave}>
-                            Save
+                            Close
                         </Button>
                     </DialogFooter>
                 </DialogContent>
