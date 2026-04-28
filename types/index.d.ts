@@ -1416,6 +1416,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "triggerSync"; }
     | { command: "downloadSyncRuntime"; }
     | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
+    | { command: "setEnforceHtmlStructure"; content: { bookAbbr: string; enforceHtmlStructure: boolean; }; }
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | {
         command: "deleteCorpusMarker";
@@ -1837,6 +1838,7 @@ interface CodexItem {
     };
     sortOrder?: string;
     fileDisplayName?: string;
+    enforceHtmlStructure?: boolean;
 }
 type EditorReceiveMessages =
     | {
