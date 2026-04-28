@@ -107,12 +107,27 @@ const verseRangeRefRegex = /^\s*([^\s]+)\s+(\d+):(\d+)-(\d+)\s*$/;
 const singleVerseRefRegex = /^\s*([^\s]+)\s+(\d+):(\d+)\s*$/;
 
 /**
+ * Strip a legacy cell-ID suffix from a verse ref string.
+ * Legacy globalReferences may look like "GEN 1:11-12:1764564500321-k9yvyjy9o"
+ * where the ":TIMESTAMP-RANDOM" suffix is a leftover from the old cell ID format
+ * (before the UUID migration). The parent-child relationship is now stored in
+ * metadata.parentId, so this suffix is redundant and breaks ref parsing.
+ */
+const cellIdSuffixRegex = /^(\S+\s+\d+:\d+(?:-\d+)?):\d+-\w+$/;
+export function stripCellIdSuffix(ref: string): string {
+    const match = ref.match(cellIdSuffixRegex);
+    return match ? match[1]! : ref;
+}
+
+/**
  * Parse a ref string into a single-verse or verse-range result.
  * Examples: "JHN 4:4" -> single; "JHN 4:1-3" -> range with cellLabel "1-3".
+ * Also handles legacy suffixed refs like "GEN 1:11-12:1764564500321-k9yvyjy9o".
  */
 export function parseVerseRef(ref: string): ParsedVerseRef | null {
     if (typeof ref !== "string" || !ref.trim()) return null;
-    const rangeMatch = ref.match(verseRangeRefRegex);
+    const cleaned = stripCellIdSuffix(ref);
+    const rangeMatch = cleaned.match(verseRangeRefRegex);
     if (rangeMatch) {
         const [, book, chapter, verseStart, verseEnd] = rangeMatch;
         return {
@@ -124,7 +139,7 @@ export function parseVerseRef(ref: string): ParsedVerseRef | null {
             cellLabel: `${verseStart}-${verseEnd}`,
         };
     }
-    const singleMatch = ref.match(singleVerseRefRegex);
+    const singleMatch = cleaned.match(singleVerseRefRegex);
     if (singleMatch) {
         const [, book, chapter, verse] = singleMatch;
         return {
@@ -169,7 +184,10 @@ export function getVerseRefFromCellMetadata(metadata: {
     const id = metadata.id;
     if (typeof id === "string" && verseRefOrRangeAtEndRegex.test(id)) return id;
     const ref = metadata.data?.globalReferences?.[0];
-    if (typeof ref === "string" && verseRefOrRangeAtEndRegex.test(ref)) return ref;
+    if (typeof ref === "string") {
+        const cleaned = stripCellIdSuffix(ref);
+        if (verseRefOrRangeAtEndRegex.test(cleaned)) return cleaned;
+    }
     const { bookCode, chapter, verse } = metadata;
     if (bookCode != null && chapter != null && verse != null)
         return `${String(bookCode).trim()} ${chapter}:${verse}`;
