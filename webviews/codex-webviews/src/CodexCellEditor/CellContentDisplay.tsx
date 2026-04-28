@@ -1025,7 +1025,13 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                     border: "1px solid rgba(202, 138, 4, 0.25)",
                                 }}
                             >
-                                <i className={`codicon ${isResolvingStructure ? "codicon-loading codicon-modifier-spin" : "codicon-warning"}`} />
+                                <i
+                                    className={`codicon ${
+                                        isResolvingStructure
+                                            ? "codicon-loading codicon-modifier-spin"
+                                            : "codicon-warning"
+                                    }`}
+                                />
                                 <span style={{ flex: 1 }}>
                                     {isResolvingStructure
                                         ? "Resolving structure..."
@@ -1035,7 +1041,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                     variant="outline"
                                     size="sm"
                                     disabled={isResolvingStructure}
-                                    style={{ height: "1.4rem", fontSize: "0.75rem", padding: "0 0.4rem" }}
+                                    style={{
+                                        height: "1.4rem",
+                                        fontSize: "0.75rem",
+                                        padding: "0 0.4rem",
+                                    }}
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         setIsResolvingStructure(true);
