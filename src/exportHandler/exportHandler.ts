@@ -986,11 +986,15 @@ async function exportCodexContentAsUsfmRoundtrip(
                     const codexNotebook = await readCodexNotebookFromUri(file);
 
                     // Check if this is a USFM file (experimental or standalone)
-                    const importerType = (codexNotebook.metadata as any)?.importerType;
-                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
-                    const hasStructureMetadata = !!(codexNotebook.metadata as any)?.structureMetadata?.originalUsfmContent;
-                    const metaOriginalName: string = (codexNotebook.metadata as any)?.originalFileName ||
-                        (codexNotebook.metadata as any)?.originalName || '';
+                    const {
+                        importerType,
+                        corpusMarker,
+                        structureMetadata: metaStructure,
+                        originalFileName: metaOriginalFileName,
+                        originalName: metaOriginalName_,
+                    } = codexNotebook.metadata;
+                    const hasStructureMetadata = !!metaStructure?.originalUsfmContent;
+                    const metaOriginalName: string = metaOriginalFileName || metaOriginalName_ || '';
                     const hasUsfmExtension = /\.(usfm|sfm)$/i.test(metaOriginalName);
 
                     const isUsfmFile =
