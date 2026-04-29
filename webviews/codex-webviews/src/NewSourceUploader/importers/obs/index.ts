@@ -11,6 +11,7 @@ import {
     createProgress,
     validateFileExtension,
     addMilestoneCellsToNotebookPair,
+    createCodexCellsFromSource,
 } from '../../utils/workflowHelpers';
 import { processImageData } from '../../utils/imageProcessor';
 import { createObsTextCellMetadata, createObsImageCellMetadata } from './cellMetadata';
@@ -256,24 +257,7 @@ const downloadObsRepository = async (
             // Create individual story notebooks
             const storyName = obsStory.title;
 
-            // Create matching codex cells - same IDs and structure as source
-            const codexCells = storyCells.map(cell => {
-                if (cell.metadata.segmentType === 'image') {
-                    // Images carry over to codex unchanged
-                    return { ...cell };
-                } else {
-                    // Text cells become empty in codex (for translation)
-                    return {
-                        id: cell.id,
-                        content: '',
-                        images: cell.images,
-                        metadata: {
-                        ...cell.metadata,
-                        originalContent: cell.content, // Keep reference to original for context
-                        },
-                    };
-                }
-            });
+            const codexCells = createCodexCellsFromSource(storyCells);
 
             // Create source notebook
             const sourceNotebook: ProcessedNotebook = {
@@ -283,7 +267,7 @@ const downloadObsRepository = async (
                     id: uuidv4(),
                     originalFileName: storyFile.name,
                     sourceFile: storyFile.name,
-                    corpusMarker: 'obs', // Enable round-trip export
+                    corpusMarker: 'obs',
                     importerType: 'obs',
                     createdAt: new Date().toISOString(),
                     importContext: {
@@ -299,8 +283,6 @@ const downloadObsRepository = async (
                     sourceReference: obsStory.sourceReference,
                     fileName: storyFile.name,
                     parentCollection: 'Open Bible Stories',
-
-                    // Store OBS story structure for round-trip export
                     obsStory: JSON.stringify(obsStory),
                 }
             };
@@ -310,28 +292,8 @@ const downloadObsRepository = async (
                 name: storyName,
                 cells: codexCells,
                 metadata: {
+                    ...sourceNotebook.metadata,
                     id: uuidv4(),
-                    originalFileName: storyFile.name,
-                    sourceFile: storyFile.name,
-                    corpusMarker: 'obs', // Enable round-trip export
-                    importerType: 'obs',
-                    createdAt: new Date().toISOString(),
-                    importContext: {
-                        importerType: 'obs',
-                        fileName: storyFile.name,
-                        originalFileName: storyFile.name,
-                        importTimestamp: new Date().toISOString(),
-                    },
-                    storyNumber: obsStory.storyNumber,
-                    storyTitle: obsStory.title,
-                    segmentCount: codexCells.length,
-                    imageCount: codexCells.filter(cell => cell.metadata.segmentType === 'image').length,
-                    sourceReference: obsStory.sourceReference,
-                    fileName: storyFile.name,
-                    parentCollection: 'Open Bible Stories',
-
-                    // Store OBS story structure for round-trip export
-                    obsStory: JSON.stringify(obsStory),
                 }
             };
 
@@ -555,14 +517,7 @@ const parseObsMarkdown = async (
         },
     };
 
-    const codexCells = cells.map(sourceCell => ({
-        id: sourceCell.id,
-        content: sourceCell.images && sourceCell.images.length > 0
-            ? sourceCell.images.map((img: any) => `<img src="${img.src}"${img.alt ? ` alt="${img.alt}"` : ''} />`).join('\n')
-            : '', // Empty for translation, preserve images
-        images: sourceCell.images,
-        metadata: sourceCell.metadata,
-    }));
+    const codexCells = createCodexCellsFromSource(cells);
 
     const codexNotebook = {
         name: baseName,
@@ -796,24 +751,7 @@ const parseObsZip = async (
             // Create individual story notebooks
             const storyName = obsStory.title || `Story ${obsStory.storyNumber}`;
 
-            // Create matching codex cells
-            const codexCells = cells.map(cell => {
-                if (cell.metadata.segmentType === 'image') {
-                    // Images carry over to codex unchanged
-                    return { ...cell };
-                } else {
-                    // Text cells become empty in codex (for translation)
-                    return {
-                        id: cell.id,
-                        content: '',
-                        images: cell.images,
-                        metadata: {
-                        ...cell.metadata,
-                        originalContent: cell.content,
-                        },
-                    };
-                }
-            });
+            const codexCells = createCodexCellsFromSource(cells);
 
             // Create source notebook
             const sourceNotebook: ProcessedNotebook = {
@@ -823,7 +761,7 @@ const parseObsZip = async (
                     id: uuidv4(),
                     originalFileName: markdownFile.name,
                     sourceFile: markdownFile.name,
-                    corpusMarker: 'obs', // Enable round-trip export
+                    corpusMarker: 'obs',
                     importerType: 'obs',
                     createdAt: new Date().toISOString(),
                     storyNumber: obsStory.storyNumber,
@@ -833,8 +771,6 @@ const parseObsZip = async (
                     sourceReference: obsStory.sourceReference,
                     fileName: markdownFile.name,
                     parentCollection: 'Open Bible Stories',
-
-                    // Store OBS story structure for round-trip export
                     obsStory: JSON.stringify(obsStory),
                 }
             };
@@ -844,22 +780,8 @@ const parseObsZip = async (
                 name: storyName,
                 cells: codexCells,
                 metadata: {
+                    ...sourceNotebook.metadata,
                     id: uuidv4(),
-                    originalFileName: markdownFile.name,
-                    sourceFile: markdownFile.name,
-                    corpusMarker: 'obs', // Enable round-trip export
-                    importerType: 'obs',
-                    createdAt: new Date().toISOString(),
-                    storyNumber: obsStory.storyNumber,
-                    storyTitle: obsStory.title,
-                    segmentCount: codexCells.length,
-                    imageCount: codexCells.filter(cell => cell.metadata.segmentType === 'image').length,
-                    sourceReference: obsStory.sourceReference,
-                    fileName: markdownFile.name,
-                    parentCollection: 'Open Bible Stories',
-
-                    // Store OBS story structure for round-trip export
-                    obsStory: JSON.stringify(obsStory),
                 }
             };
 

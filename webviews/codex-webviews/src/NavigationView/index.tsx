@@ -12,7 +12,9 @@ import {
 } from "../components/ui/dropdown-menu";
 import "../tailwind.css";
 import { CodexItem } from "types";
-import { Languages, Mic } from "lucide-react";
+import { Languages, Mic, ShieldCheck } from "lucide-react";
+import { Switch } from "../components/ui/switch";
+import { Label } from "../components/ui/label";
 import { RenameModal } from "../components/RenameModal";
 import {
     Dialog,
@@ -61,6 +63,11 @@ interface State {
         displayName: string;
         typedName: string;
         isCorpus: boolean;
+    };
+    htmlEnforcementModal: {
+        isOpen: boolean;
+        item: CodexItem | null;
+        enforceHtmlStructure: boolean;
     };
 }
 
@@ -212,6 +219,11 @@ function NavigationView() {
             displayName: "",
             typedName: "",
             isCorpus: false,
+        },
+        htmlEnforcementModal: {
+            isOpen: false,
+            item: null,
+            enforceHtmlStructure: false,
         },
     });
 
@@ -542,6 +554,51 @@ function NavigationView() {
         handleDeleteModalClose();
     };
 
+    const handleOpenHtmlEnforcement = (item: CodexItem) => {
+        setState((prev) => ({
+            ...prev,
+            htmlEnforcementModal: {
+                isOpen: true,
+                item,
+                enforceHtmlStructure: item.enforceHtmlStructure ?? false,
+            },
+        }));
+    };
+
+    const handleHtmlEnforcementClose = () => {
+        setState((prev) => ({
+            ...prev,
+            htmlEnforcementModal: {
+                isOpen: false,
+                item: null,
+                enforceHtmlStructure: false,
+            },
+        }));
+    };
+
+    const handleHtmlEnforcementToggle = (checked: boolean) => {
+        setState((prev) => {
+            const { item } = prev.htmlEnforcementModal;
+            if (item) {
+                vscode.postMessage({
+                    command: "setEnforceHtmlStructure",
+                    content: {
+                        bookAbbr: item.label,
+                        enforceHtmlStructure: checked,
+                    },
+                });
+            }
+
+            return {
+                ...prev,
+                htmlEnforcementModal: {
+                    ...prev.htmlEnforcementModal,
+                    enforceHtmlStructure: checked,
+                },
+            };
+        });
+    };
+
     const handleRenameModalClose = () => {
         setState((prev) => ({
             ...prev,
@@ -801,6 +858,17 @@ function NavigationView() {
                                             >
                                                 <i className="codicon codicon-edit mr-2" />
                                                 Edit Book Name
+                                            </DropdownMenuItem>
+                                        )}
+                                        {item.type === "codexDocument" && (
+                                            <DropdownMenuItem
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleOpenHtmlEnforcement(item);
+                                                }}
+                                            >
+                                                <i className="codicon codicon-shield mr-2" />
+                                                HTML Enforcement
                                             </DropdownMenuItem>
                                         )}
                                         {item.type === "corpus" && (
@@ -1128,6 +1196,66 @@ function NavigationView() {
                             disabled={state.deleteModal.typedName !== state.deleteModal.displayName}
                         >
                             Delete
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* HTML Enforcement Modal */}
+            <Dialog
+                open={state.htmlEnforcementModal.isOpen}
+                onOpenChange={(isOpen) => !isOpen && handleHtmlEnforcementClose()}
+            >
+                <DialogContent
+                    showCloseButton={false}
+                    className="bg-vscode-editor-background border-vscode-editorWidget-border min-w-[300px] max-w-[400px] p-5 shadow-[0_8px_32px_rgba(0,0,0,0.3)]"
+                    style={{
+                        backgroundColor: "var(--vscode-editor-background)",
+                        borderColor: "var(--vscode-editorWidget-border)",
+                    }}
+                >
+                    <DialogHeader className="text-left">
+                        <DialogTitle
+                            className="text-base font-semibold mb-2"
+                            style={{
+                                fontSize: "16px",
+                                fontWeight: "600",
+                                color: "var(--vscode-foreground)",
+                            }}
+                        >
+                            HTML Enforcement
+                        </DialogTitle>
+                        <DialogDescription
+                            className="text-sm text-left leading-relaxed"
+                            style={{
+                                fontSize: "14px",
+                                color: "var(--vscode-descriptionForeground)",
+                                lineHeight: "1.5",
+                            }}
+                        >
+                            When enabled, translated cells are validated against the source HTML
+                            structure. Mismatches are flagged during editing and export.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex items-center gap-3 mt-4 mb-4">
+                        <Label
+                            htmlFor="html-enforcement-toggle"
+                            className="cursor-pointer font-medium"
+                            style={{ color: "var(--vscode-foreground)" }}
+                        >
+                            {state.htmlEnforcementModal.enforceHtmlStructure
+                                ? "Enabled"
+                                : "Disabled"}
+                        </Label>
+                        <Switch
+                            id="html-enforcement-toggle"
+                            checked={state.htmlEnforcementModal.enforceHtmlStructure}
+                            onCheckedChange={handleHtmlEnforcementToggle}
+                        />
+                    </div>
+                    <DialogFooter className="flex gap-3 justify-end">
+                        <Button variant="secondary" onClick={handleHtmlEnforcementClose}>
+                            Close
                         </Button>
                     </DialogFooter>
                 </DialogContent>
