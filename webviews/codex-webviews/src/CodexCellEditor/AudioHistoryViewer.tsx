@@ -67,6 +67,14 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     cell,
 }) => {
     const [audioHistory, setAudioHistory] = useState<AudioHistoryEntry[]>([]);
+    // Distinguishes "host hasn't replied yet" from "host replied with zero entries".
+    // Without this gate, the initial empty array renders the "No audio recordings found"
+    // placeholder during the round-trip, producing a flash on every modal open.
+    const [hasReceivedHistory, setHasReceivedHistory] = useState(false);
+    // Delay-shown loading copy: only appears if the host hasn't replied within
+    // ~150 ms.  Warm-path responses finish well under that, so the user sees
+    // an empty body for ~one frame and then the rows — no visible flicker.
+    const [showLoadingPlaceholder, setShowLoadingPlaceholder] = useState(false);
     const [entryAvailability, setEntryAvailability] = useState<Record<string, string>>({});
     const [playingId, setPlayingId] = useState<string | null>(null);
     const [audioUrls, setAudioUrls] = useState<Map<string, string>>(new Map());
@@ -89,6 +97,10 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
 
     // Request audio history when component mounts
     useEffect(() => {
+        // Arm the delayed-loading timer.  Cleared by the response handler below
+        // (or by unmount).  See `showLoadingPlaceholder` declaration for rationale.
+        const placeholderTimer = setTimeout(() => setShowLoadingPlaceholder(true), 150);
+
         // Ask backend to revalidate missing flags for this cell before fetching history
         try {
             vscode.postMessage({
@@ -120,6 +132,8 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                 /* ignore */
             }
         }
+
+        return () => clearTimeout(placeholderTimer);
     }, [cellId, vscode, currentUsername, requiredAudioValidationsProp]);
 
     // Listen for audio history response
@@ -129,6 +143,8 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             const message = event.data;
             if (message.type === "audioHistoryReceived" && message.content.cellId === cellId) {
                 setAudioHistory(message.content.audioHistory);
+                setHasReceivedHistory(true);
+                setShowLoadingPlaceholder(false);
                 if (message.content.entryAvailability) {
                     setEntryAvailability(message.content.entryAvailability);
                 }
@@ -137,39 +153,47 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                 setSelectedAudioId(currentId);
                 setHasExplicitSelection(message.content.hasExplicitSelection);
 
-                // Hydrate entries from per-attachment cache (survives selection changes)
+                // Hydrate entries from per-attachment cache (survives selection
+                // changes).  Done as a single Promise.all + one setAudioUrls so
+                // that N cached entries produce one re-render instead of N —
+                // otherwise rows visibly flip Download↔Play in sequence as each
+                // microtask resolves, which reads as jitter on modal open.
                 const entries = message.content.audioHistory as { attachmentId: string }[];
-                for (const entry of entries) {
-                    if (audioUrls.has(entry.attachmentId)) continue;
-                    try {
-                        const cached = getCachedAttachmentAudioDataUrl(entry.attachmentId);
-                        if (!cached && entry.attachmentId === currentId) {
-                            // Fallback: try cell-level cache for the selected entry
-                            const cellCached = getCachedAudioDataUrl(cellId);
-                            if (cellCached) {
-                                fetch(cellCached)
-                                    .then((res) => res.blob())
-                                    .then((blob) => {
-                                        const blobUrl = URL.createObjectURL(blob);
-                                        blobUrlsRef.current.add(blobUrl);
-                                        setAudioUrls((prev) => new Map(prev).set(entry.attachmentId, blobUrl));
-                                    })
-                                    .catch(() => { /* ignore */ });
-                            }
-                            continue;
+                const dataUrlFor = (entry: { attachmentId: string }): string | null => {
+                    const own = getCachedAttachmentAudioDataUrl(entry.attachmentId);
+                    if (own) return own;
+                    if (entry.attachmentId === currentId) {
+                        return getCachedAudioDataUrl(cellId) || null;
+                    }
+                    return null;
+                };
+                const hydrations = entries
+                    .filter((entry) => !audioUrls.has(entry.attachmentId))
+                    .map(async (entry) => {
+                        try {
+                            const dataUrl = dataUrlFor(entry);
+                            if (!dataUrl) return null;
+                            const res = await fetch(dataUrl);
+                            const blob = await res.blob();
+                            return { id: entry.attachmentId, blobUrl: URL.createObjectURL(blob) };
+                        } catch {
+                            return null;
                         }
-                        if (cached) {
-                            fetch(cached)
-                                .then((res) => res.blob())
-                                .then((blob) => {
-                                    const blobUrl = URL.createObjectURL(blob);
-                                    blobUrlsRef.current.add(blobUrl);
-                                    setAudioUrls((prev) => new Map(prev).set(entry.attachmentId, blobUrl));
-                                })
-                                .catch(() => { /* ignore */ });
+                    });
+                Promise.all(hydrations).then((results) => {
+                    const populated = results.filter(
+                        (r): r is { id: string; blobUrl: string; } => r !== null
+                    );
+                    if (populated.length === 0) return;
+                    setAudioUrls((prev) => {
+                        const next = new Map(prev);
+                        for (const { id, blobUrl } of populated) {
+                            blobUrlsRef.current.add(blobUrl);
+                            next.set(id, blobUrl);
                         }
-                    } catch { /* ignore */ }
-                }
+                        return next;
+                    });
+                });
 
                 // Pre-mark entries that are known missing
                 try {
@@ -523,6 +547,17 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
 
     const currentAttachment = getLatestAttachment();
 
+    // Three states for the placeholder area (when no rows exist):
+    //   - host has replied with zero entries → "No audio recordings…"
+    //   - host hasn't replied AND timer fired   → "Loading audio history…"
+    //   - host hasn't replied AND timer pending → render nothing (avoid flicker)
+    let placeholder: React.ReactNode = null;
+    if (hasReceivedHistory) {
+        placeholder = <div>No audio recordings found for this cell.</div>;
+    } else if (showLoadingPlaceholder) {
+        placeholder = <div>Loading audio history…</div>;
+    }
+
     // Allow closing the history viewer with Escape
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
@@ -587,7 +622,19 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                     </Button>
                 </div>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                <div
+                    style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "12px",
+                        // Reserve a stable min-height so the card doesn't grow when the
+                        // placeholder swaps to populated rows.  Two-row equivalent is enough
+                        // to feel substantial in the loading/empty state without bloating
+                        // the dialog when only a single take exists.  Rows beyond this
+                        // height extend the container naturally (one-way grow only).
+                        minHeight: "200px",
+                    }}
+                >
                     {audioHistory.length > 0 ? (
                         audioHistory.map((entry, index) => {
                             const isCurrent = entry === currentAttachment; // Latest non-deleted
@@ -828,15 +875,21 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                             );
                         })
                     ) : (
-                        <div
-                            style={{
-                                textAlign: "center",
-                                padding: "40px",
-                                color: "var(--vscode-descriptionForeground)",
-                            }}
-                        >
-                            <div>No audio recordings found for this cell.</div>
-                        </div>
+                        placeholder && (
+                            <div
+                                style={{
+                                    flex: 1,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    textAlign: "center",
+                                    padding: "20px",
+                                    color: "var(--vscode-descriptionForeground)",
+                                }}
+                            >
+                                {placeholder}
+                            </div>
+                        )
                     )}
                 </div>
 

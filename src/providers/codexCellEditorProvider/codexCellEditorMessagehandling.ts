@@ -2578,16 +2578,25 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const currentAttachmentId = resolves ? explicitSelection : null;
         const hasExplicitSelection = resolves;
 
-        // Compute per-entry availability so the history viewer shows correct Play/Download
+        // Compute per-entry availability so the history viewer shows correct Play/Download.
+        // Each probe is an independent fs.stat — run them in parallel so total latency
+        // is ~one stat instead of N.  Order doesn't matter; the result is keyed by id.
         const entryAvailability: Record<string, string> = {};
         try {
             const ws = vscode.workspace.getWorkspaceFolder(document.uri);
             if (ws) {
-                for (const entry of audioHistory) {
-                    entryAvailability[entry.attachmentId] = await checkAttachmentAvailabilityStandalone(
-                        entry.attachment as any, ws.uri.fsPath, true
-                    );
-                }
+                const wsPath = ws.uri.fsPath;
+                const pairs = await Promise.all(
+                    audioHistory.map(async (entry) =>
+                        [
+                            entry.attachmentId,
+                            await checkAttachmentAvailabilityStandalone(
+                                entry.attachment as any, wsPath, true
+                            ),
+                        ] as const
+                    )
+                );
+                for (const [id, state] of pairs) entryAvailability[id] = state;
             }
         } catch { /* best-effort */ }
 
