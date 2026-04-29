@@ -8,7 +8,7 @@ import type {
     ImportedContent,
     WriteNotebooksWithAttachmentsMessage,
 } from "../../types/plugin";
-import { addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
+import { addMilestoneCellsToNotebookPair, createCodexCellsFromSource } from "../../utils/workflowHelpers";
 import { createSpreadsheetCellMetadata } from "./cellMetadata";
 import type {
     ColumnType,
@@ -121,7 +121,7 @@ export async function buildSpreadsheetImportResult(
                 return {
                     id: cellId,
                     content: row[targetColumnIndex!],
-                    images: [] as string[],
+                    images: [],
                     metadata: {
                         id: cellId,
                         type: CodexCellTypes.TEXT,
@@ -149,10 +149,7 @@ export async function buildSpreadsheetImportResult(
             },
             codex: {
                 name: parsedData.filename,
-                cells: cells.map((c) => ({
-                    ...c,
-                    content: "",
-                })),
+                cells: createCodexCellsFromSource(cells),
                 metadata: { ...baseMeta },
             },
         };
@@ -185,7 +182,7 @@ export async function buildSpreadsheetImportResult(
             return {
                 id: cellId,
                 content: row[sourceColumnIndex!],
-                images: [] as string[],
+                images: [],
                 metadata: cellMetadata,
             };
         });
@@ -227,10 +224,7 @@ export async function buildSpreadsheetImportResult(
         },
         codex: {
             name: parsedData.filename,
-            cells: sourceCells.map((cell) => ({
-                ...cell,
-                content: "",
-            })),
+            cells: createCodexCellsFromSource(sourceCells),
             metadata: {
                 id: uuidv4(),
                 originalFileName: file.name,

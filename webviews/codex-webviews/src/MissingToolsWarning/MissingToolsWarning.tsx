@@ -1,8 +1,9 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useNetworkState } from "@uidotdev/usehooks";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Alert, AlertDescription } from "../components/ui/alert";
+import { Tooltip, TooltipTrigger, TooltipContent } from "../components/ui/tooltip";
 
 declare function acquireVsCodeApi(): {
     postMessage: (message: unknown) => void;
@@ -10,12 +11,24 @@ declare function acquireVsCodeApi(): {
 
 const vscode = acquireVsCodeApi();
 
+interface PlatformUnsupportedFlags {
+    git: boolean;
+    sqlite: boolean;
+    ffmpeg: boolean;
+}
+
 interface ToolStatus {
     git: boolean;
     nativeGitAvailable: boolean;
     sqlite: boolean;
     nativeSqliteAvailable: boolean;
     ffmpeg: boolean;
+    /**
+     * Per-tool flag set to true when the current OS/arch has no prebuilt
+     * native asset. On these platforms the download button is hidden and
+     * replaced with a "Not available on this platform" indicator.
+     */
+    platformUnsupported: PlatformUnsupportedFlags;
 }
 
 type ViewMode = "warnings" | "status";
@@ -33,6 +46,25 @@ interface InitialState {
     audioProcessingInProgress: boolean;
 }
 
+const EMPTY_UNSUPPORTED: PlatformUnsupportedFlags = {
+    git: false,
+    sqlite: false,
+    ffmpeg: false,
+};
+
+function readPlatformUnsupported(source: unknown): PlatformUnsupportedFlags {
+    const raw = (source as { platformUnsupported?: Partial<PlatformUnsupportedFlags> })
+        ?.platformUnsupported;
+    if (!raw) {
+        return EMPTY_UNSUPPORTED;
+    }
+    return {
+        git: raw.git === true,
+        sqlite: raw.sqlite === true,
+        ffmpeg: raw.ffmpeg === true,
+    };
+}
+
 function getInitialState(): InitialState | null {
     try {
         const data = (window as any).initialData;
@@ -44,6 +76,7 @@ function getInitialState(): InitialState | null {
                     sqlite: data.sqlite,
                     nativeSqliteAvailable: data.nativeSqliteAvailable ?? data.sqlite,
                     ffmpeg: data.ffmpeg ?? false,
+                    platformUnsupported: readPlatformUnsupported(data),
                 },
                 mode: data.mode === "status" ? "status" : "warnings",
                 audioToolMode: data.audioToolMode ?? "auto",
@@ -71,11 +104,39 @@ export const MissingToolsWarning: React.FC = () => {
     const [syncInProgress, setSyncInProgress] = useState(initial?.syncInProgress ?? false);
     const [audioProcessingInProgress, setAudioProcessingInProgress] = useState(initial?.audioProcessingInProgress ?? false);
     const [retrying, setRetrying] = useState(false);
-    const [downloading, setDownloading] = useState<Record<ToolKey, boolean>>({
-        sqlite: false,
-        git: false,
-        ffmpeg: false,
+    // Per-tool download state machine:
+    //   idle       – default, button shows "Download and Install"
+    //   downloading – user clicked, waiting for provider result
+    //   failed     – result came back unsuccessful; shown briefly before
+    //                auto-reverting to "idle" via a timeout (see failedTimers)
+    const [downloadState, setDownloadState] = useState<
+        Record<ToolKey, "idle" | "downloading" | "failed">
+    >({
+        sqlite: "idle",
+        git: "idle",
+        ffmpeg: "idle",
     });
+    // Per-tool revert timers for the "failed" state. Held in a ref (not
+    // state) so updates don't cause re-renders, and cleared on new clicks
+    // or unmount to prevent stale updates.
+    const failedTimers = useRef<Record<ToolKey, ReturnType<typeof setTimeout> | undefined>>({
+        sqlite: undefined,
+        git: undefined,
+        ffmpeg: undefined,
+    });
+
+    // Cleanup any outstanding revert timers when the panel is destroyed.
+    useEffect(() => {
+        const timers = failedTimers.current;
+        return () => {
+            (Object.keys(timers) as ToolKey[]).forEach((k) => {
+                if (timers[k]) {
+                    clearTimeout(timers[k]!);
+                    timers[k] = undefined;
+                }
+            });
+        };
+    }, []);
     const [deleteMode, setDeleteMode] = useState(false);
     const [forceBuiltinMode, setForceBuiltinMode] = useState(false);
     const [deletedTools, setDeletedTools] = useState<Set<ToolKey>>(new Set());
@@ -95,6 +156,7 @@ export const MissingToolsWarning: React.FC = () => {
                     sqlite: message.sqlite,
                     nativeSqliteAvailable: message.nativeSqliteAvailable ?? message.sqlite,
                     ffmpeg: message.ffmpeg,
+                    platformUnsupported: readPlatformUnsupported(message),
                 });
                 setMode("warnings");
                 setRetrying(false);
@@ -105,6 +167,7 @@ export const MissingToolsWarning: React.FC = () => {
                     sqlite: message.sqlite,
                     nativeSqliteAvailable: message.nativeSqliteAvailable ?? message.sqlite,
                     ffmpeg: message.ffmpeg,
+                    platformUnsupported: readPlatformUnsupported(message),
                 });
                 setAudioToolMode(message.audioToolMode ?? "auto");
                 setGitToolMode(message.gitToolMode ?? "auto");
@@ -119,6 +182,7 @@ export const MissingToolsWarning: React.FC = () => {
                     sqlite: message.sqlite,
                     nativeSqliteAvailable: message.nativeSqliteAvailable ?? message.sqlite,
                     ffmpeg: message.ffmpeg,
+                    platformUnsupported: readPlatformUnsupported(message),
                 });
                 if (message.audioToolMode) {
                     setAudioToolMode(message.audioToolMode);
@@ -129,7 +193,25 @@ export const MissingToolsWarning: React.FC = () => {
                 if (message.sqliteToolMode) {
                     setSqliteToolMode(message.sqliteToolMode);
                 }
-                setDownloading((prev) => ({ ...prev, [message.tool]: false }));
+                // Transition the button: success → back to "idle" (card
+                // flips to green and typically hides the button). Failure →
+                // "failed" for a brief visible flash before reverting.
+                const tool = message.tool as ToolKey;
+                // Clear any stale revert timer (e.g. user clicked again
+                // during the previous fail-revert window).
+                if (failedTimers.current[tool]) {
+                    clearTimeout(failedTimers.current[tool]!);
+                    failedTimers.current[tool] = undefined;
+                }
+                if (message.success) {
+                    setDownloadState((prev) => ({ ...prev, [tool]: "idle" }));
+                } else {
+                    setDownloadState((prev) => ({ ...prev, [tool]: "failed" }));
+                    failedTimers.current[tool] = setTimeout(() => {
+                        setDownloadState((prev) => ({ ...prev, [tool]: "idle" }));
+                        failedTimers.current[tool] = undefined;
+                    }, 1500);
+                }
             } else if (message?.command === "audioModeChanged") {
                 setAudioToolMode(message.audioToolMode);
                 setStatus((prev) => prev ? { ...prev, ffmpeg: message.ffmpeg } : prev);
@@ -182,7 +264,13 @@ export const MissingToolsWarning: React.FC = () => {
     }, []);
 
     const handleDownloadTool = useCallback((tool: ToolKey) => {
-        setDownloading((prev) => ({ ...prev, [tool]: true }));
+        // If a previous failure timer is still counting, clear it so the
+        // button doesn't revert from "downloading" back to "idle" mid-flow.
+        if (failedTimers.current[tool]) {
+            clearTimeout(failedTimers.current[tool]!);
+            failedTimers.current[tool] = undefined;
+        }
+        setDownloadState((prev) => ({ ...prev, [tool]: "downloading" }));
         vscode.postMessage({ command: "downloadTool", tool });
     }, []);
 
@@ -228,7 +316,7 @@ export const MissingToolsWarning: React.FC = () => {
                 sqliteToolMode={sqliteToolMode}
                 syncInProgress={syncInProgress}
                 audioProcessingInProgress={audioProcessingInProgress}
-                downloading={downloading}
+                downloadState={downloadState}
                 deleteMode={deleteMode}
                 forceBuiltinMode={forceBuiltinMode}
                 deletedTools={deletedTools}
@@ -289,7 +377,7 @@ interface ToolsStatusViewProps {
     sqliteToolMode: SqliteToolMode;
     syncInProgress: boolean;
     audioProcessingInProgress: boolean;
-    downloading: Record<ToolKey, boolean>;
+    downloadState: Record<ToolKey, "idle" | "downloading" | "failed">;
     deleteMode: boolean;
     forceBuiltinMode: boolean;
     deletedTools: Set<ToolKey>;
@@ -311,7 +399,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
     sqliteToolMode,
     syncInProgress,
     audioProcessingInProgress,
-    downloading,
+    downloadState,
     deleteMode,
     forceBuiltinMode,
     deletedTools,
@@ -331,16 +419,20 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
         && status.nativeGitAvailable && !isBuiltinMode(gitToolMode)
         && status.ffmpeg && !isBuiltinMode(audioToolMode);
 
-    const getToolState = (mode: string, nativeAvailable: boolean) => {
+    const getToolState = (mode: string, nativeAvailable: boolean, unsupported: boolean) => {
         const forced = isForced(mode);
         const usingBuiltIn = isBuiltinMode(mode) || !nativeAvailable;
+        // Severity priority: a missing native binary is always an error
+        // (unless admin has locked us into force-builtin, which is a softer
+        // "warning" state). Only when the binary is installed does the
+        // user's "builtin" preference downgrade to a warning.
         const severity: "ok" | "warning" | "error" =
-            forced ? "warning"
+            !nativeAvailable && !forced ? "error"
             : isBuiltinMode(mode) ? "warning"
-            : !nativeAvailable ? "error"
             : "ok";
         const statusLabel =
-            forced ? "Running Fallback Tools (locked)"
+            unsupported ? "Not available on this platform"
+            : forced ? "Running Fallback Tools (locked)"
             : nativeAvailable && !usingBuiltIn ? "Installed and Running Native Tools"
             : nativeAvailable && usingBuiltIn ? "Installed and Running Fallback Tools"
             : "Not Installed \u2013 Running Fallback Tools";
@@ -349,15 +441,22 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
             : nativeAvailable && usingBuiltIn ? "Use Native Tools"
             : nativeAvailable ? "Use Fallback Tools"
             : undefined;
-        const showDownload = !isBuiltinMode(mode) && !nativeAvailable;
+        // A "builtin" preference must not hide the download button: if the
+        // native binary isn't installed, the user should always be able to
+        // install it (the download handler flips mode back to "auto" so the
+        // newly-installed binary is actually used). Only force-builtin (admin
+        // lock) or an unsupported platform hides the option — on unsupported
+        // platforms the download can never succeed, so we render a passive
+        // "Not available" badge instead.
+        const showDownload = !forced && !nativeAvailable && !unsupported;
         const showToggle = forced || nativeAvailable;
 
         return { forced, usingBuiltIn, severity, statusLabel, toggleLabel, showDownload, showToggle };
     };
 
-    const sqlite = getToolState(sqliteToolMode, status.nativeSqliteAvailable);
-    const git = getToolState(gitToolMode, status.nativeGitAvailable);
-    const audio = getToolState(audioToolMode, status.ffmpeg);
+    const sqlite = getToolState(sqliteToolMode, status.nativeSqliteAvailable, status.platformUnsupported.sqlite);
+    const git = getToolState(gitToolMode, status.nativeGitAvailable, status.platformUnsupported.git);
+    const audio = getToolState(audioToolMode, status.ffmpeg, status.platformUnsupported.ffmpeg);
 
     return (
         <div className="flex items-center justify-center min-h-screen p-6">
@@ -367,7 +466,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         className="text-2xl font-bold"
                         style={{ color: "var(--foreground)" }}
                     >
-                        Status
+                        Tools Status
                     </h1>
                     <p
                         className="text-sm"
@@ -383,15 +482,18 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                     <StatusCard
                         title={TOOL_INFO.sqlite.name}
                         description={
-                            sqlite.usingBuiltIn
-                                ? (status.sqlite ? TOOL_INFO.sqlite.descriptions.builtinActive : TOOL_INFO.sqlite.descriptions.missing)
-                                : TOOL_INFO.sqlite.descriptions.available
+                            status.platformUnsupported.sqlite
+                                ? "The native AI learning and search tools are not available on this platform. Codex is using its built-in fallback."
+                                : sqlite.usingBuiltIn
+                                    ? (status.sqlite ? TOOL_INFO.sqlite.descriptions.builtinActive : TOOL_INFO.sqlite.descriptions.missing)
+                                    : TOOL_INFO.sqlite.descriptions.available
                         }
                         severity={!status.sqlite && !sqlite.forced ? "error" : sqlite.severity}
-                        statusLabelOverride={!status.sqlite && !sqlite.forced ? undefined : sqlite.statusLabel}
+                        statusLabelOverride={!status.sqlite && !sqlite.forced && !status.platformUnsupported.sqlite ? undefined : sqlite.statusLabel}
                         isOnline={isOnline}
-                        downloading={downloading.sqlite}
+                        downloadState={downloadState.sqlite}
                         onDownload={sqlite.showDownload ? () => onDownloadTool("sqlite") : undefined}
+                        platformUnsupported={status.platformUnsupported.sqlite}
                         toggleLabel={sqlite.toggleLabel}
                         onToggle={sqlite.showToggle ? onToggleSqliteMode : undefined}
                         onDelete={deleteMode ? () => onDeleteTool("sqlite") : undefined}
@@ -403,18 +505,22 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                     <StatusCard
                         title={TOOL_INFO.git.name}
                         description={
-                            git.usingBuiltIn
-                                ? TOOL_INFO.git.descriptions.builtinActive
-                                : TOOL_INFO.git.descriptions.available
+                            status.platformUnsupported.git
+                                ? "Native sync tools are not available on this platform. Codex is using its built-in fallback; syncing and collaboration may be limited."
+                                : git.usingBuiltIn
+                                    ? TOOL_INFO.git.descriptions.builtinActive
+                                    : TOOL_INFO.git.descriptions.available
                         }
                         severity={git.severity}
                         statusLabelOverride={git.statusLabel}
                         isOnline={isOnline}
-                        downloading={downloading.git}
+                        downloadState={downloadState.git}
                         onDownload={git.showDownload ? () => onDownloadTool("git") : undefined}
+                        platformUnsupported={status.platformUnsupported.git}
                         toggleLabel={git.toggleLabel}
                         onToggle={git.showToggle ? onToggleGitMode : undefined}
                         toggleDisabled={syncInProgress}
+                        toggleDisabledReason={syncInProgress ? "Cannot switch while sync is in progress" : undefined}
                         onDelete={deleteMode ? () => onDeleteTool("git") : undefined}
                         onForceBuiltin={forceBuiltinMode && !git.forced ? () => onForceBuiltinTool("git") : undefined}
                         deleted={deletedTools.has("git")}
@@ -424,18 +530,22 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                     <StatusCard
                         title={TOOL_INFO.ffmpeg.name}
                         description={
-                            audio.usingBuiltIn
-                                ? TOOL_INFO.ffmpeg.descriptions.limited
-                                : TOOL_INFO.ffmpeg.descriptions.available
+                            status.platformUnsupported.ffmpeg
+                                ? "Native audio tools are not available on this platform. Codex is using its built-in fallback with limited format support (.wav only)."
+                                : audio.usingBuiltIn
+                                    ? TOOL_INFO.ffmpeg.descriptions.limited
+                                    : TOOL_INFO.ffmpeg.descriptions.available
                         }
                         severity={audio.severity}
                         statusLabelOverride={audio.statusLabel}
                         isOnline={isOnline}
-                        downloading={downloading.ffmpeg}
+                        downloadState={downloadState.ffmpeg}
                         onDownload={audio.showDownload ? () => onDownloadTool("ffmpeg") : undefined}
+                        platformUnsupported={status.platformUnsupported.ffmpeg}
                         toggleLabel={audio.toggleLabel}
                         onToggle={audio.showToggle ? onToggleAudioMode : undefined}
                         toggleDisabled={audioProcessingInProgress}
+                        toggleDisabledReason={audioProcessingInProgress ? "Cannot switch while audio is being processed" : undefined}
                         onDelete={deleteMode ? () => onDeleteTool("ffmpeg") : undefined}
                         onForceBuiltin={forceBuiltinMode && !audio.forced ? () => onForceBuiltinTool("ffmpeg") : undefined}
                         deleted={deletedTools.has("ffmpeg")}
@@ -444,14 +554,32 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                 </div>
 
                 <div className="flex justify-center gap-3">
-                    <Button
-                        onClick={deletedTools.size > 0 ? undefined : onClose}
-                        disabled={deletedTools.size > 0}
-                        variant="outline"
-                        className="min-w-[120px]"
-                    >
-                        Close
-                    </Button>
+                    {deletedTools.size > 0 ? (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span>
+                                    <Button
+                                        disabled
+                                        variant="outline"
+                                        className="min-w-[120px]"
+                                    >
+                                        Close
+                                    </Button>
+                                </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">
+                                Reload the window to apply tool changes
+                            </TooltipContent>
+                        </Tooltip>
+                    ) : (
+                        <Button
+                            onClick={onClose}
+                            variant="outline"
+                            className="min-w-[120px]"
+                        >
+                            Close
+                        </Button>
+                    )}
                     {deletedTools.size > 0 && (
                         <Button
                             onClick={onReloadWindow}
@@ -679,11 +807,26 @@ interface StatusCardProps {
     severity: "ok" | "warning" | "error";
     statusLabelOverride?: string;
     isOnline?: boolean;
-    downloading?: boolean;
+    /**
+     * Current state of the download button for this tool:
+     *   "idle"        – default, shows "Download and Install"
+     *   "downloading" – user clicked, awaiting result
+     *   "failed"      – most recent attempt failed; briefly shown before
+     *                    the parent auto-reverts to "idle"
+     */
+    downloadState?: "idle" | "downloading" | "failed";
     onDownload?: () => void;
+    /**
+     * When true, the download button is suppressed entirely and a passive
+     * "Not available on this platform" indicator is shown in its place.
+     * The current OS/arch has no prebuilt native asset, so attempting a
+     * download would be a guaranteed no-op.
+     */
+    platformUnsupported?: boolean;
     toggleLabel?: string;
     onToggle?: () => void;
     toggleDisabled?: boolean;
+    toggleDisabledReason?: string;
     onDelete?: () => void;
     onForceBuiltin?: () => void;
     deleted?: boolean;
@@ -696,16 +839,20 @@ const StatusCard: React.FC<StatusCardProps> = ({
     severity,
     statusLabelOverride,
     isOnline = true,
-    downloading = false,
+    downloadState = "idle",
     onDownload,
+    platformUnsupported = false,
     toggleLabel,
     onToggle,
     toggleDisabled = false,
+    toggleDisabledReason,
     onDelete,
     onForceBuiltin,
     deleted = false,
     nativeInstalled = true,
 }) => {
+    const downloading = downloadState === "downloading";
+    const failed = downloadState === "failed";
     const borderColor =
         severity === "ok"
             ? "var(--chart-2)"
@@ -756,43 +903,103 @@ const StatusCard: React.FC<StatusCardProps> = ({
                     {description}
                 </p>
                 <div className="flex items-center gap-2 flex-wrap">
-                    {onDownload && (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={isOnline ? onDownload : undefined}
-                            disabled={!isOnline || downloading}
-                            className="h-7 text-xs"
+                    {platformUnsupported && (
+                        <span
+                            className="inline-flex items-center h-7 px-2 text-xs rounded border"
+                            style={{
+                                color: "var(--muted-foreground)",
+                                borderColor: "var(--border)",
+                                backgroundColor: "var(--muted)",
+                            }}
                         >
-                            {downloading ? (
-                                <>
-                                    <i className="codicon codicon-loading codicon-modifier-spin mr-1.5" />
-                                    Downloading…
-                                </>
-                            ) : !isOnline ? (
-                                <>
-                                    <i className="codicon codicon-globe mr-1.5" />
-                                    Offline
-                                </>
-                            ) : (
-                                <>
-                                    <i className="codicon codicon-cloud-download mr-1.5" />
-                                    Download and Install
-                                </>
-                            )}
-                        </Button>
+                            <i className="codicon codicon-circle-slash mr-1.5" />
+                            Not available on this platform
+                        </span>
+                    )}
+                    {onDownload && (
+                        !isOnline && !downloading ? (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <span>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled
+                                            className="h-7 text-xs"
+                                        >
+                                            <i className="codicon codicon-globe mr-1.5" />
+                                            Offline
+                                        </Button>
+                                    </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom">
+                                    Connect to the internet to download
+                                </TooltipContent>
+                            </Tooltip>
+                        ) : (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={isOnline ? onDownload : undefined}
+                                disabled={!isOnline || downloading || failed}
+                                className="h-7 text-xs"
+                            >
+                                {downloading && (
+                                    <>
+                                        <i className="codicon codicon-loading codicon-modifier-spin mr-1.5" />
+                                        Downloading…
+                                    </>
+                                )}
+                                {failed && (
+                                    <>
+                                        <i
+                                            className="codicon codicon-error mr-1.5"
+                                            style={{ color: "var(--destructive)" }}
+                                        />
+                                        Download failed
+                                    </>
+                                )}
+                                {!downloading && !failed && (
+                                    <>
+                                        <i className="codicon codicon-cloud-download mr-1.5" />
+                                        Download and Install
+                                    </>
+                                )}
+                            </Button>
+                        )
                     )}
                     {onToggle && toggleLabel && (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={onToggle}
-                            disabled={toggleDisabled}
-                            className="h-7 text-xs"
-                        >
-                            <i className="codicon codicon-arrow-swap mr-1.5" />
-                            {toggleLabel}
-                        </Button>
+                        toggleDisabled && toggleDisabledReason ? (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <span>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled
+                                            className="h-7 text-xs"
+                                        >
+                                            <i className="codicon codicon-arrow-swap mr-1.5" />
+                                            {toggleLabel}
+                                        </Button>
+                                    </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom">
+                                    {toggleDisabledReason}
+                                </TooltipContent>
+                            </Tooltip>
+                        ) : (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={onToggle}
+                                disabled={toggleDisabled}
+                                className="h-7 text-xs"
+                            >
+                                <i className="codicon codicon-arrow-swap mr-1.5" />
+                                {toggleLabel}
+                            </Button>
+                        )
                     )}
                     {onDelete && (
                         <Button

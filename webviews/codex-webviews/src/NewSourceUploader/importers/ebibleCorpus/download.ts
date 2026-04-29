@@ -31,6 +31,7 @@ interface VerseData {
     book: string;
     chapter: number;
     verse: number;
+    verseEnd?: number;
 }
 
 // Verse reference data (subset for initial implementation)
@@ -199,6 +200,9 @@ const downloadVerseContent = async (
 /**
  * Parses Bible text lines with separate verse references
  */
+const isRangePlaceholder = (text: string): boolean =>
+    !text || text === '<range>' || text === '<Range>';
+
 const parseWithVerseRefs = (textLines: string[], verseRefs: string[]): VerseData[] => {
     const verses: VerseData[] = [];
     const minLength = Math.min(textLines.length, verseRefs.length);
@@ -207,20 +211,41 @@ const parseWithVerseRefs = (textLines: string[], verseRefs: string[]): VerseData
         const text = textLines[i].trim();
         const vref = verseRefs[i].trim();
 
-        if (!text || !vref) continue;
+        if (isRangePlaceholder(text) || !vref) continue;
 
-        // Parse the verse reference
         const refMatch = vref.match(/^([A-Z1-9]{3})\s+(\d+):(\d+)$/);
         if (!refMatch) continue;
 
-        const [, book, chapter, verse] = refMatch;
+        const [, book, chapter, verseStart] = refMatch;
+        let verseEnd = parseInt(verseStart);
+
+        // Look ahead for consecutive empty or "<range>" text lines (merged/range verses).
+        // If the next line has no real text but its vref is in the same book+chapter,
+        // that verse was folded into this one.
+        while (i + 1 < minLength) {
+            const nextText = textLines[i + 1].trim();
+            if (!isRangePlaceholder(nextText)) break;
+            const nextVref = verseRefs[i + 1]?.trim();
+            const nextMatch = nextVref?.match(/^([A-Z1-9]{3})\s+(\d+):(\d+)$/);
+            if (!nextMatch) break;
+            const [, nextBook, nextChapter, nextVerse] = nextMatch;
+            if (nextBook !== book || nextChapter !== chapter) break;
+            verseEnd = parseInt(nextVerse);
+            i++;
+        }
+
+        const isRange = verseEnd > parseInt(verseStart);
+        const vrefStr = isRange
+            ? `${book} ${chapter}:${verseStart}-${verseEnd}`
+            : vref;
 
         verses.push({
-            vref,
+            vref: vrefStr,
             text,
             book,
             chapter: parseInt(chapter),
-            verse: parseInt(verse),
+            verse: parseInt(verseStart),
+            verseEnd: isRange ? verseEnd : undefined,
         });
     }
 
@@ -346,10 +371,13 @@ const createBookNotebooks = (
                 book: verse.book,
                 chapter: verse.chapter,
                 verse: verse.verse,
+                verseEnd: verse.verseEnd,
                 text: verse.text,
                 reference: verse.vref,
                 fileName: `${bookCode}.ebible`,
-                cellLabel: verse.verse.toString(),
+                cellLabel: verse.verseEnd
+                    ? `${verse.verse}-${verse.verseEnd}`
+                    : verse.verse.toString(),
             });
             return {
                 id: cellId,

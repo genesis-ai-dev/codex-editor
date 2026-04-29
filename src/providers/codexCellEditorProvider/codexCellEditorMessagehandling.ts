@@ -556,6 +556,27 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
+    getPasteAsPlainText: async ({ webviewPanel, provider }) => {
+        try {
+            const enabled = provider.getPasteAsPlainText();
+            provider.postMessageToWebview(webviewPanel, {
+                type: "pasteAsPlainTextPreference",
+                enabled,
+            });
+        } catch (error) {
+            console.error("Error getting paste-as-plain-text preference:", error);
+        }
+    },
+
+    setPasteAsPlainText: async ({ event, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "setPasteAsPlainText"; }>;
+        try {
+            provider.updatePasteAsPlainText(typedEvent.content.enabled);
+        } catch (error) {
+            console.error("Error setting paste-as-plain-text preference:", error);
+        }
+    },
+
 
     getCommentsForCell: async ({ event, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getCommentsForCell"; }>;

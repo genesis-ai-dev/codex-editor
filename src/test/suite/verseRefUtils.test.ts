@@ -5,6 +5,7 @@ import {
     verseRefRegex,
     parseVerseRef,
     getSortKeyFromParsedRef,
+    stripCellIdSuffix,
 } from "../../utils/verseRefUtils";
 
 suite("verseRefUtils Test Suite", () => {
@@ -185,9 +186,75 @@ suite("verseRefUtils Test Suite", () => {
             assert.strictEqual(r.cellLabel, "7-8");
         });
 
+        test("parses verse range with legacy cell-ID suffix", () => {
+            const r = parseVerseRef("GEN 1:11-12:1764564500321-k9yvyjy9o");
+            assert.ok(r && r.kind === "range");
+            assert.strictEqual(r.book, "GEN");
+            assert.strictEqual(r.chapter, 1);
+            assert.strictEqual(r.verseStart, 11);
+            assert.strictEqual(r.verseEnd, 12);
+            assert.strictEqual(r.cellLabel, "11-12");
+        });
+
+        test("parses single verse with legacy cell-ID suffix", () => {
+            const r = parseVerseRef("GEN 5:3:1764697827224-vcolbmsb4");
+            assert.ok(r && r.kind === "single");
+            assert.strictEqual(r.book, "GEN");
+            assert.strictEqual(r.chapter, 5);
+            assert.strictEqual(r.verse, 3);
+        });
+
         test("returns null for invalid or empty", () => {
             assert.strictEqual(parseVerseRef(""), null);
             assert.strictEqual(parseVerseRef("not a ref"), null);
+        });
+    });
+
+    suite("stripCellIdSuffix", () => {
+        test("strips timestamp-random suffix from verse range ref", () => {
+            assert.strictEqual(
+                stripCellIdSuffix("GEN 1:11-12:1764564500321-k9yvyjy9o"),
+                "GEN 1:11-12"
+            );
+        });
+
+        test("strips timestamp-random suffix from single verse ref", () => {
+            assert.strictEqual(
+                stripCellIdSuffix("GEN 5:3:1764697827224-vcolbmsb4"),
+                "GEN 5:3"
+            );
+        });
+
+        test("returns clean refs unchanged", () => {
+            assert.strictEqual(stripCellIdSuffix("GEN 1:11-12"), "GEN 1:11-12");
+            assert.strictEqual(stripCellIdSuffix("MAT 1:1"), "MAT 1:1");
+        });
+
+        test("returns non-ref strings unchanged", () => {
+            assert.strictEqual(stripCellIdSuffix("not-a-ref"), "not-a-ref");
+            assert.strictEqual(stripCellIdSuffix(""), "");
+        });
+    });
+
+    suite("getVerseRefFromCellMetadata with legacy suffix", () => {
+        test("strips suffix from globalReferences and returns clean ref", () => {
+            assert.strictEqual(
+                getVerseRefFromCellMetadata({
+                    id: "369007f2-5c08-69ff-c037-dea3e5b5729f",
+                    data: { globalReferences: ["GEN 1:11-12:1764564500321-k9yvyjy9o"] },
+                }),
+                "GEN 1:11-12"
+            );
+        });
+
+        test("strips suffix from single verse globalReferences", () => {
+            assert.strictEqual(
+                getVerseRefFromCellMetadata({
+                    id: "some-uuid",
+                    data: { globalReferences: ["GEN 5:3:1764697827224-vcolbmsb4"] },
+                }),
+                "GEN 5:3"
+            );
         });
     });
 

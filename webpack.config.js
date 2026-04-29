@@ -117,6 +117,14 @@ const extensionConfig = {
                     from: "node_modules/fts5-sql-bundle/package.json",
                     to: "node_modules/fts5-sql-bundle/package.json",
                 },
+                {
+                    from: "node_modules/@vscode/codicons/dist/codicon.css",
+                    to: "node_modules/@vscode/codicons/dist/codicon.css",
+                },
+                {
+                    from: "node_modules/@vscode/codicons/dist/codicon.ttf",
+                    to: "node_modules/@vscode/codicons/dist/codicon.ttf",
+                },
             ],
         }),
     ],

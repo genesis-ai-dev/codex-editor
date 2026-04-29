@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
 import { basename } from "path";
-import { CodexCellTypes } from "../../types/enums";
 import { CodexNotebookAsJSONData } from "../../types";
-import { readCodexNotebookFromUri, getActiveCells } from "./exportHandlerUtils";
+import { readCodexNotebookFromUri, getActiveCells, isContentCellType } from "./exportHandlerUtils";
 import type { ExportOptions } from "./exportHandler";
 
 const DEBUG = false;
@@ -128,14 +127,14 @@ export async function exportCodexContentAsXliff(
                     ).filter(
                         (cell) =>
                             (cell.kind === 2 || cell.kind === 1) &&
-                            (cell.metadata as any)?.type === CodexCellTypes.TEXT
+                            isContentCellType((cell.metadata as any)?.type)
                     );
                     const codexTextCells = getActiveCells(
                         codexNotebook.cells
                     ).filter(
                         (cell) =>
                             (cell.kind === 2 || cell.kind === 1) &&
-                            (cell.metadata as any)?.type === CodexCellTypes.TEXT
+                            isContentCellType((cell.metadata as any)?.type)
                     );
 
                     const units: Array<{

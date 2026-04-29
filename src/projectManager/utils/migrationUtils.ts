@@ -14,6 +14,7 @@ import { getCorrespondingSourceUri, getCorrespondingCodexUri } from "../../utils
 import {
     parseVerseRef,
     getSortKeyFromParsedRef,
+    stripCellIdSuffix,
     type ParsedVerseRef,
 } from "../../utils/verseRefUtils";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
@@ -3011,6 +3012,7 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
         const contentWithoutRef: any[] = [];
         const paratextByParentId = new Map<string, any[]>();
         const styleOrOther: any[] = [];
+        let hadSuffixedRefs = false;
 
         for (let i = 0; i < cells.length; i++) {
             const cell = cells[i];
@@ -3044,6 +3046,15 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
                 continue;
             }
 
+            const rawRef = md.data?.globalReferences?.[0];
+            if (typeof rawRef === "string") {
+                const cleanedRef = stripCellIdSuffix(rawRef);
+                if (cleanedRef !== rawRef) {
+                    md.data.globalReferences = [cleanedRef];
+                    cell.metadata = md;
+                    hadSuffixedRefs = true;
+                }
+            }
             const ref = md.data?.globalReferences?.[0];
             const parsed = typeof ref === "string" ? parseVerseRef(ref) : null;
             if (parsed) {
@@ -3052,6 +3063,57 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
             } else {
                 contentWithoutRef.push(cell);
             }
+        }
+
+        let hasChanges = hadSuffixedRefs;
+
+        // Merge phase: recombine split verse-range cells (child has parentId -> parent)
+        const idToContentIndex = new Map<string, number>();
+        for (let i = 0; i < contentWithRef.length; i++) {
+            const id = contentWithRef[i].cell.metadata?.id;
+            if (id) idToContentIndex.set(id, i);
+        }
+        const mergedChildIndices = new Set<number>();
+        for (let i = 0; i < contentWithRef.length; i++) {
+            const childMd = contentWithRef[i].cell.metadata || {};
+            const parentId = childMd.parentId;
+            if (!parentId) continue;
+            const parentIdx = idToContentIndex.get(parentId);
+            if (parentIdx === undefined) continue;
+
+            const parent = contentWithRef[parentIdx];
+            const child = contentWithRef[i];
+            const pRef = parent.parsed;
+            const cRef = child.parsed;
+            const sameRange =
+                pRef.kind === cRef.kind &&
+                pRef.book === cRef.book &&
+                pRef.chapter === cRef.chapter &&
+                (pRef.kind === "range" && cRef.kind === "range"
+                    ? pRef.verseStart === cRef.verseStart && pRef.verseEnd === cRef.verseEnd
+                    : pRef.kind === "single" && cRef.kind === "single"
+                        ? pRef.verse === cRef.verse
+                        : false);
+            if (!sameRange) continue;
+
+            parent.cell.value = (parent.cell.value || "") + (child.cell.value || "");
+            const parentEdits: any[] = parent.cell.metadata?.edits || [];
+            parentEdits.push({
+                editMap: ["value"],
+                value: parent.cell.value,
+                timestamp: Date.now(),
+                type: EditType.MIGRATION,
+                author: "system",
+                validatedBy: [],
+            });
+            parent.cell.metadata.edits = parentEdits;
+            mergedChildIndices.add(i);
+            hasChanges = true;
+        }
+        if (mergedChildIndices.size > 0) {
+            const filtered = contentWithRef.filter((_, idx) => !mergedChildIndices.has(idx));
+            contentWithRef.length = 0;
+            contentWithRef.push(...filtered);
         }
 
         // Partition content-with-ref by (book, chapter), sort each by verse
@@ -3066,7 +3128,6 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
         }
 
         const newCells: any[] = [];
-        let hasChanges = false;
 
         const emitContentCell = (item: (typeof contentWithRef)[0]) => {
             const { cell, parsed } = item;
