@@ -10,6 +10,7 @@ import {
     createProgress,
     validateFileExtension,
     addMilestoneCellsToNotebookPair,
+    createCodexCellsFromSource,
 } from '../../utils/workflowHelpers';
 import { extractImagesFromHtml } from '../../utils/imageProcessor';
 import { marked } from 'marked';
@@ -265,22 +266,7 @@ export const parseFile = async (
             metadata: sourceMetadata,
         };
 
-        // Target (.codex) cells start empty so progress is not reported as complete when source
-        // and translation are identical. Image-only cells carry <img> tags so attachments stay wired.
-        const codexCells = cells.map((sourceCell) => ({
-            id: sourceCell.id,
-            content:
-                sourceCell.images.length > 0
-                    ? sourceCell.images
-                          .map(
-                              (img) =>
-                                  `<img src="${img.src}"${img.alt ? ` alt="${img.alt}"` : ""} />`
-                          )
-                          .join("\n")
-                    : "",
-            images: sourceCell.images,
-            metadata: sourceCell.metadata,
-        }));
+        const codexCells = createCodexCellsFromSource(cells);
 
         const codexMetadata: MarkdownNotebookMetadata = {
             ...sourceMetadata,

@@ -1107,6 +1107,8 @@ type ProjectUserVersionEntry = {
 type ProjectMetadata = {
     projectName?: string;
     projectId?: string;
+    /** Set to true once the user has completed the AI translation instructions / system message setup for this project. Used to gate the SystemMessageStep so it is only shown once. */
+    aiInstructionsCompleted?: boolean;
     format: string;
     /** Registry of original imported files (hash, fileName, referencedBy) - stored in metadata.json for sync/merge */
     originalFilesHashes?: {
@@ -1526,6 +1528,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "triggerSync"; }
     | { command: "downloadSyncRuntime"; }
     | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
+    | { command: "setEnforceHtmlStructure"; content: { bookAbbr: string; enforceHtmlStructure: boolean; }; }
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | {
         command: "deleteCorpusMarker";
@@ -1947,6 +1950,7 @@ interface CodexItem {
     };
     sortOrder?: string;
     fileDisplayName?: string;
+    enforceHtmlStructure?: boolean;
 }
 type EditorReceiveMessages =
     | {

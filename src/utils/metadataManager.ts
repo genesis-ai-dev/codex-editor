@@ -26,6 +26,7 @@ interface ProjectMetadata {
     edits?: any[];
     users?: ProjectUserVersionEntry[];
     chatSystemMessage?: string;
+    aiInstructionsCompleted?: boolean;
     [key: string]: unknown;
 }
 
@@ -51,6 +52,9 @@ function compareVersions(a: string, b: string): number {
 interface MetadataUpdateOptions {
     author?: string;
 }
+
+type PinEntry = { version: string; url?: string; };
+type PinMap = Record<string, PinEntry>;
 
 export class MetadataManager {
     /**
@@ -307,10 +311,38 @@ export class MetadataManager {
     }
 
     /**
+     * Returns the currently effective pin map. Prefers the Conductor (which
+     * resolves admin intent → remote pins in workspace storage → on-disk
+     * metadata.json), and falls back to `fallbackPins` when the Conductor
+     * command is unavailable (older Codex shell) or returns undefined.
+     *
+     * Ratchet suppression must consult this, not metadata.json on disk alone,
+     * because during a pin-sync cycle Frontier writes remote pins to the
+     * Conductor's storage and aborts the merge before metadata.json lands on
+     * disk. Reading disk pins in that window would miss the active pin and
+     * inflate requiredExtensions.
+     */
+    private static async getEffectivePinnedExtensions(
+        fallbackPins?: PinMap
+    ): Promise<PinMap> {
+        try {
+            const pins = await vscode.commands.executeCommand<PinMap | undefined>(
+                "codex.conductor.getEffectivePinnedExtensions"
+            );
+            if (pins) {
+                return pins;
+            }
+        } catch {
+            // Conductor command not registered (older Codex shell or non-Codex host) — fall back.
+        }
+        return fallbackPins ?? {};
+    }
+
+    /**
      * Update extension versions in metadata.json
      * This is the main entry point for both codex-editor internal use
      * and for frontier-authentication (via command)
-     * 
+     *
      * IMPORTANT: Only updates if the new version is greater than or equal to the existing version.
      * This prevents downgrading versions (e.g., if someone with an older extension opens the project).
      */
@@ -323,7 +355,7 @@ export class MetadataManager {
     ): Promise<{ success: boolean; error?: string }> {
         const result = await this.safeUpdateMetadata<ProjectMetadata>(
             workspaceUri,
-            (metadata) => {
+            async (metadata) => {
                 if (!metadata.meta) {
                     metadata.meta = {};
                 }
@@ -331,8 +363,14 @@ export class MetadataManager {
                     metadata.meta.requiredExtensions = {};
                 }
 
-                const pinnedExtensions: Record<string, { version: string; url: string }> =
-                    metadata.meta.pinnedExtensions ?? {};
+                // Resolve effective pins INSIDE the queued callback — after the
+                // per-workspace write queue slot is acquired. Querying before the
+                // queue would snapshot Conductor state too early; a Frontier sync
+                // could update pins while we're waiting behind another write, and
+                // the stale {} snapshot would ratchet anyway.
+                const pinnedExtensions = await this.getEffectivePinnedExtensions(
+                    metadata.meta.pinnedExtensions
+                );
 
                 // Only update codexEditor if new version is greater or missing,
                 // AND no codex-editor pin is active (the Conductor owns the floor while active).
@@ -419,8 +457,13 @@ export class MetadataManager {
             const existingVersions = result.metadata?.meta?.requiredExtensions || {};
             const versionsToUpdate: { codexEditor?: string; frontierAuthentication?: string } = {};
 
-            // Suppress ratchet if a pin exists (The Conductor is in charge)
-            const pinnedExtensions = result.metadata?.meta?.pinnedExtensions || {};
+            // Suppress ratchet if a pin exists (the Conductor is in charge). Query the
+            // Conductor for the authoritative pin set so we correctly suppress during
+            // the pin-sync window where remote pins are live in Conductor storage but
+            // metadata.json on disk has not yet merged.
+            const pinnedExtensions = await this.getEffectivePinnedExtensions(
+                result.metadata?.meta?.pinnedExtensions
+            );
 
             // Check codexEditor - update if missing or if installed version is newer
             if (codexEditorVersion && !pinnedExtensions['project-accelerate.codex-editor-extension']) {
@@ -636,6 +679,80 @@ export class MetadataManager {
                         metadata.edits = [];
                     }
                     addProjectMetadataEdit(metadata, ["chatSystemMessage"], value, currentAuthor);
+                }
+
+                return metadata;
+            },
+            { author: currentAuthor }
+        );
+
+        return { success: result.success, error: result.error };
+    }
+
+    /**
+     * Get aiInstructionsCompleted flag from metadata.json. Indicates whether the user
+     * has completed the one-time AI translation instructions / system message setup
+     * for this project. Defaults to false.
+     */
+    static async getAIInstructionsCompleted(workspaceFolderUri?: vscode.Uri): Promise<boolean> {
+        const workspaceFolder = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) {
+            return false;
+        }
+
+        const result = await this.safeReadMetadata<ProjectMetadata>(workspaceFolder);
+
+        if (result.success && result.metadata) {
+            return Boolean((result.metadata as any).aiInstructionsCompleted);
+        }
+
+        return false;
+    }
+
+    /**
+     * Set aiInstructionsCompleted flag in metadata.json with edit tracking.
+     */
+    static async setAIInstructionsCompleted(
+        value: boolean,
+        workspaceFolderUri?: vscode.Uri,
+        author?: string
+    ): Promise<{ success: boolean; error?: string }> {
+        const workspaceFolder = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) {
+            return { success: false, error: "No workspace folder found" };
+        }
+
+        let currentAuthor = author;
+        if (!currentAuthor) {
+            try {
+                const { getAuthApi } = await import("../extension");
+                const authApi = await getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                if (userInfo?.username) {
+                    currentAuthor = userInfo.username;
+                }
+            } catch (error) {
+                // Silent fallback
+            }
+            currentAuthor = currentAuthor || "unknown";
+        }
+
+        const result = await this.safeUpdateMetadata<ProjectMetadata>(
+            workspaceFolder,
+            (metadata) => {
+                const original = (metadata as any).aiInstructionsCompleted;
+                (metadata as any).aiInstructionsCompleted = value;
+
+                if (original !== value) {
+                    if (!metadata.edits) {
+                        metadata.edits = [];
+                    }
+                    addProjectMetadataEdit(
+                        metadata,
+                        ["aiInstructionsCompleted"],
+                        value,
+                        currentAuthor
+                    );
                 }
 
                 return metadata;
