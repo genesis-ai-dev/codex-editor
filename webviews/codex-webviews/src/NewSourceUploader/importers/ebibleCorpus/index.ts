@@ -9,6 +9,7 @@ import {
     createProgress,
     validateFileExtension,
     addMilestoneCellsToNotebookPair,
+    createCodexCellsFromSource,
 } from '../../utils/workflowHelpers';
 import { createEbibleVerseCellMetadata } from './cellMetadata';
 
@@ -79,10 +80,13 @@ const parseFile = async (
                 book: verse.book,
                 chapter: verse.chapter,
                 verse: verse.verseNumber,
+                verseEnd: verse.verseEnd,
                 text: verse.text,
                 reference: verse.reference,
                 fileName: file.name,
-                cellLabel: verse.verseNumber.toString(),
+                cellLabel: verse.verseEnd
+                    ? `${verse.verseNumber}-${verse.verseEnd}`
+                    : verse.verseNumber.toString(),
             });
             const content = formatVerseContent(verse);
             return {
@@ -118,12 +122,7 @@ const parseFile = async (
             },
         };
 
-        const codexCells = cells.map(sourceCell => ({
-            id: sourceCell.id,
-            content: '', // Empty for translation
-            images: sourceCell.images,
-            metadata: sourceCell.metadata,
-        }));
+        const codexCells = createCodexCellsFromSource(cells);
 
         const codexNotebook = {
             name: baseName,
@@ -206,12 +205,16 @@ const parseTsvLine = (line: string): VerseData | null => {
     const parts = line.split('\t');
     if (parts.length < 4) return null;
 
+    const verseField = parts[2];
+    const rangeMatch = verseField.match(/^(\d+)-(\d+)$/);
+
     return {
         book: parts[0],
         chapter: parseInt(parts[1]),
-        verseNumber: parseInt(parts[2]),
+        verseNumber: parseInt(verseField),
+        ...(rangeMatch && { verseEnd: parseInt(rangeMatch[2]) }),
         text: parts[3],
-        reference: `${parts[0]} ${parts[1]}:${parts[2]}`,
+        reference: `${parts[0]} ${parts[1]}:${verseField}`,
     };
 };
 
@@ -222,12 +225,16 @@ const parseCsvLine = (line: string): VerseData | null => {
     const parts = line.split(',');
     if (parts.length < 4) return null;
 
+    const verseField = parts[2].replace(/"/g, '');
+    const rangeMatch = verseField.match(/^(\d+)-(\d+)$/);
+
     return {
         book: parts[0].replace(/"/g, ''),
         chapter: parseInt(parts[1]),
-        verseNumber: parseInt(parts[2]),
+        verseNumber: parseInt(verseField),
+        ...(rangeMatch && { verseEnd: parseInt(rangeMatch[2]) }),
         text: parts[3].replace(/"/g, ''),
-        reference: `${parts[0]} ${parts[1]}:${parts[2]}`,
+        reference: `${parts[0]} ${parts[1]}:${verseField}`,
     };
 };
 
@@ -268,6 +275,7 @@ interface VerseData {
     book: string;
     chapter: number;
     verseNumber: number;
+    verseEnd?: number;
     text: string;
     reference: string;
 }

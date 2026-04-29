@@ -18,6 +18,7 @@ import {
     createProcessedCell,
     validateFileExtension,
     addMilestoneCellsToNotebookPair,
+    createCodexCellsFromSource,
 } from '../../utils/workflowHelpers';
 import { DocxParser } from './docxParser';
 import type { DocxDocument, DocxParagraph, DocxRun } from './docxTypes';
@@ -146,14 +147,7 @@ export const parseFile = async (
             },
         };
 
-        const codexCells = cells.map(sourceCell => ({
-            id: sourceCell.id,
-            content: '', // Empty for translation
-            images: sourceCell.images || [],
-            metadata: {
-                ...sourceCell.metadata,
-            },
-        }));
+        const codexCells = createCodexCellsFromSource(cells);
 
         const codexNotebook: ProcessedNotebook = {
             name: baseName,
