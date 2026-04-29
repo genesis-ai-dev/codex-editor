@@ -14,7 +14,7 @@ import {
     isSuperscriptibleDigit,
     superscriptFontGroup,
     toSuperscriptDigit,
-    toSuperscriptDigits,
+    toggleSuperscriptDigits,
 } from "./utils/superscriptUtils";
 import { EditHistory, EditorPostMessages } from "../../../../types";
 import { EditMapUtils, isValueEdit } from "../../../../src/utils/editMapUtils";
@@ -410,18 +410,29 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         const selection = quill.getSelection();
         if (selection && selection.length > 0) {
             const selectedText = quill.getText(selection.index, selection.length);
-            const converted = toSuperscriptDigits(selectedText);
+            const converted = toggleSuperscriptDigits(selectedText);
             if (converted !== selectedText) {
-                const formats = quill.getFormat(selection.index, selection.length);
-                quill.history.cutoff();
-                quill.deleteText(selection.index, selection.length, "user");
-                let pos = selection.index;
+                // Build the replacement char-by-char so we can apply the
+                // correct csdigit format (or explicitly clear it) per char.
+                // Using a Delta with `csdigit: false` makes the format removal
+                // unambiguous — `insertText` alone can leave the new text inside
+                // the now-empty csdigit span left over from the deleted chars.
+                const baseFormats = quill.getFormat(selection.index, selection.length) as Record<
+                    string,
+                    unknown
+                >;
+                delete baseFormats.csdigit;
+                let delta = new Delta().retain(selection.index).delete(selection.length);
                 for (const ch of Array.from(converted)) {
                     const g = superscriptFontGroup(ch);
-                    const fmt = g ? { ...formats, csdigit: g } : formats;
-                    quill.insertText(pos, ch, fmt, "user");
-                    pos += 1;
+                    const attributes: Record<string, unknown> = {
+                        ...baseFormats,
+                        csdigit: g ?? false,
+                    };
+                    delta = delta.insert(ch, attributes);
                 }
+                quill.history.cutoff();
+                quill.updateContents(delta, "user");
                 quill.setSelection(selection.index, converted.length, "user");
                 quill.history.cutoff();
             }

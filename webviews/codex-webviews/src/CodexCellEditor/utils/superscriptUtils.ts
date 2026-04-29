@@ -26,6 +26,17 @@ export const SUPERSCRIPT_DIGIT_MAP: Record<string, string> = {
 
 export const SUPERSCRIPT_DIGITS = new Set(Object.values(SUPERSCRIPT_DIGIT_MAP));
 
+// Reverse lookup: superscript digit → ASCII digit. Built from the forward map
+// so the two stay in sync.
+export const ASCII_DIGIT_FROM_SUPERSCRIPT: Record<string, string> = Object.fromEntries(
+    Object.entries(SUPERSCRIPT_DIGIT_MAP).map(([ascii, sup]) => [sup, ascii])
+);
+
+const SUPERSCRIPT_DIGITS_PATTERN = new RegExp(
+    `[${Object.values(SUPERSCRIPT_DIGIT_MAP).join("")}]`,
+    "g"
+);
+
 export const isSuperscriptibleDigit = (ch: string): boolean =>
     ch.length === 1 && ch >= "0" && ch <= "9";
 
@@ -37,6 +48,28 @@ export const toSuperscriptDigit = (digit: string): string =>
 
 export const toSuperscriptDigits = (text: string): string =>
     text.replace(/[0-9]/g, (d) => SUPERSCRIPT_DIGIT_MAP[d]);
+
+export const fromSuperscriptDigit = (digit: string): string =>
+    ASCII_DIGIT_FROM_SUPERSCRIPT[digit] ?? digit;
+
+export const fromSuperscriptDigits = (text: string): string =>
+    text.replace(SUPERSCRIPT_DIGITS_PATTERN, (d) => ASCII_DIGIT_FROM_SUPERSCRIPT[d]);
+
+/**
+ * Per-character toggle between ASCII and Unicode superscript digits.
+ * Non-digit characters are left untouched, so a mixed selection (e.g.
+ * "a1²b") becomes "a¹2b" after one call and back to "a1²b" after the
+ * next. This is what the toolbar superscript button uses so a second
+ * click reverts the change.
+ */
+export const toggleSuperscriptDigits = (text: string): string =>
+    Array.from(text)
+        .map((ch) => {
+            if (isSuperscriptibleDigit(ch)) return SUPERSCRIPT_DIGIT_MAP[ch];
+            if (isSuperscriptDigit(ch)) return ASCII_DIGIT_FROM_SUPERSCRIPT[ch];
+            return ch;
+        })
+        .join("");
 
 /**
  * For styling in the editor: ¹ ² ³ (Latin-1 Supplement) and ⁰ ⁴–⁹ (Unicode

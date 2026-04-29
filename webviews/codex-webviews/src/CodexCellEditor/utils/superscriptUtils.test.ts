@@ -1,11 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
     SUPERSCRIPT_DIGIT_MAP,
+    fromSuperscriptDigit,
+    fromSuperscriptDigits,
     isSuperscriptibleDigit,
     isSuperscriptDigit,
     superscriptFontGroup,
     toSuperscriptDigit,
     toSuperscriptDigits,
+    toggleSuperscriptDigits,
 } from "./superscriptUtils";
 
 describe("superscriptUtils", () => {
@@ -118,6 +121,53 @@ describe("superscriptUtils", () => {
 
         it("leaves already-superscript digits alone", () => {
             expect(toSuperscriptDigits("தா²டும்")).toBe("தா²டும்");
+        });
+    });
+
+    describe("fromSuperscriptDigit", () => {
+        it("converts a single superscript digit back to ASCII", () => {
+            expect(fromSuperscriptDigit("²")).toBe("2");
+            expect(fromSuperscriptDigit("⁴")).toBe("4");
+            expect(fromSuperscriptDigit("⁰")).toBe("0");
+        });
+
+        it("returns the input unchanged for non-superscript chars", () => {
+            expect(fromSuperscriptDigit("a")).toBe("a");
+            expect(fromSuperscriptDigit("2")).toBe("2");
+        });
+    });
+
+    describe("fromSuperscriptDigits", () => {
+        it("converts every superscript digit back to ASCII", () => {
+            expect(fromSuperscriptDigits("⁰¹²³⁴⁵⁶⁷⁸⁹")).toBe("0123456789");
+        });
+
+        it("leaves regular digits and other chars untouched", () => {
+            expect(fromSuperscriptDigits("abc123xyz")).toBe("abc123xyz");
+            expect(fromSuperscriptDigits("தா²டும்")).toBe("தா2டும்");
+        });
+    });
+
+    describe("toggleSuperscriptDigits", () => {
+        it("converts ASCII digits to superscript", () => {
+            expect(toggleSuperscriptDigits("abc123xyz")).toBe("abc¹²³xyz");
+        });
+
+        it("converts superscript digits back to ASCII (round-trip)", () => {
+            expect(toggleSuperscriptDigits("abc¹²³xyz")).toBe("abc123xyz");
+        });
+
+        it("toggles each digit individually in mixed input", () => {
+            expect(toggleSuperscriptDigits("a1²b³4")).toBe("a¹2b3⁴");
+        });
+
+        it("is its own inverse for digit-only input", () => {
+            const input = "தெ2வட் தா²டும்";
+            expect(toggleSuperscriptDigits(toggleSuperscriptDigits(input))).toBe(input);
+        });
+
+        it("leaves text without digits unchanged", () => {
+            expect(toggleSuperscriptDigits("hello world")).toBe("hello world");
         });
     });
 });
