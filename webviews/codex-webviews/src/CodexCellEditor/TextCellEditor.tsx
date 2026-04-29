@@ -25,6 +25,8 @@ import { AudioHistoryViewer } from "./AudioHistoryViewer";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { getCachedAudioDataUrl, setCachedAudioDataUrl, clearCachedAudio, getCachedAttachmentAudioDataUrl, setCachedAttachmentAudioDataUrl } from "../lib/audioCache";
 import { getAudioTabMode, audioRecorderHint } from "./utils/audioViewMode";
+import { RecorderCircle, type RecorderState } from "./components/RecorderCircle";
+import { RecorderWaveform } from "./components/RecorderWaveform";
 
 // ShadCN UI components
 import { Button } from "../components/ui/button";
@@ -347,6 +349,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [recordingStatus, setRecordingStatus] = useState<string>("");
     const [isAudioSaving, setIsAudioSaving] = useState<boolean>(false);
     const [countdown, setCountdown] = useState<number | null>(null);
+    // True for the brief async window between the countdown ending and
+    // `recorder.onstart` firing.  Without this, `recorderState` would compute
+    // as "idle" during the gap and the button would flash blue between the
+    // green countdown and the red recording state.  Treated as "recording"
+    // for visual purposes; the live waveform stays in idle until the actual
+    // stream is available.
+    const [isStartingRecording, setIsStartingRecording] = useState<boolean>(false);
     const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
     const [recordingElapsedTime, setRecordingElapsedTime] = useState<number>(0);
     const audioSaveRequestIdRef = useRef<string | null>(null);
@@ -1339,6 +1348,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
             return;
         }
 
+        // Flag the warmup window before any await: from this point until
+        // `recorder.onstart` fires, the button must read as "recording" so
+        // we don't flash through the idle (blue) state.
+        setIsStartingRecording(true);
+
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
@@ -1379,6 +1393,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             recorder.onstart = () => {
                 setIsRecording(true);
+                setIsStartingRecording(false);
                 setRecordingStatus("Recording...");
                 setRecordingStartTime(Date.now());
                 setRecordingElapsedTime(0);
@@ -1417,6 +1432,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             setRecordingStatus("Microphone access denied");
             console.error("Error accessing microphone:", err);
             setCountdown(null);
+            setIsStartingRecording(false);
         }
     }, [audioUrl]);
 
@@ -3089,7 +3105,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     const mode = getAudioTabMode({
                                         state: cellAudioState,
                                         hasAudioBlob: hasPlayableAudio,
-                                        isRecording: isRecording || countdown !== null,
+                                        // Treat countdown + warmup gap as "recording" so the
+                                        // tab mode doesn't snap back to cell-list during
+                                        // the brief async window before recorder.onstart.
+                                        isRecording: isRecording || countdown !== null || isStartingRecording,
                                         showRecorder,
                                     });
 
@@ -3331,65 +3350,75 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             )
                                             : 0;
                                     const shouldStopFilling = progressPercentage >= 100;
+                                    // Smooth HSL hue interpolation: green (140) → yellow (50) → red (0).
+                                    // Replaces the previous step-bucket colour at 90/99% with a
+                                    // continuous gradient so the user reads "approaching the line"
+                                    // gradually instead of via abrupt colour jumps.
+                                    const progressHue =
+                                        progressPercentage <= 80
+                                            ? 140 // green
+                                            : progressPercentage <= 95
+                                                ? 140 - ((progressPercentage - 80) / 15) * 90 // → 50 (yellow)
+                                                : 50 - ((Math.min(100, progressPercentage) - 95) / 5) * 50; // → 0 (red)
+                                    const progressColor = `hsl(${progressHue}, 75%, 48%)`;
+
+                                    // `isStartingRecording` covers the async warmup gap between
+                                    // countdown ending and `recorder.onstart` firing — treating
+                                    // it as "recording" prevents the green→blue→red flash.
+                                    const recorderState: RecorderState = (isRecording || isStartingRecording)
+                                        ? "recording"
+                                        : countdown !== null
+                                            ? "countdown"
+                                            : "idle";
+                                    const recorderTitle = isCellLocked
+                                        ? "Cannot record: cell is locked"
+                                        : isRecording
+                                            ? "Stop Recording"
+                                            : countdown !== null
+                                                ? `Starting in ${countdown}...`
+                                                : "Start Recording";
 
                                     return (
                                         <div className="relative bg-[var(--vscode-editor-background)] p-3 sm:p-4 rounded-md shadow w-full">
                                             <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md shadow-sm">
                                                 <div className="flex items-center justify-center text-[var(--vscode-foreground)] text-sm">
                                                     <div className="flex flex-col items-center gap-3 w-full">
-                                                        <Button
+                                                        <RecorderCircle
+                                                            state={recorderState}
+                                                            countdown={countdown}
+                                                            countdownTotal={3}
                                                             onClick={
                                                                 isRecording || countdown !== null
                                                                     ? stopRecording
                                                                     : startRecording
                                                             }
                                                             disabled={isCellLocked}
-                                                            className={cn(
-                                                                "h-24 w-24 rounded-full text-2xl font-bold transition-all",
-                                                                isRecording
-                                                                    ? "animate-pulse bg-red-600 hover:bg-red-700 border-0"
-                                                                    : countdown !== null
-                                                                        ? "bg-green-500 hover:bg-green-600 border-0"
-                                                                        : "bg-blue-600 hover:bg-blue-700 border-0",
-                                                                isCellLocked
-                                                                    ? "opacity-50 cursor-not-allowed"
-                                                                    : ""
-                                                            )}
-                                                            title={
-                                                                isCellLocked
-                                                                    ? "Cannot record: cell is locked"
-                                                                    : isRecording
-                                                                        ? "Stop Recording"
-                                                                        : countdown !== null
-                                                                            ? `Starting in ${countdown}...`
-                                                                            : "Start Recording"
-                                                            }
-                                                        >
-                                                            {isRecording ? (
-                                                                <Square className="h-8 w-8" />
-                                                            ) : countdown !== null ? (
-                                                                countdown
-                                                            ) : (
-                                                                <Mic className="h-8 w-8" />
-                                                            )}
-                                                        </Button>
+                                                            title={recorderTitle}
+                                                        />
+
+                                                        {/* Live audio waveform — single <canvas> driven by
+                                                            an AnalyserNode tap on the active MediaRecorder
+                                                            stream.  Mounts during the warmup gap too so the
+                                                            waveform area appears at the same moment the
+                                                            button turns red, even if the stream isn't ready
+                                                            yet (it draws idle bars until the stream lands). */}
+                                                        {(isRecording || isStartingRecording) && (
+                                                            <RecorderWaveform
+                                                                stream={mediaRecorder?.stream ?? null}
+                                                            />
+                                                        )}
 
                                                         {targetDuration ? (
                                                             <div className="w-full space-y-2">
-                                                                <div className="relative w-full h-3 bg-blue-200/60 rounded-full overflow-hidden">
+                                                                <div className="relative w-full h-3 bg-secondary rounded-full overflow-hidden">
                                                                     <div
-                                                                        className="h-full rounded-full transition-all duration-100"
+                                                                        className={cn(
+                                                                            "h-full rounded-full transition-[width,background-color] duration-100 origin-left",
+                                                                            shouldStopFilling && "animate-in zoom-in-95 duration-200"
+                                                                        )}
                                                                         style={{
-                                                                            width: `${shouldStopFilling
-                                                                                ? 100
-                                                                                : progressPercentage
-                                                                                }%`,
-                                                                            backgroundColor:
-                                                                                progressPercentage <= 90
-                                                                                    ? "rgb(34, 197, 94)" // green-500
-                                                                                    : progressPercentage <= 99
-                                                                                        ? "rgb(234, 179, 8)" // yellow-500
-                                                                                        : "rgb(239, 68, 68)", // red-500
+                                                                            width: `${shouldStopFilling ? 100 : progressPercentage}%`,
+                                                                            backgroundColor: progressColor,
                                                                         }}
                                                                     />
                                                                 </div>

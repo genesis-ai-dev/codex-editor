@@ -346,6 +346,27 @@
     --animate-nsu-export-panel-from-right: nsu-export-panel-from-right 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
     --animate-nsu-export-panel-from-bottom: nsu-export-panel-from-bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
 
+    /*
+     * Recorder circle animations.  Used by RecorderCircle.tsx for the audio
+     * record button.  Three motion primitives:
+     *   - ring-pulse: outer ring scales + fades, infinite (active recording).
+     *   - breathing: subtle box-shadow halo cycling (idle, signals "press me").
+     *   - glow-breathing: stronger box-shadow halo cycling (recording warmth).
+     * Each is layered on its own absolutely-positioned sibling so the button
+     * itself stays solid, clickable, and scale-stable.
+     */
+    --animate-recorder-ring-pulse: recorder-ring-pulse 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+    --animate-recorder-breathing: recorder-breathing 3s ease-in-out infinite;
+    --animate-recorder-glow-breathing: recorder-glow-breathing 2.4s ease-in-out infinite;
+    /* Countdown drain runs once, linear, for the full countdown duration —
+       produces a continuous "sweep-second" motion instead of stepping per
+       digit.  Duration is set inline by RecorderCircle so this stays generic. */
+    --animate-recorder-countdown-drain: recorder-countdown-drain linear forwards;
+    /* Each digit lives for ~1s before being replaced by `key`-driven remount.
+       This animation gives it a fade-in / hold / fade-out cycle within that
+       window so the handover between digits looks like a soft crossfade. */
+    --animate-recorder-countdown-digit: recorder-countdown-digit 1s ease-in-out forwards;
+
     @keyframes nsu-export-panel-from-right {
         from {
             opacity: 0;
@@ -366,6 +387,54 @@
             opacity: 1;
             transform: translate3d(0, 0, 0);
         }
+    }
+
+    @keyframes recorder-ring-pulse {
+        0% {
+            transform: scale(1);
+            opacity: 0.6;
+        }
+        100% {
+            transform: scale(1.45);
+            opacity: 0;
+        }
+    }
+
+    @keyframes recorder-breathing {
+        0%, 100% {
+            box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 35%, transparent);
+        }
+        50% {
+            box-shadow: 0 0 0 10px color-mix(in srgb, var(--primary) 0%, transparent);
+        }
+    }
+
+    @keyframes recorder-glow-breathing {
+        0%, 100% {
+            box-shadow: 0 0 28px 6px color-mix(in srgb, var(--destructive) 35%, transparent);
+        }
+        50% {
+            box-shadow: 0 0 40px 10px color-mix(in srgb, var(--destructive) 50%, transparent);
+        }
+    }
+
+    /* Countdown ring drain.  Pairs with `pathLength="100"` on the SVG circle
+       so dashoffset can sweep 0 → 100 regardless of the actual circumference.
+       Linear timing + single iteration => continuous sweep, not stepped. */
+    @keyframes recorder-countdown-drain {
+        from { stroke-dashoffset: 0; }
+        to { stroke-dashoffset: 100; }
+    }
+
+    /* Countdown digit lifecycle: fade in 0→200ms, hold 200→800ms, fade out
+       800→1000ms.  React unmounts the digit at ~1000ms (when `countdown`
+       changes), which lines up with the end of the fade-out so the handover
+       to the next digit looks like a continuous breath rather than a cut. */
+    @keyframes recorder-countdown-digit {
+        0%   { opacity: 0; transform: scale(0.7); }
+        20%  { opacity: 1; transform: scale(1); }
+        80%  { opacity: 1; transform: scale(1); }
+        100% { opacity: 0; transform: scale(1.2); }
     }
 }
 
