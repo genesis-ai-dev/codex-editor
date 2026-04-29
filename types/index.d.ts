@@ -982,7 +982,12 @@ interface ProjectOverview extends Project {
 /** A snapshot of a single user's Codex app (host IDE) version, recorded on project open and after sync */
 type ProjectUserVersionEntry = {
     userName: string;
-    /** Host IDE / app binary version (vscode.version), e.g. "1.108.11148" */
+    /**
+     * Host IDE / app binary version. For Codex builds this is the full
+     * `RELEASE_VERSION` read from `product.json` (e.g. `1.108.12007`,
+     * which encodes the MS tag plus the patch-rebuild suffix).
+     * Falls back to `vscode.version` when `product.json` can't be read.
+     */
     codexVersion: string;
     /** Epoch milliseconds when this entry was last written */
     updatedAt: number;
@@ -1413,6 +1418,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "triggerSync"; }
     | { command: "downloadSyncRuntime"; }
     | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
+    | { command: "setEnforceHtmlStructure"; content: { bookAbbr: string; enforceHtmlStructure: boolean; }; }
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | {
         command: "deleteCorpusMarker";
@@ -1834,6 +1840,7 @@ interface CodexItem {
     };
     sortOrder?: string;
     fileDisplayName?: string;
+    enforceHtmlStructure?: boolean;
 }
 type EditorReceiveMessages =
     | {

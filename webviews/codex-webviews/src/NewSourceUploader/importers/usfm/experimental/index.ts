@@ -15,6 +15,7 @@ import {
     createProgress,
     validateFileExtension,
     addMilestoneCellsToNotebookPair,
+    createCodexCellsFromSource,
 } from '../../../utils/workflowHelpers';
 import { parseUsfmFile } from './usfmParser';
 import { ProcessedNotebook, NotebookPair } from '../../../types/common';
@@ -128,16 +129,7 @@ export const parseFile = async (
             },
         };
 
-        // Create codex notebook (empty cells for translation)
-        const codexCells = parsedDocument.cells.map(sourceCell => {
-            const isStyleCell = sourceCell.metadata?.type === 'style';
-            return {
-                id: sourceCell.id,
-                content: isStyleCell ? sourceCell.content : '', // Keep style cells, empty others
-                images: sourceCell.images,
-                metadata: sourceCell.metadata,
-            };
-        });
+        const codexCells = createCodexCellsFromSource(parsedDocument.cells);
 
         const codexNotebook: ProcessedNotebook = {
             name: baseName,

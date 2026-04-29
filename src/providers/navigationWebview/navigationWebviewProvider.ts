@@ -29,6 +29,7 @@ interface CodexMetadata {
     corpusMarker?: string;
     progress?: number;
     fileDisplayName?: string;
+    enforceHtmlStructure?: boolean;
 }
 
 interface BibleBookInfo {
@@ -333,6 +334,16 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 }
                 break;
             }
+            case "setEnforceHtmlStructure": {
+                try {
+                    const { bookAbbr, enforceHtmlStructure } = message.content;
+                    await this.setEnforceHtmlStructure(bookAbbr, enforceHtmlStructure);
+                } catch (error) {
+                    console.error("Error setting HTML enforcement:", error);
+                    vscode.window.showErrorMessage(`Failed to update HTML enforcement: ${error}`);
+                }
+                break;
+            }
             case "editCorpusMarker": {
                 try {
                     const { corpusLabel, newCorpusName } = message.content;
@@ -567,6 +578,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 },
                 sortOrder,
                 fileDisplayName: metadata?.fileDisplayName,
+                enforceHtmlStructure: metadata?.enforceHtmlStructure ?? false,
             };
         } catch (error: any) {
             // Don't log warnings for files that don't exist (FileNotFound/ENOENT errors)
@@ -1107,6 +1119,69 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
         } catch (error) {
             console.error("Error updating book name:", error);
             vscode.window.showErrorMessage(`Failed to update book name: ${error}`);
+        }
+    }
+
+    private async setEnforceHtmlStructure(bookAbbr: string, enforceHtmlStructure: boolean): Promise<void> {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders?.length) {
+            vscode.window.showErrorMessage("No project folder found.");
+            return;
+        }
+
+        try {
+            const { matchingUris } = await findCodexFilesByBookAbbr(bookAbbr, { readMetadata: true });
+
+            const updateFile = async (uri: vscode.Uri) => {
+                const content = await vscode.workspace.fs.readFile(uri);
+                const notebookData = await this.serializer.deserializeNotebook(
+                    content,
+                    new vscode.CancellationTokenSource().token
+                );
+
+                if (!notebookData.metadata) {
+                    notebookData.metadata = {} as CustomNotebookMetadata;
+                }
+
+                notebookData.metadata = {
+                    ...notebookData.metadata,
+                    enforceHtmlStructure,
+                };
+
+                const updatedContent = await this.serializer.serializeNotebook(
+                    notebookData,
+                    new vscode.CancellationTokenSource().token
+                );
+                await vscode.workspace.fs.writeFile(uri, updatedContent);
+            };
+
+            for (const uri of matchingUris) {
+                try {
+                    await updateFile(uri);
+
+                    const sourceUri = getCorrespondingSourceUri(uri);
+                    if (sourceUri) {
+                        try {
+                            await vscode.workspace.fs.stat(sourceUri);
+                            await updateFile(sourceUri);
+                        } catch {
+                            // Source file doesn't exist, skip
+                        }
+                    }
+                } catch (error) {
+                    console.error(`Error updating enforceHtmlStructure for ${uri.fsPath}:`, error);
+                }
+            }
+
+            await this.buildInitialData();
+
+            const stateLabel = enforceHtmlStructure ? "enabled" : "disabled";
+            vscode.window.showInformationMessage(
+                `HTML structure enforcement ${stateLabel} for "${bookAbbr}"`
+            );
+        } catch (error) {
+            console.error("Error setting HTML enforcement:", error);
+            vscode.window.showErrorMessage(`Failed to update HTML enforcement: ${error}`);
         }
     }
 

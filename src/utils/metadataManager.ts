@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
 import { ProjectUserVersionEntry } from "@types";
 import { addProjectMetadataEdit } from "./editMapUtils";
 
@@ -50,6 +52,9 @@ function compareVersions(a: string, b: string): number {
 interface MetadataUpdateOptions {
     author?: string;
 }
+
+type PinEntry = { version: string; url?: string; };
+type PinMap = Record<string, PinEntry>;
 
 export class MetadataManager {
     /**
@@ -306,10 +311,38 @@ export class MetadataManager {
     }
 
     /**
+     * Returns the currently effective pin map. Prefers the Conductor (which
+     * resolves admin intent → remote pins in workspace storage → on-disk
+     * metadata.json), and falls back to `fallbackPins` when the Conductor
+     * command is unavailable (older Codex shell) or returns undefined.
+     *
+     * Ratchet suppression must consult this, not metadata.json on disk alone,
+     * because during a pin-sync cycle Frontier writes remote pins to the
+     * Conductor's storage and aborts the merge before metadata.json lands on
+     * disk. Reading disk pins in that window would miss the active pin and
+     * inflate requiredExtensions.
+     */
+    private static async getEffectivePinnedExtensions(
+        fallbackPins?: PinMap
+    ): Promise<PinMap> {
+        try {
+            const pins = await vscode.commands.executeCommand<PinMap | undefined>(
+                "codex.conductor.getEffectivePinnedExtensions"
+            );
+            if (pins) {
+                return pins;
+            }
+        } catch {
+            // Conductor command not registered (older Codex shell or non-Codex host) — fall back.
+        }
+        return fallbackPins ?? {};
+    }
+
+    /**
      * Update extension versions in metadata.json
      * This is the main entry point for both codex-editor internal use
      * and for frontier-authentication (via command)
-     * 
+     *
      * IMPORTANT: Only updates if the new version is greater than or equal to the existing version.
      * This prevents downgrading versions (e.g., if someone with an older extension opens the project).
      */
@@ -322,7 +355,7 @@ export class MetadataManager {
     ): Promise<{ success: boolean; error?: string }> {
         const result = await this.safeUpdateMetadata<ProjectMetadata>(
             workspaceUri,
-            (metadata) => {
+            async (metadata) => {
                 if (!metadata.meta) {
                     metadata.meta = {};
                 }
@@ -330,8 +363,14 @@ export class MetadataManager {
                     metadata.meta.requiredExtensions = {};
                 }
 
-                const pinnedExtensions: Record<string, { version: string; url: string }> =
-                    metadata.meta.pinnedExtensions ?? {};
+                // Resolve effective pins INSIDE the queued callback — after the
+                // per-workspace write queue slot is acquired. Querying before the
+                // queue would snapshot Conductor state too early; a Frontier sync
+                // could update pins while we're waiting behind another write, and
+                // the stale {} snapshot would ratchet anyway.
+                const pinnedExtensions = await this.getEffectivePinnedExtensions(
+                    metadata.meta.pinnedExtensions
+                );
 
                 // Only update codexEditor if new version is greater or missing,
                 // AND no codex-editor pin is active (the Conductor owns the floor while active).
@@ -418,8 +457,13 @@ export class MetadataManager {
             const existingVersions = result.metadata?.meta?.requiredExtensions || {};
             const versionsToUpdate: { codexEditor?: string; frontierAuthentication?: string } = {};
 
-            // Suppress ratchet if a pin exists (The Conductor is in charge)
-            const pinnedExtensions = result.metadata?.meta?.pinnedExtensions || {};
+            // Suppress ratchet if a pin exists (the Conductor is in charge). Query the
+            // Conductor for the authoritative pin set so we correctly suppress during
+            // the pin-sync window where remote pins are live in Conductor storage but
+            // metadata.json on disk has not yet merged.
+            const pinnedExtensions = await this.getEffectivePinnedExtensions(
+                result.metadata?.meta?.pinnedExtensions
+            );
 
             // Check codexEditor - update if missing or if installed version is newer
             if (codexEditorVersion && !pinnedExtensions['project-accelerate.codex-editor-extension']) {
@@ -451,13 +495,38 @@ export class MetadataManager {
     }
 
     /**
+     * Resolve the running Codex app version, preferring the value stamped into
+     * `product.json` during the Codex build. For patch-rebuild builds, that
+     * value is the full `RELEASE_VERSION` (e.g. `1.108.12007`), while
+     * `vscode.version` may only reflect the upstream MS tag (e.g. `1.108.1`).
+     * Falls back to `vscode.version` when `product.json` can't be read (e.g.
+     * in the web host or during tests).
+     */
+    private static getCodexAppVersion(): string | undefined {
+        try {
+            const appRoot = vscode.env.appRoot;
+            if (appRoot) {
+                const productJsonPath = path.join(appRoot, "product.json");
+                const raw = fs.readFileSync(productJsonPath, "utf8");
+                const product = JSON.parse(raw) as { version?: unknown; };
+                if (typeof product.version === "string" && product.version.length > 0) {
+                    return product.version;
+                }
+            }
+        } catch {
+            // fall through to vscode.version
+        }
+        return vscode.version || undefined;
+    }
+
+    /**
      * Record the current user's Codex editor version in the metadata `users` array.
      * Called on project open and after sync so deploy-compatibility checks can see
      * which binary each collaborator is running.
      */
     static async ensureCurrentUserVersionRecorded(workspaceUri: vscode.Uri): Promise<void> {
         try {
-            const codexVersion = vscode.version;
+            const codexVersion = this.getCodexAppVersion();
             if (!codexVersion) {
                 return;
             }
