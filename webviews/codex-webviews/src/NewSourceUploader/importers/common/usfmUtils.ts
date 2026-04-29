@@ -18,6 +18,7 @@ import {
     extractUsfmFootnotes,
     convertUsfmToHtmlWithFootnotes
 } from '../../utils/usfmFootnoteExtractor';
+import { createCodexCellsFromSource } from '../../utils/workflowHelpers';
 import { parseUsfmToJson as parseUsfmWithRegex } from './regexUsfmParser';
 import { convertUsfmInlineMarkersToHtml, usfmBlockToHtml, htmlInlineToUsfm, htmlBlockToUsfm } from './usfmHtmlMapper';
 import { validateFootnotes } from '../../utils/footnoteUtils';
@@ -560,15 +561,7 @@ export const createNotebookPair = <T extends keyof ProcessedNotebookMetadataByIm
         },
     };
 
-    const codexCells = cells.map(sourceCell => {
-        const isStyleCell = sourceCell.metadata?.type === 'style';
-        return {
-            id: sourceCell.id,
-            content: isStyleCell ? sourceCell.content : '',
-            images: sourceCell.images,
-            metadata: sourceCell.metadata,
-        };
-    });
+    const codexCells = createCodexCellsFromSource(cells);
 
     const codexNotebook: ProcessedNotebook = {
         name: baseName,

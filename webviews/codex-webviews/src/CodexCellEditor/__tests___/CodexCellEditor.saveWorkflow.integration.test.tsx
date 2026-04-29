@@ -1028,8 +1028,11 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             </MockUnsavedChangesProvider>
         );
 
-        // Start Recording button should be disabled when locked
-        const startBtn = await screen.findByRole("button", { name: /Start Recording/i });
+        // The record button's title reflects the locked state; it should be disabled
+        // and clicking it must not call getUserMedia.
+        const startBtn = await screen.findByRole("button", {
+            name: /Cannot record: cell is locked/i,
+        });
         expect(startBtn.hasAttribute("disabled")).toBe(true);
 
         fireEvent.click(startBtn);
