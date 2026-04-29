@@ -24,6 +24,7 @@ import SourceTextDisplay from "./SourceTextDisplay";
 import { AudioHistoryViewer } from "./AudioHistoryViewer";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { getCachedAudioDataUrl, setCachedAudioDataUrl, clearCachedAudio, getCachedAttachmentAudioDataUrl, setCachedAttachmentAudioDataUrl } from "../lib/audioCache";
+import { getAudioTabMode, audioRecorderHint } from "./utils/audioViewMode";
 
 // ShadCN UI components
 import { Button } from "../components/ui/button";
@@ -81,6 +82,7 @@ import {
     ArrowLeft,
     Upload,
     Tag,
+    AlertTriangle,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import CommentsBadge from "./CommentsBadge";
@@ -1832,6 +1834,24 @@ const CellEditor: React.FC<CellEditorProps> = ({
         preloadAudioForTab();
     }, [preloadAudioForTab]);
 
+    // Defensive: when the audio tab lands on an unselected/deletedOnly cell
+    // without known history, request it so the History button surfaces in
+    // recorder mode. The cell-switch effect handles initial load; this catches
+    // mid-session transitions (e.g. deselect from the history modal, or sync
+    // that demotes the cell to deletedOnly). Idempotent: short-circuits as
+    // soon as hasAudioHistory becomes true.
+    useEffect(() => {
+        if (activeTab !== "audio") return;
+        const state = audioAttachments?.[cellMarkers[0]];
+        if (state !== "unselected" && state !== "deletedOnly") return;
+        if (hasAudioHistory) return;
+        window.vscodeApi.postMessage({
+            command: "getAudioHistory",
+            content: { cellId: cellMarkers[0] },
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTab, audioAttachments, cellMarkers[0], hasAudioHistory]);
+
     // When switching to a new cell, ensure the editor is fully visible
     useEffect(() => {
         centerEditor();
@@ -1950,14 +1970,31 @@ const CellEditor: React.FC<CellEditorProps> = ({
             if (message.type === "providerSendsAudioAttachments") {
                 const availability = (message.attachments || {}) as Record<
                     string,
-                    "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none"
+                    "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "unselected" | "none"
                 >;
                 const stateForCell = availability[cellMarkers[0]];
 
-                // Only clear cached audio when the cell's audio is actually gone
-                if (stateForCell === "deletedOnly" || stateForCell === "none" || stateForCell === "missing") {
+                // The cell has no audio that should be playing in the editor. Clear
+                // in-memory blob/url so getAudioTabMode flips off "waveform" instead
+                // of getting stuck on stale data after a sync/delete/deselect, and
+                // surface the recorder so the user can re-record or pick from
+                // history. This intentionally runs even when audioBlob is set —
+                // a stale blob is exactly the case we need to clear.
+                if (
+                    stateForCell === "deletedOnly" ||
+                    stateForCell === "none" ||
+                    stateForCell === "missing" ||
+                    stateForCell === "unselected"
+                ) {
                     const { clearCachedAudio } = await import("../lib/audioCache");
                     clearCachedAudio(cellMarkers[0]);
+                    setAudioBlob(null);
+                    setAudioUrl(null);
+                    setAudioAuthor(undefined);
+                    setIsAudioLoading(false);
+                    setAudioFetchPending(false);
+                    setShowRecorder(true);
+                    return;
                 }
 
                 // If we already have local audio (e.g., just recorded) or are loading, don't disrupt UI
@@ -1982,11 +2019,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         content: { cellId: cellMarkers[0] },
                     };
                     window.vscodeApi.postMessage(messageContent);
-                } else if (stateForCell === "none" || stateForCell === "deletedOnly") {
-                    // No usable audio for this cell; keep recorder visible and settle state
-                    setIsAudioLoading(false);
-                    setAudioFetchPending(false);
-                    setShowRecorder(true);
                 }
             }
 
@@ -3043,237 +3075,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             <div className="content-section space-y-6">
                                 <h3 className="text-lg font-medium">Audio Recording</h3>
 
-                                {showRecorder ||
-                                !audioUrl ||
-                                !(
-                                    audioUrl.startsWith("blob:") ||
-                                    audioUrl.startsWith("data:") ||
-                                    audioUrl.startsWith("http")
-                                ) ? (
-                                    <div className="relative bg-[var(--vscode-editor-background)] p-3 sm:p-4 rounded-md shadow w-full">
-                                        {!audioUrl &&
-                                            audioValidationIconProps &&
-                                            audioAttachments &&
-                                            (audioAttachments[cellMarkers[0]] === "available" ||
-                                                audioAttachments[cellMarkers[0]] ===
-                                                    "available-pointer" ||
-                                                audioAttachments[cellMarkers[0]] ===
-                                                    "available-cached") && (
-                                                <div className="absolute -top-2 -right-2 z-50">
-                                                    <AudioValidationBadge
-                                                        validationStatusProps={audioValidationIconProps}
-                                                        popoverProps={audioValidationPopoverProps}
-                                                        readOnly
-                                                    />
-                                                </div>
-                                            )}
-                                        {(!audioUrl || showRecorder) && (
-                                            <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md shadow-sm">
-                                                <div className="flex items-center justify-center text-[var(--vscode-foreground)] text-sm">
-                                                    {!showRecorder &&
-                                                    audioAttachments &&
-                                                    (audioAttachments[cellMarkers[0]] ===
-                                                        "available" ||
-                                                        audioAttachments[cellMarkers[0]] ===
-                                                            "available-pointer" ||
-                                                        audioAttachments[cellMarkers[0]] ===
-                                                            "available-cached") ? (
-                                                        <div className="flex flex-col items-center gap-2">
-                                                            {isAudioLoading || audioFetchPending ? (
-                                                                <Button
-                                                                    disabled
-                                                                    className="h-9 px-3 text-sm opacity-80 cursor-default"
-                                                                >
-                                                                    <i className="codicon codicon-sync codicon-modifier-spin mr-1" />
-                                                                    Downloading audio...
-                                                                </Button>
-                                                            ) : (
-                                                                <Button
-                                                                    onClick={() => {
-                                                                        setIsAudioLoading(true);
-                                                                        setAudioFetchPending(true);
-                                                                        const messageContent: EditorPostMessages =
-                                                                            {
-                                                                                command:
-                                                                                    "requestAudioForCell",
-                                                                                content: {
-                                                                                    cellId: cellMarkers[0],
-                                                                                },
-                                                                            };
-                                                                        window.vscodeApi.postMessage(
-                                                                            messageContent
-                                                                        );
-                                                                    }}
-                                                                    className="h-9 px-3 text-sm"
-                                                                >
-                                                                    <i className="codicon codicon-cloud-download mr-1" />
-                                                                    Click to download
-                                                                </Button>
-                                                            )}
-                                                            {(() => {
-                                                                const autoInit = (window as any)
-                                                                    .__autoDownloadAudioOnOpenInitialized;
-                                                                const autoFlag = (window as any)
-                                                                    .__autoDownloadAudioOnOpen;
-                                                                if (autoInit && !!autoFlag)
-                                                                    return null;
-                                                                return (
-                                                                    <div className="text-xs text-muted-foreground">
-                                                                        You can enable auto-download
-                                                                        in settings
-                                                                    </div>
-                                                                );
-                                                            })()}
-                                                        </div>
-                                                    ) : audioAttachments?.[cellMarkers[0]] === "unselected" ? (
-                                                        <div className="flex flex-col items-center gap-2">
-                                                            <span className="text-sm">
-                                                                No audio selected
-                                                            </span>
-                                                            <Button
-                                                                onClick={() => setShowAudioHistory(true)}
-                                                                variant="outline"
-                                                                className="h-8 px-3 text-xs"
-                                                            >
-                                                                <i className="codicon codicon-history mr-1" />
-                                                                Choose from History
-                                                            </Button>
-                                                        </div>
-                                                    ) : audioAttachments?.[cellMarkers[0]] === "deletedOnly" ? (
-                                                        <div className="flex flex-col items-center gap-2">
-                                                            <span className="text-sm">
-                                                                No recordings available
-                                                            </span>
-                                                            <Button
-                                                                onClick={() => setShowAudioHistory(true)}
-                                                                variant="outline"
-                                                                className="h-8 px-3 text-xs"
-                                                            >
-                                                                <i className="codicon codicon-history mr-1" />
-                                                                View History
-                                                            </Button>
-                                                        </div>
-                                                    ) : (
-                                                        (() => {
-                                                            // Calculate target duration from cell timestamps
-                                                            const targetDuration =
-                                                                cellTimestamps?.startTime !==
-                                                                    undefined &&
-                                                                cellTimestamps?.endTime !==
-                                                                    undefined
-                                                                    ? cellTimestamps.endTime -
-                                                                      cellTimestamps.startTime
-                                                                    : null;
+                                {(() => {
+                                    // Single source of truth for audio-tab mode.  See
+                                    // utils/audioViewMode.ts for the full state-→-mode table.
+                                    const cellAudioState = audioAttachments?.[cellMarkers[0]];
+                                    const validUrlPrefix =
+                                        !!audioUrl &&
+                                        (audioUrl.startsWith("blob:") ||
+                                            audioUrl.startsWith("data:") ||
+                                            audioUrl.startsWith("http"));
+                                    const hasPlayableAudio =
+                                        !!audioBlob && validUrlPrefix;
+                                    const mode = getAudioTabMode({
+                                        state: cellAudioState,
+                                        hasAudioBlob: hasPlayableAudio,
+                                        isRecording: isRecording || countdown !== null,
+                                        showRecorder,
+                                    });
 
-                                                            // Calculate progress percentage
-                                                            const progressPercentage =
-                                                                targetDuration &&
-                                                                recordingElapsedTime > 0
-                                                                    ? Math.min(
-                                                                          100,
-                                                                          (recordingElapsedTime /
-                                                                              targetDuration) *
-                                                                              100
-                                                                      )
-                                                                    : 0;
-
-                                                            // Determine if recording should stop filling (over 100%)
-                                                            const shouldStopFilling =
-                                                                progressPercentage >= 100;
-
-                                                            return (
-                                                                <div className="flex flex-col items-center gap-4 w-full">
-                                                                    {/* Circular Button */}
-                                                                    <Button
-                                                                        onClick={
-                                                                            isRecording ||
-                                                                            countdown !== null
-                                                                                ? stopRecording
-                                                                                : startRecording
-                                                                        }
-                                                                        disabled={isCellLocked}
-                                                                        className={cn(
-                                                                            "h-24 w-24 rounded-full text-2xl font-bold transition-all",
-                                                                            isRecording
-                                                                                ? "animate-pulse bg-red-600 hover:bg-red-700 border-0"
-                                                                                : countdown !== null
-                                                                                ? "bg-green-500 hover:bg-green-600 border-0"
-                                                                                : "bg-blue-600 hover:bg-blue-700 border-0",
-                                                                            isCellLocked
-                                                                                ? "opacity-50 cursor-not-allowed"
-                                                                                : ""
-                                                                        )}
-                                                                        title={
-                                                                            isCellLocked
-                                                                                ? "Cannot record: cell is locked"
-                                                                                : isRecording
-                                                                                ? "Stop Recording"
-                                                                                : countdown !== null
-                                                                                ? `Starting in ${countdown}...`
-                                                                                : "Start Recording"
-                                                                        }
-                                                                    >
-                                                                        {isRecording ? (
-                                                                            <Square className="h-8 w-8" />
-                                                                        ) : countdown !== null ? (
-                                                                            countdown
-                                                                        ) : (
-                                                                            <Mic className="h-8 w-8" />
-                                                                        )}
-                                                                    </Button>
-
-                                                                    {/* Progress Bar (only when we have a timestamp-derived target) */}
-                                                                    {targetDuration ? (
-                                                                        <div className="w-full space-y-2">
-                                                                            <div className="relative w-full h-3 bg-blue-200/60 rounded-full overflow-hidden">
-                                                                                <div
-                                                                                    className="h-full rounded-full transition-all duration-100"
-                                                                                    style={{
-                                                                                        width: `${
-                                                                                            shouldStopFilling
-                                                                                                ? 100
-                                                                                                : progressPercentage
-                                                                                        }%`,
-                                                                                        backgroundColor:
-                                                                                            progressPercentage <=
-                                                                                            90
-                                                                                                ? "rgb(34, 197, 94)" // green-500
-                                                                                                : progressPercentage <=
-                                                                                                  99
-                                                                                                ? "rgb(234, 179, 8)" // yellow-500
-                                                                                                : "rgb(239, 68, 68)", // red-500
-                                                                                    }}
-                                                                                />
-                                                                            </div>
-                                                                            <div className="flex justify-between text-xs text-muted-foreground">
-                                                                                <span>
-                                                                                    {isRecording ||
-                                                                                    recordingElapsedTime >
-                                                                                        0
-                                                                                        ? `${recordingElapsedTime.toFixed(
-                                                                                              1
-                                                                                          )}s`
-                                                                                        : "0s"}
-                                                                                </span>
-                                                                                <span>
-                                                                                    Timestamp Length
-                                                                                </span>
-                                                                                <span>
-                                                                                    {targetDuration.toFixed(
-                                                                                        1
-                                                                                    )}
-                                                                                    s
-                                                                                </span>
-                                                                            </div>
-                                                                        </div>
-                                                                    ) : null}
-                                                                </div>
-                                                            );
-                                                        })()
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )}
+                                    const renderUploadHistoryRow = () => (
                                         <div className="flex flex-wrap items-center justify-center gap-2 mt-3 px-2">
                                             <Button
                                                 variant="outline"
@@ -3329,102 +3149,283 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 </Button>
                                             )}
                                         </div>
-                                    </div>
-                                ) : (
-                                    <div className="space-y-4">
-                                        <AudioWaveformWithTranscription
-                                            audioUrl={audioUrl || ""}
-                                            audioBlob={audioBlob}
-                                            transcription={savedTranscription}
-                                            isTranscribing={isTranscribing}
-                                            transcriptionProgress={transcriptionProgress}
-                                            onTranscribe={handleTranscribeAudio}
-                                            onInsertTranscription={handleInsertTranscription}
-                                            onRequestRemove={() => setConfirmingDiscard(true)}
-                                            onShowHistory={() => setShowAudioHistory(true)}
-                                            onShowRecorder={() => {
-                                                setShowRecorder(true);
-                                                setCountdown(null);
-                                                setRecordingStartTime(null);
-                                                setRecordingElapsedTime(0);
-                                                if (countdownIntervalRef.current) {
-                                                    clearInterval(countdownIntervalRef.current);
-                                                    countdownIntervalRef.current = null;
-                                                }
-                                                if (recordingTimerRef.current) {
-                                                    clearInterval(recordingTimerRef.current);
-                                                    recordingTimerRef.current = null;
-                                                }
-                                            }}
-                                            disabled={!audioBlob}
-                                            validationStatusProps={audioValidationIconProps}
-                                            author={audioAuthor}
-                                            audioValidationPopoverProps={
-                                                audioValidationPopoverProps
-                                            }
-                                            targetDuration={
-                                                cellTimestamps?.startTime !== undefined &&
-                                                cellTimestamps?.endTime !== undefined
-                                                    ? cellTimestamps.endTime -
-                                                      cellTimestamps.startTime
-                                                    : null
-                                            }
-                                        />
+                                    );
 
-                                        {confirmingDiscard && (
-                                            <div className="flex flex-wrap items-center justify-center gap-2 mt-2 p-3 bg-[var(--vscode-editor-background)] border border-[var(--vscode-panel-border)] rounded-md">
-                                                <p className="text-sm text-[var(--vscode-foreground)] mr-4">
-                                                    Are you sure you want to delete this audio?
-                                                </p>
-                                                <Button
-                                                    onClick={() => {
-                                                        discardAudio();
-                                                        setConfirmingDiscard(false);
+                                    if (mode === "waveform") {
+                                        return (
+                                            <div className="space-y-4">
+                                                <AudioWaveformWithTranscription
+                                                    audioUrl={audioUrl || ""}
+                                                    audioBlob={audioBlob}
+                                                    transcription={savedTranscription}
+                                                    isTranscribing={isTranscribing}
+                                                    transcriptionProgress={transcriptionProgress}
+                                                    onTranscribe={handleTranscribeAudio}
+                                                    onInsertTranscription={handleInsertTranscription}
+                                                    onRequestRemove={() => setConfirmingDiscard(true)}
+                                                    onShowHistory={() => setShowAudioHistory(true)}
+                                                    onShowRecorder={() => {
+                                                        setShowRecorder(true);
+                                                        setCountdown(null);
+                                                        setRecordingStartTime(null);
+                                                        setRecordingElapsedTime(0);
+                                                        if (countdownIntervalRef.current) {
+                                                            clearInterval(countdownIntervalRef.current);
+                                                            countdownIntervalRef.current = null;
+                                                        }
+                                                        if (recordingTimerRef.current) {
+                                                            clearInterval(recordingTimerRef.current);
+                                                            recordingTimerRef.current = null;
+                                                        }
                                                     }}
-                                                    variant="destructive"
-                                                    size="sm"
-                                                    className="h-8 px-2"
-                                                >
-                                                    <Check className="mr-2 h-4 w-4" />
-                                                    Confirm
-                                                </Button>
-                                                <Button
-                                                    onClick={() => setConfirmingDiscard(false)}
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="h-8 px-2"
-                                                >
-                                                    <X className="mr-2 h-4 w-4" />
-                                                    Cancel
-                                                </Button>
-                                            </div>
-                                        )}
-
-                                        {transcriptionStatus && (
-                                            <p className="text-sm text-center text-muted-foreground">
-                                                {transcriptionStatus}
-                                            </p>
-                                        )}
-
-                                        {recordingStatus &&
-                                            recordingStatus !== "Audio loaded" &&
-                                            !isTranscribing && (
-                                                <Badge
-                                                    variant={
-                                                        isRecording ? "destructive" : "secondary"
+                                                    disabled={!audioBlob}
+                                                    validationStatusProps={audioValidationIconProps}
+                                                    author={audioAuthor}
+                                                    audioValidationPopoverProps={
+                                                        audioValidationPopoverProps
                                                     }
-                                                    className={`self-center ${
-                                                        isRecording ? "animate-pulse" : ""
-                                                    }`}
-                                                >
-                                                    {isAudioSaving && (
-                                                        <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                                                    targetDuration={
+                                                        cellTimestamps?.startTime !== undefined &&
+                                                            cellTimestamps?.endTime !== undefined
+                                                            ? cellTimestamps.endTime -
+                                                            cellTimestamps.startTime
+                                                            : null
+                                                    }
+                                                />
+
+                                                {confirmingDiscard && (
+                                                    <div className="flex flex-wrap items-center justify-center gap-2 mt-2 p-3 bg-[var(--vscode-editor-background)] border border-[var(--vscode-panel-border)] rounded-md">
+                                                        <p className="text-sm text-[var(--vscode-foreground)] mr-4">
+                                                            Are you sure you want to delete this audio?
+                                                        </p>
+                                                        <Button
+                                                            onClick={() => {
+                                                                discardAudio();
+                                                                setConfirmingDiscard(false);
+                                                            }}
+                                                            variant="destructive"
+                                                            size="sm"
+                                                            className="h-8 px-2"
+                                                        >
+                                                            <Check className="mr-2 h-4 w-4" />
+                                                            Confirm
+                                                        </Button>
+                                                        <Button
+                                                            onClick={() => setConfirmingDiscard(false)}
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="h-8 px-2"
+                                                        >
+                                                            <X className="mr-2 h-4 w-4" />
+                                                            Cancel
+                                                        </Button>
+                                                    </div>
+                                                )}
+
+                                                {transcriptionStatus && (
+                                                    <p className="text-sm text-center text-muted-foreground">
+                                                        {transcriptionStatus}
+                                                    </p>
+                                                )}
+
+                                                {recordingStatus &&
+                                                    recordingStatus !== "Audio loaded" &&
+                                                    !isTranscribing && (
+                                                        <Badge
+                                                            variant={
+                                                                isRecording ? "destructive" : "secondary"
+                                                            }
+                                                            className={`self-center ${isRecording ? "animate-pulse" : ""
+                                                                }`}
+                                                        >
+                                                            {isAudioSaving && (
+                                                                <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                                                            )}
+                                                            {recordingStatus}
+                                                        </Badge>
                                                     )}
-                                                    {recordingStatus}
-                                                </Badge>
-                                            )}
-                                    </div>
-                                )}
+                                            </div>
+                                        );
+                                    }
+
+                                    if (mode === "download") {
+                                        return (
+                                            <div className="relative bg-[var(--vscode-editor-background)] p-3 sm:p-4 rounded-md shadow w-full">
+                                                {audioValidationIconProps && (
+                                                    <div className="absolute -top-2 -right-2 z-50">
+                                                        <AudioValidationBadge
+                                                            validationStatusProps={audioValidationIconProps}
+                                                            popoverProps={audioValidationPopoverProps}
+                                                            readOnly
+                                                        />
+                                                    </div>
+                                                )}
+                                                <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md shadow-sm">
+                                                    <div className="flex items-center justify-center text-[var(--vscode-foreground)] text-sm">
+                                                        <div className="flex flex-col items-center gap-2">
+                                                            {isAudioLoading || audioFetchPending ? (
+                                                                <Button
+                                                                    disabled
+                                                                    className="h-9 px-3 text-sm opacity-80 cursor-default"
+                                                                >
+                                                                    <i className="codicon codicon-sync codicon-modifier-spin mr-1" />
+                                                                    Downloading audio...
+                                                                </Button>
+                                                            ) : (
+                                                                <Button
+                                                                    onClick={() => {
+                                                                        setIsAudioLoading(true);
+                                                                        setAudioFetchPending(true);
+                                                                        const messageContent: EditorPostMessages =
+                                                                        {
+                                                                            command:
+                                                                                "requestAudioForCell",
+                                                                            content: {
+                                                                                cellId: cellMarkers[0],
+                                                                            },
+                                                                        };
+                                                                        window.vscodeApi.postMessage(
+                                                                            messageContent
+                                                                        );
+                                                                    }}
+                                                                    className="h-9 px-3 text-sm"
+                                                                >
+                                                                    <i className="codicon codicon-cloud-download mr-1" />
+                                                                    Click to download
+                                                                </Button>
+                                                            )}
+                                                            {(() => {
+                                                                const autoInit = (window as any)
+                                                                    .__autoDownloadAudioOnOpenInitialized;
+                                                                const autoFlag = (window as any)
+                                                                    .__autoDownloadAudioOnOpen;
+                                                                if (autoInit && !!autoFlag)
+                                                                    return null;
+                                                                return (
+                                                                    <div className="text-xs text-muted-foreground">
+                                                                        You can enable auto-download
+                                                                        in settings
+                                                                    </div>
+                                                                );
+                                                            })()}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                {renderUploadHistoryRow()}
+                                            </div>
+                                        );
+                                    }
+
+                                    // mode === "recorder"
+                                    const hint = audioRecorderHint(cellAudioState);
+                                    const targetDuration =
+                                        cellTimestamps?.startTime !== undefined &&
+                                            cellTimestamps?.endTime !== undefined
+                                            ? cellTimestamps.endTime - cellTimestamps.startTime
+                                            : null;
+                                    const progressPercentage =
+                                        targetDuration && recordingElapsedTime > 0
+                                            ? Math.min(
+                                                100,
+                                                (recordingElapsedTime / targetDuration) * 100
+                                            )
+                                            : 0;
+                                    const shouldStopFilling = progressPercentage >= 100;
+
+                                    return (
+                                        <div className="relative bg-[var(--vscode-editor-background)] p-3 sm:p-4 rounded-md shadow w-full">
+                                            <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md shadow-sm">
+                                                <div className="flex items-center justify-center text-[var(--vscode-foreground)] text-sm">
+                                                    <div className="flex flex-col items-center gap-3 w-full">
+                                                        <Button
+                                                            onClick={
+                                                                isRecording || countdown !== null
+                                                                    ? stopRecording
+                                                                    : startRecording
+                                                            }
+                                                            disabled={isCellLocked}
+                                                            className={cn(
+                                                                "h-24 w-24 rounded-full text-2xl font-bold transition-all",
+                                                                isRecording
+                                                                    ? "animate-pulse bg-red-600 hover:bg-red-700 border-0"
+                                                                    : countdown !== null
+                                                                        ? "bg-green-500 hover:bg-green-600 border-0"
+                                                                        : "bg-blue-600 hover:bg-blue-700 border-0",
+                                                                isCellLocked
+                                                                    ? "opacity-50 cursor-not-allowed"
+                                                                    : ""
+                                                            )}
+                                                            title={
+                                                                isCellLocked
+                                                                    ? "Cannot record: cell is locked"
+                                                                    : isRecording
+                                                                        ? "Stop Recording"
+                                                                        : countdown !== null
+                                                                            ? `Starting in ${countdown}...`
+                                                                            : "Start Recording"
+                                                            }
+                                                        >
+                                                            {isRecording ? (
+                                                                <Square className="h-8 w-8" />
+                                                            ) : countdown !== null ? (
+                                                                countdown
+                                                            ) : (
+                                                                <Mic className="h-8 w-8" />
+                                                            )}
+                                                        </Button>
+
+                                                        {targetDuration ? (
+                                                            <div className="w-full space-y-2">
+                                                                <div className="relative w-full h-3 bg-blue-200/60 rounded-full overflow-hidden">
+                                                                    <div
+                                                                        className="h-full rounded-full transition-all duration-100"
+                                                                        style={{
+                                                                            width: `${shouldStopFilling
+                                                                                ? 100
+                                                                                : progressPercentage
+                                                                                }%`,
+                                                                            backgroundColor:
+                                                                                progressPercentage <= 90
+                                                                                    ? "rgb(34, 197, 94)" // green-500
+                                                                                    : progressPercentage <= 99
+                                                                                        ? "rgb(234, 179, 8)" // yellow-500
+                                                                                        : "rgb(239, 68, 68)", // red-500
+                                                                        }}
+                                                                    />
+                                                                </div>
+                                                                <div className="flex justify-between text-xs text-muted-foreground">
+                                                                    <span>
+                                                                        {isRecording ||
+                                                                            recordingElapsedTime > 0
+                                                                            ? `${recordingElapsedTime.toFixed(1)}s`
+                                                                            : "0s"}
+                                                                    </span>
+                                                                    <span>Timestamp Length</span>
+                                                                    <span>
+                                                                        {targetDuration.toFixed(1)}s
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        ) : null}
+                                                        {hint && (
+                                                            <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                                                                <AlertTriangle
+                                                                    className="h-3 w-3"
+                                                                    style={{
+                                                                        color:
+                                                                            "var(--vscode-errorForeground)",
+                                                                    }}
+                                                                />
+                                                                {hint}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            {renderUploadHistoryRow()}
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         </TabsContent>
                     )}

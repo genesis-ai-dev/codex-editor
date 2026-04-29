@@ -1265,6 +1265,12 @@ const CodexCellEditor: React.FC = () => {
         [milestoneIndex, refreshProgressForMilestone]
     );
 
+    // Per-cell version stamps for audio selection broadcasts. The provider stamps
+    // every audio selection broadcast with `cell.metadata.selectionTimestamp`;
+    // we track the latest applied per cellId and discard stale broadcasts so a
+    // slow/out-of-order message cannot overwrite a fresher selection.
+    const lastAudioSelectionTsRef = useRef<Map<string, number>>(new Map());
+
     // Keep cell.metadata.selectedAudioId in sync with provider-side selection changes so the
     // cell list (AudioValidationButton, etc.) recomputes validators against the newly
     // selected recording. Without this, translationUnits holds stale metadata and the
@@ -1276,6 +1282,7 @@ const CodexCellEditor: React.FC = () => {
 
             let targetCellId: string | undefined;
             let nextSelectedAudioId: string | undefined;
+            let incomingTs: number | undefined;
 
             if (
                 message?.type === "audioAttachmentSelected" &&
@@ -1288,6 +1295,9 @@ const CodexCellEditor: React.FC = () => {
                     typeof message.content.audioId === "string" && message.content.audioId
                         ? message.content.audioId
                         : "";
+                if (typeof message.content.selectionTimestamp === "number") {
+                    incomingTs = message.content.selectionTimestamp;
+                }
             } else if (
                 message?.type === "providerUpdatesAudioValidationState" &&
                 typeof message.content?.cellId === "string" &&
@@ -1295,13 +1305,25 @@ const CodexCellEditor: React.FC = () => {
             ) {
                 targetCellId = message.content.cellId;
                 nextSelectedAudioId = message.content.selectedAudioId;
+                if (typeof message.content.selectionTimestamp === "number") {
+                    incomingTs = message.content.selectionTimestamp;
+                }
             }
 
             if (!targetCellId || nextSelectedAudioId === undefined) return;
 
+            // Discard out-of-order updates. If `selectionTimestamp` is missing
+            // (older provider build), fall through to the apply path so the
+            // contract stays additive.
+            if (typeof incomingTs === "number") {
+                const last = lastAudioSelectionTsRef.current.get(targetCellId) ?? 0;
+                if (incomingTs < last) return;
+                lastAudioSelectionTsRef.current.set(targetCellId, incomingTs);
+            }
+
             const cellId = targetCellId;
             const newSelectedId = nextSelectedAudioId;
-            const now = Date.now();
+            const stampForUnit = typeof incomingTs === "number" ? incomingTs : Date.now();
 
             const patchUnit = (unit: QuillCellContent): QuillCellContent => {
                 if (unit.cellMarkers?.[0] !== cellId) return unit;
@@ -1312,7 +1334,7 @@ const CodexCellEditor: React.FC = () => {
                     metadata: {
                         ...(unit.metadata || {}),
                         selectedAudioId: newSelectedId,
-                        selectionTimestamp: now,
+                        selectionTimestamp: stampForUnit,
                     } as typeof unit.metadata,
                 };
             };

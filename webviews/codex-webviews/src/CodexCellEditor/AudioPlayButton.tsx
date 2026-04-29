@@ -4,15 +4,9 @@ import { globalAudioController, type AudioControllerEvent } from "../lib/audioCo
 import type { WebviewApi } from "vscode-webview";
 import type { EditorPostMessages } from "../../../../types";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import { getCellListIcon, type AudioAvailability } from "./utils/audioViewMode";
 
-type AudioState =
-    | "available"
-    | "available-local"
-    | "available-pointer"
-    | "available-cached"
-    | "missing"
-    | "deletedOnly"
-    | "none";
+type AudioState = AudioAvailability;
 
 interface AudioPlayButtonProps {
     cellId: string;
@@ -243,52 +237,12 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
             return () => globalAudioController.removeListener(handler);
         }, []);
 
-        const { iconClass, color } = (() => {
-            if (state === "missing") {
-                return {
-                    iconClass: "codicon-warning",
-                    color: "var(--vscode-errorForeground)",
-                } as const;
-            }
-            if (state === "available-pointer") {
-                return {
-                    iconClass: isLoading
-                        ? "codicon-loading codicon-modifier-spin"
-                        : "codicon-cloud-download",
-                    color: "var(--vscode-charts-blue)",
-                } as const;
-            }
-            if (audioUrl || getCachedAudioDataUrl(cellId)) {
-                return {
-                    iconClass: isLoading
-                        ? "codicon-loading codicon-modifier-spin"
-                        : isPlaying
-                          ? "codicon-debug-stop"
-                          : "codicon-play",
-                    color: "var(--vscode-charts-blue)",
-                } as const;
-            }
-            if (state === "available-local" || state === "available" || state === "available-cached") {
-                return {
-                    iconClass: isLoading
-                        ? "codicon-loading codicon-modifier-spin"
-                        : isPlaying
-                          ? "codicon-debug-stop"
-                          : "codicon-play",
-                    color: "var(--vscode-charts-blue)",
-                } as const;
-            }
-            if (state === "unselected") {
-                return {
-                    iconClass: "codicon-history",
-                    color: "var(--vscode-foreground)",
-                } as const;
-            }
-            return {
-                iconClass: "codicon-mic",
-                color: "var(--vscode-foreground)",
-            } as const;
-        })();
+        const { iconClass, color } = getCellListIcon({
+            state,
+            hasAudioUrl: !!audioUrl || !!getCachedAudioDataUrl(cellId),
+            isLoading,
+            isPlaying,
+        });
 
         return (
             <button

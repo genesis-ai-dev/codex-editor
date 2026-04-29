@@ -3327,6 +3327,19 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     /**
+     * Returns the per-cell `selectionTimestamp` (set on every audio
+     * select/clear) from the in-memory document. Used by message handlers to
+     * stamp broadcasts so the webview can discard out-of-order updates.
+     */
+    public getSelectionTimestamp(cellId: string): number | undefined {
+        const cell = this._documentData.cells.find(
+            (cell) => cell.metadata?.id === cellId
+        );
+        const ts = (cell?.metadata as any)?.selectionTimestamp;
+        return typeof ts === "number" ? ts : undefined;
+    }
+
+    /**
      * Removes an attachment from a cell's metadata (hard delete - use softDeleteCellAttachment instead)
      * @param cellId The ID of the cell to update
      * @param attachmentId The unique ID of the attachment to remove

@@ -1,13 +1,16 @@
-import React, { useState, useEffect, useRef, Dispatch, SetStateAction } from "react";
+import React, { useState, useEffect, useMemo, useRef, Dispatch, SetStateAction } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getCellValueData } from "@sharedUtils";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { processValidationQueue, enqueueValidation } from "./validationQueue";
-import { computeAudioValidationUpdate } from "./validationUtils";
+import {
+    audioPopoverTracker,
+    getActiveAudioValidations,
+    readOnlyTooltipTracker,
+} from "./validationUtils";
 import ValidationStatusIcon from "./AudioValidationStatusIcon";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
-import { audioPopoverTracker, readOnlyTooltipTracker } from "./validationUtils";
 import ValidatorPopover from "./components/ValidatorPopover";
 
 interface AudioValidationButtonProps {
@@ -41,7 +44,12 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     readOnlyReason,
     setShowSparkleButton,
 }) => {
-    const [isValidated, setIsValidated] = useState(false);
+    // Real-time override fed by `providerUpdatesAudioValidationState` /
+    // `audioHistorySelectionChanged` messages. When set, it wins over the
+    // hook-derived `baseValidators` (which read from cell.attachments) so
+    // selection/validation changes reflect immediately without waiting for the
+    // cell prop to refresh. Reset whenever the explicit selection changes.
+    const [overrideValidatedBy, setOverrideValidatedBy] = useState<ValidationEntry[] | null>(null);
     const [username, setUsername] = useState<string | null>(currentUsername ?? null);
     const [requiredAudioValidations, setRequiredAudioValidations] = useState(
         requiredAudioValidationsProp ?? 1
@@ -98,7 +106,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         `audio-validation-${cellId}-${Math.random().toString(36).substring(2, 11)}`
     );
 
-    const { iconProps: baseIconProps, validators: baseValidators } = useAudioValidationStatus({
+    const { validators: baseValidators } = useAudioValidationStatus({
         cell,
         currentUsername: username,
         requiredAudioValidations: requiredAudioValidationsProp ?? null,
@@ -107,18 +115,44 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         displayValidationText: false,
     });
 
-    // Create a deduplicated list of validation users
-    const uniqueValidationUsers = baseValidators;
-    const currentValidations = baseValidators.length;
-
-    // Update validation state when attachments or hook-derived validators change
+    // Validations are per-attachment: any change to the explicit selection
+    // means the override no longer applies to the new attachment. Drop it so
+    // the next render falls back to the hook output.
+    const selectedAudioIdForReset = cell.metadata?.selectedAudioId ?? "";
     useEffect(() => {
-        if (!cell.attachments) {
-            return;
+        setOverrideValidatedBy(null);
+    }, [selectedAudioIdForReset, cellId]);
+
+    // Single source of truth for displayed validators: prefer the override
+    // (driven by provider messages) when present, otherwise the hook-derived
+    // `baseValidators`. Mirrors the pattern in `AudioValidationBadge` and
+    // replaces the previous dual-driver `setIsValidated` setup that flickered
+    // when the cell prop and message-driven state disagreed.
+    const effectiveValidators = useMemo<ValidationEntry[]>(() => {
+        if (!overrideValidatedBy) return baseValidators;
+        const active = getActiveAudioValidations(overrideValidatedBy);
+        const userToLatest = new Map<string, ValidationEntry>();
+        for (const entry of active) {
+            const existing = userToLatest.get(entry.username);
+            if (!existing || entry.updatedTimestamp > existing.updatedTimestamp) {
+                userToLatest.set(entry.username, entry);
+            }
         }
+        return Array.from(userToLatest.values());
+    }, [overrideValidatedBy, baseValidators]);
 
+    const uniqueValidationUsers = effectiveValidators;
+    const currentValidations = effectiveValidators.length;
+    const lowerUsername = (username || "").toLowerCase();
+    const isValidated = !!lowerUsername && effectiveValidators.some(
+        (v) => (v.username || "").toLowerCase() === lowerUsername
+    );
+
+    // `userCreatedLatestEdit` reflects who made the latest text edit and is
+    // unrelated to audio validators. Keep it driven purely by the cell prop.
+    useEffect(() => {
+        if (!cell.attachments) return;
         const effectiveSelectedAudioId = cell.metadata?.selectedAudioId ?? "";
-
         const cellValueData = getCellValueData({
             ...cell,
             metadata: {
@@ -126,14 +160,10 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                 selectedAudioId: effectiveSelectedAudioId,
             },
         } as any);
-
         setUserCreatedLatestEdit(
             cellValueData.author === username && cellValueData.editType === "user-edit"
         );
-
-        setIsValidated(Boolean(baseIconProps.isValidatedByCurrentUser));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cell, username, baseValidators, baseIconProps.isValidatedByCurrentUser]);
+    }, [cell, username]);
 
     // Get the current username when component mounts and listen for configuration changes
     useEffect(() => {
@@ -149,8 +179,10 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     }, [requiredAudioValidationsProp]);
 
     const applyValidatedByUpdate = (validatedBy: ValidationEntry[] | undefined) => {
-        const { isValidated: validated } = computeAudioValidationUpdate(validatedBy, username);
-        setIsValidated(validated);
+        // Drive the override directly with the message payload. `isValidated`
+        // is derived from `effectiveValidators` so there is no separate setter
+        // for cell-prop and message paths to fight over.
+        setOverrideValidatedBy(validatedBy ?? []);
         setIsPendingValidation(false);
         setIsValidationInProgress(false);
     };
@@ -181,7 +213,9 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                 if (requiredAudioValidationsProp == null) {
                     setRequiredAudioValidations(message.content.requiredAudioValidations || 1);
                 }
-                setIsValidated(message.content.isValidated);
+                // `isValidated` is derived from effectiveValidators; no setter
+                // available for a boolean payload. This message has no live
+                // sender today; kept for backward compatibility.
                 setUserCreatedLatestEdit(message.content.userCreatedLatestEdit);
             } else if (message.type === "audioValidationInProgress") {
                 // Handle audio validation in progress message

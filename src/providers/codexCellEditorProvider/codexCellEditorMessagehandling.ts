@@ -2672,19 +2672,42 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
 
-            // Compute targeted availability so the webview can update in one render
-            let quickState: string | undefined;
+            // Compute targeted availability for the affected cell. Derive a base
+            // state from in-memory metadata first (no FS access required) so the
+            // broadcast is always meaningful even when no workspace folder is
+            // resolvable (e.g. test environments). Then refine with FS probes
+            // (LFS pointer / cache) when a workspace is available.
+            const targetCell = cells.find((c: any) => c?.metadata?.id === typedEvent.content.cellId);
+            const selectedAtt: any = targetCell?.metadata?.attachments?.[typedEvent.content.audioId];
+
+            let quickState: string;
+            if (selectedAtt?.type === "audio" && selectedAtt?.isMissing) {
+                quickState = "missing";
+            } else if (selectedAtt?.type === "audio" && !selectedAtt?.isDeleted) {
+                quickState = "available-local";
+            } else {
+                const atts = (targetCell?.metadata?.attachments || {}) as Record<string, any>;
+                const hasUsable = Object.values(atts).some(
+                    (a: any) => a?.type === "audio" && !a.isDeleted && !a.isMissing
+                );
+                quickState = hasUsable ? "unselected" : "none";
+            }
+
             try {
-                const targetCell = cells.find((c: any) => c?.metadata?.id === typedEvent.content.cellId);
                 if (targetCell) {
                     const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                     if (ws) {
                         quickState = await resolveSelectedAttachmentState(
-                            targetCell, "available-local", ws.uri.fsPath
+                            targetCell, quickState, ws.uri.fsPath
                         );
                     }
                 }
-            } catch { /* best-effort */ }
+            } catch { /* keep in-memory base state */ }
+
+            // Per-cell monotonic version stamp set by `document.selectAudioAttachment`.
+            // The webview uses it to discard out-of-order updates so a slow/stale
+            // broadcast cannot overwrite a fresher selection.
+            const selectionTimestamp = document.getSelectionTimestamp(typedEvent.content.cellId);
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "audioAttachmentSelected",
@@ -2692,105 +2715,35 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     cellId: typedEvent.content.cellId,
                     audioId: typedEvent.content.audioId,
                     success: true,
-                    updatedAvailability: quickState
+                    updatedAvailability: quickState,
+                    selectionTimestamp,
                 }
             });
-
-            // Also send as providerSendsAudioAttachments for the cell list
-            if (quickState) {
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsAudioAttachments",
-                    attachments: { [typedEvent.content.cellId]: quickState } as any,
-                });
-            }
-
-            const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {} as any;
-            let validatedByArray: ValidationEntry[] = [];
-
-            for (const cell of cells) {
-                const cellId = cell?.metadata?.id;
-                if (!cellId) continue;
-                let hasAvailable = false;
-                let hasAvailablePointer = false;
-                let hasMissing = false;
-                let hasDeleted = false;
-                const atts = cell?.metadata?.attachments || {};
-
-                for (const key of Object.keys(atts)) {
-                    const att: any = (atts as any)[key];
-                    if (att && att.type === "audio") {
-                        if (att.isDeleted) {
-                            hasDeleted = true;
-                        } else if (att.isMissing) {
-                            hasMissing = true;
-                        } else {
-                            // Differentiate pointer vs real file by inspecting attachments/files path
-                            try {
-                                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-                                const url = String(att.url || "");
-                                if (ws && url) {
-                                    const filesPath = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-                                    const abs = path.join(ws.uri.fsPath, filesPath);
-                                    const { isPointerFile } = await import("../../utils/lfsHelpers");
-                                    const isPtr = await isPointerFile(abs).catch(() => false);
-                                    if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
-                                } else {
-                                    hasAvailable = true;
-                                }
-                            } catch {
-                                hasAvailable = true;
-                            }
-                        }
-                    }
-
-                    if (cellId === typedEvent.content.cellId && key === cell?.metadata?.selectedAudioId) {
-                        const validatedBy = Array.isArray(att?.validatedBy) ? att.validatedBy : [];
-                        validatedByArray = [...validatedBy];
-                    }
-                }
-                const selectedId = cell?.metadata?.selectedAudioId;
-                const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
-                const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
-
-                let state: string;
-                if (selectedIsMissing) {
-                    state = "missing";
-                } else if (hasAvailable) {
-                    state = "available-local";
-                } else if (hasAvailablePointer) {
-                    state = "available-pointer";
-                } else if (hasMissing) {
-                    state = "missing";
-                } else if (hasDeleted) {
-                    state = "deletedOnly";
-                } else {
-                    state = "none";
-                }
-
-                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-                if (ws) {
-                    state = await resolveSelectedAttachmentState(cell, state, ws.uri.fsPath);
-                }
-                availability[cellId] = state as any;
-            }
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerSendsAudioAttachments",
-                attachments: availability as any,
+                attachments: { [typedEvent.content.cellId]: quickState } as any,
             });
+
+            // Read validators directly off the targeted attachment. The previous
+            // implementation iterated every cell in the chapter with `await isPointerFile`
+            // probes, which suspended this handler long enough for a deselect to interleave
+            // and made the broadcast below leak a stale `selectedAudioId` captured from the
+            // closure. A single-cell read keeps the broadcast burst contiguous and removes
+            // N file-system probes per select.
+            const validatedByArray: ValidationEntry[] = Array.isArray(selectedAtt?.validatedBy)
+                ? [...selectedAtt.validatedBy]
+                : [];
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerUpdatesAudioValidationState",
                 content: {
                     cellId: typedEvent.content.cellId,
                     selectedAudioId: typedEvent.content.audioId,
-                    validatedBy: validatedByArray
+                    validatedBy: validatedByArray,
+                    selectionTimestamp,
                 },
             });
-
-
-
-            // Save the changes to the document
 
             await document.save(new vscode.CancellationTokenSource().token);
 
@@ -2817,6 +2770,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         try {
             document.clearAudioSelection(cellId);
 
+            // Per-cell monotonic version stamp set by `document.clearAudioSelection`.
+            // See `selectAudioAttachment` for usage rationale.
+            const selectionTimestamp = document.getSelectionTimestamp(cellId);
+
             const history = document.getAttachmentHistory(cellId, "audio");
             const hasUsable = history.some((h: any) => !h.attachment?.isDeleted && !h.attachment?.isMissing);
             const hasMissing = history.some((h: any) => h.attachment?.isMissing && !h.attachment?.isDeleted);
@@ -2831,12 +2788,26 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "audioAttachmentSelected",
-                content: { cellId, audioId: null, success: true, updatedAvailability: updatedState }
+                content: { cellId, audioId: null, success: true, updatedAvailability: updatedState, selectionTimestamp }
             });
 
             safePostMessageToPanel(webviewPanel, {
                 type: "providerSendsAudioAttachments",
                 attachments: { [cellId]: updatedState }
+            });
+
+            // Per-attachment-selected rule: with no selection, the cell has no
+            // current validators. Broadcast the cleared state so the cell-list
+            // AudioValidationButton refreshes immediately rather than waiting
+            // for the document re-broadcast to arrive.
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerUpdatesAudioValidationState",
+                content: {
+                    cellId,
+                    selectedAudioId: "",
+                    validatedBy: [],
+                    selectionTimestamp,
+                },
             });
 
             await document.save(new vscode.CancellationTokenSource().token);

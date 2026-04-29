@@ -1386,6 +1386,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     updateWebview();
                 } else if (e.edits && e.edits.length > 0 && e.edits[0].type === "audioValidation") {
                     const selectedAudioId = document.getExplicitAudioSelection(e.edits[0].cellId) ?? undefined;
+                    const selectionTimestamp = document.getSelectionTimestamp(e.edits[0].cellId);
                     // Broadcast the audio validation update to all webviews for this document
                     const audioValidationUpdate = {
                         type: "providerUpdatesAudioValidationState",
@@ -1394,6 +1395,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             validatedBy: e.edits[0].validatedBy,
                             selectedAudioId,
                             attachmentId: e.edits[0].attachmentId,
+                            selectionTimestamp,
                         },
                     };
 
@@ -3354,6 +3356,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         // Only send updates for cells that have audio validations
                         if (audioValidatedBy && audioValidatedBy.length > 0) {
                             const selectedAudioId = doc.getExplicitAudioSelection(cellId) ?? undefined;
+                            const selectionTimestamp = doc.getSelectionTimestamp(cellId);
 
                             // Post audio validation state update to all panels for this document
                             this.webviewPanels.forEach((panel, uri) => {
@@ -3364,6 +3367,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                             cellId,
                                             validatedBy: audioValidatedBy,
                                             selectedAudioId,
+                                            selectionTimestamp,
                                         },
                                     });
                                 }

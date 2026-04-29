@@ -23,6 +23,7 @@ import ValidationStatusIcon from "./AudioValidationStatusIcon";
 import type { ValidationStatusIconProps } from "./AudioValidationStatusIcon";
 import { AudioValidationBadge } from "./AudioValidationBadge";
 import type { AudioValidationPopoverProps } from "./AudioValidationBadge";
+import { getHistoryRowMode } from "./utils/audioViewMode";
 
 interface AudioHistoryEntry {
     attachmentId: string;
@@ -597,9 +598,22 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                 errorIds.has(entry.attachmentId) ||
                                 entry.attachment?.isMissing === true;
                             const entryState = entryAvailability[entry.attachmentId];
-                            const needsDownload = !audioUrls.has(entry.attachmentId) &&
+                            const hasBlobUrl = audioUrls.has(entry.attachmentId);
+                            const needsDownload =
+                                !hasBlobUrl &&
                                 entryState !== "available-local" &&
                                 entryState !== "available-cached";
+                            // rowMode covers the full Play/Download/Loading/Error/Playing
+                            // matrix used by the row's primary button. needsDownload stays
+                            // as the underlying "no local bytes" predicate (used by
+                            // entryReadOnly + the click handler's downloadOnly arg).
+                            const rowMode = getHistoryRowMode({
+                                entryState,
+                                hasBlobUrl,
+                                isPlaying,
+                                isLoading,
+                                hasError,
+                            });
                             // Compute validation status from attachment.validatedBy
                             const activeValidations = getActiveAudioValidations(
                                 entry.attachment.validatedBy
@@ -696,19 +710,19 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                                     className={hasError ? "opacity-100" : undefined}
                                                     title={hasError ? "File missing" : needsDownload ? "Download audio" : undefined}
                                                 >
-                                                    {isLoading ? (
+                                                    {rowMode === "loading" ? (
                                                         <span>Loading...</span>
-                                                    ) : hasError ? (
+                                                    ) : rowMode === "error" ? (
                                                         <>
                                                             <XCircle className="h-4 w-4 mr-1" />
                                                             Play
                                                         </>
-                                                    ) : isPlaying ? (
+                                                    ) : rowMode === "playing" ? (
                                                         <>
                                                             <Pause className="h-4 w-4 mr-1" />
                                                             Stop{durationLabel}
                                                         </>
-                                                    ) : needsDownload ? (
+                                                    ) : rowMode === "download" ? (
                                                         <>
                                                             <Download className="h-4 w-4 mr-1" />
                                                             Download{durationLabel}

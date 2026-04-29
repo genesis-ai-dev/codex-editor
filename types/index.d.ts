@@ -2141,6 +2141,11 @@ type EditorReceiveMessages =
             validatedBy: ValidationEntry[];
             selectedAudioId?: string;
             attachmentId?: string;
+            // Monotonic per-cell version stamp from the document
+            // (`cell.metadata.selectionTimestamp`). The webview uses it to
+            // discard out-of-order updates so a slow/stale broadcast cannot
+            // overwrite a fresher selection.
+            selectionTimestamp?: number;
         };
     }
     | {
@@ -2282,6 +2287,10 @@ type EditorReceiveMessages =
             success: boolean;
             error?: string;
             updatedAvailability?: string;
+            // Monotonic per-cell version stamp from the document
+            // (`cell.metadata.selectionTimestamp`). See comment on
+            // `providerUpdatesAudioValidationState.selectionTimestamp`.
+            selectionTimestamp?: number;
         };
     }
     | {
