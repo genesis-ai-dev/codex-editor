@@ -1,11 +1,14 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import { FileText } from "lucide-react";
 import { UnifiedImporterForm, type FileAnalysisStat } from "../../components/UnifiedImporterForm";
 import { type ImporterComponentProps, sequentialCellAligner } from "../../types/plugin";
 import type { NotebookPair, ImportProgress } from "../../types/common";
 import { validateFile, parseFile } from "./index";
+import { DEFAULT_IDEAL_CELL_LENGTH } from "../../utils/textSplitter";
 
 export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
+    const [idealCellLength, setIdealCellLength] = useState<number>(DEFAULT_IDEAL_CELL_LENGTH);
+
     const analyzeFiles = useCallback(async (files: File[]): Promise<FileAnalysisStat[]> => {
         const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
         return [
@@ -38,7 +41,7 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                     throw new Error(`${file.name}: ${validation.errors.join(", ")}`);
                 }
 
-                const importResult = await parseFile(file, onProgress);
+                const importResult = await parseFile(file, onProgress, { idealCellLength });
                 if (!importResult.success || !importResult.notebookPair) {
                     throw new Error(importResult.error || `Failed to parse ${file.name}`);
                 }
@@ -48,7 +51,36 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
 
             return results.length === 1 ? results[0]! : results;
         },
-        []
+        [idealCellLength]
+    );
+
+    const advancedSettings = (
+        <>
+            <div className="flex items-center gap-3">
+                <label
+                    htmlFor="ideal-cell-length"
+                    className="text-sm font-medium whitespace-nowrap"
+                >
+                    Ideal cell length (in characters)
+                </label>
+                <input
+                    id="ideal-cell-length"
+                    type="number"
+                    min={0}
+                    step={10}
+                    value={idealCellLength}
+                    onChange={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        if (!isNaN(v) && v >= 0) setIdealCellLength(v);
+                    }}
+                    className="w-24 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+                />
+            </div>
+            <p className="text-xs text-gray-500">
+                Long paragraphs are split into smaller cells at sentence boundaries. Set to 0 to
+                disable splitting.
+            </p>
+        </>
     );
 
     return (
@@ -65,6 +97,7 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
             cellAligner={sequentialCellAligner}
             showPreview={false}
             showEnforceStructure
+            advancedSettings={advancedSettings}
         />
     );
 };
