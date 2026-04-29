@@ -3143,18 +3143,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             />
 
                                             {hasAudioHistory && (
-                                                <div className="relative inline-block">
-                                                    <Button
-                                                        onClick={() => setShowAudioHistory(true)}
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="h-8 px-2 text-xs"
-                                                        title="Audio History"
-                                                    >
-                                                        <History className="h-3 w-3" />
-                                                        <span className="ml-1">History</span>
-                                                    </Button>
-                                                </div>
+                                                <Button
+                                                    onClick={() => setShowAudioHistory(true)}
+                                                    variant="outline"
+                                                    className="flex items-center justify-center h-8 px-2 text-xs"
+                                                    title="Audio History"
+                                                >
+                                                    <History className="h-3 w-3 mr-1" />
+                                                    History
+                                                </Button>
                                             )}
 
                                             {audioUrl && !isRecording && (
