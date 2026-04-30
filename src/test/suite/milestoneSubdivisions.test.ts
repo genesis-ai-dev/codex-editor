@@ -64,7 +64,7 @@ suite("Milestone Subdivisions Test Suite", () => {
     // ---------------------------------------------------------------------------
 
     suite("resolveSubdivisions()", () => {
-        const ids = (count: number) => Array.from({ length: count }, (_, i) => `c${i + 1}`);
+        const ids = (count: number) => Array.from({ length: count }, (_, i) => `c${i}`);
 
         test("returns empty array when no root cells", () => {
             const result = resolveSubdivisions({
@@ -86,7 +86,7 @@ suite("Milestone Subdivisions Test Suite", () => {
             );
             assert.strictEqual(result[0].source, "auto");
             assert.strictEqual(result[0].key, FIRST_SUBDIVISION_KEY);
-            assert.strictEqual(result[1].startCellId, "c51");
+            assert.strictEqual(result[1].startCellId, "c50");
         });
 
         test("single page when count <= pageSize", () => {
@@ -106,11 +106,11 @@ suite("Milestone Subdivisions Test Suite", () => {
             assert.strictEqual(result.length, 2);
             assert.deepStrictEqual(
                 [result[0].startRootIndex, result[0].endRootIndex],
-                [0, 5],
+                [0, 6],
             );
             assert.deepStrictEqual(
                 [result[1].startRootIndex, result[1].endRootIndex],
-                [5, 10],
+                [6, 10],
             );
             assert.strictEqual(result[1].name, "Second Half");
             assert.strictEqual(result[1].source, "custom");
@@ -131,7 +131,7 @@ suite("Milestone Subdivisions Test Suite", () => {
             assert.strictEqual(result.length, 4);
             assert.deepStrictEqual(
                 result.map((s) => s.startRootIndex),
-                [0, 2, 5, 7],
+                [0, 3, 6, 8],
             );
         });
 
@@ -149,7 +149,7 @@ suite("Milestone Subdivisions Test Suite", () => {
             assert.strictEqual(result.length, 2, "Only the valid placement contributes a break");
             assert.deepStrictEqual(
                 [result[0].startRootIndex, result[0].endRootIndex, result[1].startRootIndex, result[1].endRootIndex],
-                [0, 2, 2, 5],
+                [0, 3, 3, 5],
             );
         });
 
@@ -166,11 +166,11 @@ suite("Milestone Subdivisions Test Suite", () => {
             assert.strictEqual(result.length, 2);
         });
 
-        test("placement at c1 names the implicit first subdivision rather than creating a new one", () => {
+        test("placement at c0 names the implicit first subdivision rather than creating a new one", () => {
             const rootIds = ids(4);
             const result = resolveSubdivisions({
                 rootContentCellIds: rootIds,
-                placements: [{ startCellId: "c1", name: "Intro" }],
+                placements: [{ startCellId: "c0", name: "Intro" }],
                 cellsPerPage: 50,
             });
             assert.strictEqual(result.length, 1, "No actual break, just a name on the first subdivision");
@@ -203,7 +203,7 @@ suite("Milestone Subdivisions Test Suite", () => {
             const rootIds = ids(10);
             const subs = resolveSubdivisions({
                 rootContentCellIds: rootIds,
-                placements: [{ startCellId: "c4" }, { startCellId: "c8" }],
+                placements: [{ startCellId: "c3" }, { startCellId: "c7" }],
                 cellsPerPage: 50,
             });
             assert.strictEqual(findSubdivisionIndexForRoot(subs, 0), 0);
