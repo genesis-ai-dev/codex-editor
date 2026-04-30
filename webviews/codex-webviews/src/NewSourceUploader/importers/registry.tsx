@@ -15,8 +15,7 @@ import {
 // Import the actual plugin definitions
 import { docxImporterPlugin } from "./docx/index.tsx";
 import { markdownImporterPlugin } from "./markdown/index.tsx";
-// import { usfmImporterPlugin } from "./usfm/index.tsx"; // Original USFM importer
-import { usfmExperimentalImporterPlugin } from "./usfm/experimental/index.tsx"; // Experimental round-trip importer (standalone with headers in chapter 1)
+import { usfmExperimentalImporterPlugin } from "./usfm/index.tsx";
 import { ebibleDownloadImporterPlugin } from "./ebibleCorpus/index.tsx";
 import { maculaBibleImporterPlugin } from "./maculaBible/index.tsx";
 import { subtitlesImporterPlugin } from "./subtitles/index.tsx";
@@ -106,17 +105,11 @@ export const importerPlugins: ImporterPlugin[] = [
 
     // Specialized Tools - Domain-specific importers for Bible translation
     // Non-beta importers first
-    // {
-    //     ...usfmImporterPlugin,
-    //     name: "USFM Files",
-    //     description: "Unified Standard Format Marker files",
-    //     tags: [...(usfmImporterPlugin.tags || []), "Specialized", "Bible", "USFM"],
-    // },
     {
         ...usfmExperimentalImporterPlugin,
-        name: "USFM New",
+        name: "USFM",
         description:
-            "USFM files with round-trip export support (headers in chapter 1, verse-only target imports)",
+            "USFM files with round-trip export support",
         supportsTargetImport: true,
         tags: ["Specialized", "Bible", "USFM", "Round-trip"],
     },

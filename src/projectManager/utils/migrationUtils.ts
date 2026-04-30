@@ -1466,23 +1466,28 @@ function standardizeImporterType(importerType: string | undefined): string | und
         return "obs";
     }
 
-    // Valid FileImporterType values
+    // Valid FileImporterType values (must match the FileImporterType union in types/index.d.ts)
     const validTypes: string[] = [
         "smart-segmenter",
+        "plaintext",
         "audio",
         "docx",
         "markdown",
         "subtitles",
         "spreadsheet",
+        "spreadsheet-csv",
+        "spreadsheet-tsv",
         "tms",
         "pdf",
         "indesign",
         "usfm",
+        "usfm-experimental",
         "paratext",
         "ebible",
         "ebibleCorpus",
         "macula",
         "biblica",
+        "reach4life",
         "obs",
     ];
 
@@ -1512,21 +1517,23 @@ function inferImporterTypeFromCorpusMarker(corpusMarker: string | undefined): st
         "obs": "obs",
         "markdown": "markdown",
         "subtitles": "subtitles",
-        "subtitle": "subtitles", // Handle singular
+        "subtitle": "subtitles",
         "spreadsheet": "spreadsheet",
         "indesign": "indesign",
         "usfm": "usfm",
+        "usfm-experimental": "usfm-experimental",
         "paratext": "paratext",
         "ebible": "ebible",
         "ebiblecorpus": "ebibleCorpus",
         "macula": "macula",
-        "macula-bible": "macula", // Special case
+        "macula-bible": "macula",
         "biblica": "biblica",
         "audio": "audio",
         "smart-segmenter": "smart-segmenter",
+        "plaintext": "plaintext",
         "docx": "docx",
-        "docx-roundtrip": "docx", // Legacy alias
-        "obs-story": "obs", // Special case
+        "docx-roundtrip": "docx",
+        "obs-story": "obs",
     };
 
     return mapping[normalized];
