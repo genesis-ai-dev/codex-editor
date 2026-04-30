@@ -755,6 +755,13 @@ export type CustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> &
 
 export interface CustomNotebookMetadata {
     id: string;
+    /**
+     * On-disk schema version for this notebook. Files predating the schema-versioning
+     * system are treated as v0. The merge resolver, save serializer, post-sync hook,
+     * and activation-time normalization pass all run a shared migration ladder to
+     * bring notebooks up to `CURRENT_SCHEMA_VERSION` before any merge or render.
+     */
+    schemaVersion?: number;
     textDirection?: "ltr" | "rtl";
     textDirectionSource?: "global" | "local"; // Track whether text direction was set globally or locally
     perf?: any;

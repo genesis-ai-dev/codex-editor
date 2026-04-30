@@ -11,12 +11,12 @@ import { normalizeProjectSwapInfo } from "../../../utils/projectSwapManager";
 import { ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry, RemoteUpdatingEntry } from "../../../../types";
 import { NotebookCommentThread, NotebookComment, CustomNotebookCellData, CustomNotebookMetadata } from "../../../../types";
 import { CommentsMigrator } from "../../../utils/commentsMigrationUtils";
-import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory, ProjectUserVersionEntry } from "../../../../types/index.d";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
 import { formatJsonForNotebookFile } from "../../../utils/notebookFileFormattingUtils";
+import { bringNotebookToCurrent, CURRENT_SCHEMA_VERSION } from "../schema";
 import { ORPHANED_PROJECT_FILES } from "../../../utils/fileUtils";
 import {
     buildCellPositionContextMap,
@@ -633,31 +633,6 @@ export async function resolveConflictFile(
 }
 
 /**
- * Helper function to check if content contains old format edits that need migration
- */
-function needsEditHistoryMigration(content: string): boolean {
-    try {
-        const notebook = JSON.parse(content);
-        const cells: CodexCell[] = notebook.cells || [];
-
-        for (const cell of cells) {
-            if (cell.metadata?.edits && cell.metadata.edits.length > 0) {
-                for (const edit of cell.metadata.edits) {
-                    // Check if this is an old format edit (has cellValue but no editMap)
-                    if ((edit as any).cellValue !== undefined && !edit.editMap) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
-    } catch (error) {
-        debugLog("Error checking for migration need:", error);
-        return false;
-    }
-}
-
-/**
  * Helper function to resolve metadata conflicts using edit history
  * This function determines the latest edit for each metadata field and applies it
  */
@@ -983,44 +958,6 @@ function applyEditToCell(cell: CustomNotebookCellData, edit: EditHistory): void 
     }
 }
 
-/**
- * Helper function to migrate old format edits to new format in-place
- */
-function migrateEditHistoryInContent(content: string): string {
-    try {
-        const notebook = JSON.parse(content);
-        const cells: CodexCell[] = notebook.cells || [];
-        let hasChanges = false;
-
-        for (const cell of cells) {
-            if (cell.metadata?.edits && cell.metadata.edits.length > 0) {
-                for (const edit of cell.metadata.edits as any) {
-                    // Check if this is an old format edit (has cellValue but no editMap)
-                    if (edit.cellValue !== undefined && !edit.editMap) {
-                        // Migrate old format to new format
-                        edit.value = edit.cellValue; // Move cellValue to value
-                        edit.editMap = ["value"]; // Set editMap to point to value
-                        delete edit.cellValue; // Remove old property
-                        hasChanges = true;
-
-                        debugLog(`Migrated edit in cell ${cell.metadata.id}: converted cellValue to value with editMap`);
-                    }
-                }
-            }
-        }
-
-        if (hasChanges) {
-            debugLog("Edit history migration completed for content");
-            return JSON.stringify(notebook, null, 2);
-        }
-
-        return content;
-    } catch (error) {
-        debugLog("Error migrating edit history in content:", error);
-        return content;
-    }
-}
-
 function mergeTwoCellsUsingResolverLogic(
     ourCell: CustomNotebookCellData,
     theirCell: CustomNotebookCellData
@@ -1134,7 +1071,6 @@ export async function resolveCodexCustomMerge(
     debugLog({ ourContent: ourContent.slice(0, 1000), theirContent: theirContent.slice(0, 1000) });
     debugLog("Starting resolveCodexCustomMerge");
 
-    // Check if content needs migration and migrate if necessary
     if (!ourContent) {
         debugLog("No our content, returning their content");
         return theirContent;
@@ -1144,26 +1080,19 @@ export async function resolveCodexCustomMerge(
         return ourContent;
     }
 
-    // Migrate content if needed
-    let migratedOurContent = ourContent;
-    let migratedTheirContent = theirContent;
-
-    const ourNeedsMigration = needsEditHistoryMigration(ourContent);
-    const theirNeedsMigration = needsEditHistoryMigration(theirContent);
-
-    if (ourNeedsMigration) {
-        debugLog("Migrating our content edit history format");
-        migratedOurContent = migrateEditHistoryInContent(ourContent);
-    }
-
-    if (theirNeedsMigration) {
-        debugLog("Migrating their content edit history format");
-        migratedTheirContent = migrateEditHistoryInContent(theirContent);
-    }
-
     debugLog("Parsing notebook content");
-    const ourNotebook = JSON.parse(migratedOurContent);
-    const theirNotebook = JSON.parse(migratedTheirContent);
+    const ourNotebook = JSON.parse(ourContent);
+    const theirNotebook = JSON.parse(theirContent);
+
+    // Bring both sides up to CURRENT_SCHEMA_VERSION before merging so the merge
+    // logic only ever sees one shape. Files already at the current version
+    // short-circuit to a no-op. The schema ladder folds in the legacy
+    // cellValue → value/editMap transform that used to live as a one-shot
+    // helper here; future schema bumps will append further steps.
+    const mergeAuthorForLadder = process.env.CODEX_MERGE_USER || await getCurrentUserName();
+    await bringNotebookToCurrent(ourNotebook, { author: mergeAuthorForLadder });
+    await bringNotebookToCurrent(theirNotebook, { author: mergeAuthorForLadder });
+
     const ourCells: CustomNotebookCellData[] = ourNotebook.cells;
     const theirCells: CustomNotebookCellData[] = theirNotebook.cells;
 
@@ -1281,6 +1210,11 @@ export async function resolveCodexCustomMerge(
             }
         }
     }
+
+    // Stamp the merged notebook at the current schema version. Both sides were
+    // brought to current at the top of this function, so the merged output is
+    // guaranteed to be at current too.
+    mergedMetadata.schemaVersion = CURRENT_SCHEMA_VERSION;
 
     // Return the full notebook structure with merged cells and metadata
     // (formatted consistently for `.codex`/`.source` file writes)

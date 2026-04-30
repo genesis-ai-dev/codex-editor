@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import { TextDecoder, TextEncoder } from "util";
 import { CodexNotebookAsJSONData, CustomNotebookCellData } from "../types";
 import { formatJsonForNotebookFile } from "./utils/notebookFileFormattingUtils";
+import { CURRENT_SCHEMA_VERSION } from "./projectManager/utils/schema";
 
 export interface CodexNotebookDocument extends vscode.NotebookDocument {
     cells: CustomNotebookCellData[];
@@ -77,10 +78,16 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         token: vscode.CancellationToken
     ): Promise<Uint8Array> {
         debug("Serializing notebook data", { cellCount: data.cells.length });
-        // Map the Notebook data into the format we want to save the Notebook data as
+        // Stamp the on-disk schema version on every save. Activation, merge, and
+        // post-sync hooks all keep this in sync; setting it here guarantees that
+        // any file the editor writes is at the current version.
+        const stampedMetadata = {
+            ...(data.metadata || {}),
+            schemaVersion: CURRENT_SCHEMA_VERSION,
+        };
         const contents: RawNotebookData = {
             cells: [],
-            metadata: data.metadata,
+            metadata: stampedMetadata,
         };
         for (const cell of data.cells) {
             debug("Processing cell for serialization", { id: cell.metadata?.id, kind: cell.kind });
