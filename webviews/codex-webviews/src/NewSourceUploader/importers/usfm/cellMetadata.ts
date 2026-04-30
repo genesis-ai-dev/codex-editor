@@ -3,6 +3,9 @@
  * 
  * This file centralizes all cell metadata structure creation for USFM imports.
  * Makes it easy to find and modify metadata fields in one place.
+ * 
+ * Used by both the main USFM importer (index.ts / usfmParser.ts) and the
+ * shared common/usfmUtils.ts (for ebibleCorpus, paratext importers).
  */
 
 import { CodexCellTypes } from 'types/enums';
@@ -19,6 +22,9 @@ export interface VerseCellMetadataParams {
     verse: number | string;
     originalText: string;
     cellLabel: string;
+    originalLine?: string;
+    lineIndex?: number;
+    breakTag?: string;
     hasFootnotes?: boolean;
 }
 
@@ -31,10 +37,12 @@ export interface ParatextCellMetadataParams {
     fileName: string;
     chapter: number;
     originalText: string;
-    marker?: string; // USFM marker (e.g., "\id", "\s1", "\p", "\c")
+    marker?: string;
+    originalLine?: string;
+    lineIndex?: number;
+    hasFootnotes?: boolean;
     isChild?: boolean;
     parentId?: string;
-    hasFootnotes?: boolean;
 }
 
 /**
@@ -44,7 +52,7 @@ export interface HeaderCellMetadataParams {
     bookCode: string;
     bookName?: string;
     fileName: string;
-    marker: string; // USFM marker (e.g., "\id", "\h", "\toc3")
+    marker: string;
     originalText: string;
     index: number;
 }
@@ -54,11 +62,7 @@ export interface HeaderCellMetadataParams {
  * Generates a UUID for the cell ID
  */
 export function createVerseCellMetadata(params: VerseCellMetadataParams): { metadata: any; cellId: string; } {
-    // Generate UUID for cell ID
     const cellId = uuidv4();
-
-    // Create global reference in format "GEN 1:1"
-    const globalReferences = [`${params.bookCode} ${params.chapter}:${params.verse}`];
 
     return {
         cellId,
@@ -68,16 +72,20 @@ export function createVerseCellMetadata(params: VerseCellMetadataParams): { meta
             edits: [],
             bookCode: params.bookCode,
             bookName: params.bookName,
+            fileName: params.fileName,
             chapter: params.chapter,
+            marker: '\\v',
+            originalLine: params.originalLine,
+            originalText: params.originalText,
+            lineIndex: params.lineIndex,
             verse: params.verse,
             cellLabel: params.cellLabel,
-            originalText: params.originalText,
-            fileName: params.fileName,
+            breakTag: params.breakTag,
             hasFootnotes: params.hasFootnotes || false,
-            chapterNumber: String(params.chapter), // Chapter number for milestone detection
+            chapterNumber: String(params.chapter),
             data: {
                 originalText: params.originalText,
-                globalReferences: globalReferences,
+                globalReferences: [`${params.bookCode} ${params.chapter}:${params.verse}`],
             },
         }
     };
@@ -88,8 +96,11 @@ export function createVerseCellMetadata(params: VerseCellMetadataParams): { meta
  * Generates a UUID for the cell ID
  */
 export function createParatextCellMetadata(params: ParatextCellMetadataParams): { metadata: any; cellId: string; } {
-    // Generate UUID for cell ID
     const cellId = uuidv4();
+
+    const chapterNumberForMetadata = params.chapter === 0
+        ? "0"
+        : String(params.chapter);
 
     return {
         cellId,
@@ -99,17 +110,19 @@ export function createParatextCellMetadata(params: ParatextCellMetadataParams): 
             edits: [],
             bookCode: params.bookCode,
             bookName: params.bookName,
+            fileName: params.fileName,
             chapter: params.chapter,
             marker: params.marker,
+            originalLine: params.originalLine,
             originalText: params.originalText,
-            fileName: params.fileName,
+            lineIndex: params.lineIndex,
             hasFootnotes: params.hasFootnotes || false,
             isChild: params.isChild || false,
             parentId: params.parentId,
-            chapterNumber: params.chapter === 0 ? "0" : String(params.chapter), // Chapter number for milestone detection
+            chapterNumber: chapterNumberForMetadata,
             data: {
                 originalText: params.originalText,
-                globalReferences: [], // Empty for paratext cells (no verse references)
+                globalReferences: [],
             },
         }
     };
@@ -120,7 +133,6 @@ export function createParatextCellMetadata(params: ParatextCellMetadataParams): 
  * Generates a UUID for the cell ID
  */
 export function createHeaderCellMetadata(params: HeaderCellMetadataParams): { metadata: any; cellId: string; } {
-    // Generate UUID for cell ID
     const cellId = uuidv4();
 
     return {
@@ -131,15 +143,15 @@ export function createHeaderCellMetadata(params: HeaderCellMetadataParams): { me
             edits: [],
             bookCode: params.bookCode,
             bookName: params.bookName,
-            chapter: 1, // Headers are assigned to chapter 1
+            chapter: 1,
             marker: params.marker,
             originalText: params.originalText,
             fileName: params.fileName,
             hasFootnotes: false,
-            chapterNumber: "1", // Chapter number for milestone detection (headers assigned to chapter 1)
+            chapterNumber: "1",
             data: {
                 originalText: params.originalText,
-                globalReferences: [], // Empty for header cells (no verse references)
+                globalReferences: [],
             },
         }
     };
