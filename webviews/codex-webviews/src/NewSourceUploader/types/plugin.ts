@@ -500,6 +500,26 @@ export interface StartTranslatingMessage {
     command: 'startTranslating';
 }
 
+export interface OpenImportedFileMessage {
+    command: 'openImportedFile';
+    /** Absolute filesystem path to the imported codex file to open in split view. */
+    codexUri: string;
+}
+
+/**
+ * Sent from the provider to the webview after an import finishes successfully.
+ * Includes references to the just-imported notebooks and a per-project flag
+ * indicating whether the AI translation instructions / system message setup
+ * has already been completed for this project.
+ */
+export interface ImportCompleteMessage {
+    command: 'importComplete';
+    /** Absolute filesystem paths of the codex notebooks created by this import. */
+    importedCodexUris?: string[];
+    /** Whether the user has already completed the one-time AI instructions setup for this project. */
+    aiInstructionsCompleted?: boolean;
+}
+
 export interface SelectAudioFileMessage {
     command: 'selectAudioFile';
     thresholdDb?: number;
@@ -640,4 +660,4 @@ export interface AudioUriResponseMessage {
     error?: string;
 }
 
-export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | ImportStartedMessage | ImportEndedMessage | OverwriteConfirmationMessage | OverwriteResponseMessage | DownloadResourceMessage | DownloadResourceProgressMessage | DownloadResourceCompleteMessage | StartTranslatingMessage | SaveFileMessage | SelectAudioFileMessage | ReprocessAudioFileMessage | AudioFileSelectedMessage | AudioFileForProcessingMessage | ReprocessAudioInWebviewMessage | AudioProcessingCompleteMessage | RequestAudioSegmentMessage | AudioSegmentResponseMessage | RequestAudioUriMessage | AudioUriResponseMessage | FinalizeAudioImportMessage | AudioImportProgressMessage | AudioImportCompleteMessage | UpdateAudioSegmentsMessage | AudioSegmentsUpdatedMessage;
+export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | ImportStartedMessage | ImportEndedMessage | OverwriteConfirmationMessage | OverwriteResponseMessage | DownloadResourceMessage | DownloadResourceProgressMessage | DownloadResourceCompleteMessage | StartTranslatingMessage | OpenImportedFileMessage | SaveFileMessage | SelectAudioFileMessage | ReprocessAudioFileMessage | AudioFileSelectedMessage | AudioFileForProcessingMessage | ReprocessAudioInWebviewMessage | AudioProcessingCompleteMessage | RequestAudioSegmentMessage | AudioSegmentResponseMessage | RequestAudioUriMessage | AudioUriResponseMessage | FinalizeAudioImportMessage | AudioImportProgressMessage | AudioImportCompleteMessage | UpdateAudioSegmentsMessage | AudioSegmentsUpdatedMessage;
