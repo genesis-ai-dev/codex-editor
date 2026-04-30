@@ -6,6 +6,9 @@ import { promisify } from "util";
 import * as os from "os";
 import * as fs from "fs";
 import { getFFmpegPath } from "../utils/ffmpegManager";
+import { isLfsPointerContent, parsePointerContent } from "../utils/lfsHelpers";
+import { getCachedLfsBytes, setCachedLfsBytes } from "../utils/mediaCache";
+import { getMediaFilesStrategy } from "../utils/localProjectSettings";
 
 const execAsync = promisify(exec);
 
@@ -471,6 +474,81 @@ async function pathExists(uri: vscode.Uri): Promise<boolean> {
     try { await vscode.workspace.fs.stat(uri); return true; } catch { return false; }
 }
 
+type ResolveResult =
+    | { data: Uint8Array; error?: undefined }
+    | { data?: undefined; error: string };
+
+/**
+ * Reads audio bytes from disk, resolving LFS pointers on-the-fly via the
+ * Frontier API when the file is a stub.  Falls back to the pointers/ directory
+ * if the files/ entry doesn't exist at all.
+ */
+async function resolveAudioBytes(
+    absoluteSrc: vscode.Uri,
+    workspaceFolderUri: vscode.Uri,
+    frontierApi: { downloadLFSFile: (projectPath: string, oid: string, size: number) => Promise<Uint8Array>; } | null
+): Promise<ResolveResult> {
+    const projectPath = workspaceFolderUri.fsPath;
+
+    // Helper: download from LFS with cache support
+    const downloadFromPointer = async (pointerText: string): Promise<ResolveResult> => {
+        const pointer = parsePointerContent(pointerText);
+        if (!pointer) {
+            return { error: "Invalid LFS pointer format" };
+        }
+
+        // Check in-memory cache first
+        const cached = getCachedLfsBytes(pointer.oid);
+        if (cached) {
+            debug("Using cached LFS bytes for export");
+            return { data: cached };
+        }
+
+        if (!frontierApi) {
+            return { error: "Frontier API not available — cannot stream audio for export" };
+        }
+
+        const lfsData = await frontierApi.downloadLFSFile(projectPath, pointer.oid, pointer.size);
+        setCachedLfsBytes(pointer.oid, lfsData);
+        return { data: lfsData };
+    };
+
+    // Try reading the file at absoluteSrc
+    if (await pathExists(absoluteSrc)) {
+        const rawBytes = await vscode.workspace.fs.readFile(absoluteSrc);
+
+        if (!isLfsPointerContent(rawBytes)) {
+            return { data: rawBytes };
+        }
+
+        // It's a pointer — resolve via LFS
+        const pointerText = Buffer.from(rawBytes).toString("utf-8");
+        return downloadFromPointer(pointerText);
+    }
+
+    // files/ entry doesn't exist — try falling back to pointers/ directory
+    const fsPath = absoluteSrc.fsPath;
+    const normalizedPath = fsPath.replace(/\\/g, "/");
+    let pointerPath: string | null = null;
+
+    if (normalizedPath.includes("/.project/attachments/files/")) {
+        pointerPath = normalizedPath.replace("/.project/attachments/files/", "/.project/attachments/pointers/");
+    } else if (normalizedPath.includes(".project/attachments/files/")) {
+        pointerPath = normalizedPath.replace(".project/attachments/files/", ".project/attachments/pointers/");
+    }
+
+    if (pointerPath) {
+        const pointerUri = vscode.Uri.file(pointerPath);
+        if (await pathExists(pointerUri)) {
+            const pointerBytes = await vscode.workspace.fs.readFile(pointerUri);
+            const pointerText = Buffer.from(pointerBytes).toString("utf-8");
+            return downloadFromPointer(pointerText);
+        }
+    }
+
+    return { error: "Audio file not found" };
+}
+
 export async function exportAudioAttachments(
     userSelectedPath: string,
     filesToExport: string[],
@@ -494,6 +572,46 @@ export async function exportAudioAttachments(
         return;
     }
 
+    // Determine if we may need to stream audio from LFS
+    const mediaStrategy = await getMediaFilesStrategy(workspaceFolder.uri);
+    const mayNeedStreaming = mediaStrategy === "stream-only" || mediaStrategy === "stream-and-save";
+
+    // Obtain the Frontier API for LFS downloads (may be null if not available)
+    let frontierApi: { downloadLFSFile: (projectPath: string, oid: string, size: number) => Promise<Uint8Array>; } | null = null;
+    if (mayNeedStreaming) {
+        // Enforce version gates before attempting any LFS operations
+        try {
+            const { ensureAllVersionGatesForMedia } = await import("../utils/versionGate");
+            const allowed = await ensureAllVersionGatesForMedia(true);
+            if (!allowed) {
+                vscode.window.showErrorMessage(
+                    "Audio export requires a compatible version of Frontier. Please update and try again."
+                );
+                return;
+            }
+        } catch (gateErr) {
+            debug("Version gate check failed:", gateErr);
+        }
+
+        try {
+            const { getAuthApi } = await import("../extension");
+            const api = getAuthApi();
+            if (api?.downloadLFSFile) {
+                frontierApi = api;
+            }
+        } catch {
+            // Frontier not available — will be handled per-file
+        }
+
+        if (!frontierApi) {
+            vscode.window.showErrorMessage(
+                "Cannot export audio in streaming mode: Frontier authentication is not available. " +
+                "Please ensure you are online and signed in, or switch to Auto Download mode first."
+            );
+            return;
+        }
+    }
+
     return vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
@@ -501,12 +619,15 @@ export async function exportAudioAttachments(
             cancellable: false,
         },
         async (progress) => {
-            const increment = 100 / selectedFiles.length;
             let copiedCount = 0;
             let missingCount = 0;
+            let streamFailCount = 0;
 
             for (const [index, file] of selectedFiles.entries()) {
-                progress.report({ message: `Processing ${basename(file.fsPath)} (${index + 1}/${selectedFiles.length})`, increment });
+                progress.report({
+                    message: `Processing ${basename(file.fsPath)} (${index + 1}/${selectedFiles.length})`,
+                    increment: 100 / selectedFiles.length,
+                });
 
                 const bookCode = basename(file.fsPath).split(".")[0] || "BOOK";
                 const bookFolder = vscode.Uri.joinPath(exportDir, sanitizeFileComponent(bookCode));
@@ -522,51 +643,29 @@ export async function exportAudioAttachments(
                     continue;
                 }
 
-                const langCode = getTargetLanguageCode();
                 const dialogueMap = computeDialogueLineNumbers(notebook.cells);
-
                 debug(`Processing notebook with ${notebook.cells.length} cells`);
 
+                // Count audio cells for per-book progress
+                const audioCells: Array<{ cell: any; cellId: string; pick: NonNullable<ReturnType<typeof pickAudioAttachmentForCell>> }> = [];
                 for (const cell of notebook.cells) {
-                    // Accept both Code cells (kind 2) and Markup cells (kind 1) - consistent with other exporters
-                    if (cell.kind !== 2 && cell.kind !== 1) {
-                        debug(`Skipping cell with kind ${cell.kind}`);
-                        continue;
-                    }
-                    if (!isActiveCell(cell)) {
-                        debug(`Skipping inactive cell: ${cell?.metadata?.id}`);
-                        continue;
-                    }
+                    if (cell.kind !== 2 && cell.kind !== 1) continue;
+                    if (!isActiveCell(cell)) continue;
                     const cellId: string | undefined = cell?.metadata?.id;
-                    if (!cellId) {
-                        debug(`Skipping cell with no ID`);
-                        continue;
-                    }
-
+                    if (!cellId) continue;
                     const pick = pickAudioAttachmentForCell(cell);
-                    if (!pick) {
-                        // Log detailed info about why no audio was found
-                        const attachments = cell?.metadata?.attachments;
-                        if (!attachments || Object.keys(attachments).length === 0) {
-                            debug(`Cell ${cellId}: No attachments found`);
-                        } else {
-                            const attKeys = Object.keys(attachments);
-                            debug(`Cell ${cellId}: Has ${attKeys.length} attachments but none are valid audio:`,
-                                attKeys.map(k => ({
-                                    id: k,
-                                    type: attachments[k]?.type,
-                                    isDeleted: attachments[k]?.isDeleted,
-                                    isMissing: attachments[k]?.isMissing,
-                                    hasUrl: !!attachments[k]?.url
-                                }))
-                            );
-                        }
-                        continue;
+                    if (!pick) continue;
+                    audioCells.push({ cell, cellId, pick });
+                }
+
+                for (const [cellIdx, { cell, cellId, pick }] of audioCells.entries()) {
+                    if (mayNeedStreaming) {
+                        progress.report({
+                            message: `${basename(file.fsPath)}: downloading audio (${cellIdx + 1}/${audioCells.length})`,
+                        });
                     }
 
-                    debug(`Cell ${cellId}: Found audio attachment ${pick.id} with URL: ${pick.url}`);
-
-                    // Resolve absolute source path (attachment urls are workspace-relative POSIX in this project)
+                    // Resolve absolute source path
                     const srcPath = pick.url;
                     const absoluteSrc = srcPath.startsWith("/") || srcPath.match(/^[A-Za-z]:\\/)
                         ? vscode.Uri.file(srcPath)
@@ -574,13 +673,7 @@ export async function exportAudioAttachments(
 
                     debug(`Cell ${cellId}: Resolved absolute path: ${absoluteSrc.fsPath}`);
 
-                    if (!(await pathExists(absoluteSrc))) {
-                        debug(`Cell ${cellId}: Audio file does not exist at path: ${absoluteSrc.fsPath}`);
-                        missingCount++;
-                        continue;
-                    }
-
-                    // Build destination filename: <file>_<lang>_<label>_<line>.wav (always export as WAV)
+                    // Build destination filename
                     const timeFromCell = (cell?.metadata?.data || {}) as { startTime?: number; endTime?: number; };
                     const start = timeFromCell.startTime;
                     const end = timeFromCell.endTime;
@@ -590,7 +683,18 @@ export async function exportAudioAttachments(
                     const lineNumber = dialogueMap.get(cellId) || 0;
 
                     try {
-                        let bytes = await vscode.workspace.fs.readFile(absoluteSrc);
+                        const resolved = await resolveAudioBytes(absoluteSrc, workspaceFolder.uri, frontierApi);
+
+                        if (resolved.error || !resolved.data) {
+                            debug(`Cell ${cellId}: ${resolved.error ?? "No data returned"}`);
+                            if (resolved.error?.includes("Frontier") || resolved.error?.includes("stream")) {
+                                streamFailCount++;
+                            }
+                            missingCount++;
+                            continue;
+                        }
+
+                        let bytes: Uint8Array = resolved.data;
 
                         // Prepare audio for export (convert to WAV if needed, add BWF metadata)
                         let outputExt = originalExt;
@@ -620,8 +724,23 @@ export async function exportAudioAttachments(
                 }
             }
 
-            debug(`Export summary: ${copiedCount} files copied, ${missingCount} skipped`);
-            vscode.window.showInformationMessage(`Audio export completed: ${copiedCount} files copied${missingCount ? `, ${missingCount} skipped` : ""}. Output: ${exportDir.fsPath}`);
+            debug(`Export summary: ${copiedCount} files copied, ${missingCount} skipped, ${streamFailCount} stream failures`);
+
+            if (streamFailCount > 0 && copiedCount === 0) {
+                vscode.window.showErrorMessage(
+                    `Audio export failed: could not download any audio files from the server. ` +
+                    `Please check your network connection and try again.`
+                );
+            } else {
+                const streamNote = streamFailCount > 0
+                    ? `, ${streamFailCount} failed to download`
+                    : "";
+                vscode.window.showInformationMessage(
+                    `Audio export completed: ${copiedCount} files exported` +
+                    `${missingCount ? `, ${missingCount} skipped` : ""}` +
+                    `${streamNote}. Output: ${exportDir.fsPath}`
+                );
+            }
         }
     );
 }
