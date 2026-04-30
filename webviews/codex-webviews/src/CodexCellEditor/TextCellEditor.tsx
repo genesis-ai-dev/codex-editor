@@ -258,6 +258,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const { contentToScrollTo, setContentToScrollTo } = useContext(ScrollToContentContext);
     const { sourceCellMap } = useContext(SourceCellContext);
     const cellEditorRef = useRef<HTMLDivElement>(null);
+    const cellEditorBottomRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
     // Lock state is ONLY honored from top-level metadata.isLocked
     const isCellLocked = !!cell.metadata?.isLocked;
@@ -440,6 +441,48 @@ const CellEditor: React.FC<CellEditorProps> = ({
         scrollTimeoutRef.current = window.setTimeout(() => {
             scrollRafRef.current = requestAnimationFrame(() => {
                 el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+                scrollRafRef.current = null;
+            });
+            scrollTimeoutRef.current = null;
+        }, 120);
+    }, []);
+
+    const scrollEditorBottomIntoView = useCallback(() => {
+        const scrollTarget = cellEditorBottomRef.current ?? cellEditorRef.current;
+        if (!scrollTarget) return;
+
+        // Cancel any pending schedule to avoid jitter from duplicate calls.
+        if (scrollTimeoutRef.current) {
+            clearTimeout(scrollTimeoutRef.current);
+            scrollTimeoutRef.current = null;
+        }
+        if (scrollRafRef.current) {
+            cancelAnimationFrame(scrollRafRef.current);
+            scrollRafRef.current = null;
+        }
+
+        // Wait for React to render the newly-added UI (delete confirmation,
+        // downloaded waveform, etc.), then scroll only the amount needed to
+        // reveal the editor bottom. This avoids recentering the whole editor.
+        scrollTimeoutRef.current = window.setTimeout(() => {
+            scrollRafRef.current = requestAnimationFrame(() => {
+                const bottomPadding = 16;
+                const scrollContainer = scrollTarget.closest(".scrollable-content") as HTMLElement | null;
+                const rect = scrollTarget.getBoundingClientRect();
+                const containerRect = scrollContainer?.getBoundingClientRect();
+                const visibleBottom = containerRect
+                    ? containerRect.bottom - bottomPadding
+                    : window.innerHeight - bottomPadding;
+                const overflow = rect.bottom - visibleBottom;
+
+                if (overflow > 0) {
+                    if (scrollContainer) {
+                        scrollContainer.scrollBy({ top: overflow, behavior: "smooth" });
+                    } else {
+                        window.scrollBy({ top: overflow, behavior: "smooth" });
+                    }
+                }
+
                 scrollRafRef.current = null;
             });
             scrollTimeoutRef.current = null;
@@ -1940,6 +1983,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 setRecordingStatus("Audio loaded");
                                 setIsAudioLoading(false);
                                 setAudioFetchPending(false);
+                                scrollEditorBottomIntoView();
                             } catch { /* ignore, fall through to normal flow */ }
                         })();
                         return;
@@ -2081,8 +2125,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         setRecordingStatus("Audio loaded");
                         setIsAudioLoading(false);
                         setAudioFetchPending(false);
-                        setTimeout(centerEditor, 50);
-                        setTimeout(centerEditor, 250);
+                        scrollEditorBottomIntoView();
                         if (message.content.transcription) {
                             setSavedTranscription({
                                 content: message.content.transcription.content,
@@ -2206,7 +2249,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 });
             }
         },
-        [cellMarkers, audioBlob, isAudioLoading, centerEditor, currentSelectedAudioId]
+        [cellMarkers, audioBlob, isAudioLoading, scrollEditorBottomIntoView, currentSelectedAudioId]
     );
 
     const displayEditableLabel = () => {
@@ -3178,7 +3221,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     transcriptionProgress={transcriptionProgress}
                                                     onTranscribe={handleTranscribeAudio}
                                                     onInsertTranscription={handleInsertTranscription}
-                                                    onRequestRemove={() => setConfirmingDiscard(true)}
+                                                    onRequestRemove={() => {
+                                                        setConfirmingDiscard(true);
+                                                        scrollEditorBottomIntoView();
+                                                    }}
                                                     onShowHistory={() => setShowAudioHistory(true)}
                                                     onShowRecorder={() => {
                                                         setShowRecorder(true);
@@ -3459,6 +3505,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 <div className="text-sm font-light text-gray-500 w-full text-right">
                     {cellMarkers[0]}
                 </div>
+                <div ref={cellEditorBottomRef} aria-hidden="true" />
             </CardContent>
 
             {/* Audio History Viewer Modal */}
