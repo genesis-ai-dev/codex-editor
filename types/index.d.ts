@@ -1107,6 +1107,8 @@ type ProjectUserVersionEntry = {
 type ProjectMetadata = {
     projectName?: string;
     projectId?: string;
+    /** Set to true once the user has completed the AI translation instructions / system message setup for this project. Used to gate the SystemMessageStep so it is only shown once. */
+    aiInstructionsCompleted?: boolean;
     format: string;
     /** Registry of original imported files (hash, fileName, referencedBy) - stored in metadata.json for sync/merge */
     originalFilesHashes?: {
@@ -1526,6 +1528,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "triggerSync"; }
     | { command: "downloadSyncRuntime"; }
     | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
+    | { command: "setEnforceHtmlStructure"; content: { bookAbbr: string; enforceHtmlStructure: boolean; }; }
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | {
         command: "deleteCorpusMarker";
@@ -1947,6 +1950,7 @@ interface CodexItem {
     };
     sortOrder?: string;
     fileDisplayName?: string;
+    enforceHtmlStructure?: boolean;
 }
 type EditorReceiveMessages =
     | {
@@ -2411,11 +2415,23 @@ export type AudioToolMode = "auto" | "builtin" | "force-builtin";
 export type GitToolMode = "auto" | "builtin" | "force-builtin";
 export type SqliteToolMode = "auto" | "builtin" | "force-builtin";
 
+/**
+ * Per-tool flag set to true when the CURRENT OS/arch has no prebuilt
+ * native asset. Surfaced to the Missing-Tools / Tools-Status webview so
+ * the UI can render "Not available on this platform" instead of a
+ * download button that can never succeed.
+ */
+export interface PlatformUnsupportedFlags {
+    git: boolean;
+    sqlite: boolean;
+    ffmpeg: boolean;
+}
+
 export type MessagesToMissingToolsWarning =
-    | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean }
-    | { command: "updateWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean }
-    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; syncInProgress?: boolean; audioProcessingInProgress?: boolean }
-    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode }
+    | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; platformUnsupported?: PlatformUnsupportedFlags }
+    | { command: "updateWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; platformUnsupported?: PlatformUnsupportedFlags }
+    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; syncInProgress?: boolean; audioProcessingInProgress?: boolean; platformUnsupported?: PlatformUnsupportedFlags }
+    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; platformUnsupported?: PlatformUnsupportedFlags }
     | { command: "audioModeChanged"; audioToolMode: AudioToolMode; ffmpeg: boolean }
     | { command: "gitModeChanged"; gitToolMode: GitToolMode; git: boolean; nativeGitAvailable?: boolean }
     | { command: "sqliteModeChanged"; sqliteToolMode: SqliteToolMode; sqlite: boolean; nativeSqliteAvailable?: boolean }

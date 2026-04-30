@@ -12,6 +12,7 @@ import {
     validateFileExtension,
     splitContentIntoSegments,
     addMilestoneCellsToNotebookPair,
+    createCodexCellsFromSource,
 } from '../../utils/workflowHelpers';
 
 const SUPPORTED_EXTENSIONS = ['txt'];
@@ -175,12 +176,7 @@ export const parseFile = async (file: File, onProgress?: ProgressCallback, optio
             },
         };
 
-        const codexCells = cells.map(sourceCell => ({
-            id: sourceCell.id,
-            content: '', // Empty for translation
-            images: sourceCell.images,
-            metadata: sourceCell.metadata,
-        }));
+        const codexCells = createCodexCellsFromSource(cells);
 
         const codexNotebook = {
             name: baseName,
