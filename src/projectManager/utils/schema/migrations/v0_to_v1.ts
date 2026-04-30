@@ -12,11 +12,11 @@ import type { SchemaMigration } from "../index";
  * (e.g. v1 → v2) on top of this baseline.
  */
 export const migrate_v0_to_v1: SchemaMigration = (notebook) => {
-    for (const cell of (notebook.cells || [])) {
+    for (const cell of notebook.cells ?? []) {
         const edits = cell.metadata?.edits;
         if (!Array.isArray(edits) || edits.length === 0) continue;
 
-        for (const edit of edits as any[]) {
+        for (const edit of edits) {
             if (edit.cellValue !== undefined && !edit.editMap) {
                 edit.value = edit.cellValue;
                 edit.editMap = ["value"];

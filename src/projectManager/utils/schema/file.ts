@@ -5,6 +5,7 @@ import {
     bringNotebookToCurrent,
     BringToCurrentResult,
     SchemaMigrationContext,
+    SchemaNotebook,
 } from "./index";
 
 /**
@@ -19,11 +20,11 @@ import {
 export async function bringNotebookToCurrentForFile(
     uri: vscode.Uri,
     ctx: SchemaMigrationContext
-): Promise<BringToCurrentResult & { error?: unknown }> {
+): Promise<BringToCurrentResult & { error?: unknown; }> {
     try {
         const data = await vscode.workspace.fs.readFile(uri);
         const text = new TextDecoder().decode(data);
-        const notebook = JSON.parse(text);
+        const notebook: SchemaNotebook = JSON.parse(text);
 
         const result = await bringNotebookToCurrent(notebook, ctx);
         if (result.migrated) {
