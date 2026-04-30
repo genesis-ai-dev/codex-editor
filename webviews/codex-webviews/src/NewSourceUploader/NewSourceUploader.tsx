@@ -65,6 +65,8 @@ const NewSourceUploader: React.FC = () => {
     const [systemMessage, setSystemMessage] = useState<string>("");
     const [isWaitingForMessage, setIsWaitingForMessage] = useState(false);
     const [importComplete, setImportComplete] = useState(false);
+    const [lastImportedCodexUris, setLastImportedCodexUris] = useState<string[]>([]);
+    const [aiInstructionsCompleted, setAiInstructionsCompleted] = useState(false);
 
     // State for managing alignment requests
     const [alignmentRequests, setAlignmentRequests] = useState<
@@ -142,6 +144,12 @@ const NewSourceUploader: React.FC = () => {
                 });
             } else if (message.command === "importComplete") {
                 setImportComplete(true);
+                if (Array.isArray(message.importedCodexUris)) {
+                    setLastImportedCodexUris(message.importedCodexUris);
+                }
+                if (typeof message.aiInstructionsCompleted === "boolean") {
+                    setAiInstructionsCompleted(message.aiInstructionsCompleted);
+                }
                 setWizardState((prev) => {
                     if (prev.currentStep !== "importing") return prev;
                     return {
@@ -502,30 +510,42 @@ const NewSourceUploader: React.FC = () => {
         setIsDirty(false);
     }, []);
 
+    const openImportedFileOrFallback = useCallback(() => {
+        const codexUri = lastImportedCodexUris[0];
+        if (codexUri) {
+            vscode.postMessage({ command: "openImportedFile", codexUri });
+        } else {
+            vscode.postMessage({ command: "startTranslating" });
+        }
+    }, [lastImportedCodexUris]);
+
     const handleStartTranslating = useCallback(() => {
-        // Navigate to system message step
-        // Request metadata to get current system message (may have been generated earlier)
-        setIsWaitingForMessage(true); // Set flag that we're waiting for message
+        // If the user has already completed the AI instructions / system message setup
+        // for this project, skip the system message step and open the imported file directly.
+        if (aiInstructionsCompleted) {
+            openImportedFileOrFallback();
+            return;
+        }
+
+        // First time in this project: show the SystemMessageStep so the user can set up
+        // the AI translation instructions.
+        setIsWaitingForMessage(true);
         vscode.postMessage({ command: "metadata.check" });
         setWizardState((prev) => ({
             ...prev,
             currentStep: "system-message",
         }));
-    }, []);
+    }, [aiInstructionsCompleted, openImportedFileOrFallback]);
 
     const handleSystemMessageContinue = useCallback(() => {
-        // After system message is saved, actually start translating
-        vscode.postMessage({
-            command: "startTranslating",
-        });
-    }, []);
+        // After system message is saved, open the imported file directly.
+        openImportedFileOrFallback();
+    }, [openImportedFileOrFallback]);
 
     const handleSystemMessageSkip = useCallback(() => {
-        // Skip system message and start translating
-        vscode.postMessage({
-            command: "startTranslating",
-        });
-    }, []);
+        // Skip system message and open the imported file directly.
+        openImportedFileOrFallback();
+    }, [openImportedFileOrFallback]);
 
     const handleBack = useCallback(() => {
         setWizardState((prev) => {

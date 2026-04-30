@@ -990,7 +990,12 @@ interface ProjectOverview extends Project {
 /** A snapshot of a single user's Codex app (host IDE) version, recorded on project open and after sync */
 type ProjectUserVersionEntry = {
     userName: string;
-    /** Host IDE / app binary version (vscode.version), e.g. "1.108.11148" */
+    /**
+     * Host IDE / app binary version. For Codex builds this is the full
+     * `RELEASE_VERSION` read from `product.json` (e.g. `1.108.12007`,
+     * which encodes the MS tag plus the patch-rebuild suffix).
+     * Falls back to `vscode.version` when `product.json` can't be read.
+     */
     codexVersion: string;
     /** Epoch milliseconds when this entry was last written */
     updatedAt: number;
@@ -1000,6 +1005,8 @@ type ProjectUserVersionEntry = {
 type ProjectMetadata = {
     projectName?: string;
     projectId?: string;
+    /** Set to true once the user has completed the AI translation instructions / system message setup for this project. Used to gate the SystemMessageStep so it is only shown once. */
+    aiInstructionsCompleted?: boolean;
     format: string;
     /** Registry of original imported files (hash, fileName, referencedBy) - stored in metadata.json for sync/merge */
     originalFilesHashes?: {
@@ -1419,6 +1426,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "triggerSync"; }
     | { command: "downloadSyncRuntime"; }
     | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
+    | { command: "setEnforceHtmlStructure"; content: { bookAbbr: string; enforceHtmlStructure: boolean; }; }
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | {
         command: "deleteCorpusMarker";
@@ -1840,6 +1848,7 @@ interface CodexItem {
     };
     sortOrder?: string;
     fileDisplayName?: string;
+    enforceHtmlStructure?: boolean;
 }
 type EditorReceiveMessages =
     | {
@@ -2320,11 +2329,23 @@ export type AudioToolMode = "auto" | "builtin" | "force-builtin";
 export type GitToolMode = "auto" | "builtin" | "force-builtin";
 export type SqliteToolMode = "auto" | "builtin" | "force-builtin";
 
+/**
+ * Per-tool flag set to true when the CURRENT OS/arch has no prebuilt
+ * native asset. Surfaced to the Missing-Tools / Tools-Status webview so
+ * the UI can render "Not available on this platform" instead of a
+ * download button that can never succeed.
+ */
+export interface PlatformUnsupportedFlags {
+    git: boolean;
+    sqlite: boolean;
+    ffmpeg: boolean;
+}
+
 export type MessagesToMissingToolsWarning =
-    | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; }
-    | { command: "updateWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; }
-    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; syncInProgress?: boolean; audioProcessingInProgress?: boolean; }
-    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; }
+    | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; platformUnsupported?: PlatformUnsupportedFlags; }
+    | { command: "updateWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; platformUnsupported?: PlatformUnsupportedFlags; }
+    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; syncInProgress?: boolean; audioProcessingInProgress?: boolean; platformUnsupported?: PlatformUnsupportedFlags; }
+    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; platformUnsupported?: PlatformUnsupportedFlags; }
     | { command: "audioModeChanged"; audioToolMode: AudioToolMode; ffmpeg: boolean; }
     | { command: "gitModeChanged"; gitToolMode: GitToolMode; git: boolean; nativeGitAvailable?: boolean; }
     | { command: "sqliteModeChanged"; sqliteToolMode: SqliteToolMode; sqlite: boolean; nativeSqliteAvailable?: boolean; }
