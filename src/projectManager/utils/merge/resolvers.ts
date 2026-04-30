@@ -16,7 +16,7 @@ import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory, Proj
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
 import { formatJsonForNotebookFile } from "../../../utils/notebookFileFormattingUtils";
-import { bringNotebookToCurrent, CURRENT_SCHEMA_VERSION } from "../schema";
+import { bringNotebookToCurrent, CURRENT_SCHEMA_VERSION, SchemaNotebook } from "../schema";
 import { ORPHANED_PROJECT_FILES } from "../../../utils/fileUtils";
 import {
     buildCellPositionContextMap,
@@ -1081,8 +1081,12 @@ export async function resolveCodexCustomMerge(
     }
 
     debugLog("Parsing notebook content");
-    const ourNotebook = JSON.parse(ourContent);
-    const theirNotebook = JSON.parse(theirContent);
+    // Pre-ladder: shape is "anything that might be on disk" (could be v0/v1/legacy).
+    // We type as SchemaNotebook here so the migration ladder sees the structural
+    // superset; once `bringNotebookToCurrent` returns we know the notebook is at
+    // CURRENT_SCHEMA_VERSION and we narrow to the canonical types for the merge.
+    const ourNotebook: SchemaNotebook = JSON.parse(ourContent);
+    const theirNotebook: SchemaNotebook = JSON.parse(theirContent);
 
     // Bring both sides up to CURRENT_SCHEMA_VERSION before merging so the merge
     // logic only ever sees one shape. Files already at the current version
@@ -1093,12 +1097,19 @@ export async function resolveCodexCustomMerge(
     await bringNotebookToCurrent(ourNotebook, { author: mergeAuthorForLadder });
     await bringNotebookToCurrent(theirNotebook, { author: mergeAuthorForLadder });
 
-    const ourCells: CustomNotebookCellData[] = ourNotebook.cells;
-    const theirCells: CustomNotebookCellData[] = theirNotebook.cells;
+    // Post-ladder: the notebooks now match CURRENT_SCHEMA_VERSION, so the rest of
+    // the merge can read them through the canonical types. The casts are honest —
+    // the ladder runtime-validates the shape; TypeScript just doesn't see that.
+    // We route through `unknown` because the canonical types are stricter than
+    // the structural SchemaNotebook (e.g. CustomNotebookMetadata requires `id`).
+    const ourCells = (ourNotebook.cells ?? []) as unknown as CustomNotebookCellData[];
+    const theirCells = (theirNotebook.cells ?? []) as unknown as CustomNotebookCellData[];
 
     // Extract and merge file-level metadata
-    const ourMetadata: CustomNotebookMetadata = ourNotebook.metadata || {};
-    const theirMetadata: CustomNotebookMetadata = theirNotebook.metadata || {};
+    const ourMetadata: CustomNotebookMetadata =
+        (ourNotebook.metadata as unknown as CustomNotebookMetadata) || ({} as CustomNotebookMetadata);
+    const theirMetadata: CustomNotebookMetadata =
+        (theirNotebook.metadata as unknown as CustomNotebookMetadata) || ({} as CustomNotebookMetadata);
 
     // Initialize edits arrays if they don't exist
     if (!ourMetadata.edits) {
