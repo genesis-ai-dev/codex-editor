@@ -15,6 +15,13 @@ export const useSubtitleData = (translationUnits: QuillCellContent[]) => {
     return { subtitleUrl, subtitleData };
 };
 
+/**
+ * Sanitize a cellLabel for use inside a WebVTT <v ...> voice tag.
+ * The annotation portion of a voice span cannot contain `<`, `>`, or newlines.
+ */
+const escapeVoiceName = (label: string): string =>
+    label.replace(/[<>]/g, "").replace(/\r?\n/g, " ").trim();
+
 export const generateVttData = (
     translationUnits: QuillCellContent[],
     includeStyles: boolean
@@ -31,9 +38,14 @@ export const generateVttData = (
         .map((unit, index) => {
             const startTime = unit.timestamps?.startTime ?? index;
             const endTime = unit.timestamps?.endTime ?? index + 1;
+            const body = includeStyles ? unit.cellContent : removeHtmlTags(unit.cellContent);
+            const rawLabel = unit.cellLabel?.trim();
+            const payload = rawLabel
+                ? `<v ${escapeVoiceName(rawLabel)}>${body}</v>`
+                : body;
             return `${unit.cellMarkers[0]}
 ${formatTime(Number(startTime))} --> ${formatTime(Number(endTime))}
-${includeStyles ? unit.cellContent : removeHtmlTags(unit.cellContent)}
+${payload}
 
 `;
         })

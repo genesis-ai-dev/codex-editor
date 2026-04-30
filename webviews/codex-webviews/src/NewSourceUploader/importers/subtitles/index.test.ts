@@ -39,6 +39,53 @@ describe('subtitlesImporter.parseFile', () => {
         expect(firstSubtitleCell.metadata?.data?.format).toBe('VTT');
         expect(typeof firstSubtitleCell.metadata?.data?.originalText).toBe('string');
     });
+
+    it('extracts <v speaker> voice tags into cellLabel and unwraps the cue text', async () => {
+        const vtt = [
+            'WEBVTT',
+            '',
+            '00:00:01.000 --> 00:00:02.000',
+            '<v Narrator>Hello there</v>',
+            '',
+            '00:00:03.000 --> 00:00:04.000',
+            '<v Jane>Open-ended span',
+        ].join('\n');
+        const file = new MockFile(vtt, 'voice-tags.vtt');
+
+        const result = await subtitlesImporter.parseFile(file as unknown as File);
+        expect(result.success).toBe(true);
+        const pair = result.notebookPair!;
+        // First cell is a milestone; subtitle cells start at index 1
+        const first = pair.source.cells[1];
+        const second = pair.source.cells[2];
+        expect(first.metadata?.cellLabel).toBe('Narrator');
+        expect(first.content).toBe('Hello there');
+        expect(second.metadata?.cellLabel).toBe('Jane');
+        expect(second.content).toBe('Open-ended span');
+    });
+
+    it('omits cellLabel entirely when no voice tag is present', async () => {
+        const vtt = [
+            'WEBVTT',
+            '',
+            '00:00:01.000 --> 00:00:02.000',
+            'Plain cue, no speaker',
+            '',
+            '00:00:03.000 --> 00:00:04.000',
+            'Another plain cue',
+        ].join('\n');
+        const file = new MockFile(vtt, 'no-voice-tags.vtt');
+
+        const result = await subtitlesImporter.parseFile(file as unknown as File);
+        expect(result.success).toBe(true);
+        const pair = result.notebookPair!;
+        const first = pair.source.cells[1];
+        const second = pair.source.cells[2];
+        expect(first.metadata).not.toHaveProperty('cellLabel');
+        expect(first.content).toBe('Plain cue, no speaker');
+        expect(second.metadata).not.toHaveProperty('cellLabel');
+        expect(second.content).toBe('Another plain cue');
+    });
 });
 
 describe('validateSubtitleTimestamps', () => {
