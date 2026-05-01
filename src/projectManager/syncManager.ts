@@ -12,6 +12,7 @@ import { checkRemoteUpdatingRequired } from "../utils/remoteUpdatingManager";
 import { markPendingUpdateRequired, clearPendingUpdate, readLocalProjectSettings } from "../utils/localProjectSettings";
 import { isDatabaseReady } from "../utils/sqliteDatabaseFactory";
 import { isOnline } from "../utils/connectivityChecker";
+import { bringNotebookToCurrentForFile } from "./utils/schema/file";
 
 const DEBUG_SYNC_MANAGER = false;
 
@@ -1225,6 +1226,45 @@ export class SyncManager {
 
             this.currentSyncStage = "Finishing up...";
             this.notifySyncStatusListeners();
+
+            // Schema normalization: bring any .codex/.source files that arrived in this
+            // sync up to CURRENT_SCHEMA_VERSION before the rest of the post-sync helpers
+            // (index rebuild, webview refresh) read them. This handles the clean
+            // fast-forward case where files came down without going through
+            // resolveCodexCustomMerge — the merge resolver path already calls the
+            // ladder, so this only does work when there were no conflicts.
+            try {
+                if (workspaceFolders && workspaceFolders.length > 0) {
+                    const wsRoot = workspaceFolders[0].uri;
+                    const touched = new Set<string>([
+                        ...syncResult.changedFiles,
+                        ...syncResult.newFiles,
+                    ]);
+                    const notebookPaths = Array.from(touched).filter(
+                        (p) => p.endsWith(".codex") || p.endsWith(".source")
+                    );
+                    if (notebookPaths.length > 0) {
+                        let author = "anonymous";
+                        try {
+                            const authApi = await getAuthApi();
+                            const userInfo = await authApi?.getUserInfo();
+                            if (userInfo?.username) author = userInfo.username;
+                        } catch (_) { /* ignore */ }
+
+                        let migrated = 0;
+                        for (const relPath of notebookPaths) {
+                            const uri = vscode.Uri.joinPath(wsRoot, relPath);
+                            const result = await bringNotebookToCurrentForFile(uri, { author });
+                            if (result.migrated) migrated++;
+                        }
+                        if (migrated > 0) {
+                            debug(`Schema-normalized ${migrated}/${notebookPaths.length} synced notebook(s)`);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error("[SyncManager] Error during post-sync schema normalization:", error);
+            }
 
             // Check if comments.json was affected by the sync - if so, run targeted repair
             const commentsWasChanged = syncResult.changedFiles.includes('.project/comments.json') ||

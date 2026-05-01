@@ -1,0 +1,59 @@
+---
+description: Notebook schema types — which type family to use, and where the migration-ladder boundary lives.
+globs:
+alwaysApply: true
+---
+
+# Notebook schema types: layer boundary
+
+The on-disk shape of `.codex` and `.source` notebooks is owned by
+[src/projectManager/utils/schema/](mdc:src/projectManager/utils/schema/index.ts) and
+brought up to `CURRENT_SCHEMA_VERSION` by `bringNotebookToCurrent()`. There
+are **two type families** and the migration ladder is the only function
+that turns one into the other.
+
+## Pre-ladder — `SchemaNotebook` and friends
+
+Use the structural types from [src/projectManager/utils/schema/index.ts](mdc:src/projectManager/utils/schema/index.ts):
+`SchemaNotebook`, `SchemaCell`, `SchemaCellMetadata`, `SchemaEdit`.
+
+They describe **anything that might be on disk** (v0/v1/legacy
+shapes), so they're permissive: optional fields, `unknown` values,
+`[key: string]: unknown` index signatures. Use them **only** when:
+
+- Writing a migration step in [src/projectManager/utils/schema/migrations/](mdc:src/projectManager/utils/schema/migrations/).
+- Parsing raw JSON immediately before calling `bringNotebookToCurrent`.
+- Synthesizing "old-shaped" fixtures in tests.
+
+The merge resolver is the canonical example:
+
+```typescript
+const ourNotebook: SchemaNotebook = JSON.parse(ourContent);
+await bringNotebookToCurrent(ourNotebook, { author });
+// After the ladder returns, narrow to canonical types:
+const ourCells = (ourNotebook.cells ?? []) as unknown as CustomNotebookCellData[];
+```
+
+## Post-ladder / runtime — canonical types
+
+Everywhere else — editor at runtime, webviews, serializer downstream of
+save, `CodexCellDocument`, message handlers, indexers, exporters — use
+the canonical types from [types/index.d.ts](mdc:types/index.d.ts):
+`CodexNotebookAsJSONData`, `CustomNotebookCellData`,
+`CustomNotebookMetadata`, `EditHistory`.
+
+If you find yourself reaching for `SchemaNotebook` outside the migration
+boundary, you almost certainly want a canonical type instead. Webviews
+never see un-normalized data; the extension host is the boundary.
+
+Don't re-export the schema types from `types/index.d.ts` — keeping them
+co-located in `schema/` keeps the boundary obvious.
+
+## Adding a new schema version
+
+See [src/projectManager/utils/schema/README.md](mdc:src/projectManager/utils/schema/README.md)
+for the full recipe. Short version: drop `v<N>_to_v<N+1>.ts` into
+`schema/migrations/`, register it in the `migrations` map in
+`schema/index.ts`, bump `CURRENT_SCHEMA_VERSION`, and extend
+[src/test/suite/schemaLadder.test.ts](mdc:src/test/suite/schemaLadder.test.ts).
+The ladder runs automatically at activation, save, merge, and post-sync.

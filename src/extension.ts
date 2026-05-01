@@ -17,6 +17,7 @@ import {
     migration_verseRangeLabelsAndPositions,
     migration_cellIdsToUuid,
     migration_recoverTempFilesAndMergeDuplicates,
+    migration_normalizeAllNotebooksToCurrentSchema,
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
 import { StatusBarItem } from "vscode";
@@ -899,6 +900,7 @@ export async function activate(context: vscode.ExtensionContext) {
             await migration_addGlobalReferences(context);
             await migration_cellIdsToUuid(context);
             await migration_recoverTempFilesAndMergeDuplicates(context);
+            await migration_normalizeAllNotebooksToCurrentSchema(context);
         }
 
         // Remove leftover files from features that have been removed

@@ -21,6 +21,7 @@ import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-l
 import { resolveCodexCustomMerge, mergeDuplicateCellsUsingResolverLogic } from "./merge/resolvers";
 import { atomicWriteUriText } from "../../utils/notebookSafeSaveUtils";
 import { normalizeNotebookFileText, formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
+import { bringNotebookToCurrentForFile } from "./schema/file";
 
 // FIXME: move notebook format migration here
 
@@ -4085,5 +4086,73 @@ export const migration_recoverTempFilesAndMergeDuplicates = async (context?: vsc
 
     } catch (error) {
         console.error("Error running temp files recovery and duplicate merge migration:", error);
+    }
+};
+
+/**
+ * Activation-time pass: scan every `.codex` and `.source` notebook in the workspace
+ * and bring it up to `CURRENT_SCHEMA_VERSION` via the shared schema migration ladder.
+ *
+ * There is no completion flag — the per-file `metadata.schemaVersion` field IS the
+ * truth, so the activation pass is just a fast read-only scan on a settled project
+ * (no writes when every file is already current). On first run after upgrade, it
+ * does the work; subsequent runs are nearly free.
+ */
+export const migration_normalizeAllNotebooksToCurrentSchema = async (
+    _context?: vscode.ExtensionContext
+) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        const files = await vscode.workspace.findFiles("**/*.{codex,source}");
+        if (files.length === 0) {
+            return;
+        }
+
+        let author = "anonymous";
+        try {
+            const authApi = await getAuthApi();
+            const userInfo = await authApi?.getUserInfo();
+            if (userInfo?.username) {
+                author = userInfo.username;
+            }
+        } catch (_) { /* ignore */ }
+
+        let migratedFiles = 0;
+        let scannedFiles = 0;
+        let aheadOfClientFiles = 0;
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Checking notebook schema versions...",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    progress.report({
+                        message: `Processing file ${i + 1}/${files.length}`,
+                        increment: 100 / files.length,
+                    });
+
+                    const result = await bringNotebookToCurrentForFile(file, { author });
+                    scannedFiles++;
+                    if (result.migrated) migratedFiles++;
+                    if (result.aheadOfClient) aheadOfClientFiles++;
+                }
+            }
+        );
+
+        if (migratedFiles > 0 || aheadOfClientFiles > 0) {
+            debug(
+                `Schema normalization scan complete: ${migratedFiles}/${scannedFiles} migrated, ${aheadOfClientFiles} ahead of client.`
+            );
+        }
+    } catch (error) {
+        console.error("Error running schema normalization migration:", error);
     }
 };
