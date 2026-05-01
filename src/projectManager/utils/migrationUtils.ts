@@ -2994,6 +2994,35 @@ export async function migrateGlobalReferencesForFile(fileUri: vscode.Uri): Promi
  * Processes a single file: reorders content cells so verse-range cells appear after the correct
  * chapter milestone and in verse order, and sets cellLabel (and optional chapterNumber) for
  * verse-range refs. Combines reorder and labelling in one pass. Idempotent.
+ *
+ * SYNC SAFETY: when this migration changes a cell's chapter section
+ * (e.g. a stranded "GEN 1:17-18" near the end of the file moves up
+ * into chapter 1), it doesn't try to silently move the existing cell
+ * — instead it
+ *
+ *   1) creates a NEW cell at the desired position with a fresh UUID
+ *      that carries the same value, edit history and metadata (with
+ *      cellLabel/chapterNumber set), and brings the original cell's
+ *      paratext children with it (rewriting their `parentId`),
+ *   2) tombstones the ORIGINAL cell in place via
+ *      `metadata.data.deleted = true` plus an edit entry on
+ *      `metadata.data.deleted`, so the tombstone is part of the CRDT
+ *      history.
+ *
+ * Same trick is used for verse-range "child" cells whose `parentId`
+ * points at a sibling with the same range — their content is folded
+ * into the parent and the child gets tombstoned (no new cell, no
+ * hard-removal).
+ *
+ * Why this matters: the cell-by-cell merge in
+ * `resolveCodexCustomMerge` keys on `metadata.id`. A pure reorder of
+ * existing cells can't be reconciled across peers — a peer that
+ * still has the pre-migration order will silently win the merge.
+ * A delete + add expressed as a tombstone-edit + a brand-new cell IS
+ * naturally CRDT-friendly: the tombstone propagates via the edit
+ * history, and the new cell propagates via
+ * `insertUniqueCellsPreservingRelativePositions`.
+ *
  * Returns true if the file was modified, false otherwise.
  */
 export async function migrateVerseRangeLabelsAndPositionsForFile(
@@ -3010,17 +3039,52 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
         const cells: any[] = notebookData.cells || [];
         if (cells.length === 0) return false;
 
-        const milestones: Array<{ cell: any; chapter: number | null; }> = [];
+        const migrationTimestamp = Date.now();
+
+        // Tombstones the cell IN PLACE (sets metadata.data.deleted=true
+        // and pushes a `metadata.data.deleted` edit so peers' merges
+        // honour the deletion via edit-history dedup). Idempotent — if
+        // the cell was already tombstoned, this is a no-op (no second
+        // deletion edit is added). Callers must still keep the cell in
+        // the file (see `tombstoned[]`).
+        const tombstoneCell = (cell: any): void => {
+            if (!cell.metadata) cell.metadata = {};
+            if (!cell.metadata.data) cell.metadata.data = {};
+            if (cell.metadata.data.deleted === true) return;
+            cell.metadata.data.deleted = true;
+            if (!Array.isArray(cell.metadata.edits)) cell.metadata.edits = [];
+            cell.metadata.edits.push({
+                editMap: EditMapUtils.dataDeleted(),
+                value: true,
+                timestamp: migrationTimestamp,
+                type: EditType.MIGRATION,
+                author: "system",
+                validatedBy: [],
+            });
+        };
+
+        const milestones: Array<{
+            cell: any;
+            chapter: number | null;
+            originalIndex: number;
+        }> = [];
         const contentWithRef: Array<{
             cell: any;
             parsed: ParsedVerseRef;
             sortKey: { book: string; chapter: number; verse: number; };
+            // Chapter section the cell was originally in — used to detect
+            // whether the migration is moving it across chapter boundaries.
+            originalChapterSection: number | null;
         }> = [];
         const contentWithoutRef: any[] = [];
         const paratextByParentId = new Map<string, any[]>();
         const styleOrOther: any[] = [];
         let hadSuffixedRefs = false;
 
+        // While walking the file, remember which chapter section each
+        // cell originally sat in so we can later compare to its target
+        // chapter (from `parsed.chapter`).
+        let currentChapterSection: number | null = null;
         for (let i = 0; i < cells.length; i++) {
             const cell = cells[i];
             const md = cell.metadata || {};
@@ -3030,7 +3094,8 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
             if (cellType === CodexCellTypes.MILESTONE) {
                 const milestoneValue = typeof cell?.value === "string" ? cell.value : "";
                 const chapter = extractChapterNumberFromMilestoneValue(milestoneValue);
-                milestones.push({ cell, chapter });
+                if (chapter !== null) currentChapterSection = chapter;
+                milestones.push({ cell, chapter, originalIndex: i });
                 continue;
             }
 
@@ -3066,21 +3131,32 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
             const parsed = typeof ref === "string" ? parseVerseRef(ref) : null;
             if (parsed) {
                 const sortKey = getSortKeyFromParsedRef(parsed);
-                contentWithRef.push({ cell, parsed, sortKey });
+                contentWithRef.push({
+                    cell,
+                    parsed,
+                    sortKey,
+                    originalChapterSection: currentChapterSection,
+                });
             } else {
                 contentWithoutRef.push(cell);
             }
         }
 
         let hasChanges = hadSuffixedRefs;
+        // Cells that the migration tombstones (children folded into a
+        // parent + originals of cells we re-emit at a new position).
+        // They get appended to the tail of the new file so their
+        // tombstone edits are present and propagatable but they don't
+        // clutter the readable cell flow.
+        const tombstoned: any[] = [];
 
-        // Merge phase: recombine split verse-range cells (child has parentId -> parent)
+        // Merge phase: fold child verse-range cells into their parent.
         const idToContentIndex = new Map<string, number>();
         for (let i = 0; i < contentWithRef.length; i++) {
             const id = contentWithRef[i].cell.metadata?.id;
             if (id) idToContentIndex.set(id, i);
         }
-        const mergedChildIndices = new Set<number>();
+        const foldedChildIndices = new Set<number>();
         for (let i = 0; i < contentWithRef.length; i++) {
             const childMd = contentWithRef[i].cell.metadata || {};
             const parentId = childMd.parentId;
@@ -3106,19 +3182,30 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
             parent.cell.value = (parent.cell.value || "") + (child.cell.value || "");
             const parentEdits: any[] = parent.cell.metadata?.edits || [];
             parentEdits.push({
-                editMap: ["value"],
+                editMap: EditMapUtils.value(),
                 value: parent.cell.value,
-                timestamp: Date.now(),
+                timestamp: migrationTimestamp,
                 type: EditType.MIGRATION,
                 author: "system",
                 validatedBy: [],
             });
             parent.cell.metadata.edits = parentEdits;
-            mergedChildIndices.add(i);
+
+            // Tombstone the child cell (CRDT-friendly: its content is
+            // already in the parent; peers will pick up the deleted
+            // flag through edit-history merge). We always keep the
+            // cell in the file, even if it was already tombstoned in
+            // the input — otherwise the merge has nothing to anchor
+            // its tombstone-edit dedup against.
+            tombstoneCell(child.cell);
+            tombstoned.push(child.cell);
+            foldedChildIndices.add(i);
             hasChanges = true;
         }
-        if (mergedChildIndices.size > 0) {
-            const filtered = contentWithRef.filter((_, idx) => !mergedChildIndices.has(idx));
+        if (foldedChildIndices.size > 0) {
+            const filtered = contentWithRef.filter(
+                (_, idx) => !foldedChildIndices.has(idx)
+            );
             contentWithRef.length = 0;
             contentWithRef.push(...filtered);
         }
@@ -3136,14 +3223,87 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
 
         const newCells: any[] = [];
 
+        // Emit a content cell at its target position. If the cell is
+        // crossing chapter boundaries (its target chapter differs from
+        // the chapter section it originally sat in), we treat the move
+        // as delete + add: emit a NEW cell with a fresh UUID at the
+        // target position, and tombstone the original.
         const emitContentCell = (item: (typeof contentWithRef)[0]) => {
-            const { cell, parsed } = item;
+            const { cell, parsed, originalChapterSection } = item;
             const md = cell.metadata || {};
-            const parentId = md.id;
+            const oldId: string | undefined = md.id;
+            const targetChapter = parsed.chapter;
+            const isCrossChapterMove =
+                originalChapterSection !== null &&
+                originalChapterSection !== targetChapter;
 
+            if (isCrossChapterMove && oldId) {
+                // Build a brand-new cell with the same content + edit
+                // history but a fresh UUID at the migrated position.
+                const newId = randomUUID();
+                const newCell = JSON.parse(JSON.stringify(cell));
+                newCell.metadata.id = newId;
+                if (parsed.kind === "range") {
+                    newCell.metadata.cellLabel = parsed.cellLabel;
+                    if (
+                        newCell.metadata.chapterNumber === undefined ||
+                        newCell.metadata.chapterNumber === null
+                    ) {
+                        newCell.metadata.chapterNumber = String(parsed.chapter);
+                    }
+                }
+                if (!Array.isArray(newCell.metadata.edits)) {
+                    newCell.metadata.edits = [];
+                }
+                // Anchor a migration edit on the new cell so the merge
+                // sees a current timestamp on its content.
+                newCell.metadata.edits.push({
+                    editMap: EditMapUtils.value(),
+                    value: newCell.value,
+                    timestamp: migrationTimestamp,
+                    type: EditType.MIGRATION,
+                    author: "system",
+                    validatedBy: [],
+                });
+
+                newCells.push(newCell);
+
+                // Bring the cell's paratext children with it: they
+                // were keyed by oldId in `paratextByParentId`, but we
+                // need to update each child's `metadata.parentId` to
+                // the new UUID so the relationship survives.
+                const paratextCells = paratextByParentId.get(oldId);
+                if (paratextCells) {
+                    for (const pt of paratextCells) {
+                        if (!pt.metadata) pt.metadata = {};
+                        pt.metadata.parentId = newId;
+                        newCells.push(pt);
+                    }
+                    paratextByParentId.delete(oldId);
+                }
+
+                // Tombstone the old cell (will be appended at the end).
+                tombstoneCell(cell);
+                tombstoned.push(cell);
+                hasChanges = true;
+                return;
+            }
+
+            // Same chapter: keep the cell where it is, just update
+            // labels in place. Track changes via edit history so peers
+            // see the new label as the latest edit.
             if (parsed.kind === "range") {
                 if (md.cellLabel !== parsed.cellLabel) {
                     md.cellLabel = parsed.cellLabel;
+                    if (!Array.isArray(md.edits)) md.edits = [];
+                    md.edits.push({
+                        editMap: EditMapUtils.cellLabel(),
+                        value: parsed.cellLabel,
+                        timestamp: migrationTimestamp,
+                        type: EditType.MIGRATION,
+                        author: "system",
+                        validatedBy: [],
+                    });
                     hasChanges = true;
                 }
                 if (md.chapterNumber === undefined || md.chapterNumber === null) {
@@ -3153,10 +3313,12 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
                 cell.metadata = md;
             }
             newCells.push(cell);
+            const parentId = md.id;
             if (parentId) {
                 const paratextCells = paratextByParentId.get(parentId);
                 if (paratextCells) {
                     for (const pt of paratextCells) newCells.push(pt);
+                    paratextByParentId.delete(parentId);
                 }
             }
         };
@@ -3194,10 +3356,16 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
                 const paratextCells = paratextByParentId.get(parentId);
                 if (paratextCells) {
                     for (const pt of paratextCells) newCells.push(pt);
+                    paratextByParentId.delete(parentId);
                 }
             }
         }
         for (const cell of styleOrOther) newCells.push(cell);
+
+        // Append tombstoned cells at the very end. They have to remain
+        // in the file so their `metadata.data.deleted` edit is part of
+        // the merge state for peers.
+        for (const cell of tombstoned) newCells.push(cell);
 
         const oldIds = cells.map((c) => c.metadata?.id ?? "").join(",");
         const newIds = newCells.map((c) => c.metadata?.id ?? "").join(",");
