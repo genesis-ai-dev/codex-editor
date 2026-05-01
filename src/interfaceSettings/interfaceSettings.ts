@@ -62,11 +62,20 @@ export async function openInterfaceSettings() {
     const sendInit = () => {
         const config = vscode.workspace.getConfiguration("codex-editor-extension");
         const highlightSearchResults = config.get<boolean>("highlightSearchResults", true);
+        const cellsPerPage = config.get<number>("cellsPerPage", 50);
+        const useSubdivisionNumberLabels = config.get<boolean>(
+            "useSubdivisionNumberLabels",
+            false
+        );
+        const maxSubdivisionLength = config.get<number>("maxSubdivisionLength", 0);
 
         panel.webview.postMessage({
             command: "init",
             data: {
                 highlightSearchResults,
+                cellsPerPage,
+                useSubdivisionNumberLabels,
+                maxSubdivisionLength,
             },
         });
     };
@@ -99,6 +108,66 @@ export async function openInterfaceSettings() {
                 );
                 break;
             }
+
+            case "updateCellsPerPage": {
+                // Clamp to the range declared in package.json so invalid input
+                // cannot corrupt pagination. Pull bounds from the schema-defined
+                // minimum/maximum rather than hardcoding them in multiple places.
+                const raw = Number(message.value);
+                if (!Number.isFinite(raw)) break;
+                const clamped = Math.max(5, Math.min(200, Math.round(raw)));
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                await config.update(
+                    "cellsPerPage",
+                    clamped,
+                    vscode.ConfigurationTarget.Workspace
+                );
+                break;
+            }
+
+            case "updateUseSubdivisionNumberLabels": {
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                await config.update(
+                    "useSubdivisionNumberLabels",
+                    Boolean(message.value),
+                    vscode.ConfigurationTarget.Workspace
+                );
+                break;
+            }
+
+            case "updateMaxSubdivisionLength": {
+                // 0 means "off" — the resolver falls back to using `cellsPerPage`
+                // as the threshold. Anything else is clamped to the package.json
+                // bounds so corrupted input can't sneak through.
+                const raw = Number(message.value);
+                if (!Number.isFinite(raw)) break;
+                const rounded = Math.round(raw);
+                const clamped = rounded <= 0 ? 0 : Math.max(0, Math.min(5000, rounded));
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                await config.update(
+                    "maxSubdivisionLength",
+                    clamped,
+                    vscode.ConfigurationTarget.Workspace
+                );
+                break;
+            }
         }
+    });
+
+    // Keep the panel in sync when settings change from elsewhere (e.g. the
+    // VS Code Settings UI). Disposed together with the panel below.
+    const configListener = vscode.workspace.onDidChangeConfiguration((e) => {
+        if (
+            e.affectsConfiguration("codex-editor-extension.highlightSearchResults") ||
+            e.affectsConfiguration("codex-editor-extension.cellsPerPage") ||
+            e.affectsConfiguration("codex-editor-extension.useSubdivisionNumberLabels") ||
+            e.affectsConfiguration("codex-editor-extension.maxSubdivisionLength")
+        ) {
+            sendInit();
+        }
+    });
+
+    panel.onDidDispose(() => {
+        configListener.dispose();
     });
 }

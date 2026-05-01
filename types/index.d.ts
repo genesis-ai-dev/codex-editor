@@ -605,6 +605,47 @@ export type EditorPostMessages =
         };
     }
     | {
+        command: "updateMilestoneSubdivisions";
+        content: {
+            milestoneIndex: number;
+            /**
+             * Full new list of break anchors for this milestone. Each `startCellId`
+             * must refer to a current root content cell inside the milestone.
+             * Pass an empty array to clear all custom subdivisions (falls back to
+             * arithmetic pagination).
+             */
+            subdivisions: MilestoneSubdivisionPlacement[];
+        };
+    }
+    | {
+        command: "updateMilestoneSubdivisionName";
+        content: {
+            milestoneIndex: number;
+            /** Stable key identifying the subdivision (typically its `startCellId`). */
+            subdivisionKey: string;
+            /** New display name. Pass an empty string to clear the override. */
+            newName: string;
+        };
+    }
+    | {
+        /**
+         * Add a new subdivision break anchored at the Nth root content cell of the
+         * given milestone (1-based, so `cellNumber=11` means "split starting at the
+         * 11th content cell of this milestone"). The provider resolves the number
+         * to a `startCellId`, merges it into the existing placement list, and
+         * mirrors the updated list to the paired target document.
+         *
+         * Writes are rejected from non-source documents at the provider layer;
+         * callers should also hide the UI on target.
+         */
+        command: "addMilestoneSubdivisionAnchor";
+        content: {
+            milestoneIndex: number;
+            /** 1-based position of the split point within the milestone's root cells. */
+            cellNumber: number;
+        };
+    }
+    | {
         command: "refreshWebviewAfterMilestoneEdits";
         content?: Record<string, never>;
     }
@@ -712,7 +753,67 @@ type CodexData = Timestamps & {
     originalText?: string;
     globalReferences?: string[]; // Array of cell IDs in original format (e.g., "GEN 1:1") used for header generation
     milestoneIndex?: number | null; // 0-based milestone index for O(1) lookup (null if no milestone)
+    /**
+     * Optional user-defined subdivisions for a milestone cell. Only meaningful when the
+     * cell has `type === CodexCellTypes.MILESTONE`. The first subdivision is always the
+     * milestone itself (starts at root-content-cell index 0), so typically only explicit
+     * subsequent break anchors are persisted. Source documents are authoritative for
+     * placements. See `resolveSubdivisions`.
+     */
+    subdivisions?: MilestoneSubdivisionPlacement[];
+    /**
+     * Document-local name overrides for a milestone's subdivisions. Keyed by
+     * `startCellId` (or "__start__" for the implicit first subdivision). Stored
+     * on either source or target milestone cells; the document that owns the
+     * map is the one applying the override. Always wins over
+     * `subdivisionNamesFromSource`.
+     */
+    subdivisionNames?: { [subdivisionKey: string]: string; };
+    /**
+     * Mirrored copy of the source document's `subdivisionNames` map. Only
+     * populated on TARGET milestone cells. Used as the fallback display name
+     * when the target's own `subdivisionNames` doesn't have an entry — lets a
+     * translator see source-side labels by default while still being free to
+     * rename their own copy.
+     */
+    subdivisionNamesFromSource?: { [subdivisionKey: string]: string; };
 };
+
+/**
+ * A user-defined subdivision anchor within a milestone. `startCellId` is the stable
+ * id of the first root content cell of the subdivision. The implicit first
+ * subdivision (covering the start of the milestone) does not need an entry here;
+ * placements describe the breaks AFTER the start.
+ */
+export interface MilestoneSubdivisionPlacement {
+    /** Stable anchor — cell ID of the first root content cell of this subdivision. */
+    startCellId: string;
+    /** Optional name (source-authoritative when stored on a source milestone). */
+    name?: string;
+}
+
+/**
+ * Resolved subdivision, ready for rendering/pagination. Produced by
+ * `resolveSubdivisions` at the provider layer. Root-index boundaries refer to
+ * the ordered list of root content cells (i.e. non-milestone, non-paratext,
+ * non-deleted cells without `parentId`) within a milestone.
+ */
+export interface SubdivisionInfo {
+    /** 0-based index of this subdivision within its milestone. */
+    index: number;
+    /** Inclusive start in root-content-cell space. */
+    startRootIndex: number;
+    /** Exclusive end in root-content-cell space. */
+    endRootIndex: number;
+    /** Stable key for name overrides and for rendering stable React keys. */
+    key: string;
+    /** Root content cell ID at `startRootIndex`, when a cell exists. */
+    startCellId?: string;
+    /** Display name (source-stored name or target override). Callers format fallbacks. */
+    name?: string;
+    /** "custom" = user-defined; "auto" = arithmetic chunk or auto-tail subdivision. */
+    source: "auto" | "custom";
+}
 
 type BaseCustomCellMetaData = {
     id: string;
@@ -908,6 +1009,15 @@ export interface MilestoneInfo {
     value: string;
     /** Number of content cells in this milestone section (excluding milestone cell itself) */
     cellCount: number;
+    /**
+     * Resolved subdivisions for this milestone, in order. When present, overrides the
+     * arithmetic `cellsPerPage` pagination. Computed by
+     * `codexDocument.buildMilestoneIndex` based on the milestone cell's stored
+     * `metadata.data.subdivisions` (plus `metadata.data.subdivisionNames` on target
+     * documents). If no custom subdivisions exist, this is an array of one or more
+     * auto-subdivisions matching the arithmetic chunking.
+     */
+    subdivisions?: SubdivisionInfo[];
 }
 
 /**
@@ -1881,6 +1991,12 @@ type EditorReceiveMessages =
         validationCountAudio?: number;
         isAuthenticated?: boolean;
         userAccessLevel?: number;
+        /**
+         * When true, milestone subdivisions always display their numeric cell
+         * range even when a user-assigned name exists. Mirrors the workspace
+         * setting `codex-editor-extension.useSubdivisionNumberLabels`.
+         */
+        useSubdivisionNumberLabels?: boolean;
     }
     | {
         type: "providerSendsCellPage";
@@ -2168,6 +2284,15 @@ type EditorReceiveMessages =
     | {
         type: "updateCellsPerPage";
         cellsPerPage: number;
+    }
+    | {
+        type: "updateSubdivisionLabelPreference";
+        /**
+         * When true, milestone subdivisions always display their numeric cell
+         * range instead of the user-assigned name. Mirrors
+         * `codex-editor-extension.useSubdivisionNumberLabels`.
+         */
+        useSubdivisionNumberLabels: boolean;
     }
     | {
         type: "editorPosition";
