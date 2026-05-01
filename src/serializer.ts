@@ -2,8 +2,9 @@
 
 import * as vscode from "vscode";
 import { TextDecoder, TextEncoder } from "util";
-import { CodexNotebookAsJSONData, CustomNotebookCellData } from "../types";
+import { CodexNotebookAsJSONData, CustomNotebookCellData, CellValueOnDisk } from "../types";
 import { formatJsonForNotebookFile } from "./utils/notebookFileFormattingUtils";
+import { resolveCellValue, isCellValueObject } from "./utils/cellValueResolver";
 
 export interface CodexNotebookDocument extends vscode.NotebookDocument {
     cells: CustomNotebookCellData[];
@@ -41,9 +42,19 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         try {
             raw = <RawNotebookData>JSON.parse(contents);
             debug("Successfully parsed notebook contents", { cellCount: raw.cells.length });
+            // Resolve CellValueOnDisk objects to strings at load time
+            for (const cell of raw.cells) {
+                if (isCellValueObject(cell.value)) {
+                    const objValue = cell.value as unknown as CellValueOnDisk;
+                    if (cell.metadata) {
+                        cell.metadata.activeEditId = objValue.selectedEdit;
+                    }
+                    (cell as any).value = resolveCellValue(cell as any);
+                }
+            }
             return raw as CodexNotebookAsJSONData;
-        } catch {
-            debug("Failed to parse notebook contents, creating empty notebook");
+        } catch (e) {
+            console.error("[CodexSerializer] Failed to parse/resolve notebook contents:", e);
             raw = { cells: [], metadata: {} };
         }
         // Create array of Notebook cells for the VS Code API from file contents
@@ -87,10 +98,20 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
             // Preserve full metadata; only ensure id is kept
             const md: any = { ...(cell.metadata || {}) };
             if (cell.metadata?.id) md.id = cell.metadata.id;
+
+            // If activeEditId exists, save value as CellValueOnDisk object
+            let valueForDisk: string | CellValueOnDisk = cell.value;
+            if (md.activeEditId) {
+                valueForDisk = {
+                    selectedEdit: md.activeEditId,
+                    updatedAt: Date.now(),
+                };
+            }
+
             contents.cells.push({
                 kind: cell.kind,
                 languageId: cell.languageId,
-                value: cell.value,
+                value: valueForDisk as any,
                 metadata: md,
             });
         }

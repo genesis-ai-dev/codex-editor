@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { randomUUID } from "crypto";
 import { CodexCellDocument } from "./codexDocument";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 // Use type-only import to break circular dependency
@@ -2796,6 +2797,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // 1. Concatenate content and create merged edit
             const mergedContent = previousContent + "<span>&nbsp;</span>" + currentContent;
             const mergeEdit: EditHistory = {
+                id: randomUUID(),
                 editMap: EditMapUtils.value(),
                 value: mergedContent,
                 timestamp: timestamp + 1,
