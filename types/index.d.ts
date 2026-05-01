@@ -5,6 +5,8 @@ import { CodexCell } from "src/utils/codexNotebookUtils";
 import { SavedBacktranslation } from "../smartEdits/smartBacktranslation";
 import { CodexCellTypes } from "./enums";
 
+type AttachmentAvailability = "available-local" | "available-pointer" | "missing";
+
 interface ChatMessage {
     role: "system" | "user" | "assistant" | "context";
     content: string;
@@ -739,6 +741,8 @@ type CustomCellMetaData = BaseCustomCellMetaData & {
             createdAt: number;
             updatedAt: number;
             isDeleted: boolean;
+            audioAvailability?: AttachmentAvailability;
+            /** @deprecated Use audioAvailability instead */
             isMissing?: boolean;
             validatedBy?: ValidationEntry[];
             createdBy?: string;
@@ -927,6 +931,7 @@ export interface MilestoneIndex {
         percentFullyValidatedTranslations: number;
         percentAudioValidatedTranslations: number;
         percentTextValidatedTranslations: number;
+        cellsWithMissingAudio?: number;
     }>;
 }
 
@@ -940,7 +945,7 @@ interface QuillCellContent {
     merged?: boolean;
     deleted?: boolean;
     data?: { [key: string]: any; footnotes?: Footnote[]; };
-    attachments?: { [attachmentId: string]: { type: string; isDeleted?: boolean; isMissing?: boolean; url?: string; validatedBy?: ValidationEntry[]; }; };
+    attachments?: { [attachmentId: string]: { type: string; isDeleted?: boolean; audioAvailability?: AttachmentAvailability; /** @deprecated Use audioAvailability instead */ isMissing?: boolean; url?: string; validatedBy?: ValidationEntry[]; }; };
     metadata?: {
         selectedAudioId?: string;
         selectionTimestamp?: number;
@@ -1837,6 +1842,7 @@ interface CodexItem {
         audioValidationLevels?: number[];
         requiredTextValidations?: number;
         requiredAudioValidations?: number;
+        cellsWithMissingAudio?: number;
     };
     sortOrder?: string;
     fileDisplayName?: string;
@@ -1907,6 +1913,7 @@ type EditorReceiveMessages =
             audioValidationLevels?: number[];
             requiredTextValidations?: number;
             requiredAudioValidations?: number;
+            cellsWithMissingAudio?: number;
         }>;
     }
     | {
@@ -2019,6 +2026,7 @@ type EditorReceiveMessages =
             percentFullyValidatedTranslations: number;
             percentAudioValidatedTranslations: number;
             percentTextValidatedTranslations: number;
+            cellsWithMissingAudio?: number;
         }>;
     }
     | {
@@ -2237,6 +2245,8 @@ type EditorReceiveMessages =
                     createdAt: number;
                     updatedAt: number;
                     isDeleted: boolean;
+                    audioAvailability?: AttachmentAvailability;
+                    /** @deprecated Use audioAvailability instead */
                     isMissing?: boolean;
                     validatedBy?: ValidationEntry[];
                 };

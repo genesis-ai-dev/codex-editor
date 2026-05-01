@@ -980,6 +980,12 @@ const CodexCellEditor: React.FC = () => {
                     ...milestoneIndex,
                     milestoneProgress: message.milestoneProgress,
                 });
+
+                // Invalidate subsection progress cache so the MilestoneAccordion
+                // re-fetches with updated data (e.g., cellsWithMissingAudio)
+                progressCacheRef.current.clear();
+                pendingProgressRequestsRef.current.clear();
+                setSubsectionProgress({});
             }
         },
         [milestoneIndex]
@@ -3245,6 +3251,7 @@ const CodexCellEditor: React.FC = () => {
                             subsectionProgress={subsectionProgress[currentMilestoneIndex]}
                             allSubsectionProgress={subsectionProgress}
                             requestSubsectionProgress={requestSubsectionProgressForMilestone}
+                            audioAttachments={audioAttachments}
                         />
                     </div>
                 </div>

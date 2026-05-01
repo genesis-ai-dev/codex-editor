@@ -85,7 +85,7 @@ export interface BuildSpreadsheetResult {
 export async function buildSpreadsheetImportResult(
     file: File,
     parsedData: ParsedSpreadsheet,
-    options: { isTranslationImport: boolean; columnMapping?: ColumnTypeSelection },
+    options: { isTranslationImport: boolean; columnMapping?: ColumnTypeSelection; },
     onProgress: (progress: ImportProgress) => void
 ): Promise<BuildSpreadsheetResult> {
     const { isTranslationImport } = options;
@@ -436,6 +436,7 @@ export async function buildSpreadsheetImportResult(
                             createdAt: Date.now(),
                             updatedAt: Date.now(),
                             isDeleted: false,
+                            audioAvailability: "available-local" as const,
                             startTime: 0,
                             endTime: Number.NaN,
                         },
@@ -471,6 +472,7 @@ export async function buildSpreadsheetImportResult(
                                 createdAt: Date.now(),
                                 updatedAt: Date.now(),
                                 isDeleted: false,
+                                audioAvailability: "available-local" as const,
                                 startTime: 0,
                                 endTime: Number.NaN,
                             },
@@ -531,8 +533,8 @@ export const spreadsheetCellAligner: CellAligner = async (
 
     for (const item of importedContent) {
         const refs: unknown =
-            (item as { globalReferences?: unknown }).globalReferences ??
-            (item as { data?: { globalReferences?: unknown } }).data?.globalReferences;
+            (item as { globalReferences?: unknown; }).globalReferences ??
+            (item as { data?: { globalReferences?: unknown; }; }).data?.globalReferences;
         const refList = Array.isArray(refs)
             ? refs.map((r) => String(r ?? "").trim()).filter(Boolean)
             : [];

@@ -12,7 +12,7 @@ import {
 } from "../components/ui/dropdown-menu";
 import "../tailwind.css";
 import { CodexItem } from "types";
-import { Languages, Mic, ShieldCheck } from "lucide-react";
+import { Languages, Mic, TriangleAlert, ShieldCheck } from "lucide-react";
 import { Switch } from "../components/ui/switch";
 import { Label } from "../components/ui/label";
 import { RenameModal } from "../components/RenameModal";
@@ -731,6 +731,7 @@ function NavigationView() {
         audioValidationLevels?: number[];
         requiredTextValidations?: number;
         requiredAudioValidations?: number;
+        cellsWithMissingAudio?: number;
     }) => {
         if (typeof progress !== "object") {
             return {
@@ -742,6 +743,7 @@ function NavigationView() {
                 audioValidationLevels: [] as number[],
                 requiredTextValidations: undefined as number | undefined,
                 requiredAudioValidations: undefined as number | undefined,
+                cellsWithMissingAudio: 0,
             };
         }
         const textValidation = Math.max(
@@ -769,6 +771,7 @@ function NavigationView() {
             audioValidationLevels: progress.audioValidationLevels ?? [audioValidation],
             requiredTextValidations: progress.requiredTextValidations,
             requiredAudioValidations: progress.requiredAudioValidations,
+            cellsWithMissingAudio: progress.cellsWithMissingAudio ?? 0,
         };
     };
 
@@ -797,6 +800,7 @@ function NavigationView() {
         const progressValues = getProgressValues(item.progress);
         const hasProgress = item.progress && typeof item.progress === "object";
         const hasAudio = progressValues.audioCompletion > 0 || progressValues.audioValidation > 0;
+        const hasMissingAudio = progressValues.cellsWithMissingAudio > 0;
 
         return (
             <div key={item.label + item.uri}>
@@ -920,19 +924,33 @@ function NavigationView() {
                                         showTooltips
                                     />
                                 </div>
-                                {/* Audio progress - only show if there's audio data */}
-                                {hasAudio && (
+                                {/* Audio progress - show if there's audio data or missing audio */}
+                                {(hasAudio || hasMissingAudio) && (
                                     <div className="flex items-start gap-2">
-                                        <Mic className="h-4 w-4 flex-shrink-0 opacity-60 -mt-0.5" />
-                                        <Progress
-                                            value={progressValues.audioCompletion}
-                                            validationValues={progressValues.audioValidationLevels}
-                                            requiredValidations={
-                                                progressValues.requiredAudioValidations
-                                            }
-                                            showPercentage
-                                            showTooltips
-                                        />
+                                        <div className="relative flex-shrink-0 -mt-0.5">
+                                            {hasMissingAudio && (
+                                                <div
+                                                    className="absolute -left-6"
+                                                    title="Missing audio"
+                                                >
+                                                    <TriangleAlert className="h-4 w-4 text-red-500" />
+                                                </div>
+                                            )}
+                                            <Mic className="h-4 w-4 opacity-60" />
+                                        </div>
+                                        {hasAudio && (
+                                            <Progress
+                                                value={progressValues.audioCompletion}
+                                                validationValues={
+                                                    progressValues.audioValidationLevels
+                                                }
+                                                requiredValidations={
+                                                    progressValues.requiredAudioValidations
+                                                }
+                                                showPercentage
+                                                showTooltips
+                                            />
+                                        )}
                                     </div>
                                 )}
                             </div>

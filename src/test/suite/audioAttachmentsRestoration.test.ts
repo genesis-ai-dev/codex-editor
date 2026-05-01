@@ -63,7 +63,7 @@ suite('Audio Attachments Restoration', () => {
         try { await vscode.workspace.fs.delete(tmpProjectRoot, { recursive: true }); } catch { /* ignore */ }
     });
 
-    test('updates isMissing flags in .codex after restoration', async () => {
+    test('updates audioAvailability in .codex after restoration', async () => {
         const { tmpProjectRoot, filesRoot, pointersRoot, wsFolder } = makeWorkspace();
         await vscode.workspace.fs.createDirectory(filesRoot);
         await vscode.workspace.fs.createDirectory(pointersRoot);
@@ -87,6 +87,7 @@ suite('Audio Attachments Restoration', () => {
                             [audioId.replace('.webm', '')]: {
                                 type: 'audio',
                                 url: path.posix.join('.project/attachments/files', bookFolder, audioId),
+                                audioAvailability: 'missing',
                                 isMissing: true,
                             },
                         },
@@ -109,18 +110,18 @@ suite('Audio Attachments Restoration', () => {
         const dstStat = await vscode.workspace.fs.stat(dstFile);
         assert.ok(dstStat.size >= 3);
 
-        // Codex should have isMissing=false after update and updatedAt bumped
+        // Codex should have audioAvailability != "missing" after update and updatedAt bumped
         const updated = new TextDecoder().decode(await vscode.workspace.fs.readFile(codexFile));
         const parsed = JSON.parse(updated);
         const att = parsed.cells[0]?.metadata?.attachments?.[audioId.replace('.webm', '')];
-        assert.strictEqual(att?.isMissing, false, 'Attachment should be marked not missing after pointer restoration');
+        assert.notStrictEqual(att?.audioAvailability, 'missing', 'Attachment should not be missing after pointer restoration');
         assert.ok(typeof att?.updatedAt === 'number' && att.updatedAt > 0, 'Attachment should have updatedAt set');
 
         // Cleanup
         try { await vscode.workspace.fs.delete(tmpProjectRoot, { recursive: true }); } catch { /* ignore */ }
     });
 
-    test('keeps isMissing=true when no file exists to restore', async () => {
+    test('keeps audioAvailability=missing when no file exists to restore', async () => {
         const { tmpProjectRoot, filesRoot, pointersRoot, wsFolder } = makeWorkspace();
         await vscode.workspace.fs.createDirectory(filesRoot);
         await vscode.workspace.fs.createDirectory(pointersRoot);
@@ -140,6 +141,7 @@ suite('Audio Attachments Restoration', () => {
                             [audioId.replace('.webm', '')]: {
                                 type: 'audio',
                                 url: path.posix.join('.project/attachments/files', bookFolder, audioId),
+                                audioAvailability: 'missing',
                                 isMissing: true,
                             },
                         },
@@ -166,11 +168,11 @@ suite('Audio Attachments Restoration', () => {
         try { await vscode.workspace.fs.stat(dstFile); } catch { pointerExists = false; }
         assert.strictEqual(pointerExists, false, 'Pointer should remain missing when there is nothing to restore from files/');
 
-        // Codex should still have isMissing=true
+        // Codex should still have audioAvailability=missing
         const updated = new TextDecoder().decode(await vscode.workspace.fs.readFile(codexFile));
         const parsed = JSON.parse(updated);
         const att = parsed.cells[0]?.metadata?.attachments?.[audioId.replace('.webm', '')];
-        assert.strictEqual(att?.isMissing, true, 'Attachment should remain missing if no file bytes exist');
+        assert.strictEqual(att?.audioAvailability, 'missing', 'Attachment should remain missing if no file bytes exist');
 
         // Cleanup
         try { await vscode.workspace.fs.delete(tmpProjectRoot, { recursive: true }); } catch { /* ignore */ }
