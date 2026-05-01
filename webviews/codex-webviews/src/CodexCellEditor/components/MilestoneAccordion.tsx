@@ -10,7 +10,7 @@ import {
 import { ProgressDots } from "./ProgressDots";
 import { deriveSubsectionPercentages, getProgressDisplay } from "../utils/progressUtils";
 import MicrophoneIcon from "../../components/ui/icons/MicrophoneIcon";
-import { Languages, Check, RotateCcw } from "lucide-react";
+import { Languages, Check, RotateCcw, X, Undo2, Plus, Trash2 } from "lucide-react";
 import type { Subsection, ProgressPercentages } from "../../lib/types";
 import type { MilestoneIndex, MilestoneInfo } from "../../../../../types";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
@@ -46,6 +46,21 @@ interface MilestoneAccordionProps {
     };
     requestSubsectionProgress?: (milestoneIdx: number) => void;
     vscode: any;
+    /**
+     * When true, display the numeric cell range on every subdivision even if
+     * the subdivision has a user-assigned name. Renaming and editing still
+     * work normally — the preference only affects the visible label. Defaults
+     * to false (names take precedence).
+     */
+    useSubdivisionNumberLabels?: boolean;
+    /**
+     * When true, the accordion mounts with the gear/settings affordances
+     * already revealed (title pencil, per-subsection pencils always visible,
+     * "Add break…" / "Reset" footer controls visible). Useful for tests and
+     * for parents that want to deep-link straight into editing. Defaults to
+     * `false`, matching the read-only default UX.
+     */
+    initialSettingsMode?: boolean;
 }
 
 export function MilestoneAccordion({
@@ -63,6 +78,8 @@ export function MilestoneAccordion({
     calculateSubsectionProgress,
     requestSubsectionProgress,
     vscode,
+    useSubdivisionNumberLabels = false,
+    initialSettingsMode = false,
 }: MilestoneAccordionProps) {
     // Layout constants
     const DROPDOWN_MAX_HEIGHT_VIEWPORT_PERCENT = 60; // 60vh
@@ -89,8 +106,197 @@ export function MilestoneAccordion({
     const [editedMilestoneValue, setEditedMilestoneValue] = useState("");
     const [originalMilestoneValue, setOriginalMilestoneValue] = useState("");
     const inputRef = useRef<HTMLInputElement>(null);
+    // Settings mode reveals destructive / structural controls (title pencil,
+    // per-subsection pencils, add-break / reset footers). Default off so the
+    // accordion stays read-only on first open; the gear button toggles it.
+    const [isSettingsMode, setIsSettingsMode] = useState(initialSettingsMode);
     // Local cache of edited milestone values to show changes immediately before webview refresh
     const [localMilestoneValues, setLocalMilestoneValues] = useState<Record<number, string>>({});
+
+    // Subsection rename state. `editingSubsection` identifies the single row
+    // currently in edit mode; `localSubsectionNames` is an optimistic cache so
+    // saved renames render immediately without waiting for the webview refresh.
+    // Keyed by `${milestoneIdx}:${subsectionKey}` so renames survive milestone
+    // expansion/collapse.
+    const [editingSubsection, setEditingSubsection] = useState<{
+        milestoneIdx: number;
+        subsectionIdx: number;
+        key: string;
+    } | null>(null);
+    const [editedSubsectionName, setEditedSubsectionName] = useState("");
+    const [originalSubsectionName, setOriginalSubsectionName] = useState("");
+    const [localSubsectionNames, setLocalSubsectionNames] = useState<Record<string, string>>({});
+    const subsectionInputRef = useRef<HTMLInputElement>(null);
+
+    const getLocalSubsectionName = (
+        milestoneIdx: number,
+        key: string | undefined
+    ): string | undefined => {
+        if (!key) return undefined;
+        return localSubsectionNames[`${milestoneIdx}:${key}`];
+    };
+
+    // Tracks the milestone whose "Reset breaks" button is in its confirm
+    // state (the one-click→confirm pattern). Null means no reset is pending.
+    const [resetConfirmMilestoneIdx, setResetConfirmMilestoneIdx] = useState<number | null>(null);
+    const resetConfirmTimeoutRef = useRef<number | null>(null);
+
+    // "Add break" form state. Only one milestone can have the form open at a
+    // time; the cell-number field is a string so we can accept and validate
+    // partial input (empty, non-numeric, out of range) before posting.
+    const [addBreakMilestoneIdx, setAddBreakMilestoneIdx] = useState<number | null>(null);
+    const [addBreakCellNumber, setAddBreakCellNumber] = useState<string>("");
+    const [addBreakError, setAddBreakError] = useState<string>("");
+    const addBreakInputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        return () => {
+            if (resetConfirmTimeoutRef.current !== null) {
+                window.clearTimeout(resetConfirmTimeoutRef.current);
+            }
+        };
+    }, []);
+
+    // When the add-break form opens, focus the number input so keyboard-first
+    // users can type immediately.
+    useEffect(() => {
+        if (addBreakMilestoneIdx !== null) {
+            addBreakInputRef.current?.focus();
+        }
+    }, [addBreakMilestoneIdx]);
+
+    /**
+     * Rebuilds the milestone's placement list from its resolved subdivisions.
+     * Only subdivisions at index > 0 with `source === "custom"` and a valid
+     * `startCellId` correspond to actual placements; the implicit first
+     * subdivision and arithmetic auto-chunks are derived, not stored.
+     */
+    const getCurrentPlacements = (
+        milestone: MilestoneInfo | undefined
+    ): { startCellId: string }[] => {
+        if (!milestone?.subdivisions) return [];
+        return milestone.subdivisions
+            .filter((s) => s.index > 0 && s.source === "custom" && !!s.startCellId)
+            .map((s) => ({ startCellId: s.startCellId as string }));
+    };
+
+    const handleDeleteSubsection = (
+        e: React.MouseEvent<HTMLElement>,
+        milestoneIdx: number,
+        subsection: Subsection
+    ) => {
+        e.stopPropagation();
+        if (!isSourceText) return; // Defensive: control should only render on source.
+        if (!subsection.startCellId || subsection.source !== "custom") return;
+        const milestone = milestoneIndex?.milestones[milestoneIdx];
+        const placements = getCurrentPlacements(milestone).filter(
+            (p) => p.startCellId !== subsection.startCellId
+        );
+        vscode.postMessage({
+            command: "updateMilestoneSubdivisions",
+            content: {
+                milestoneIndex: milestoneIdx,
+                subdivisions: placements,
+            },
+        });
+    };
+
+    const handleResetSubdivisionsClick = (
+        e: React.MouseEvent<HTMLButtonElement>,
+        milestoneIdx: number
+    ) => {
+        e.stopPropagation();
+        if (!isSourceText) return;
+        if (resetConfirmMilestoneIdx !== milestoneIdx) {
+            // First click → arm the confirmation; auto-disarm after a short
+            // window so the button never stays "hot" forever.
+            setResetConfirmMilestoneIdx(milestoneIdx);
+            if (resetConfirmTimeoutRef.current !== null) {
+                window.clearTimeout(resetConfirmTimeoutRef.current);
+            }
+            resetConfirmTimeoutRef.current = window.setTimeout(() => {
+                setResetConfirmMilestoneIdx(null);
+                resetConfirmTimeoutRef.current = null;
+            }, 3000);
+            return;
+        }
+        // Second click → commit the reset and clear the armed state.
+        if (resetConfirmTimeoutRef.current !== null) {
+            window.clearTimeout(resetConfirmTimeoutRef.current);
+            resetConfirmTimeoutRef.current = null;
+        }
+        setResetConfirmMilestoneIdx(null);
+        vscode.postMessage({
+            command: "updateMilestoneSubdivisions",
+            content: {
+                milestoneIndex: milestoneIdx,
+                subdivisions: [],
+            },
+        });
+    };
+
+    /**
+     * Largest valid `cellNumber` for an add-break request in the given
+     * milestone. Valid range is [2, totalRootCells]; we derive the upper
+     * bound from the last resolved subsection's `endIndex` (which is a root
+     * index, matching `SubdivisionInfo.endRootIndex` one-to-one).
+     */
+    const getMaxCellNumberForMilestone = (subsections: Subsection[]): number => {
+        if (!subsections.length) return 0;
+        return subsections[subsections.length - 1].endIndex;
+    };
+
+    const handleOpenAddBreak = (e: React.MouseEvent<HTMLButtonElement>, milestoneIdx: number) => {
+        e.stopPropagation();
+        if (!isSourceText) return;
+        setAddBreakMilestoneIdx(milestoneIdx);
+        setAddBreakCellNumber("");
+        setAddBreakError("");
+    };
+
+    const handleCancelAddBreak = (e?: React.MouseEvent<HTMLButtonElement>) => {
+        e?.stopPropagation();
+        setAddBreakMilestoneIdx(null);
+        setAddBreakCellNumber("");
+        setAddBreakError("");
+    };
+
+    const handleSubmitAddBreak = (
+        e: React.MouseEvent<HTMLButtonElement> | React.FormEvent<HTMLFormElement>,
+        milestoneIdx: number,
+        maxCellNumber: number
+    ) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isSourceText) return;
+        const trimmed = addBreakCellNumber.trim();
+        const parsed = Number(trimmed);
+        // Allowed range mirrors the provider: splitting at cell 1 would
+        // duplicate the implicit first subdivision, and we can't split
+        // beyond the last cell.
+        if (
+            trimmed.length === 0 ||
+            !Number.isFinite(parsed) ||
+            !Number.isInteger(parsed) ||
+            parsed < 2 ||
+            parsed > maxCellNumber
+        ) {
+            setAddBreakError(
+                maxCellNumber >= 2
+                    ? `Enter a number between 2 and ${maxCellNumber}.`
+                    : "This milestone is too short to split."
+            );
+            return;
+        }
+        vscode.postMessage({
+            command: "addMilestoneSubdivisionAnchor",
+            content: {
+                milestoneIndex: milestoneIdx,
+                cellNumber: parsed,
+            },
+        });
+        handleCancelAddBreak();
+    };
 
     // Calculate position and dimensions
     const calculatePositionAndDimensions = () => {
@@ -214,7 +420,14 @@ export function MilestoneAccordion({
     useEffect(() => {
         if (!isOpen) {
             setIsEditingMilestone(false);
+            // Also collapse the gear/settings affordances so reopening the
+            // accordion always starts from the read-only baseline (matches
+            // initialSettingsMode default and avoids "stuck open" surprises).
+            setIsSettingsMode(initialSettingsMode);
         }
+        // We intentionally only re-run on `isOpen` changes; resetting on
+        // initialSettingsMode flips would surprise live edits.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
 
     // Clear local cache when milestoneIndex prop changes (after webview refresh)
@@ -500,19 +713,23 @@ export function MilestoneAccordion({
         return milestone?.value || "";
     };
 
-    const handleEditMilestoneClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const beginEditMilestone = (e: React.MouseEvent<HTMLElement>, milestoneIdx: number): void => {
         e.stopPropagation();
-        const displayedMilestone = getDisplayedMilestone();
-        if (displayedMilestone) {
-            setOriginalMilestoneValue(displayedMilestone.value);
-            setEditedMilestoneValue(displayedMilestone.value);
-            setIsEditingMilestone(true);
-            // Focus the input after state update
-            setTimeout(() => {
-                inputRef.current?.focus();
-                inputRef.current?.select();
-            }, 0);
-        }
+        const milestone = milestoneIndex?.milestones[milestoneIdx];
+        if (!milestone) return;
+
+        // Ensure the edited milestone is what the header will render.
+        setExpandedMilestone(milestoneIdx.toString());
+
+        const displayValue = localMilestoneValues[milestoneIdx] || milestone.value;
+        setOriginalMilestoneValue(displayValue);
+        setEditedMilestoneValue(displayValue);
+        setIsEditingMilestone(true);
+
+        setTimeout(() => {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+        }, 0);
     };
 
     const handleSaveMilestone = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -574,6 +791,67 @@ export function MilestoneAccordion({
             // Escape should exit edit mode and revert
             setEditedMilestoneValue(originalMilestoneValue);
             setIsEditingMilestone(false);
+        }
+    };
+
+    const handleSubsectionEditClick = (
+        e: React.MouseEvent<HTMLElement>,
+        milestoneIdx: number,
+        subsectionIdx: number,
+        subsection: Subsection
+    ) => {
+        e.stopPropagation();
+        if (!subsection.key) return;
+        const currentName =
+            getLocalSubsectionName(milestoneIdx, subsection.key) ?? subsection.name ?? "";
+        setEditingSubsection({ milestoneIdx, subsectionIdx, key: subsection.key });
+        setOriginalSubsectionName(currentName);
+        setEditedSubsectionName(currentName);
+        setTimeout(() => {
+            subsectionInputRef.current?.focus();
+            subsectionInputRef.current?.select();
+        }, 0);
+    };
+
+    const handleSaveSubsectionName = (
+        e: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>
+    ) => {
+        e.stopPropagation();
+        if (!editingSubsection) return;
+        const trimmed = editedSubsectionName.trim();
+        if (trimmed !== originalSubsectionName.trim()) {
+            vscode.postMessage({
+                command: "updateMilestoneSubdivisionName",
+                content: {
+                    milestoneIndex: editingSubsection.milestoneIdx,
+                    subdivisionKey: editingSubsection.key,
+                    newName: trimmed,
+                },
+            });
+            // Optimistic cache so the UI reflects the new (or cleared) name
+            // before the provider refresh arrives.
+            setLocalSubsectionNames((prev) => ({
+                ...prev,
+                [`${editingSubsection.milestoneIdx}:${editingSubsection.key}`]: trimmed,
+            }));
+        }
+        setEditingSubsection(null);
+    };
+
+    const handleRevertSubsectionName = (
+        e: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>
+    ) => {
+        e.stopPropagation();
+        setEditingSubsection(null);
+    };
+
+    const handleSubsectionInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            handleSaveSubsectionName(e);
+        } else if (e.key === "Escape") {
+            e.preventDefault();
+            handleRevertSubsectionName(e);
         }
     };
 
@@ -670,15 +948,31 @@ export function MilestoneAccordion({
                                 </VSCodeButton>
                             </>
                         ) : (
-                            <VSCodeButton
-                                aria-label="Edit Milestone"
-                                appearance="icon"
-                                title="Edit Milestone"
-                                onClick={handleEditMilestoneClick}
-                                disabled={false}
-                            >
-                                <i className="codicon codicon-edit"></i>
-                            </VSCodeButton>
+                            <>
+                                <VSCodeButton
+                                    aria-label="Toggle Milestone Settings"
+                                    appearance="icon"
+                                    title={
+                                        isSettingsMode
+                                            ? "Close milestone settings"
+                                            : "Open milestone settings"
+                                    }
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setIsSettingsMode((prev) => !prev);
+                                    }}
+                                    aria-pressed={isSettingsMode}
+                                >
+                                    <i
+                                        className="codicon codicon-settings-gear"
+                                        style={
+                                            isSettingsMode
+                                                ? { color: "var(--vscode-focusBorder)" }
+                                                : undefined
+                                        }
+                                    />
+                                </VSCodeButton>
+                            </>
                         )}
                     </div>
                     <VSCodeButton
@@ -784,6 +1078,32 @@ export function MilestoneAccordion({
                                                         {displayValue}
                                                     </span>
                                                     <div className="flex items-center gap-2 flex-shrink-0">
+                                                        {isSettingsMode && (
+                                                            <>
+                                                                <VSCodeButton
+                                                                    aria-label="Rename Milestone"
+                                                                    appearance="icon"
+                                                                    title="Rename milestone"
+                                                                    onClick={(e) =>
+                                                                        beginEditMilestone(
+                                                                            e,
+                                                                            milestoneIdx
+                                                                        )
+                                                                    }
+                                                                >
+                                                                    <i className="codicon codicon-edit" />
+                                                                </VSCodeButton>
+                                                                <VSCodeButton
+                                                                    aria-hidden="true"
+                                                                    appearance="icon"
+                                                                    disabled
+                                                                    tabIndex={-1}
+                                                                    className="opacity-15 pointer-events-none"
+                                                                >
+                                                                    <Trash2 className="h-4 w-4" />
+                                                                </VSCodeButton>
+                                                            </>
+                                                        )}
                                                         <div
                                                             className={`flex items-center ${audioDisplay.colorClass}`}
                                                             style={getIconStyle(
@@ -831,6 +1151,27 @@ export function MilestoneAccordion({
                                                     const isActive =
                                                         isCurrentMilestone &&
                                                         currentSubsectionIndex === subsectionIdx;
+                                                    const isEditingThisRow =
+                                                        editingSubsection?.milestoneIdx ===
+                                                            milestoneIdx &&
+                                                        editingSubsection?.subsectionIdx ===
+                                                            subsectionIdx;
+                                                    // Prefer the optimistic local cache, then
+                                                    // provider-supplied name, so renames render
+                                                    // immediately and survive webview refresh.
+                                                    const cachedLocalName = getLocalSubsectionName(
+                                                        milestoneIdx,
+                                                        subsection.key
+                                                    );
+                                                    // Respect the workspace toggle: even if a name exists
+                                                    // (local override or provider-resolved), we force the
+                                                    // numeric range to be the visible label by dropping
+                                                    // displayName. Rename UI still reflects the stored name
+                                                    // so the user can edit what's actually persisted.
+                                                    const displayName = useSubdivisionNumberLabels
+                                                        ? undefined
+                                                        : cachedLocalName ?? subsection.name;
+                                                    const canRename = !!subsection.key;
 
                                                     return (
                                                         <div
@@ -840,47 +1181,337 @@ export function MilestoneAccordion({
                                                                     ? currentSubsectionRef
                                                                     : undefined
                                                             }
-                                                            onClick={() =>
+                                                            onClick={() => {
+                                                                if (isEditingThisRow) return;
                                                                 handleSubsectionClick(
                                                                     milestoneIdx,
                                                                     subsectionIdx
-                                                                )
-                                                            }
-                                                            className={`flex items-center justify-between pr-3 pl-6 py-2 rounded-md cursor-pointer transition-colors ${
-                                                                isActive
-                                                                    ? "bg-accent font-semibold"
+                                                                );
+                                                            }}
+                                                            className={`group flex items-center justify-between pr-3 pl-6 py-2 rounded-md transition-colors ${
+                                                                isEditingThisRow
+                                                                    ? "bg-secondary"
+                                                                    : isActive
+                                                                    ? "bg-accent font-semibold cursor-pointer"
                                                                     : unsavedChanges
                                                                     ? "opacity-60 cursor-not-allowed"
-                                                                    : "hover:bg-secondary"
+                                                                    : "hover:bg-secondary cursor-pointer"
                                                             }`}
                                                         >
-                                                            <span>{subsection.label}</span>
-                                                            <ProgressDots
-                                                                className="gap-x-[14px]"
-                                                                audio={{
-                                                                    validatedPercent:
-                                                                        percentages.audioValidatedPercent,
-                                                                    completedPercent:
-                                                                        percentages.audioCompletedPercent,
-                                                                    validationLevels:
-                                                                        progress.audioValidationLevels,
-                                                                    requiredValidations:
-                                                                        progress.requiredAudioValidations,
-                                                                }}
-                                                                text={{
-                                                                    validatedPercent:
-                                                                        percentages.textValidatedPercent,
-                                                                    completedPercent:
-                                                                        percentages.textCompletedPercent,
-                                                                    validationLevels:
-                                                                        progress.textValidationLevels,
-                                                                    requiredValidations:
-                                                                        progress.requiredTextValidations,
-                                                                }}
-                                                            />
+                                                            {isEditingThisRow ? (
+                                                                <input
+                                                                    ref={subsectionInputRef}
+                                                                    type="text"
+                                                                    value={editedSubsectionName}
+                                                                    onChange={(e) =>
+                                                                        setEditedSubsectionName(
+                                                                            e.target.value
+                                                                        )
+                                                                    }
+                                                                    onKeyDown={
+                                                                        handleSubsectionInputKeyDown
+                                                                    }
+                                                                    onClick={(e) =>
+                                                                        e.stopPropagation()
+                                                                    }
+                                                                    placeholder={subsection.label}
+                                                                    className="flex-1 mr-2 bg-transparent border border-[var(--vscode-input-border)] rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--vscode-focusBorder)]"
+                                                                    style={{
+                                                                        color: "var(--vscode-input-foreground)",
+                                                                    }}
+                                                                />
+                                                            ) : (
+                                                                <span className="flex items-baseline gap-2 min-w-0 flex-1">
+                                                                    <span className="truncate">
+                                                                        {displayName ||
+                                                                            subsection.label}
+                                                                    </span>
+                                                                    {displayName && (
+                                                                        <span className="text-xs opacity-60 flex-shrink-0">
+                                                                            {subsection.label}
+                                                                        </span>
+                                                                    )}
+                                                                </span>
+                                                            )}
+                                                            <div className="flex items-center gap-2 flex-shrink-0">
+                                                                {isEditingThisRow ? (
+                                                                    <>
+                                                                        <VSCodeButton
+                                                                            aria-label="Save Subsection Name"
+                                                                            appearance="icon"
+                                                                            title="Save"
+                                                                            onClick={
+                                                                                handleSaveSubsectionName
+                                                                            }
+                                                                        >
+                                                                            <Check className="h-4 w-4" />
+                                                                        </VSCodeButton>
+                                                                        <VSCodeButton
+                                                                            aria-label="Cancel Rename"
+                                                                            appearance="icon"
+                                                                            title="Cancel"
+                                                                            onClick={
+                                                                                handleRevertSubsectionName
+                                                                            }
+                                                                        >
+                                                                            <RotateCcw className="h-4 w-4" />
+                                                                        </VSCodeButton>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        {/* Per-subsection edit affordances live behind the
+                                                                            gear/settings toggle. When off, neither the rename
+                                                                            pencil nor the remove "X" should be reachable, so we
+                                                                            don't render them at all (avoids tab-stops and stale
+                                                                            tooltips). When on, they're always visible — no more
+                                                                            hover-only reveal. */}
+                                                                        {isSettingsMode &&
+                                                                            canRename && (
+                                                                                <VSCodeButton
+                                                                                    aria-label="Rename Subsection"
+                                                                                    appearance="icon"
+                                                                                    title="Rename Subsection"
+                                                                                    onClick={(e) =>
+                                                                                        handleSubsectionEditClick(
+                                                                                            e,
+                                                                                            milestoneIdx,
+                                                                                            subsectionIdx,
+                                                                                            subsection
+                                                                                        )
+                                                                                    }
+                                                                                >
+                                                                                    <i className="codicon codicon-edit" />
+                                                                                </VSCodeButton>
+                                                                            )}
+                                                                        {isSettingsMode &&
+                                                                            (isSourceText &&
+                                                                            subsection.source ===
+                                                                                "custom" &&
+                                                                            subsection.startCellId ? (
+                                                                                <VSCodeButton
+                                                                                    aria-label="Remove Subdivision Break"
+                                                                                    appearance="icon"
+                                                                                    title="Remove this break (merges with the previous subdivision)"
+                                                                                    onClick={(e) =>
+                                                                                        handleDeleteSubsection(
+                                                                                            e,
+                                                                                            milestoneIdx,
+                                                                                            subsection
+                                                                                        )
+                                                                                    }
+                                                                                >
+                                                                                    <Trash2 className="h-4 w-4 text-[var(--vscode-errorForeground)]" />
+                                                                                </VSCodeButton>
+                                                                            ) : (
+                                                                                /* Greyed-out ghost trash can — purely decorative, but uses the
+                                                                                   same button wrapper so spacing matches deletable rows. */
+                                                                                <VSCodeButton
+                                                                                    aria-hidden="true"
+                                                                                    appearance="icon"
+                                                                                    disabled
+                                                                                    tabIndex={-1}
+                                                                                    className="opacity-15 pointer-events-none"
+                                                                                >
+                                                                                    <Trash2 className="h-4 w-4" />
+                                                                                </VSCodeButton>
+                                                                            ))}
+                                                                    </>
+                                                                )}
+                                                                {!isEditingThisRow && (
+                                                                    <ProgressDots
+                                                                        className="gap-x-[14px]"
+                                                                        audio={{
+                                                                            validatedPercent:
+                                                                                percentages.audioValidatedPercent,
+                                                                            completedPercent:
+                                                                                percentages.audioCompletedPercent,
+                                                                            validationLevels:
+                                                                                progress.audioValidationLevels,
+                                                                            requiredValidations:
+                                                                                progress.requiredAudioValidations,
+                                                                        }}
+                                                                        text={{
+                                                                            validatedPercent:
+                                                                                percentages.textValidatedPercent,
+                                                                            completedPercent:
+                                                                                percentages.textCompletedPercent,
+                                                                            validationLevels:
+                                                                                progress.textValidationLevels,
+                                                                            requiredValidations:
+                                                                                progress.requiredTextValidations,
+                                                                        }}
+                                                                    />
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     );
                                                 })}
+                                                {isSourceText &&
+                                                    isSettingsMode &&
+                                                    (() => {
+                                                        const maxCellNumber =
+                                                            getMaxCellNumberForMilestone(
+                                                                subsections
+                                                            );
+                                                        const canAddBreak = maxCellNumber >= 2;
+                                                        const isFormOpen =
+                                                            addBreakMilestoneIdx === milestoneIdx;
+                                                        const hasCustomBreaks = subsections.some(
+                                                            (s) => s.source === "custom"
+                                                        );
+                                                        if (!canAddBreak && !hasCustomBreaks) {
+                                                            return null;
+                                                        }
+                                                        return (
+                                                            <div className="pl-6 pr-3 pt-2 flex flex-wrap items-center gap-2">
+                                                                {isFormOpen ? (
+                                                                    <form
+                                                                        onSubmit={(e) =>
+                                                                            handleSubmitAddBreak(
+                                                                                e,
+                                                                                milestoneIdx,
+                                                                                maxCellNumber
+                                                                            )
+                                                                        }
+                                                                        className="flex flex-wrap items-center gap-2"
+                                                                    >
+                                                                        <label
+                                                                            htmlFor={`add-break-input-${milestoneIdx}`}
+                                                                            className="text-xs text-[var(--vscode-descriptionForeground)]"
+                                                                        >
+                                                                            Break at cell
+                                                                        </label>
+                                                                        <input
+                                                                            id={`add-break-input-${milestoneIdx}`}
+                                                                            ref={addBreakInputRef}
+                                                                            type="text"
+                                                                            inputMode="numeric"
+                                                                            pattern="[0-9]*"
+                                                                            value={
+                                                                                addBreakCellNumber
+                                                                            }
+                                                                            onChange={(e) => {
+                                                                                setAddBreakCellNumber(
+                                                                                    e.target.value
+                                                                                );
+                                                                                if (addBreakError)
+                                                                                    setAddBreakError(
+                                                                                        ""
+                                                                                    );
+                                                                            }}
+                                                                            onKeyDown={(e) => {
+                                                                                if (
+                                                                                    e.key ===
+                                                                                    "Escape"
+                                                                                ) {
+                                                                                    e.preventDefault();
+                                                                                    handleCancelAddBreak();
+                                                                                }
+                                                                            }}
+                                                                            aria-label="Cell number for new break"
+                                                                            aria-describedby={
+                                                                                addBreakError
+                                                                                    ? `add-break-error-${milestoneIdx}`
+                                                                                    : undefined
+                                                                            }
+                                                                            aria-invalid={
+                                                                                !!addBreakError
+                                                                            }
+                                                                            placeholder="322"
+                                                                            className="w-20 text-xs px-2 py-1 rounded border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--vscode-focusBorder)]"
+                                                                        />
+                                                                        <button
+                                                                            type="submit"
+                                                                            aria-label="Add Subdivision Break"
+                                                                            title={`Add a break starting at cell ${
+                                                                                addBreakCellNumber ||
+                                                                                "…"
+                                                                            }`}
+                                                                            className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-button-background text-button-foreground hover:bg-button-hoverBackground transition-colors"
+                                                                        >
+                                                                            <Check className="h-3 w-3" />
+                                                                            Add
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            aria-label="Cancel Add Break"
+                                                                            onClick={(e) =>
+                                                                                handleCancelAddBreak(
+                                                                                    e
+                                                                                )
+                                                                            }
+                                                                            className="flex items-center gap-1 text-xs px-2 py-1 rounded text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-foreground)] hover:bg-secondary transition-colors"
+                                                                        >
+                                                                            <X className="h-3 w-3" />
+                                                                            Cancel
+                                                                        </button>
+                                                                        {addBreakError && (
+                                                                            <span
+                                                                                id={`add-break-error-${milestoneIdx}`}
+                                                                                role="alert"
+                                                                                className="text-xs text-inputValidation-errorForeground"
+                                                                            >
+                                                                                {addBreakError}
+                                                                            </span>
+                                                                        )}
+                                                                    </form>
+                                                                ) : (
+                                                                    canAddBreak && (
+                                                                        <button
+                                                                            type="button"
+                                                                            aria-label="Add Subdivision Break"
+                                                                            title={`Split this milestone — pick a cell between 2 and ${maxCellNumber}`}
+                                                                            onClick={(e) =>
+                                                                                handleOpenAddBreak(
+                                                                                    e,
+                                                                                    milestoneIdx
+                                                                                )
+                                                                            }
+                                                                            className="flex items-center gap-1 text-xs pl-0 pr-2 py-1 rounded text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-foreground)] hover:bg-secondary transition-colors"
+                                                                        >
+                                                                            <Plus className="h-3 w-3" />
+                                                                            Add break…
+                                                                        </button>
+                                                                    )
+                                                                )}
+                                                                {hasCustomBreaks && !isFormOpen && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) =>
+                                                                            handleResetSubdivisionsClick(
+                                                                                e,
+                                                                                milestoneIdx
+                                                                            )
+                                                                        }
+                                                                        aria-label={
+                                                                            resetConfirmMilestoneIdx ===
+                                                                            milestoneIdx
+                                                                                ? "Confirm Reset Subdivisions"
+                                                                                : "Reset Subdivisions"
+                                                                        }
+                                                                        title={
+                                                                            resetConfirmMilestoneIdx ===
+                                                                            milestoneIdx
+                                                                                ? "Click again within 3s to confirm"
+                                                                                : "Remove all custom breaks in this milestone"
+                                                                        }
+                                                                        className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
+                                                                            resetConfirmMilestoneIdx ===
+                                                                            milestoneIdx
+                                                                                ? "bg-inputValidation-warningBackground text-inputValidation-warningForeground"
+                                                                                : "text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-foreground)] hover:bg-secondary"
+                                                                        }`}
+                                                                    >
+                                                                        <Trash2 className="h-3 w-3 text-[var(--vscode-errorForeground)]" />
+                                                                        {resetConfirmMilestoneIdx ===
+                                                                        milestoneIdx
+                                                                            ? "Click again to confirm"
+                                                                            : "Reset to default breaks"}
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
                                             </div>
                                         </AccordionContent>
                                     </AccordionItem>

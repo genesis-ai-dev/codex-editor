@@ -48,7 +48,7 @@ import {
     isSourceFileFlexible,
     isMatchingFilePair as isMatchingFilePairUtil,
 } from "../../utils/fileTypeUtils";
-import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
+import { getCorrespondingCodexUri, getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -121,6 +121,29 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private get CELLS_PER_PAGE(): number {
         const config = vscode.workspace.getConfiguration("codex-editor-extension");
         return config.get("cellsPerPage", 50); // Default to 50 cells per page
+    }
+
+    /**
+     * User preference that forces subdivision labels to display their numeric
+     * cell range instead of any user-assigned name. Read lazily so a workspace
+     * settings change is picked up on the next render without a webview reload.
+     */
+    private get USE_SUBDIVISION_NUMBER_LABELS(): boolean {
+        const config = vscode.workspace.getConfiguration("codex-editor-extension");
+        return config.get("useSubdivisionNumberLabels", false);
+    }
+
+    /**
+     * Threshold above which a stretch between user-defined subdivision breaks
+     * gets sub-chunked by `CELLS_PER_PAGE`. `0` (the default) means "off" and
+     * the resolver falls back to using `CELLS_PER_PAGE` as the threshold,
+     * preserving the legacy behaviour of always chunking past one page worth
+     * of cells.
+     */
+    private get MAX_SUBDIVISION_LENGTH(): number {
+        const config = vscode.workspace.getConfiguration("codex-editor-extension");
+        const raw = config.get<number>("maxSubdivisionLength", 0);
+        return typeof raw === "number" && raw > 0 ? Math.floor(raw) : 0;
     }
 
     private bumpDocumentRevision(documentUri: string): number {
@@ -295,13 +318,62 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             }
 
             if (e.affectsConfiguration("codex-editor-extension.cellsPerPage")) {
-                // Update cells per page in all webviews
+                // Update cells per page in all webviews and re-render the
+                // milestone index. The cache key on each document already
+                // includes `cellsPerPage`, so the next `buildMilestoneIndex`
+                // call rebuilds with the new chunking; we just have to push
+                // the fresh index back to each panel.
                 const newCellsPerPage = this.CELLS_PER_PAGE;
-                this.webviewPanels.forEach((panel) => {
-                    // Use custom message type for cells per page update
+                this.webviewPanels.forEach((panel, docUri) => {
                     safePostMessageToPanel(panel, {
                         type: "updateCellsPerPage",
                         cellsPerPage: newCellsPerPage,
+                    });
+                    const document = this.documents.get(docUri);
+                    if (document) {
+                        sendMilestoneRefreshToWebview(document, panel, this).catch(
+                            (err) =>
+                                console.error(
+                                    "[CodexCellEditorProvider] Failed to refresh milestone after cellsPerPage change:",
+                                    err
+                                )
+                        );
+                    }
+                });
+            }
+
+            if (e.affectsConfiguration("codex-editor-extension.maxSubdivisionLength")) {
+                // No dedicated webview message for this setting yet — the new
+                // threshold is consumed by the document-side
+                // `buildMilestoneIndex` call inside `sendMilestoneRefreshToWebview`,
+                // which rebuilds the subdivision layout and pushes the fresh
+                // milestone index plus current page's cells to each open webview.
+                this.webviewPanels.forEach((panel, docUri) => {
+                    const document = this.documents.get(docUri);
+                    if (document) {
+                        sendMilestoneRefreshToWebview(document, panel, this).catch(
+                            (err) =>
+                                console.error(
+                                    "[CodexCellEditorProvider] Failed to refresh milestone after maxSubdivisionLength change:",
+                                    err
+                                )
+                        );
+                    }
+                });
+            }
+
+            if (
+                e.affectsConfiguration(
+                    "codex-editor-extension.useSubdivisionNumberLabels"
+                )
+            ) {
+                // Push the new preference to all open webviews so subdivision
+                // labels switch between name/number mode without a reload.
+                const newPref = this.USE_SUBDIVISION_NUMBER_LABELS;
+                this.webviewPanels.forEach((panel) => {
+                    safePostMessageToPanel(panel, {
+                        type: "updateSubdivisionLabelPreference",
+                        useSubdivisionNumberLabels: newPref,
                     });
                 });
             }
@@ -760,7 +832,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             }
 
             // Build milestone index for paginated loading
-            const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
+            const milestoneIndex = document.buildMilestoneIndex(
+                this.CELLS_PER_PAGE,
+                this.MAX_SUBDIVISION_LENGTH
+            );
 
             // Update database with milestone indices (fire-and-forget, don't block webview update)
             document.updateCellMilestoneIndices().catch((error) => {
@@ -828,7 +903,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Only send initial content if this is not an update (webview not ready or no tracked position)
             if (!isWebviewReady || !currentPosition) {
                 // Get first page of cells for the initial milestone
-                const initialCells = document.getCellsForMilestone(initialMilestoneIndex, initialSubsectionIndex, this.CELLS_PER_PAGE);
+                const initialCells = document.getCellsForMilestone(
+                    initialMilestoneIndex,
+                    initialSubsectionIndex,
+                    this.CELLS_PER_PAGE,
+                    this.MAX_SUBDIVISION_LENGTH
+                );
                 const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
 
                 // Build source cell map for the initial cells only
@@ -886,6 +966,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     validationCountAudio: validationCountAudio,
                     isAuthenticated: isAuthenticated,
                     userAccessLevel: userAccessLevel,
+                    useSubdivisionNumberLabels: this.USE_SUBDIVISION_NUMBER_LABELS,
                 });
 
                 // Record the initial position so subsequent updateWebview() calls
@@ -1094,7 +1175,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // This is more accurate than the webview's algorithm which incorrectly assumes
             // verse numbers correspond to cell positions
             const cellsPerPage = this.CELLS_PER_PAGE;
-            const position = document.findMilestoneAndSubsectionForCell(cellId, cellsPerPage);
+            const position = document.findMilestoneAndSubsectionForCell(cellId, cellsPerPage, this.MAX_SUBDIVISION_LENGTH);
 
             if (position) {
                 debug("Computed position for cell:", cellId, "milestoneIndex:", position.milestoneIndex, "subsectionIndex:", position.subsectionIndex);
@@ -1126,7 +1207,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Pre-populate the target position so that updateWebview() — which runs before
             // navigateToSection in the pending queue — sends a refreshCurrentPage at the
             // correct milestone instead of resetting to chapter 1 for newly-opened files.
-            const position = document.findMilestoneAndSubsectionForCell(value, this.CELLS_PER_PAGE);
+            const position = document.findMilestoneAndSubsectionForCell(value, this.CELLS_PER_PAGE, this.MAX_SUBDIVISION_LENGTH);
             if (position) {
                 this.currentMilestoneSubsectionMap.set(document.uri.toString(), position);
             }
@@ -1684,6 +1765,58 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     private isCodexFile(uri: vscode.Uri | string): boolean {
         return isCodexFileFlexible(uri);
+    }
+
+    /**
+     * Resolves the paired notebook URI for a given source/codex URI. Returns
+     * null when the mapping cannot be determined (no workspace folder, or the
+     * URI is neither `.source` nor `.codex`).
+     *
+     * Used by milestone subdivision writes to mirror source-authoritative
+     * placements onto the corresponding target document.
+     */
+    public getPairedNotebookUri(uri: vscode.Uri): vscode.Uri | null {
+        if (this.isSourceText(uri)) {
+            return getCorrespondingCodexUri(uri);
+        }
+        if (this.isCodexFile(uri)) {
+            return getCorrespondingSourceUri(uri);
+        }
+        return null;
+    }
+
+    /**
+     * Returns the open webview panel for `uri` if one is currently registered.
+     * Used by background flows (e.g. mirroring source-side subdivision edits to
+     * the paired target) so they can push a refresh without owning the panel
+     * directly. Returns `undefined` when no panel is open for the URI.
+     */
+    public getWebviewPanelForUri(uri: vscode.Uri): vscode.WebviewPanel | undefined {
+        return this.webviewPanels.get(uri.toString());
+    }
+
+    /**
+     * Returns an open `CodexCellDocument` for `uri` when one is already backing
+     * a webview panel; otherwise opens a fresh instance via
+     * `openCustomDocument`. Callers receive a document they can mutate and save
+     * without worrying about whether a live editor is attached.
+     */
+    public async getOrOpenDocumentForUri(
+        uri: vscode.Uri
+    ): Promise<CodexCellDocument> {
+        const uriString = uri.toString();
+        for (const [panelUri] of this.webviewPanels.entries()) {
+            if (this.isMatchingFilePair(uriString, panelUri) && panelUri === uriString) {
+                // Reuse the document backing the open panel. openCustomDocument
+                // returns the cached instance when one exists for this exact URI.
+                return await this.openCustomDocument(
+                    vscode.Uri.parse(panelUri),
+                    {},
+                    new vscode.CancellationTokenSource().token
+                );
+            }
+        }
+        return await this.openCustomDocument(uri, {}, new vscode.CancellationTokenSource().token);
     }
 
     private updateTextDirection(
@@ -2484,7 +2617,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const username = userInfo?.username || "anonymous";
 
         // Build milestone index for paginated loading
-        const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
+        const milestoneIndex = document.buildMilestoneIndex(
+            this.CELLS_PER_PAGE,
+            this.MAX_SUBDIVISION_LENGTH
+        );
 
         // Update database with milestone indices (fire-and-forget, don't block webview update)
         document.updateCellMilestoneIndices().catch((error) => {
@@ -2553,7 +2689,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Get first page of cells for the initial milestone
-        const initialCells = document.getCellsForMilestone(initialMilestoneIndex, initialSubsectionIndex, this.CELLS_PER_PAGE);
+        const initialCells = document.getCellsForMilestone(
+            initialMilestoneIndex,
+            initialSubsectionIndex,
+            this.CELLS_PER_PAGE,
+            this.MAX_SUBDIVISION_LENGTH
+        );
         const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
 
         // Build source cell map for the initial cells only
@@ -2579,6 +2720,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 username: username,
                 validationCount: validationCount,
                 validationCountAudio: validationCountAudio,
+                useSubdivisionNumberLabels: this.USE_SUBDIVISION_NUMBER_LABELS,
             });
 
             this.postMessageToWebview(webviewPanel, {
@@ -2729,9 +2871,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         if (uri) {
             const valueIsCodexFile = this.isCodexFile(uri);
             if (valueIsCodexFile && doc) {
-                // Get the configuration for cellsPerPage
+                // Get the configuration for cellsPerPage / maxSubdivisionLength
                 const config = vscode.workspace.getConfiguration("codex-editor-extension");
                 const cellsPerPage = config.get("cellsPerPage", 50);
+                const maxSubdivisionLengthRaw = config.get<number>("maxSubdivisionLength", 0);
+                const maxSubdivisionLength =
+                    typeof maxSubdivisionLengthRaw === "number" && maxSubdivisionLengthRaw > 0
+                        ? Math.floor(maxSubdivisionLengthRaw)
+                        : 0;
 
                 // Get the corresponding source URI
                 const codexUri = vscode.Uri.parse(uri);
@@ -2759,14 +2906,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             if (sourceDoc) {
                                 // Determine the target position in the source file by finding the matching cell
                                 // Always use cellId for navigation
-                                const targetPosition = sourceDoc.findMilestoneAndSubsectionForCell(cellId, cellsPerPage);
+                                const targetPosition = sourceDoc.findMilestoneAndSubsectionForCell(cellId, cellsPerPage, maxSubdivisionLength);
 
                                 if (targetPosition) {
                                     const { milestoneIndex: targetMilestoneIndex, subsectionIndex: targetSubsectionIndex } = targetPosition;
                                     debug("Jumping source file to milestone:", panelUri, "milestoneIndex:", targetMilestoneIndex, "subsectionIndex:", targetSubsectionIndex);
 
                                     // Get cells for the milestone/subsection from the source document
-                                    const cells = sourceDoc.getCellsForMilestone(targetMilestoneIndex, targetSubsectionIndex, cellsPerPage);
+                                    const cells = sourceDoc.getCellsForMilestone(targetMilestoneIndex, targetSubsectionIndex, cellsPerPage, maxSubdivisionLength);
 
                                     // Process cells (merge ranges, etc.)
                                     const processedCells = this.mergeRangesAndProcess(
