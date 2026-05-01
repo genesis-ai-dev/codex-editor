@@ -57,6 +57,7 @@ interface CellContentDisplayProps {
             | "available"
             | "available-local"
             | "available-pointer"
+            | "available-cached"
             | "deletedOnly"
             | "none"
             | "missing";
@@ -822,16 +823,24 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 disabled={
                                                     isInTranslationProcess ||
                                                     audioState === "none" ||
-                                                    audioState === "deletedOnly"
+                                                    audioState === "deletedOnly" ||
+                                                    audioState === "unselected" ||
+                                                    audioState === "missing"
                                                 }
                                                 disabledReason={
                                                     isInTranslationProcess
                                                         ? "Translation in progress"
+                                                        : audioState === "missing"
+                                                        ? "Selected audio is missing"
+                                                        : audioState === "unselected"
+                                                        ? "No audio selected"
                                                         : audioState === "none" ||
                                                           audioState === "deletedOnly"
                                                         ? "Audio validation requires audio"
                                                         : undefined
                                                 }
+                                                readOnly={audioState === "available-pointer"}
+                                                readOnlyReason="Download audio to validate"
                                             />
                                         </div>
                                     )}
@@ -846,6 +855,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     audioState === "available" ||
                                                     audioState === "available-local" ||
                                                     audioState === "available-pointer" ||
+                                                    audioState === "available-cached" ||
                                                     audioState === "missing"
                                                 )
                                             )

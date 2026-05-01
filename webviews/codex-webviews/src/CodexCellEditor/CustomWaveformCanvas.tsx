@@ -15,7 +15,7 @@ import {
     AccordionTrigger,
 } from "../components/ui/accordion";
 import { Badge } from "../components/ui/badge";
-import { Play, Pause, Volume2, Volume1, VolumeX, Loader2, AlertTriangle } from "lucide-react";
+import { Play, Pause, Volume2, Volume1, VolumeX, Loader2, AlertTriangle, User } from "lucide-react";
 import { cn } from "../lib/utils";
 
 interface CustomWaveformCanvasProps {
@@ -35,6 +35,7 @@ interface CustomWaveformCanvasProps {
     interact?: boolean;
     showControls?: boolean;
     showDebugInfo?: boolean;
+    author?: string;
 }
 
 const formatTime = (time: number): string => {
@@ -147,6 +148,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     interact = true,
     showControls = true,
     showDebugInfo = false,
+    author,
 }) => {
     const DEBUG_LOGS = false;
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1010,8 +1012,16 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                             </Select>
                         </div>
                     </div>
-                    <div className="text-xs text-[var(--vscode-descriptionForeground)] text-center">
-                        Space: Play/Pause • ←/→: Skip 5s
+                    <div className="flex items-center text-xs text-[var(--vscode-descriptionForeground)]">
+                        {author && (
+                            <span className="inline-flex items-center gap-1 text-xs text-[var(--vscode-foreground)] truncate shrink-0 max-w-[40%]">
+                                <User className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">{author}</span>
+                            </span>
+                        )}
+                        <span className="ml-auto">
+                            Space: Play/Pause • ←/→: Skip 5s
+                        </span>
                     </div>
                 </div>
             )}

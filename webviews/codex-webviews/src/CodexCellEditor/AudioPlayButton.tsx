@@ -1,17 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
-import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../lib/audioCache";
+import { getCachedAudioDataUrl, setCachedAudioDataUrl, setCachedAttachmentAudioDataUrl, clearCachedAudio } from "../lib/audioCache";
 import { globalAudioController, type AudioControllerEvent } from "../lib/audioController";
 import type { WebviewApi } from "vscode-webview";
 import type { EditorPostMessages } from "../../../../types";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import { getCellListIcon, type AudioAvailability } from "./utils/audioViewMode";
 
-type AudioState =
-    | "available"
-    | "available-local"
-    | "available-pointer"
-    | "missing"
-    | "deletedOnly"
-    | "none";
+type AudioState = AudioAvailability;
 
 interface AudioPlayButtonProps {
     cellId: string;
@@ -36,13 +31,16 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                 const message = event.data;
 
                 if (message.type === "providerSendsAudioAttachments") {
-                    const { clearCachedAudio } = await import("../lib/audioCache");
-                    clearCachedAudio(cellId);
+                    const incoming = message.attachments as Record<string, string> | undefined;
+                    const newState = incoming?.[cellId];
+                    if (newState === "deletedOnly" || newState === "none" || newState === "missing" || newState === "available-pointer") {
+                        clearCachedAudio(cellId);
 
-                    if (audioUrl && audioUrl.startsWith("blob:")) {
-                        URL.revokeObjectURL(audioUrl);
+                        if (audioUrl && audioUrl.startsWith("blob:")) {
+                            URL.revokeObjectURL(audioUrl);
+                        }
+                        setAudioUrl(null);
                     }
-                    setAudioUrl(null);
                     setIsLoading(false);
                 }
 
@@ -61,6 +59,9 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                                 const blobUrl = URL.createObjectURL(blob);
                                 try {
                                     setCachedAudioDataUrl(cellId, message.content.audioData);
+                                    if (message.content.audioId) {
+                                        setCachedAttachmentAudioDataUrl(message.content.audioId, message.content.audioData);
+                                    }
                                 } catch {
                                     /* empty */
                                 }
@@ -127,20 +128,24 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                 if (
                     state !== "available" &&
                     state !== "available-local" &&
-                    state !== "available-pointer"
+                    state !== "available-pointer" &&
+                    state !== "available-cached"
                 ) {
                     if (isCellLocked && state !== "missing") {
                         onLockedClick?.();
                         return;
                     }
 
-                    if (state !== "missing" && !isCellLocked) {
+                    if (state === "unselected") {
+                        try {
+                            sessionStorage.setItem(`open-audio-history-${cellId}`, "1");
+                        } catch { /* ignore */ }
+                    } else if ((window as any).__autoRecordOnMicClick && state !== "missing") {
                         try {
                             sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
-                        } catch (e) {
-                            void e;
-                        }
+                        } catch { /* ignore */ }
                     }
+
                     vscode.postMessage({
                         command: "setPreferredEditorTab",
                         content: { tab: "audio" },
@@ -149,12 +154,26 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                     return;
                 }
 
+                // Download-only: if the audio is remote (pointer) and not yet cached,
+                // just fetch it in the background without auto-playing.
+                const isDownloadOnly =
+                    state === "available-pointer" &&
+                    !audioUrl &&
+                    !getCachedAudioDataUrl(cellId);
+
                 if (isPlaying) {
                     if (audioRef.current) {
                         audioRef.current.pause();
                         audioRef.current.currentTime = 0;
                     }
                     setIsPlaying(false);
+                } else if (isDownloadOnly) {
+                    setIsLoading(true);
+                    pendingPlayRef.current = false;
+                    vscode.postMessage({
+                        command: "requestAudioForCell",
+                        content: { cellId },
+                    } as EditorPostMessages);
                 } else {
                     let effectiveUrl: string | null = audioUrl;
                     if (!effectiveUrl) {
@@ -218,46 +237,12 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
             return () => globalAudioController.removeListener(handler);
         }, []);
 
-        const { iconClass, color } = (() => {
-            if (state === "missing") {
-                return {
-                    iconClass: "codicon-warning",
-                    color: "var(--vscode-errorForeground)",
-                } as const;
-            }
-            if (audioUrl || getCachedAudioDataUrl(cellId)) {
-                return {
-                    iconClass: isLoading
-                        ? "codicon-loading codicon-modifier-spin"
-                        : isPlaying
-                          ? "codicon-debug-stop"
-                          : "codicon-play",
-                    color: "var(--vscode-charts-blue)",
-                } as const;
-            }
-            if (state === "available-local") {
-                return {
-                    iconClass: isLoading
-                        ? "codicon-loading codicon-modifier-spin"
-                        : isPlaying
-                          ? "codicon-debug-stop"
-                          : "codicon-play",
-                    color: "var(--vscode-charts-blue)",
-                } as const;
-            }
-            if (state === "available" || state === "available-pointer") {
-                return {
-                    iconClass: isLoading
-                        ? "codicon-loading codicon-modifier-spin"
-                        : "codicon-cloud-download",
-                    color: "var(--vscode-charts-blue)",
-                } as const;
-            }
-            return {
-                iconClass: "codicon-mic",
-                color: "var(--vscode-foreground)",
-            } as const;
-        })();
+        const { iconClass, color } = getCellListIcon({
+            state,
+            hasAudioUrl: !!audioUrl || !!getCachedAudioDataUrl(cellId),
+            isLoading,
+            isPlaying,
+        });
 
         return (
             <button
@@ -266,11 +251,11 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                 title={
                     isLoading
                         ? "Preparing audio..."
-                        : state === "available" || state === "available-pointer"
+                        : state === "available-pointer"
                           ? audioUrl || getCachedAudioDataUrl(cellId)
                             ? "Play"
                             : "Download"
-                          : state === "available-local"
+                          : state === "available-local" || state === "available" || state === "available-cached"
                             ? "Play"
                             : state === "missing"
                               ? "Missing audio"
@@ -280,6 +265,7 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                 }
                 disabled={false}
                 style={{
+                    position: "relative",
                     background: "none",
                     border: "none",
                     cursor: "pointer",
@@ -303,7 +289,7 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
             >
                 <i
                     className={`codicon ${iconClass}`}
-                    style={{ fontSize: "16px", position: "relative" }}
+                    style={{ fontSize: "16px" }}
                 />
             </button>
         );
