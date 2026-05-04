@@ -420,7 +420,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     </div>
                 )}
 
-            {/* Target duration bar (e.g. subtitle cells): audio length vs allotted timestamp length */}
+            {/*Target duration bar (e.g. subtitle cells): audio length vs allotted timestamp length
             {targetDurationSeconds != null &&
                 targetDurationSeconds > 0 &&
                 audioDurationSeconds != null &&
@@ -452,6 +452,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                         </div>
                     </div>
                 )}
+                */}
 
             {/* Timestamp length comparison bar (actual recorded audio vs. target from cell timestamps)
             {targetDuration &&

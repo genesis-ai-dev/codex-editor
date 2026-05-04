@@ -209,7 +209,7 @@ suite("Subtitle export filtering – milestone and timestamp guards", () => {
             makeLabeledTextCell("cue-1", "Hello there", 0, 2, "Narrator"),
         ];
 
-        const vtt = generateVttData(cells, false, "test.codex");
+        const vtt = generateVttData(cells, false, false, "test.codex");
 
         assert.ok(
             vtt.includes("<v Narrator>Hello there</v>"),
@@ -220,7 +220,7 @@ suite("Subtitle export filtering – milestone and timestamp guards", () => {
     test("VTT: omits <v> wrapper when cellLabel is absent", () => {
         const cells: Cell[] = [...textCells];
 
-        const vtt = generateVttData(cells, false, "test.codex");
+        const vtt = generateVttData(cells, false, false, "test.codex");
 
         assert.ok(
             !vtt.includes("<v "),
@@ -235,7 +235,7 @@ suite("Subtitle export filtering – milestone and timestamp guards", () => {
             makeLabeledTextCell("cue-1", "text", 0, 2, "Jane <Smith>\nDoe"),
         ];
 
-        const vtt = generateVttData(cells, false, "test.codex");
+        const vtt = generateVttData(cells, false, false, "test.codex");
 
         assert.ok(
             vtt.includes("<v Jane Smith Doe>text</v>"),

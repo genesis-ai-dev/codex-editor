@@ -371,9 +371,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [countdown, setCountdown] = useState<number | null>(null);
     const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
     const [recordingElapsedTime, setRecordingElapsedTime] = useState<number>(0);
-    const [countdown, setCountdown] = useState<number | null>(null);
-    const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
-    const [recordingElapsedTime, setRecordingElapsedTime] = useState<number>(0);
     const audioSaveRequestIdRef = useRef<string | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -2589,7 +2586,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 ]);
                 return allowedExtensions.has(ext) ? ext : "webm";
             };
-                
 
             const fileExtension = normalizeExtension(blob.type);
 
@@ -4828,7 +4824,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                         }
                                                                     >
                                                                         {isRecording ? (
-                                                                            <Mic className="h-8 w-8" />
+                                                                            <Square className="h-8 w-8" />
                                                                         ) : countdown !== null ? (
                                                                             countdown
                                                                         ) : (

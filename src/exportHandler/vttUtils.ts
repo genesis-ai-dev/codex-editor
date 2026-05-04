@@ -65,6 +65,7 @@ type ProcessedUnit = {
     startTime: number;
     endTime: number;
     finalText: string;
+    payload: string;
 };
 
 export const generateVttData = (
@@ -105,6 +106,7 @@ export const generateVttData = (
                 startTime,
                 endTime,
                 finalText,
+                payload,
             };
         });
 
