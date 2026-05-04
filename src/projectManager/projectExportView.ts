@@ -333,12 +333,23 @@ function getWebviewContent(
                     gap: 8px;
                     padding: 12px;
                     background-color: var(--vscode-editor-inactiveSelectionBackground);
-                    cursor: pointer;
                     user-select: none;
                 }
-                .file-group-header:hover { background-color: var(--vscode-list-hoverBackground); }
                 .file-group-header h4 { margin: 0; flex: 1; font-size: 0.95em; }
-                .file-group-header input[type="checkbox"] { margin: 0; }
+                .group-filter-cb {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    font-size: 0.85em;
+                    white-space: nowrap;
+                    cursor: pointer;
+                    color: var(--vscode-descriptionForeground);
+                    padding: 2px 6px;
+                    border-radius: 3px;
+                }
+                .group-filter-cb:hover { color: var(--vscode-editor-foreground); background: var(--vscode-list-hoverBackground); }
+                .group-filter-cb input[type="checkbox"] { margin: 0; }
+                .group-filter-cb.filter-disabled { opacity: 0.4; pointer-events: none; }
                 .file-group-content {
                     padding: 12px;
                     background-color: var(--vscode-editor-background);
@@ -353,6 +364,38 @@ function getWebviewContent(
                     word-break: break-word;
                 }
                 .file-item:hover { background-color: var(--vscode-list-hoverBackground); }
+                .file-item.file-item-disabled { opacity: 0.45; cursor: not-allowed; }
+                .file-item.file-item-disabled:hover { background-color: transparent; }
+                .file-item.file-item-disabled input[type="checkbox"] { pointer-events: none; }
+                .file-item .file-status-tag {
+                    font-size: 0.75em;
+                    padding: 1px 5px;
+                    border-radius: 3px;
+                    white-space: nowrap;
+                    flex-shrink: 0;
+                }
+                .file-status-tag.audio-only-tag {
+                    color: var(--vscode-charts-blue, #2563eb);
+                    background-color: rgba(37, 99, 235, 0.12);
+                    border: 1px solid rgba(37, 99, 235, 0.3);
+                }
+                .file-status-tag.text-only-tag {
+                    color: var(--vscode-charts-green, #16a34a);
+                    background-color: rgba(34, 197, 94, 0.1);
+                    border: 1px solid rgba(34, 197, 94, 0.3);
+                }
+                .file-status-tag.text-audio-tag {
+                    color: var(--vscode-charts-purple, #9333ea);
+                    background-color: rgba(147, 51, 234, 0.1);
+                    border: 1px solid rgba(147, 51, 234, 0.3);
+                }
+                .file-status-tag.no-content-tag {
+                    color: var(--vscode-descriptionForeground);
+                    background-color: rgba(128, 128, 128, 0.1);
+                    border: 1px solid rgba(128, 128, 128, 0.25);
+                }
+                .file-item.file-item-incompatible { opacity: 0.45; }
+                .file-item.file-item-incompatible input[type="checkbox"] { pointer-events: none; }
                 .format-option {
                     padding: 16px;
                     border: 1px solid var(--vscode-input-border);
@@ -470,7 +513,9 @@ function getWebviewContent(
                     gap: 8px;
                 }
                 .format-section-content .format-option { padding: 12px; }
+                .bible-formats-row { border-top: 1px solid var(--vscode-input-border); }
                 .format-option-row { display: flex; gap: 1rem; }
+                .hidden { display: none !important; }
                 .format-option[data-option].hidden { display: none !important; }
                 .format-section[data-option].hidden { display: none !important; }
                 .format-option-row[data-option].hidden { display: none !important; }
@@ -506,6 +551,10 @@ function getWebviewContent(
                 .format-option-row.disabled-stream-only {
                     opacity: 0.45;
                     cursor: not-allowed;
+                    pointer-events: none;
+                }
+                .audio-section-disabled {
+                    opacity: 0.45;
                     pointer-events: none;
                 }
                 .roundtrip-wrapper[data-option].hidden { display: none !important; }
@@ -582,7 +631,7 @@ function getWebviewContent(
                 <!-- STEP 2: Export Format -->
                 <div id="step2" class="step-panel">
                     <div class="step-content">
-                    <h3>Select Export Format</h3>
+                    <h3 id="formatHeading">Select Export Format</h3>
                         <div id="formatOptionsContainer" style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem;">
                             <!-- Text and markup export: plaintext, XLIFF, USFM, HTML -->
                             <div class="format-section" id="text-export-section">
@@ -604,6 +653,8 @@ function getWebviewContent(
                                             <span class="format-tag">Translation Ready</span>
                                         </div>
                                     </div>
+                                </div>
+                                <div id="bible-export-formats" class="format-section-content bible-formats-row" data-option="usfm">
                                     <div class="format-option" data-format="usfm" data-option="usfm">
                                         <div class="format-option-content">
                                             <strong>Generate USFM</strong>
@@ -743,7 +794,7 @@ function getWebviewContent(
                                 </div>
                             </div>
                         </div>
-                        <h3 style="margin-top: 1.5rem;">Select Audio Export Format</h3>
+                        <h3 id="audioHeading" style="margin-top: 1.5rem;">Select Audio Export Format</h3>
                         <div id="audioOptionsContainer" style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem;">
                             <div class="format-section" id="audio-export-section" data-option="audio">
                                 <div class="format-section-header">
@@ -819,6 +870,25 @@ function getWebviewContent(
         }
             </div>
 
+            <div class="popup-overlay" id="contentMismatchPopup" onclick="if(event.target===this)closeContentMismatchPopup()">
+                <div class="popup-card">
+                    <div class="popup-header">
+                        <i class="codicon codicon-warning"></i>
+                        <h4 id="contentMismatchTitle">Missing Content</h4>
+                        <button class="popup-close" onclick="closeContentMismatchPopup()" title="Close">
+                            <i class="codicon codicon-close"></i>
+                        </button>
+                    </div>
+                    <div class="popup-body">
+                        <p id="contentMismatchSummary"></p>
+                        <div class="popup-file-list" id="contentMismatchFileList"></div>
+                        <p style="margin-top: 8px; color: var(--vscode-descriptionForeground); font-size: 0.85em;">
+                            The export will still proceed, but the listed files will produce empty output for the selected format.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
             <div class="popup-overlay" id="htmlMismatchPopup" onclick="if(event.target===this)closeHtmlMismatchPopup()">
                 <div class="popup-card">
                     <div class="popup-header">
@@ -850,6 +920,28 @@ function getWebviewContent(
                 let selectedFiles = new Set();
                 let selectedGroupKey = null;
 
+                // Build a path→file lookup so Step 2 can check audio-only status
+                const fileLookup = {};
+                fileGroups.forEach(g => g.files.forEach(f => { fileLookup[f.path] = f; }));
+
+                function isSelectionAudioOnly() {
+                    if (selectedFiles.size === 0) return false;
+                    for (const path of selectedFiles) {
+                        const f = fileLookup[path];
+                        if (!f) return false;
+                        if (f.hasTranslations) return false;
+                    }
+                    return true;
+                }
+
+                function selectionHasAudio() {
+                    for (const path of selectedFiles) {
+                        const f = fileLookup[path];
+                        if (f && f.hasAudio) return true;
+                    }
+                    return false;
+                }
+
                 function renderFileGroups() {
                     const container = document.getElementById('fileGroupsContainer');
                     if (!container) return;
@@ -859,20 +951,52 @@ function getWebviewContent(
                     }
                     container.innerHTML = fileGroups.map((group, gIdx) => {
                         const groupId = 'group-' + gIdx;
+                        const enabledCount = group.files.filter(f => f.hasTranslations || f.hasAudio).length;
+                        const groupDisabled = enabledCount === 0;
+                        const hasTextFiles = group.files.some(f => f.hasTranslations);
+                        const hasAudioFiles = group.files.some(f => f.hasAudio);
                         const filesHtml = group.files.map((f, fIdx) => {
                             const id = 'file-' + gIdx + '-' + fIdx;
+                            const isEmpty = !f.hasTranslations && !f.hasAudio;
+                            const isAudioOnly = !f.hasTranslations && f.hasAudio;
+                            const isTextOnly = f.hasTranslations && !f.hasAudio;
+                            const isTextAudio = f.hasTranslations && f.hasAudio;
+                            const contentType = isEmpty ? 'none' : (isAudioOnly ? 'audio-only' : (isTextOnly ? 'text-only' : 'text-audio'));
+                            const disabledAttr = isEmpty ? 'disabled' : '';
+                            const itemClass = 'file-item' + (isEmpty ? ' file-item-disabled' : '');
+                            let tooltip = f.displayName;
+                            if (isEmpty) tooltip = 'No translations or audio to export';
+                            else if (isAudioOnly) tooltip = f.displayName + ' (audio only)';
+                            else if (isTextOnly) tooltip = f.displayName + ' (text only)';
+                            else if (isTextAudio) tooltip = f.displayName + ' (text + audio)';
+                            let statusTag = '';
+                            if (isEmpty) {
+                                statusTag = '<span class="file-status-tag no-content-tag">No content</span>';
+                            } else if (isAudioOnly) {
+                                statusTag = '<span class="file-status-tag audio-only-tag">Audio only</span>';
+                            } else if (isTextOnly) {
+                                statusTag = '<span class="file-status-tag text-only-tag">Text only</span>';
+                            } else if (isTextAudio) {
+                                statusTag = '<span class="file-status-tag text-audio-tag">Text + Audio</span>';
+                            }
                             return \`
-                                <div class="file-item">
-                                    <input type="checkbox" id="\${id}" value="\${f.path}" data-group-key="\${group.groupKey}" onchange="onFileCheckboxChange()">
-                                    <label for="\${id}" title="\${f.displayName}">\${f.displayName}</label>
+                                <div class="\${itemClass}" data-content-type="\${contentType}">
+                                    <input type="checkbox" id="\${id}" value="\${f.path}" data-group-key="\${group.groupKey}" data-content-type="\${contentType}" \${disabledAttr} onchange="onFileCheckboxChange()">
+                                    <label for="\${id}" title="\${tooltip}">\${f.displayName}</label>
+                                    \${statusTag}
                                 </div>
                             \`;
                         }).join('');
                         return \`
                             <div class="file-group" id="\${groupId}" data-group-key="\${group.groupKey}">
-                                <div class="file-group-header" onclick="toggleGroup('\${group.groupKey}')">
-                                    <input type="checkbox" id="group-cb-\${gIdx}" data-group-key="\${group.groupKey}" onchange="onGroupCheckboxChange('\${group.groupKey}')" onclick="event.stopPropagation()">
+                                <div class="file-group-header">
                                     <h4><i class="codicon codicon-folder"></i> \${group.displayName}</h4>
+                                    <label class="group-filter-cb \${hasTextFiles ? '' : 'filter-disabled'}" onclick="event.stopPropagation()">
+                                        <input type="checkbox" data-group-key="\${group.groupKey}" data-filter="text" \${hasTextFiles ? '' : 'disabled'} onchange="onFilterCheckboxChange('\${group.groupKey}', 'text')"> All text
+                                    </label>
+                                    <label class="group-filter-cb \${hasAudioFiles ? '' : 'filter-disabled'}" onclick="event.stopPropagation()">
+                                        <input type="checkbox" data-group-key="\${group.groupKey}" data-filter="audio" \${hasAudioFiles ? '' : 'disabled'} onchange="onFilterCheckboxChange('\${group.groupKey}', 'audio')"> All audio
+                                    </label>
                                 </div>
                                 <div class="file-group-content">\${filesHtml}</div>
                             </div>
@@ -880,37 +1004,74 @@ function getWebviewContent(
                     }).join('');
                 }
 
-                function toggleGroup(groupKey) {
+                function onFilterCheckboxChange(groupKey, filterType) {
                     if (selectedGroupKey && selectedGroupKey !== groupKey) return;
                     const group = document.querySelector('.file-group[data-group-key="' + groupKey + '"]');
                     if (!group) return;
-                    const fileCbs = group.querySelectorAll('.file-group-content input[type="checkbox"]');
-                    const allChecked = Array.from(fileCbs).every(cb => cb.checked);
-                    fileCbs.forEach(cb => {
-                        cb.checked = !allChecked;
-                        if (!allChecked) selectedFiles.add(cb.value);
-                        else selectedFiles.delete(cb.value);
-                    });
-                    const headerCb = group.querySelector('.file-group-header input[type="checkbox"]');
-                    if (headerCb) headerCb.checked = !allChecked;
+                    const textCb = group.querySelector('input[data-filter="text"]');
+                    const audioCb = group.querySelector('input[data-filter="audio"]');
+                    if (filterType === 'text') {
+                        if (textCb && textCb.checked) {
+                            if (audioCb) {
+                                audioCb.checked = false;
+                                group.querySelectorAll('.file-group-content input[data-content-type="audio-only"]').forEach(cb => {
+                                    cb.checked = false;
+                                    selectedFiles.delete(cb.value);
+                                });
+                            }
+                            group.querySelectorAll('.file-group-content input[data-content-type="text-only"], .file-group-content input[data-content-type="text-audio"]').forEach(cb => {
+                                if (!cb.disabled) { cb.checked = true; selectedFiles.add(cb.value); }
+                            });
+                        } else {
+                            group.querySelectorAll('.file-group-content input[data-content-type="text-only"], .file-group-content input[data-content-type="text-audio"]').forEach(cb => {
+                                cb.checked = false;
+                                selectedFiles.delete(cb.value);
+                            });
+                        }
+                    } else if (filterType === 'audio') {
+                        if (audioCb && audioCb.checked) {
+                            if (textCb) {
+                                textCb.checked = false;
+                                group.querySelectorAll('.file-group-content input[data-content-type="text-only"]').forEach(cb => {
+                                    cb.checked = false;
+                                    selectedFiles.delete(cb.value);
+                                });
+                            }
+                            group.querySelectorAll('.file-group-content input[data-content-type="audio-only"], .file-group-content input[data-content-type="text-audio"]').forEach(cb => {
+                                if (!cb.disabled) { cb.checked = true; selectedFiles.add(cb.value); }
+                            });
+                        } else {
+                            group.querySelectorAll('.file-group-content input[data-content-type="audio-only"], .file-group-content input[data-content-type="text-audio"]').forEach(cb => {
+                                cb.checked = false;
+                                selectedFiles.delete(cb.value);
+                            });
+                        }
+                    }
                     updateSelectedGroup();
                     updateStep1Button();
                 }
 
-                function onGroupCheckboxChange(groupKey) {
-                    if (selectedGroupKey && selectedGroupKey !== groupKey) return;
-                    const group = document.querySelector('.file-group[data-group-key="' + groupKey + '"]');
-                    if (!group) return;
-                    const headerCb = group.querySelector('.file-group-header input[type="checkbox"]');
-                    const fileCbs = group.querySelectorAll('.file-group-content input[type="checkbox"]');
-                    const newChecked = headerCb.checked;
-                    fileCbs.forEach(cb => {
-                        cb.checked = newChecked;
-                        if (newChecked) selectedFiles.add(cb.value);
-                        else selectedFiles.delete(cb.value);
+                function syncHeaderCheckboxes() {
+                    document.querySelectorAll('.file-group').forEach(group => {
+                        const textCb = group.querySelector('input[data-filter="text"]');
+                        const audioCb = group.querySelector('input[data-filter="audio"]');
+                        const textEligible = Array.from(group.querySelectorAll('.file-group-content input[data-content-type="text-only"], .file-group-content input[data-content-type="text-audio"]')).filter(cb => !cb.closest('.file-item').classList.contains('file-item-disabled'));
+                        const audioEligible = Array.from(group.querySelectorAll('.file-group-content input[data-content-type="audio-only"], .file-group-content input[data-content-type="text-audio"]')).filter(cb => !cb.closest('.file-item').classList.contains('file-item-disabled'));
+                        const allTextChecked = textEligible.length > 0 && textEligible.every(cb => cb.checked);
+                        const allAudioChecked = audioEligible.length > 0 && audioEligible.every(cb => cb.checked);
+                        if (allTextChecked && allAudioChecked) {
+                            if (textCb && !textCb.checked && audioCb && !audioCb.checked) {
+                                // Neither was previously checked — don't auto-check either
+                            } else if (textCb && textCb.checked) {
+                                if (audioCb) audioCb.checked = false;
+                            } else if (audioCb && audioCb.checked) {
+                                if (textCb) textCb.checked = false;
+                            }
+                        } else {
+                            if (textCb) textCb.checked = allTextChecked;
+                            if (audioCb) audioCb.checked = allAudioChecked;
+                        }
                     });
-                    updateSelectedGroup();
-                    updateStep1Button();
                 }
 
                 function onFileCheckboxChange() {
@@ -918,15 +1079,67 @@ function getWebviewContent(
                     document.querySelectorAll('.file-group-content input[type="checkbox"]:checked').forEach(cb => {
                         selectedFiles.add(cb.value);
                     });
-                    document.querySelectorAll('.file-group').forEach(group => {
-                        const key = group.dataset.groupKey;
-                        const fileCbs = group.querySelectorAll('.file-group-content input[type="checkbox"]');
-                        const allChecked = fileCbs.length > 0 && Array.from(fileCbs).every(cb => cb.checked);
-                        const headerCb = group.querySelector('.file-group-header input[type="checkbox"]');
-                        if (headerCb) headerCb.checked = allChecked;
-                    });
                     updateSelectedGroup();
+                    syncHeaderCheckboxes();
                     updateStep1Button();
+                }
+
+                function getSelectedContentTypes() {
+                    const types = new Set();
+                    for (const path of selectedFiles) {
+                        const f = fileLookup[path];
+                        if (f) {
+                            if (f.hasTranslations && f.hasAudio) types.add('text-audio');
+                            else if (f.hasTranslations) types.add('text-only');
+                            else if (f.hasAudio) types.add('audio-only');
+                        }
+                    }
+                    return types;
+                }
+
+                function isContentTypeCompatible(contentType, selectedTypes) {
+                    if (selectedTypes.size === 0 || contentType === 'none') return true;
+                    if (contentType === 'text-audio') return true;
+                    if (contentType === 'audio-only') return !selectedTypes.has('text-only');
+                    if (contentType === 'text-only') return !selectedTypes.has('audio-only');
+                    return true;
+                }
+
+                function updateContentTypeCompatibility() {
+                    const selectedTypes = getSelectedContentTypes();
+                    document.querySelectorAll('.file-group-content .file-item').forEach(item => {
+                        const ct = item.dataset.contentType;
+                        if (ct === 'none') return;
+                        const cb = item.querySelector('input[type="checkbox"]');
+                        if (!cb) return;
+                        if (cb.checked) {
+                            item.classList.remove('file-item-incompatible');
+                            return;
+                        }
+                        const compatible = isContentTypeCompatible(ct, selectedTypes);
+                        item.classList.toggle('file-item-incompatible', !compatible);
+                        cb.disabled = !compatible;
+                    });
+                    document.querySelectorAll('.file-group:not(.disabled)').forEach(group => {
+                        const textFilterCb = group.querySelector('input[data-filter="text"]');
+                        const audioFilterCb = group.querySelector('input[data-filter="audio"]');
+                        if (textFilterCb && !textFilterCb.checked) {
+                            const hasTextEligible = !!group.querySelector('.file-group-content input[data-content-type="text-only"], .file-group-content input[data-content-type="text-audio"]');
+                            const blocked = selectedTypes.has('audio-only');
+                            const shouldDisable = blocked || !hasTextEligible;
+                            textFilterCb.disabled = shouldDisable;
+                            const label = textFilterCb.closest('.group-filter-cb');
+                            if (label) label.classList.toggle('filter-disabled', shouldDisable);
+                        }
+                        if (audioFilterCb && !audioFilterCb.checked) {
+                            const hasAudioEligible = !!group.querySelector('.file-group-content input[data-content-type="audio-only"], .file-group-content input[data-content-type="text-audio"]');
+                            const blocked = selectedTypes.has('text-only');
+                            const shouldDisable = blocked || !hasAudioEligible;
+                            audioFilterCb.disabled = shouldDisable;
+                            const label = audioFilterCb.closest('.group-filter-cb');
+                            if (label) label.classList.toggle('filter-disabled', shouldDisable);
+                        }
+                    });
                 }
 
                 function updateSelectedGroup() {
@@ -940,6 +1153,7 @@ function getWebviewContent(
                         const key = group.dataset.groupKey;
                         group.classList.toggle('disabled', selectedGroupKey !== null && selectedGroupKey !== key);
                     });
+                    updateContentTypeCompatibility();
                 }
 
                 function updateStep1Button() {
@@ -949,6 +1163,9 @@ function getWebviewContent(
 
                 function initStep2Options(resetFormatSelection) {
                     const key = selectedGroupKey || 'unknown';
+                    const audioOnly = isSelectionAudioOnly();
+                    const hasAudio = selectionHasAudio();
+                    const noAudio = !hasAudio;
                     const show = (option) => {
                         const allowed = exportOptionsConfig[option];
                         if (!allowed) return true;
@@ -959,6 +1176,39 @@ function getWebviewContent(
                         const visible = show(opt);
                         el.classList.toggle('hidden', !visible);
                     });
+
+                    // When all selected files are audio-only, hide every non-audio section
+                    const formatContainer = document.getElementById('formatOptionsContainer');
+                    if (formatContainer) formatContainer.classList.toggle('hidden', audioOnly);
+                    const formatHeading = document.getElementById('formatHeading');
+                    if (formatHeading) formatHeading.classList.toggle('hidden', audioOnly);
+
+                    // When no selected files have audio, hide the audio section entirely
+                    const audioSection = document.getElementById('audio-export-section');
+                    const audioHeading = document.getElementById('audioHeading');
+                    if (audioSection) audioSection.classList.toggle('hidden', noAudio);
+                    if (audioHeading) audioHeading.classList.toggle('hidden', noAudio);
+
+                    // Show/hide the info banner (audio-only or no-audio)
+                    let banner = document.getElementById('exportEligibilityBanner');
+                    const bannerNeeded = audioOnly || noAudio;
+                    if (bannerNeeded) {
+                        const bannerText = audioOnly
+                            ? 'Selected files contain only audio — only audio export is available.'
+                            : 'Selected files contain text only — audio export options are hidden.';
+                        const bannerColor = 'color:var(--vscode-charts-yellow,#ca8a04);background-color:rgba(202,138,4,0.12);border:1px solid rgba(202,138,4,0.35);';
+                        if (!banner) {
+                            banner = document.createElement('div');
+                            banner.id = 'exportEligibilityBanner';
+                            const stepContent = document.querySelector('#step2 .step-content');
+                            if (stepContent) stepContent.prepend(banner);
+                        }
+                        banner.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 14px;margin-bottom:12px;border-radius:4px;font-size:0.9em;' + bannerColor;
+                        banner.innerHTML = '<i class="codicon codicon-warning"></i><span>' + bannerText + '</span>';
+                    } else if (banner) {
+                        banner.style.display = 'none';
+                    }
+
                     // Only clear text format when entering step 2 from step 1 (file group may have changed).
                     // When returning from step 3, keep the user's format choice; audio already behaved this way.
                     if (resetFormatSelection) {
@@ -968,7 +1218,21 @@ function getWebviewContent(
                             opt.style.backgroundColor = '';
                             opt.style.borderColor = '';
                         });
-                        
+                        if (audioOnly || noAudio) {
+                            selectedAudioMode = null;
+                            document.querySelectorAll('#step2 .audio-option').forEach(opt => {
+                                opt.classList.remove('selected');
+                                opt.style.backgroundColor = '';
+                                opt.style.borderColor = '';
+                            });
+                        }
+                    } else if (noAudio && selectedAudioMode) {
+                        selectedAudioMode = null;
+                        document.querySelectorAll('#step2 .audio-option').forEach(opt => {
+                            opt.classList.remove('selected');
+                            opt.style.backgroundColor = '';
+                            opt.style.borderColor = '';
+                        });
                     }
                     updateStep2Button();
                 }
@@ -1094,6 +1358,7 @@ function getWebviewContent(
                             } else {
                                 selectedAudioMode = mode;
                                 option.classList.add('selected');
+                                checkAudioSelectionMismatch();
                             }
                             try { updateStep2Button(); updateExportButton(); } catch (e) {}
                         });
@@ -1124,6 +1389,8 @@ function getWebviewContent(
                             const usfmOptions = document.getElementById('usfmOptions');
                             if (usfmOptions) usfmOptions.style.display = selectedFormat === 'usfm' ? 'block' : 'none';
 
+                            checkTextSelectionMismatch();
+
                             // Check HTML structure mismatches for round-trip export
                             if (selectedFormat === 'rebuild-export' && selectedFiles.size > 0) {
                                 vscode.postMessage({
@@ -1137,6 +1404,65 @@ function getWebviewContent(
                     });
 
                 });
+
+                function getFilesWithoutAudio() {
+                    const names = [];
+                    for (const path of selectedFiles) {
+                        const f = fileLookup[path];
+                        if (f && !f.hasAudio) names.push(f.displayName);
+                    }
+                    return names;
+                }
+
+                function getFilesWithoutText() {
+                    const names = [];
+                    for (const path of selectedFiles) {
+                        const f = fileLookup[path];
+                        if (f && !f.hasTranslations) names.push(f.displayName);
+                    }
+                    return names;
+                }
+
+                function showContentMismatchPopup(title, summary, fileNames) {
+                    const titleEl = document.getElementById('contentMismatchTitle');
+                    const summaryEl = document.getElementById('contentMismatchSummary');
+                    const listEl = document.getElementById('contentMismatchFileList');
+                    const popup = document.getElementById('contentMismatchPopup');
+                    if (!titleEl || !summaryEl || !listEl || !popup) return;
+                    titleEl.textContent = title;
+                    summaryEl.textContent = summary;
+                    listEl.innerHTML = fileNames
+                        .map(n => '<div><i class="codicon codicon-file" style="margin-right:4px;"></i>' + n + '</div>')
+                        .join('');
+                    popup.classList.add('visible');
+                }
+
+                function closeContentMismatchPopup() {
+                    const popup = document.getElementById('contentMismatchPopup');
+                    if (popup) popup.classList.remove('visible');
+                }
+
+                function checkAudioSelectionMismatch() {
+                    const noAudioFiles = getFilesWithoutAudio();
+                    if (noAudioFiles.length > 0) {
+                        showContentMismatchPopup(
+                            'Files Without Audio',
+                            'The following files have no audio translations. Their exported audio folders will be empty.',
+                            noAudioFiles
+                        );
+                    }
+                }
+
+                function checkTextSelectionMismatch() {
+                    const noTextFiles = getFilesWithoutText();
+                    if (noTextFiles.length > 0) {
+                        showContentMismatchPopup(
+                            'Files Without Text',
+                            'The following files have no text translations. Their text export will be empty.',
+                            noTextFiles
+                        );
+                    }
+                }
 
                 function showHtmlMismatchPopup(mismatches) {
                     const summary = document.getElementById('htmlMismatchSummary');

@@ -371,6 +371,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [countdown, setCountdown] = useState<number | null>(null);
     const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
     const [recordingElapsedTime, setRecordingElapsedTime] = useState<number>(0);
+    const [countdown, setCountdown] = useState<number | null>(null);
+    const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
+    const [recordingElapsedTime, setRecordingElapsedTime] = useState<number>(0);
     const audioSaveRequestIdRef = useRef<string | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -2586,6 +2589,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 ]);
                 return allowedExtensions.has(ext) ? ext : "webm";
             };
+                
 
             const fileExtension = normalizeExtension(blob.type);
 
@@ -2675,9 +2679,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         metadata: meta,
                     },
                 };
-
                 window.vscodeApi.postMessage(messageContent);
 
+                // Store the audio ID temporarily
+                sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, uniqueId);
                 // Store the audio ID temporarily
                 sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, uniqueId);
 
@@ -3918,9 +3923,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 });
                             }}
                         />
-                        <span className="text-xs text-muted-foreground">
-                            Paste as plain text
-                        </span>
+                        <span className="text-xs text-muted-foreground">Paste as plain text</span>
                     </label>
                     <span className="text-xs text-muted-foreground">
                         {characterCount} characters

@@ -17,6 +17,13 @@ const ensureDialogueLineBreaks = (text: string): string => {
 };
 
 /**
+ * Sanitize a cellLabel for use inside a WebVTT <v ...> voice tag.
+ * The annotation portion of a voice span cannot contain `<`, `>`, or newlines.
+ */
+const escapeVoiceName = (label: string): string =>
+    label.replace(/[<>]/g, "").replace(/\r?\n/g, " ").trim();
+
+/**
  * Process HTML content for VTT format - preserve supported HTML tags while converting paragraph breaks to newlines
  */
 const processVttContent = (content: string): string => {
@@ -87,6 +94,12 @@ export const generateVttData = (
             const endTime = Number(unit.metadata?.data?.endTime ?? index + 1);
             const text = includeStyles ? processVttContent(unit.value) : removeHtmlTags(unit.value);
             const finalText = ensureDialogueLineBreaks(text);
+
+            const rawLabel = unit.metadata?.cellLabel?.trim();
+            const payload = rawLabel
+                ? `<v ${escapeVoiceName(rawLabel)}>${finalText}</v>`
+                : finalText;
+
             return {
                 id: unit.metadata?.cellLabel || unit.metadata?.id,
                 startTime,
@@ -103,7 +116,7 @@ export const generateVttData = (
                     (unit) =>
                         `${unit.id}
 ${formatTime(unit.startTime)} --> ${formatTime(unit.endTime)}
-${unit.finalText}
+${unit.payload}
 
 `
                 )

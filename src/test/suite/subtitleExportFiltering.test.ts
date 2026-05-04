@@ -62,6 +62,25 @@ const makeCellWithoutTimestamps = (id: string, value: string): Cell => ({
     },
 });
 
+const makeLabeledTextCell = (
+    id: string,
+    value: string,
+    startTime: number,
+    endTime: number,
+    cellLabel: string
+): Cell => ({
+    kind: 2,
+    languageId: "html",
+    value,
+    metadata: {
+        id,
+        type: CodexCellTypes.TEXT,
+        edits: [],
+        cellLabel,
+        data: { startTime, endTime },
+    },
+});
+
 suite("Subtitle export filtering – milestone and timestamp guards", () => {
     const textCells: Cell[] = [
         makeTextCell("cue-1", "Hello world", 0, 2.5),
@@ -181,5 +200,46 @@ suite("Subtitle export filtering – milestone and timestamp guards", () => {
         const vtt = generateVttData(cells, false, false, "test.codex");
 
         assert.ok(vtt.startsWith("WEBVTT"), "VTT output should start with WEBVTT header");
+    });
+
+    // ─── cellLabel → voice tag ──────────────────────────────────────────
+
+    test("VTT: wraps payload in <v cellLabel>...</v> when cellLabel is set", () => {
+        const cells: Cell[] = [
+            makeLabeledTextCell("cue-1", "Hello there", 0, 2, "Narrator"),
+        ];
+
+        const vtt = generateVttData(cells, false, "test.codex");
+
+        assert.ok(
+            vtt.includes("<v Narrator>Hello there</v>"),
+            "Cue payload should be wrapped in a voice span with the cellLabel as the speaker"
+        );
+    });
+
+    test("VTT: omits <v> wrapper when cellLabel is absent", () => {
+        const cells: Cell[] = [...textCells];
+
+        const vtt = generateVttData(cells, false, "test.codex");
+
+        assert.ok(
+            !vtt.includes("<v "),
+            "No voice tag should be emitted for cells without a cellLabel"
+        );
+        assert.ok(vtt.includes("Hello world"));
+        assert.ok(vtt.includes("Second subtitle"));
+    });
+
+    test("VTT: sanitizes stray <, >, and newlines out of cellLabel", () => {
+        const cells: Cell[] = [
+            makeLabeledTextCell("cue-1", "text", 0, 2, "Jane <Smith>\nDoe"),
+        ];
+
+        const vtt = generateVttData(cells, false, "test.codex");
+
+        assert.ok(
+            vtt.includes("<v Jane Smith Doe>text</v>"),
+            "Voice-tag annotation should have <, >, and newlines stripped"
+        );
     });
 });
