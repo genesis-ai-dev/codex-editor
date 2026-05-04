@@ -6,6 +6,7 @@ import { promisify } from "util";
 import * as os from "os";
 import * as fs from "fs";
 import { getFFmpegPath } from "../utils/ffmpegManager";
+import { CodexCellTypes } from "../../types/enums";
 
 const execAsync = promisify(exec);
 
@@ -27,6 +28,12 @@ type ExportAudioOptions = {
     includeTimestamps?: boolean;
 };
 
+type AudioCellData = {
+    startTime?: number;
+    endTime?: number;
+    audioStartTime?: number;
+    audioEndTime?: number;
+};
 
 function sanitizeFileComponent(input: string): string {
     return input
@@ -127,7 +134,7 @@ function computeDialogueLineNumbers(
         const isMerged = !!(data && data.merged);
         const isDeleted = !!(data && data.deleted);
         const isParatext = cell?.metadata?.type === "paratext";
-        const isMilestone = cell?.metadata?.type === "milestone";
+        const isMilestone = cell?.metadata?.type === CodexCellTypes.MILESTONE;
         if (!isValidKind || isMerged || isDeleted || isParatext || isMilestone) continue;
         const id: string | undefined = cell?.metadata?.id;
         if (!id) continue;
@@ -533,6 +540,10 @@ export async function exportAudioAttachments(
                         debug(`Skipping cell with kind ${cell.kind}`);
                         continue;
                     }
+                    if (cell?.metadata?.type === CodexCellTypes.MILESTONE) {
+                        debug(`Skipping milestone cell: ${cell?.metadata?.id}`);
+                        continue;
+                    }
                     if (!isActiveCell(cell)) {
                         debug(`Skipping inactive cell: ${cell?.metadata?.id}`);
                         continue;
@@ -581,9 +592,9 @@ export async function exportAudioAttachments(
                     }
 
                     // Build destination filename: <file>_<lang>_<label>_<line>.wav (always export as WAV)
-                    const timeFromCell = (cell?.metadata?.data || {}) as { startTime?: number; endTime?: number; };
-                    const start = timeFromCell.startTime;
-                    const end = timeFromCell.endTime;
+                    const timeFromCell = (cell?.metadata?.data || {}) as AudioCellData;
+                    const start = timeFromCell.audioStartTime || timeFromCell.startTime;
+                    const end = timeFromCell.audioEndTime || timeFromCell.endTime;
                     const originalExt = extname(absoluteSrc.fsPath) || ".wav";
                     const labelRaw = cell?.metadata?.cellLabel || "unlabeled";
                     const label = sanitizeFileComponent(String(labelRaw).toLowerCase());
