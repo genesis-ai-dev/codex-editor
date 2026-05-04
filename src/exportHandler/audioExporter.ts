@@ -38,7 +38,6 @@ function sanitizeFileComponent(input: string): string {
         .replace(/_+/g, "_");
 }
 
-// REMOVE: This doesn't seem to be used anywhere
 /**
  * Parses a cell reference ID (from globalReferences) to extract book, chapter, and verse.
  * Falls back to parsing cellId if globalReferences not available (legacy support).
@@ -75,40 +74,18 @@ function parseCellIdToBookChapterVerse(cell: any, cellId: string): { book: strin
     }
 }
 
-// REMOVE: This doesn't seem to be used anywhere
-function toBookChapterVerseBasename(cell: any, cellId: string): string {
-    const { book, chapter, verse } = parseCellIdToBookChapterVerse(cell, cellId);
-    const safePad = (n: number | undefined) => (typeof n === "number" && Number.isFinite(n) ? String(n) : "0").padStart(3, "0");
-    const chapStr = safePad(chapter);
-    const verseStr = safePad(verse);
-    return sanitizeFileComponent(`${book}_${chapStr}_${verseStr}`);
-}
-
-// REMOVE: This doesn't seem to be used anywhere
-function formatTimeRangeSuffix(start?: number, end?: number): string {
-    if (start === undefined && end === undefined) return "";
-    const coerce = (v: any): number | undefined => {
-        if (v === undefined || v === null) return undefined;
-        const num = typeof v === "number" ? v : Number(v);
-        if (!Number.isFinite(num)) return undefined;
-        return num;
-    };
-    const fmt = (v: number | undefined) => {
-        if (v === undefined) return "";
-        // Truncate to milliseconds (no rounding up) and format like SRT/VTT but filename-safe: HH-MM-SS_mmm
-        const totalMs = Math.floor(v * 1000);
-        const hours = Math.floor(totalMs / 3600000);
-        const minutes = Math.floor((totalMs % 3600000) / 60000);
-        const seconds = Math.floor((totalMs % 60000) / 1000);
-        const millis = totalMs % 1000;
-        const pad2 = (n: number) => String(n).padStart(2, "0");
-        const pad3 = (n: number) => String(n).padStart(3, "0");
-        return `${pad2(hours)}-${pad2(minutes)}-${pad2(seconds)}_${pad3(millis)}`;
-    };
-    const s = fmt(coerce(start));
-    const e = fmt(coerce(end));
-    if (!s && !e) return "";
-    return `_${s || ""}-${e || ""}`;
+/**
+ * Builds the chapter/verse segment for an export filename.
+ * Returns e.g. "C1_V25" when both are available, "C1" for chapter only, or "" if neither.
+ */
+function formatChapterVerseSuffix(chapter?: number, verse?: number): string {
+    if (chapter !== undefined && Number.isFinite(chapter)) {
+        if (verse !== undefined && Number.isFinite(verse)) {
+            return `C${chapter}_V${verse}`;
+        }
+        return `C${chapter}`;
+    }
+    return "";
 }
 
 function getTargetLanguageCode(): string {
@@ -682,6 +659,9 @@ export async function exportAudioAttachments(
                     const label = sanitizeFileComponent(String(labelRaw).toLowerCase());
                     const lineNumber = dialogueMap.get(cellId) || 0;
 
+                    const { chapter, verse } = parseCellIdToBookChapterVerse(cell, cellId);
+                    const cvSuffix = formatChapterVerseSuffix(chapter, verse);
+
                     try {
                         const resolved = await resolveAudioBytes(absoluteSrc, workspaceFolder.uri, frontierApi);
 
@@ -704,13 +684,22 @@ export async function exportAudioAttachments(
                             outputExt = prepared.ext;
                         }
 
-                        let destName = `${sanitizeFileComponent(bookCode)}_${label}_LN${lineNumber}${outputExt}`;
+                        const baseSegments = [sanitizeFileComponent(bookCode)];
+                        if (cvSuffix) {
+                            baseSegments.push(cvSuffix);
+                        } else {
+                            baseSegments.push(label);
+                        }
+                        baseSegments.push(`L${lineNumber}`);
+                        const baseName = baseSegments.join("_");
+
+                        let destName = `${baseName}${outputExt}`;
                         let destUri = vscode.Uri.joinPath(bookFolder, destName);
 
                         // Avoid collisions by appending incremental suffix
                         let attempt = 1;
                         while (await pathExists(destUri)) {
-                            destName = `${sanitizeFileComponent(bookCode)}_${label}_LN${lineNumber}_${attempt}${outputExt}`;
+                            destName = `${baseName}_${attempt}${outputExt}`;
                             destUri = vscode.Uri.joinPath(bookFolder, destName);
                             attempt++;
                         }
