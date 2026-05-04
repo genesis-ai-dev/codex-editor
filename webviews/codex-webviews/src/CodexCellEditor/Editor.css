@@ -186,3 +186,59 @@ sup.footnote-marker {
 .ql-toolbar.ql-snow + .ql-container.ql-snow {
     border-top: 1px solid var(--vscode-widget-border);
 }
+
+/*
+ * Custom "superscript digit" toolbar button.
+ * Quill ships no icon for this (it's our own custom handler) and Quill 2
+ * mounts the toolbar as a sibling of `.quill-editor-container`, so we
+ * intentionally target `.ql-toolbar` directly without an ancestor selector.
+ * Render a compact "x²" glyph via ::before. Sticky state tints the glyph
+ * (link color), not a pill background, so it doesn’t look like the SVG
+ * “filled” look of Bold/Italic while still reading as “on”.
+ */
+.ql-toolbar button.ql-superDigit {
+    position: relative;
+    width: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ql-toolbar button.ql-superDigit::before {
+    content: "x\00B2";
+    font-family: var(--vscode-font-family, "Segoe UI", sans-serif);
+    font-size: 13px;
+    line-height: 1;
+    color: inherit;
+}
+
+/*
+ * Sticky on: highlight only the “x²” glyph (like a text link), not the full
+ * button chrome — Bold/Italic use SVG fills on `ql-active`; this button uses
+ * ::before, so we color that instead of a selection-pill background.
+ */
+.ql-toolbar button.ql-superDigit.ql-super-sticky,
+.ql-toolbar button.ql-superDigit.ql-super-sticky:hover,
+.ql-toolbar button.ql-superDigit.ql-super-sticky:focus {
+    background: transparent;
+    color: var(--vscode-editor-foreground);
+    box-shadow: none;
+}
+.ql-toolbar button.ql-superDigit.ql-super-sticky::before,
+.ql-toolbar button.ql-superDigit.ql-super-sticky:hover::before,
+.ql-toolbar button.ql-superDigit.ql-super-sticky:focus::before {
+    color: var(--vscode-textLink-foreground, var(--vscode-editor-foreground));
+    font-weight: 600;
+}
+
+/*
+ * Quill-wrapped Unicode superscript digits: Latin-1 (¹²³) vs. block ⁰⁴–⁹
+ * differ in size in most fonts; bump the latter so 0–9 look even.
+ */
+.quill-editor-container .ql-editor .codex-unicode-sdigit[data-csdigit="phon"],
+.quill-editor .ql-editor .codex-unicode-sdigit[data-csdigit="phon"] {
+    /* Slight bump — most variable fonts still draw U+207x smaller than ¹²³ */
+    font-size: 1.3em;
+    vertical-align: baseline;
+    line-height: 1;
+}
