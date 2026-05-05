@@ -677,6 +677,43 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
+    requestSimilarWordingInspection: async ({ event, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "requestSimilarWordingInspection"; }>;
+        const { cellId, targetContent } = typedEvent.content;
+
+        try {
+            const { getSQLiteIndexManager } = await import(
+                "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+            );
+            const indexManager = getSQLiteIndexManager();
+            if (!indexManager) {
+                throw new Error("Search index is not ready.");
+            }
+
+            const { inspectSimilarWording } = await import(
+                "../../activationHelpers/contextAware/contentIndexes/similarWordingInspection"
+            );
+            const result = await inspectSimilarWording(indexManager, {
+                cellId,
+                targetContent,
+            });
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "similarWordingInspectionResult",
+                content: result,
+            });
+        } catch (error) {
+            console.error("Error inspecting similar wording:", error);
+            provider.postMessageToWebview(webviewPanel, {
+                type: "similarWordingInspectionError",
+                content: {
+                    cellId,
+                    error: error instanceof Error ? error.message : String(error),
+                },
+            });
+        }
+    },
+
     saveHtml: async ({ event, document, provider, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "saveHtml"; }>;
         const requestId = typedEvent.requestId;

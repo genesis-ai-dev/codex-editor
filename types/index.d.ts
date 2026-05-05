@@ -330,10 +330,36 @@ type MinimalCellResult = {
 
 type TranslationPair = {
     cellId: string;
+    cellLabel?: string | null;
     sourceCell: MinimalCellResult;
     targetCell: MinimalCellResult;
     edits?: EditHistory[]; // Make this optional as it might not always be present
 };
+
+export interface SimilarWordingOccurrence {
+    cellId: string;
+    cellLabel?: string | null;
+    sourceSnippet: string;
+    targetSnippet: string;
+    uri?: string;
+    line?: number;
+    score: number;
+    isValidated?: boolean;
+}
+
+export interface SimilarWordingChunk {
+    text: string;
+    startOffset: number;
+    endOffset: number;
+    tokenCount: number;
+    occurrences: SimilarWordingOccurrence[];
+}
+
+export interface SimilarWordingInspectionResult {
+    cellId: string;
+    plainText: string;
+    chunks: SimilarWordingChunk[];
+}
 
 type SourceCellVersions = {
     cellId: string;
@@ -377,6 +403,7 @@ export type EditorPostMessages =
     }
     | { command: "setCurrentIdToGlobalState"; content: { currentLineId: string; }; }
     | { command: "webviewFocused"; content: { uri: string; }; }
+    | { command: "requestSimilarWordingInspection"; content: { cellId: string; targetContent: string; }; }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
     | { command: "resolveHtmlStructure"; content: { cellId: string; }; }
@@ -567,6 +594,13 @@ export type EditorPostMessages =
     | {
         command: "showErrorMessage";
         text: string;
+    }
+    | {
+        command: "expandSearchToAllFiles";
+        content: {
+            query: string;
+            replaceText?: string;
+        };
     }
     | {
         command: "selectABTestVariant";
@@ -2009,6 +2043,17 @@ type EditorReceiveMessages =
         type: "commentsForCells";
         content: {
             [cellId: string]: number; // cellId -> unresolvedCount
+        };
+    }
+    | {
+        type: "similarWordingInspectionResult";
+        content: SimilarWordingInspectionResult;
+    }
+    | {
+        type: "similarWordingInspectionError";
+        content: {
+            cellId: string;
+            error: string;
         };
     }
     | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number; }[]; }
