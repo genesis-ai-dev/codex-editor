@@ -761,34 +761,11 @@ function getWebviewContent(
                                             <span class="format-tag">Quality Assurance</span>
                                         </div>
                                     </div>
-                                </div>
-                                <div class="format-option" data-format="subtitles-vtt-with-cue-splitting">
-                                    <div class="format-option-content">
-                                        <strong>WebVTT with Cue Splitting</strong>
-                                        <p>Only use this option if you have overlapping subtitles representing independent speakers that need to appear and disappear at different times.</p>
-                                        <span class="format-tag">Plain Text Only</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <h3 style="margin-top: 1.5rem;">Select Audio Export Format</h3>
-                        <div id="audioOptionsContainer" style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem;">
-                            <div class="format-section" id="audio-export-section" data-option="audio">
-                                <div class="format-section-header">
-                                    <i class="codicon codicon-mic"></i>
-                                    <h4>Audio Export Options</h4>
-                                </div>
-                                <div id="audio-formats" class="format-section-content">
-                                    <div class="format-option audio-option" data-audio-mode="audio">
+                                    <div class="format-option" data-format="subtitles-vtt-with-cue-splitting">
                                         <div class="format-option-content">
-                                            <strong>Include Audio</strong>
-                                            <p>Export per-cell audio attachments alongside the selected export format</p>
-                                        </div>
-                                    </div>
-                                    <div class="format-option audio-option" data-audio-mode="audio-timestamps">
-                                        <div class="format-option-content">
-                                            <strong>Include Audio with Timestamps</strong>
-                                            <p>Export per-cell audio attachments alongside the selected export format, and embed timestamps in audio metadata (WAV, WebM, M4A)</p>
+                                            <strong>WebVTT with Cue Splitting</strong>
+                                            <p>Only use this option if you have overlapping subtitles representing independent speakers that need to appear and disappear at different times.</p>
+                                            <span class="format-tag">Plain Text Only</span>
                                         </div>
                                     </div>
                                 </div>
