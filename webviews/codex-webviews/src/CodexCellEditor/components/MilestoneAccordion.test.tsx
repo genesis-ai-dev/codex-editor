@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { MilestoneAccordion } from "./MilestoneAccordion";
@@ -59,15 +59,14 @@ vi.mock("./ProgressDots", () => ({
     ProgressDots: () => <div data-testid="progress-dots">ProgressDots</div>,
 }));
 
-// Mock icons
-vi.mock("lucide-react", () => ({
-    Languages: () => <div data-testid="languages-icon">Languages</div>,
-    Check: () => <div data-testid="check-icon">Check</div>,
-    RotateCcw: () => <div data-testid="rotate-icon">RotateCcw</div>,
-    X: () => <div data-testid="x-icon">X</div>,
-    Undo2: () => <div data-testid="undo-icon">Undo2</div>,
-    Plus: () => <div data-testid="plus-icon">Plus</div>,
-}));
+// Mock icons. Use importOriginal so any new icon imported by the component
+// (e.g. Trash2) is automatically available in tests without having to be
+// re-listed here. The previous explicit-list approach silently broke tests
+// every time a new icon was introduced.
+vi.mock("lucide-react", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("lucide-react")>();
+    return { ...actual };
+});
 
 vi.mock("../../components/ui/icons/MicrophoneIcon", () => ({
     default: () => <div data-testid="microphone-icon">Microphone</div>,
@@ -157,6 +156,28 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         vi.restoreAllMocks();
     });
 
+    /**
+     * Scope-helpers for per-milestone queries.
+     *
+     * The accordion renders one row per milestone, each wrapped in
+     * `data-testid="accordion-item-${idx}"` (see the AccordionItem mock above).
+     * The "Rename Milestone" pencil now lives on every row, so an unscoped
+     * `getByLabelText("Rename Milestone")` would match N elements and throw.
+     * Tests almost always exercise the *current* milestone (idx 0 by default),
+     * so we expose a small helper that scopes the lookup to that row.
+     *
+     * Use `getRenameMilestoneButton(idx)` for "must exist" assertions and
+     * `queryRenameMilestoneButton(idx)` for "must not exist" assertions on a
+     * specific row. For "no rename pencils anywhere" (e.g. settings mode off)
+     * use `screen.queryAllByLabelText("Rename Milestone")`.
+     */
+    const getMilestoneRow = (milestoneIdx: number = 0): HTMLElement =>
+        screen.getByTestId(`accordion-item-${milestoneIdx}`);
+    const getRenameMilestoneButton = (milestoneIdx: number = 0): HTMLElement =>
+        within(getMilestoneRow(milestoneIdx)).getByLabelText("Rename Milestone");
+    const queryRenameMilestoneButton = (milestoneIdx: number = 0): HTMLElement | null =>
+        within(getMilestoneRow(milestoneIdx)).queryByLabelText("Rename Milestone");
+
     function renderMilestoneAccordion(
         props: Partial<React.ComponentProps<typeof MilestoneAccordion>> = {}
     ) {
@@ -179,47 +200,49 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             calculateSubsectionProgress: mockCalculateSubsectionProgress,
             requestSubsectionProgress: mockRequestSubsectionProgress,
             vscode: mockVscode,
-            // Most editing-flow tests assert directly against the title pencil,
-            // per-subsection pencils, and add-break controls. Those affordances
-            // are now gated behind the gear/settings toggle, so we open the
-            // accordion already in settings mode by default and let the
-            // dedicated gear-toggle tests override this with `false`.
+            // Most rename-flow tests assert directly against the milestone
+            // pencil, per-milestone-subdivision pencils, and add-break
+            // controls. Those affordances are now gated behind the
+            // gear/settings toggle, so we open the accordion already in
+            // settings mode by default and let the dedicated gear-toggle
+            // tests override this with `false`.
             initialSettingsMode: true,
         };
 
         return render(<MilestoneAccordion {...defaultProps} {...props} />);
     }
 
-    describe("Edit Mode - Starting Edit", () => {
-        it("should enter edit mode when edit button is clicked", async () => {
+    describe("Milestone Rename - Starting", () => {
+        it("swaps the dropdown header from gear → save/cancel and reveals the rename input", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
-            expect(editButton).toBeInTheDocument();
+            const renameButton = getRenameMilestoneButton();
+            expect(renameButton).toBeInTheDocument();
 
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
-            // Should show input field
+            // Header now hosts the rename input, prefilled with the milestone's
+            // current display value.
             const input = screen.getByDisplayValue("Chapter 1");
             expect(input).toBeInTheDocument();
             expect(input.tagName).toBe("INPUT");
 
-            // Should show save and revert buttons
-            expect(screen.getByLabelText("Save Milestone")).toBeInTheDocument();
-            expect(screen.getByLabelText("Revert Changes")).toBeInTheDocument();
-
-            // Edit button should not be visible
-            expect(screen.queryByLabelText("Edit Milestone")).not.toBeInTheDocument();
+            // Save + Cancel replace the gear in the header during a rename.
+            expect(screen.getByLabelText("Save Milestone Rename")).toBeInTheDocument();
+            expect(screen.getByLabelText("Cancel Milestone Rename")).toBeInTheDocument();
+            expect(
+                screen.queryByLabelText("Toggle Milestone Settings")
+            ).not.toBeInTheDocument();
         });
 
         it("should initialize input with current milestone value", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -229,9 +252,9 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         it("should show input field when entering edit mode", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             // Input should be visible and editable
@@ -241,14 +264,14 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         });
     });
 
-    describe("Edit Mode - Saving Changes", () => {
+    describe("Milestone Rename - Saving Changes", () => {
         it("should save milestone when save button is clicked with valid value", async () => {
             renderMilestoneAccordion();
 
             // Enter edit mode
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             // Change the value
@@ -258,7 +281,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             });
 
             // Click save
-            const saveButton = screen.getByLabelText("Save Milestone");
+            const saveButton = screen.getByLabelText("Save Milestone Rename");
             await act(async () => {
                 fireEvent.click(saveButton);
             });
@@ -282,9 +305,9 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         it("should trim whitespace when saving", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -292,7 +315,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "  Trimmed Chapter 1  " } });
             });
 
-            const saveButton = screen.getByLabelText("Save Milestone");
+            const saveButton = screen.getByLabelText("Save Milestone Rename");
             await act(async () => {
                 fireEvent.click(saveButton);
             });
@@ -309,9 +332,9 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         it("should not save if value is empty after trimming", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -319,7 +342,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "   " } });
             });
 
-            const saveButton = screen.getByLabelText("Save Milestone");
+            const saveButton = screen.getByLabelText("Save Milestone Rename");
             expect(saveButton).toBeDisabled();
 
             await act(async () => {
@@ -333,12 +356,12 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         it("should not save if value hasn't changed", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
-            const saveButton = screen.getByLabelText("Save Milestone");
+            const saveButton = screen.getByLabelText("Save Milestone Rename");
             expect(saveButton).toBeDisabled();
 
             await act(async () => {
@@ -352,9 +375,9 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         it("should update local cache immediately after saving", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -362,7 +385,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "Cached Chapter 1" } });
             });
 
-            const saveButton = screen.getByLabelText("Save Milestone");
+            const saveButton = screen.getByLabelText("Save Milestone Rename");
             await act(async () => {
                 fireEvent.click(saveButton);
             });
@@ -376,9 +399,9 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         it("should handle save when milestone index is valid", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -386,7 +409,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "Valid Save" } });
             });
 
-            const saveButton = screen.getByLabelText("Save Milestone");
+            const saveButton = screen.getByLabelText("Save Milestone Rename");
             await act(async () => {
                 fireEvent.click(saveButton);
             });
@@ -402,13 +425,13 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         });
     });
 
-    describe("Edit Mode - Reverting Changes", () => {
+    describe("Milestone Rename - Reverting Changes", () => {
         it("should revert to original value when revert button is clicked", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -416,7 +439,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "Changed Value" } });
             });
 
-            const revertButton = screen.getByLabelText("Revert Changes");
+            const revertButton = screen.getByLabelText("Cancel Milestone Rename");
             await act(async () => {
                 fireEvent.click(revertButton);
             });
@@ -431,9 +454,9 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         it("should not send postMessage when reverting", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -441,7 +464,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "Changed Value" } });
             });
 
-            const revertButton = screen.getByLabelText("Revert Changes");
+            const revertButton = screen.getByLabelText("Cancel Milestone Rename");
             await act(async () => {
                 fireEvent.click(revertButton);
             });
@@ -451,13 +474,13 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         });
     });
 
-    describe("Edit Mode - Keyboard Shortcuts", () => {
+    describe("Milestone Rename - Keyboard Shortcuts", () => {
         it("should save when Enter key is pressed", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -481,9 +504,9 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         it("should revert when Escape key is pressed", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -508,9 +531,9 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         it("should prevent default behavior for Enter key", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -539,9 +562,9 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         it("should prevent default behavior for Escape key", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -565,14 +588,14 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         });
     });
 
-    describe("Edit Mode - Local Cache", () => {
+    describe("Milestone Rename - Local Cache", () => {
         it("should use cached value when displaying previously edited milestone", async () => {
             renderMilestoneAccordion();
 
             // Edit and save milestone 0
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -580,7 +603,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "Saved Chapter 1" } });
             });
 
-            const saveButton = screen.getByLabelText("Save Milestone");
+            const saveButton = screen.getByLabelText("Save Milestone Rename");
             await act(async () => {
                 fireEvent.click(saveButton);
             });
@@ -597,9 +620,9 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             renderMilestoneAccordion();
 
             // Edit and save milestone 0
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -607,7 +630,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "Cached Chapter 1" } });
             });
 
-            const saveButton = screen.getByLabelText("Save Milestone");
+            const saveButton = screen.getByLabelText("Save Milestone Rename");
             await act(async () => {
                 fireEvent.click(saveButton);
             });
@@ -622,13 +645,13 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         });
     });
 
-    describe("Edit Mode - Button States", () => {
+    describe("Milestone Rename - Button States", () => {
         it("should disable save button when value is empty", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -636,16 +659,16 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "" } });
             });
 
-            const saveButton = screen.getByLabelText("Save Milestone");
+            const saveButton = screen.getByLabelText("Save Milestone Rename");
             expect(saveButton).toBeDisabled();
         });
 
         it("should disable save button when value is only whitespace", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -653,28 +676,28 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "   " } });
             });
 
-            const saveButton = screen.getByLabelText("Save Milestone");
+            const saveButton = screen.getByLabelText("Save Milestone Rename");
             expect(saveButton).toBeDisabled();
         });
 
         it("should disable save button when value hasn't changed", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
-            const saveButton = screen.getByLabelText("Save Milestone");
+            const saveButton = screen.getByLabelText("Save Milestone Rename");
             expect(saveButton).toBeDisabled();
         });
 
         it("should enable save button when value has changed", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -682,42 +705,42 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "New Value" } });
             });
 
-            const saveButton = screen.getByLabelText("Save Milestone");
+            const saveButton = screen.getByLabelText("Save Milestone Rename");
             expect(saveButton).not.toBeDisabled();
         });
 
         it("should always enable revert button", async () => {
             renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
-            const revertButton = screen.getByLabelText("Revert Changes");
+            const revertButton = screen.getByLabelText("Cancel Milestone Rename");
             expect(revertButton).not.toBeDisabled();
         });
     });
 
-    describe("Edit Mode - Source Text Mode", () => {
-        it("should show edit button when isSourceText is true", () => {
+    describe("Milestone Rename - Source Text Mode", () => {
+        it("renders the Rename Milestone pencil on source documents", () => {
             renderMilestoneAccordion({ isSourceText: true });
 
-            expect(screen.getByLabelText("Edit Milestone")).toBeInTheDocument();
+            expect(getRenameMilestoneButton()).toBeInTheDocument();
         });
 
-        it("should show edit button when isSourceText is false", () => {
+        it("renders the Rename Milestone pencil on target documents", () => {
             renderMilestoneAccordion({ isSourceText: false });
 
-            expect(screen.getByLabelText("Edit Milestone")).toBeInTheDocument();
+            expect(getRenameMilestoneButton()).toBeInTheDocument();
         });
 
         it("should allow editing milestones in source files", async () => {
             renderMilestoneAccordion({ isSourceText: true });
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -725,7 +748,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "Source Chapter 1" } });
             });
 
-            const saveButton = screen.getByLabelText("Save Milestone");
+            const saveButton = screen.getByLabelText("Save Milestone Rename");
             await act(async () => {
                 fireEvent.click(saveButton);
             });
@@ -743,9 +766,9 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         it("should allow editing milestones in target files", async () => {
             renderMilestoneAccordion({ isSourceText: false });
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -753,7 +776,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "Target Chapter 1" } });
             });
 
-            const saveButton = screen.getByLabelText("Save Milestone");
+            const saveButton = screen.getByLabelText("Save Milestone Rename");
             await act(async () => {
                 fireEvent.click(saveButton);
             });
@@ -769,7 +792,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         });
     });
 
-    describe("Subsection Rename", () => {
+    describe("Milestone Subdivision Rename", () => {
         const createSubsectionWithKey = (
             id: string,
             label: string,
@@ -786,7 +809,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             source: "custom",
         });
 
-        it("renders rename button only for subsections that carry a key", async () => {
+        it("renders rename button only for milestone subdivisions that carry a key", async () => {
             mockGetSubsectionsForMilestone = vi.fn((milestoneIdx: number) => [
                 createSubsectionWithKey(
                     `s-${milestoneIdx}-0`,
@@ -808,7 +831,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 getSubsectionsForMilestone: mockGetSubsectionsForMilestone,
             });
 
-            const renameButtons = await screen.findAllByLabelText("Rename Subsection");
+            const renameButtons = await screen.findAllByLabelText("Rename Milestone Subdivision");
             // Two keyed subsections → two rename affordances; the legacy one is omitted.
             expect(renameButtons).toHaveLength(2);
         });
@@ -827,7 +850,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             expect(screen.getByText("1-5")).toBeInTheDocument();
         });
 
-        it("posts updateMilestoneSubdivisionName when the subsection rename is saved", async () => {
+        it("posts updateMilestoneSubdivisionName when the milestone subdivision rename is saved", async () => {
             mockGetSubsectionsForMilestone = vi.fn((milestoneIdx: number) => [
                 createSubsectionWithKey(`s-${milestoneIdx}-0`, "1-5", "v1"),
             ]);
@@ -836,7 +859,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 getSubsectionsForMilestone: mockGetSubsectionsForMilestone,
             });
 
-            const renameBtn = await screen.findByLabelText("Rename Subsection");
+            const renameBtn = await screen.findByLabelText("Rename Milestone Subdivision");
             await act(async () => {
                 fireEvent.click(renameBtn);
             });
@@ -847,7 +870,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "Opening" } });
             });
 
-            const saveBtn = screen.getByLabelText("Save Subsection Name");
+            const saveBtn = screen.getByLabelText("Save Milestone Subdivision Rename");
             await act(async () => {
                 fireEvent.click(saveBtn);
             });
@@ -871,7 +894,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 getSubsectionsForMilestone: mockGetSubsectionsForMilestone,
             });
 
-            const renameBtn = await screen.findByLabelText("Rename Subsection");
+            const renameBtn = await screen.findByLabelText("Rename Milestone Subdivision");
             await act(async () => {
                 fireEvent.click(renameBtn);
             });
@@ -881,7 +904,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "" } });
             });
 
-            const saveBtn = screen.getByLabelText("Save Subsection Name");
+            const saveBtn = screen.getByLabelText("Save Milestone Subdivision Rename");
             await act(async () => {
                 fireEvent.click(saveBtn);
             });
@@ -905,12 +928,12 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 getSubsectionsForMilestone: mockGetSubsectionsForMilestone,
             });
 
-            const renameBtn = await screen.findByLabelText("Rename Subsection");
+            const renameBtn = await screen.findByLabelText("Rename Milestone Subdivision");
             await act(async () => {
                 fireEvent.click(renameBtn);
             });
 
-            const saveBtn = screen.getByLabelText("Save Subsection Name");
+            const saveBtn = screen.getByLabelText("Save Milestone Subdivision Rename");
             await act(async () => {
                 fireEvent.click(saveBtn);
             });
@@ -930,7 +953,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 getSubsectionsForMilestone: mockGetSubsectionsForMilestone,
             });
 
-            const renameBtn = await screen.findByLabelText("Rename Subsection");
+            const renameBtn = await screen.findByLabelText("Rename Milestone Subdivision");
             await act(async () => {
                 fireEvent.click(renameBtn);
             });
@@ -940,7 +963,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "Something Else" } });
             });
 
-            const cancelBtn = screen.getByLabelText("Cancel Rename");
+            const cancelBtn = screen.getByLabelText("Cancel Milestone Subdivision Rename");
             await act(async () => {
                 fireEvent.click(cancelBtn);
             });
@@ -954,7 +977,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         });
     });
 
-    describe("Subsection Delete and Reset (source only)", () => {
+    describe("Milestone Subdivision Delete and Reset (source only)", () => {
         const makeSubsection = (
             id: string,
             label: string,
@@ -1020,7 +1043,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             makeSubsection("s-2", "16-30", "v16", "custom", "v16", "Final"),
         ];
 
-        it("shows remove button only for custom subsections in source", async () => {
+        it("shows remove button only for custom milestone subdivisions in source", async () => {
             renderMilestoneAccordion({
                 isSourceText: true,
                 milestoneIndex: createIndexWithSubdivisions(),
@@ -1374,11 +1397,16 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             renderMilestoneAccordion({ initialSettingsMode: false });
 
             // Default (read-only) state: gear is the only edit-related control
-            // in the header, the title pencil is gone, and per-subsection
-            // pencils + add-break / reset footers stay hidden.
-            expect(screen.queryByLabelText("Edit Milestone")).not.toBeInTheDocument();
-            expect(screen.queryByLabelText("Rename Subsection")).not.toBeInTheDocument();
-            expect(screen.queryByLabelText("Add Subdivision Break")).not.toBeInTheDocument();
+            // in the header, every milestone's rename pencil is gone, and the
+            // per-subdivision pencils + add-break / reset footers stay hidden.
+            // Use queryAllByLabelText so the assertion is precise about the
+            // *count* of pencils (zero) without throwing when there happen
+            // to be multiple rows.
+            expect(screen.queryAllByLabelText("Rename Milestone")).toHaveLength(0);
+            expect(
+                screen.queryAllByLabelText("Rename Milestone Subdivision")
+            ).toHaveLength(0);
+            expect(screen.queryAllByLabelText("Add Subdivision Break")).toHaveLength(0);
             const gearButton = screen.getByLabelText("Toggle Milestone Settings");
             expect(gearButton).toHaveAttribute("aria-pressed", "false");
 
@@ -1386,17 +1414,20 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.click(gearButton);
             });
 
-            expect(screen.getByLabelText("Edit Milestone")).toBeInTheDocument();
+            // Settings on → every milestone row exposes its rename pencil.
+            // We assert the current row's pencil specifically (the others
+            // mirror it) so the test reads as "pencil for Chapter 1 is back".
+            expect(getRenameMilestoneButton()).toBeInTheDocument();
             expect(screen.getByLabelText("Toggle Milestone Settings")).toHaveAttribute(
                 "aria-pressed",
                 "true"
             );
         });
 
-        it("reveals per-subsection rename pencils when settings mode is open", async () => {
-            // Subsections need a `key` for the rename pencil to render at all
-            // (per the canRename guard); supply one so we can verify the gear
-            // toggle uncovers them.
+        it("reveals per-milestone-subdivision rename pencils when settings mode is open", async () => {
+            // Milestone subdivisions need a `key` for the rename pencil to
+            // render at all (per the canRename guard); supply one so we can
+            // verify the gear toggle uncovers them.
             renderMilestoneAccordion({
                 initialSettingsMode: false,
                 getSubsectionsForMilestone: vi.fn(() => [
@@ -1410,13 +1441,13 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 ]),
             });
 
-            expect(screen.queryByLabelText("Rename Subsection")).not.toBeInTheDocument();
+            expect(screen.queryByLabelText("Rename Milestone Subdivision")).not.toBeInTheDocument();
 
             await act(async () => {
                 fireEvent.click(screen.getByLabelText("Toggle Milestone Settings"));
             });
 
-            const renamePencils = screen.getAllByLabelText("Rename Subsection");
+            const renamePencils = screen.getAllByLabelText("Rename Milestone Subdivision");
             expect(renamePencils.length).toBeGreaterThan(0);
         });
 
@@ -1445,7 +1476,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             await act(async () => {
                 fireEvent.click(screen.getByLabelText("Toggle Milestone Settings"));
             });
-            expect(screen.getByLabelText("Edit Milestone")).toBeInTheDocument();
+            expect(getRenameMilestoneButton()).toBeInTheDocument();
 
             // Close and reopen — the user should land back in read-only mode
             // so an accidental click on the gear isn't sticky across sessions.
@@ -1496,7 +1527,10 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 );
             });
 
-            expect(screen.queryByLabelText("Edit Milestone")).not.toBeInTheDocument();
+            // After remount in read-only mode, NO milestone exposes a rename
+            // pencil — the gear must collapse settings rather than persist
+            // through an accordion close/reopen cycle.
+            expect(screen.queryAllByLabelText("Rename Milestone")).toHaveLength(0);
             expect(screen.getByLabelText("Toggle Milestone Settings")).toHaveAttribute(
                 "aria-pressed",
                 "false"
@@ -1504,13 +1538,13 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         });
     });
 
-    describe("Edit Mode - Accordion Close (no refresh on close)", () => {
+    describe("Milestone Rename - Accordion Close (no refresh on close)", () => {
         it("should not send refreshWebviewAfterMilestoneEdits when accordion closes after saving (provider pushes updates immediately on save)", async () => {
             const { rerender } = renderMilestoneAccordion();
 
-            const editButton = screen.getByLabelText("Edit Milestone");
+            const renameButton = getRenameMilestoneButton();
             await act(async () => {
-                fireEvent.click(editButton);
+                fireEvent.click(renameButton);
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
@@ -1518,7 +1552,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.change(input, { target: { value: "New Value" } });
             });
 
-            const saveButton = screen.getByLabelText("Save Milestone");
+            const saveButton = screen.getByLabelText("Save Milestone Rename");
             await act(async () => {
                 fireEvent.click(saveButton);
             });

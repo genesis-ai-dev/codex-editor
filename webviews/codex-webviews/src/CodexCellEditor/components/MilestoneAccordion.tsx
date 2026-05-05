@@ -927,9 +927,9 @@ export function MilestoneAccordion({
                         {isEditingMilestone ? (
                             <>
                                 <VSCodeButton
-                                    aria-label="Save Milestone"
+                                    aria-label="Save Milestone Rename"
                                     appearance="icon"
-                                    title="Save Milestone"
+                                    title="Save Milestone Rename"
                                     onClick={handleSaveMilestone}
                                     disabled={
                                         !editedMilestoneValue.trim() ||
@@ -939,9 +939,9 @@ export function MilestoneAccordion({
                                     <Check className="h-4 w-4" />
                                 </VSCodeButton>
                                 <VSCodeButton
-                                    aria-label="Revert Changes"
+                                    aria-label="Cancel Milestone Rename"
                                     appearance="icon"
-                                    title="Revert Changes"
+                                    title="Cancel Milestone Rename"
                                     onClick={handleRevertMilestone}
                                 >
                                     <RotateCcw className="h-4 w-4" />
@@ -1237,9 +1237,9 @@ export function MilestoneAccordion({
                                                                 {isEditingThisRow ? (
                                                                     <>
                                                                         <VSCodeButton
-                                                                            aria-label="Save Subsection Name"
+                                                                            aria-label="Save Milestone Subdivision Rename"
                                                                             appearance="icon"
-                                                                            title="Save"
+                                                                            title="Save Milestone Subdivision Rename"
                                                                             onClick={
                                                                                 handleSaveSubsectionName
                                                                             }
@@ -1247,9 +1247,9 @@ export function MilestoneAccordion({
                                                                             <Check className="h-4 w-4" />
                                                                         </VSCodeButton>
                                                                         <VSCodeButton
-                                                                            aria-label="Cancel Rename"
+                                                                            aria-label="Cancel Milestone Subdivision Rename"
                                                                             appearance="icon"
-                                                                            title="Cancel"
+                                                                            title="Cancel Milestone Subdivision Rename"
                                                                             onClick={
                                                                                 handleRevertSubsectionName
                                                                             }
@@ -1268,9 +1268,9 @@ export function MilestoneAccordion({
                                                                         {isSettingsMode &&
                                                                             canRename && (
                                                                                 <VSCodeButton
-                                                                                    aria-label="Rename Subsection"
+                                                                                    aria-label="Rename Milestone Subdivision"
                                                                                     appearance="icon"
-                                                                                    title="Rename Subsection"
+                                                                                    title="Rename Milestone Subdivision"
                                                                                     onClick={(e) =>
                                                                                         handleSubsectionEditClick(
                                                                                             e,
