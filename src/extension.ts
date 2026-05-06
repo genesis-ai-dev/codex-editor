@@ -48,6 +48,8 @@ import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 import { openCodexMigrationTool } from "./codexMigrationTool/codexMigrationTool";
 import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/codexCellEditorProvider";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
+import { initializeStateStore } from "./stateStore";
+import { runOnce } from "./utils/oneTimeMigrations";
 import { fileExists } from "./utils/webviewUtils";
 import { checkIfProjectIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
@@ -345,6 +347,38 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     initToolPreferences(context);
+
+    // Construct the singleton cellId state store (file-backed under
+    // globalStorageUri). Must run before providers register so that any
+    // subsequent initializeStateStore() calls inside providers reuse the
+    // same instance.
+    try {
+        await initializeStateStore(context);
+    } catch (e) {
+        console.error("[Extension] Failed to initialize cellId state store:", e);
+    }
+
+    // One-shot cleanup of the orphaned cellId row inside the
+    // project-accelerate.shared-state-store extension's globalState. That row
+    // was the source of the mainThreadStorage >5 MB warning. The flag lives
+    // in globalStorageUri/migrations.json so the cleanup runs exactly once
+    // (and retries on the next activation if it threw).
+    try {
+        await runOnce(context, "sharedStateStoreCellIdCleanupV1", async () => {
+            const ext = vscode.extensions.getExtension("project-accelerate.shared-state-store");
+            if (!ext) return;
+            const api = await ext.activate();
+            if (!api || typeof api.updateStoreState !== "function") return;
+            // Setting value to undefined causes the underlying
+            // globalState.update(key, undefined) to delete the row.
+            api.updateStoreState({ key: "cellId", value: undefined });
+        });
+    } catch (e) {
+        console.warn(
+            "[Extension] sharedStateStoreCellIdCleanupV1 cleanup failed; will retry on next activation.",
+            e
+        );
+    }
 
     // Save tab layout and close all editors before showing splash screen
     try {
