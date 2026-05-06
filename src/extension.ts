@@ -358,24 +358,40 @@ export async function activate(context: vscode.ExtensionContext) {
         console.error("[Extension] Failed to initialize cellId state store:", e);
     }
 
-    // One-shot cleanup of the orphaned cellId row inside the
-    // project-accelerate.shared-state-store extension's globalState. That row
-    // was the source of the mainThreadStorage >5 MB warning. The flag lives
-    // in globalStorageUri/migrations.json so the cleanup runs exactly once
-    // (and retries on the next activation if it threw).
+    // One-shot cleanup of orphaned rows inside the project-accelerate.shared-state-store
+    // extension's globalState. Historically codex-editor wrote `sourceCellMap` (full
+    // source-cell content keyed by reference) and `cellId` to that store; the writers
+    // were removed long ago (sourceCellMap in 0.6.1, cellId in the local-store
+    // migration), but the data has been sitting in state.vscdb ever since, triggering
+    // the mainThreadStorage >5 MB warning and bloating activation memory.
+    //
+    // The flag lives in globalStorageUri/migrations.json so the cleanup runs exactly
+    // once per machine (and retries on the next activation if it threw). The ID is
+    // bumped to V2 because V1 only wiped `cellId` (negligible) and missed the real
+    // offender, `sourceCellMap`.
     try {
-        await runOnce(context, "sharedStateStoreCellIdCleanupV1", async () => {
+        await runOnce(context, "sharedStateStoreOrphanCleanupV2", async () => {
             const ext = vscode.extensions.getExtension("project-accelerate.shared-state-store");
             if (!ext) return;
             const api = await ext.activate();
             if (!api || typeof api.updateStoreState !== "function") return;
             // Setting value to undefined causes the underlying
-            // globalState.update(key, undefined) to delete the row.
-            api.updateStoreState({ key: "cellId", value: undefined });
+            // globalState.update(key, undefined) to delete the key from the row.
+            const orphanKeys = ["cellId", "sourceCellMap"] as const;
+            for (const key of orphanKeys) {
+                try {
+                    api.updateStoreState({ key, value: undefined });
+                } catch (innerErr) {
+                    console.warn(
+                        `[Extension] Failed to wipe '${key}' from shared-state-store:`,
+                        innerErr
+                    );
+                }
+            }
         });
     } catch (e) {
         console.warn(
-            "[Extension] sharedStateStoreCellIdCleanupV1 cleanup failed; will retry on next activation.",
+            "[Extension] sharedStateStoreOrphanCleanupV2 cleanup failed; will retry on next activation.",
             e
         );
     }

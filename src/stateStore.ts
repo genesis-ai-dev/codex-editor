@@ -14,7 +14,7 @@ import { LocalCellIdStore } from "./utils/cellIdStore";
  */
 
 type StateStoreUpdate =
-    | { key: "cellId"; value: CellIdGlobalState | undefined };
+    | { key: "cellId"; value: CellIdGlobalState | undefined; };
 
 type StateStoreKey = StateStoreUpdate["key"];
 type StateStoreValue<K extends StateStoreKey> = K extends "cellId" ? CellIdGlobalState : never;
