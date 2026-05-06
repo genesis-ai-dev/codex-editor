@@ -18,8 +18,6 @@
 # Runtime dependencies
 !node_modules/dugite/build/**
 !node_modules/dugite/package.json
-!node_modules/@vscode/codicons/dist/**
-!node_modules/vscode-uri
 
 # Documentation
 !CHANGELOG.md
