@@ -284,4 +284,295 @@ suite("migrateVerseRangeLabelsAndPositionsForFile", () => {
         assert.strictEqual(data.cells[1].metadata?.id, id1);
         assert.strictEqual(data.cells[2].metadata?.data?.globalReferences?.[0], "JHN 4:4");
     });
+
+    test("should soft-delete child and track mergedChildIds when merging split verse-range cells", async () => {
+        const milestoneId = randomUUID();
+        const parentId = randomUUID();
+        const childId = randomUUID();
+
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 50",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: "<span>Parent first sentence.</span>",
+                metadata: {
+                    id: parentId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-13"),
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>Child second sentence.</span>",
+                metadata: {
+                    id: childId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-13"),
+                    parentId,
+                    edits: [],
+                },
+            },
+        ]);
+        testFiles.push(uri);
+
+        const wasMigrated = await migrateVerseRangeLabelsAndPositionsForFile(uri);
+        assert.strictEqual(wasMigrated, true);
+
+        const data = await readNotebookFile(uri);
+
+        // Child should still be present in the file (soft-deleted, not hard-removed)
+        const parent = data.cells.find((c: any) => c.metadata?.id === parentId);
+        const child = data.cells.find((c: any) => c.metadata?.id === childId);
+        assert.ok(parent, "Parent cell should be in the file");
+        assert.ok(child, "Child cell should be soft-deleted but still present in the file");
+
+        // Parent should have the merged value
+        assert.strictEqual(
+            parent.value,
+            "<span>Parent first sentence.</span><span>Child second sentence.</span>"
+        );
+        assert.strictEqual(parent.metadata?.cellLabel, "12-13");
+
+        // Parent should track merged child id
+        assert.deepStrictEqual(parent.metadata?.data?.mergedChildIds, [childId]);
+
+        // Parent should have a value-edit and a mergedChildIds-edit recorded
+        const parentEdits: any[] = parent.metadata?.edits || [];
+        const valueEdits = parentEdits.filter((e) => e.editMap?.join(".") === "value");
+        const trackingEdits = parentEdits.filter(
+            (e) => e.editMap?.join(".") === "metadata.data.mergedChildIds"
+        );
+        assert.strictEqual(valueEdits.length, 1, "Should have exactly one value migration edit");
+        assert.strictEqual(valueEdits[0].type, "migration");
+        assert.strictEqual(trackingEdits.length, 1, "Should have one mergedChildIds edit");
+        assert.deepStrictEqual(trackingEdits[0].value, [childId]);
+
+        // Child should be marked deleted with a deletion edit
+        assert.strictEqual(child.metadata?.data?.deleted, true);
+        const childEdits: any[] = child.metadata?.edits || [];
+        const deleteEdits = childEdits.filter(
+            (e) => e.editMap?.join(".") === "metadata.data.deleted"
+        );
+        assert.strictEqual(deleteEdits.length, 1, "Child should have one deletion edit");
+        assert.strictEqual(deleteEdits[0].value, true);
+        assert.strictEqual(deleteEdits[0].type, "migration");
+    });
+
+    test("should not duplicate parent value when re-running migration after a sync re-introduces the child", async () => {
+        const milestoneId = randomUUID();
+        const parentId = randomUUID();
+        const childId = randomUUID();
+
+        // Initial state: parent + un-merged child (as-imported)
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 50",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: "<span>Parent first.</span>",
+                metadata: {
+                    id: parentId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-13"),
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>Child second.</span>",
+                metadata: {
+                    id: childId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-13"),
+                    parentId,
+                    edits: [],
+                },
+            },
+        ]);
+        testFiles.push(uri);
+
+        // First migration: merges child into parent and soft-deletes child
+        await migrateVerseRangeLabelsAndPositionsForFile(uri);
+        const after1 = await readNotebookFile(uri);
+        const parent1 = after1.cells.find((c: any) => c.metadata?.id === parentId);
+        const expectedMergedValue =
+            "<span>Parent first.</span><span>Child second.</span>";
+        assert.strictEqual(parent1.value, expectedMergedValue);
+
+        // Simulate sync: re-introduce child cell WITHOUT data.deleted (as if pulled in from
+        // another user's branch where the deletion didn't propagate). The codex merge resolver
+        // would normally do this, but mergedChildIds on the parent should still gate the merge.
+        const fileBytes = await vscode.workspace.fs.readFile(uri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileBytes,
+            new vscode.CancellationTokenSource().token
+        );
+        const childIdx = notebookData.cells.findIndex(
+            (c: any) => c.metadata?.id === childId
+        );
+        if (childIdx >= 0) {
+            const ch = notebookData.cells[childIdx];
+            // Strip the deletion (sim a sync that lost the deletion edit)
+            if (ch.metadata?.data) {
+                delete ch.metadata.data.deleted;
+            }
+            ch.metadata.edits = (ch.metadata.edits || []).filter(
+                (e: any) => e.editMap?.join(".") !== "metadata.data.deleted"
+            );
+        }
+        const reSerialized = await serializer.serializeNotebook(
+            notebookData,
+            new vscode.CancellationTokenSource().token
+        );
+        await vscode.workspace.fs.writeFile(uri, reSerialized);
+
+        // Second migration: should NOT re-append the child's value because mergedChildIds
+        // already tracks it (even though child no longer has data.deleted).
+        await migrateVerseRangeLabelsAndPositionsForFile(uri);
+        const after2 = await readNotebookFile(uri);
+        const parent2 = after2.cells.find((c: any) => c.metadata?.id === parentId);
+        const child2 = after2.cells.find((c: any) => c.metadata?.id === childId);
+
+        assert.strictEqual(
+            parent2.value,
+            expectedMergedValue,
+            "Parent value must NOT be doubled by the second run"
+        );
+
+        // Child should be re-soft-deleted by the second run
+        assert.strictEqual(child2.metadata?.data?.deleted, true);
+
+        // Parent should still have only ONE value migration edit
+        const parentEdits: any[] = parent2.metadata?.edits || [];
+        const valueEdits = parentEdits.filter((e) => e.editMap?.join(".") === "value");
+        assert.strictEqual(
+            valueEdits.length,
+            1,
+            "There should be exactly one value migration edit (no second append)"
+        );
+    });
+
+    test("should not duplicate when sync also drops mergedChildIds tracking (endsWith safeguard)", async () => {
+        const milestoneId = randomUUID();
+        const parentId = randomUUID();
+        const childId = randomUUID();
+
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 50",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: "<span>Parent A.</span>",
+                metadata: {
+                    id: parentId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-13"),
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>Child B.</span>",
+                metadata: {
+                    id: childId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-13"),
+                    parentId,
+                    edits: [],
+                },
+            },
+        ]);
+        testFiles.push(uri);
+
+        await migrateVerseRangeLabelsAndPositionsForFile(uri);
+
+        // Strip BOTH the parent's mergedChildIds tracking AND the child's data.deleted
+        // to simulate the worst-case sync where both signals were lost. The endsWith
+        // safeguard should still prevent a duplicate append.
+        const serializer = new CodexContentSerializer();
+        const fileBytes = await vscode.workspace.fs.readFile(uri);
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileBytes,
+            new vscode.CancellationTokenSource().token
+        );
+        for (const cell of notebookData.cells) {
+            if (cell.metadata?.id === parentId && cell.metadata?.data?.mergedChildIds) {
+                delete cell.metadata.data.mergedChildIds;
+                cell.metadata.edits = (cell.metadata.edits || []).filter(
+                    (e: any) => e.editMap?.join(".") !== "metadata.data.mergedChildIds"
+                );
+            }
+            if (cell.metadata?.id === childId) {
+                if (cell.metadata?.data) delete cell.metadata.data.deleted;
+                cell.metadata.edits = (cell.metadata.edits || []).filter(
+                    (e: any) => e.editMap?.join(".") !== "metadata.data.deleted"
+                );
+            }
+        }
+        const reSerialized = await serializer.serializeNotebook(
+            notebookData,
+            new vscode.CancellationTokenSource().token
+        );
+        await vscode.workspace.fs.writeFile(uri, reSerialized);
+
+        await migrateVerseRangeLabelsAndPositionsForFile(uri);
+        const data = await readNotebookFile(uri);
+        const parent = data.cells.find((c: any) => c.metadata?.id === parentId);
+        assert.strictEqual(
+            parent.value,
+            "<span>Parent A.</span><span>Child B.</span>",
+            "endsWith guard should prevent doubling even when tracking signals are lost"
+        );
+    });
+
+    test("should be idempotent across multiple consecutive runs when child has parentId", async () => {
+        const milestoneId = randomUUID();
+        const parentId = randomUUID();
+        const childId = randomUUID();
+
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 50",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: "<span>Parent X.</span>",
+                metadata: {
+                    id: parentId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-13"),
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>Child Y.</span>",
+                metadata: {
+                    id: childId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-13"),
+                    parentId,
+                    edits: [],
+                },
+            },
+        ]);
+        testFiles.push(uri);
+
+        await migrateVerseRangeLabelsAndPositionsForFile(uri);
+        const second = await migrateVerseRangeLabelsAndPositionsForFile(uri);
+        const third = await migrateVerseRangeLabelsAndPositionsForFile(uri);
+
+        assert.strictEqual(second, false, "Second run should report no changes");
+        assert.strictEqual(third, false, "Third run should report no changes");
+
+        const data = await readNotebookFile(uri);
+        const parent = data.cells.find((c: any) => c.metadata?.id === parentId);
+        assert.strictEqual(parent.value, "<span>Parent X.</span><span>Child Y.</span>");
+    });
 });

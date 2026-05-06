@@ -3074,13 +3074,16 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
 
         let hasChanges = hadSuffixedRefs;
 
-        // Merge phase: recombine split verse-range cells (child has parentId -> parent)
+        // Merge phase: recombine split verse-range cells (child has parentId -> parent).
+        // Soft-deletes merged children (sets data.deleted=true with an edit-history entry) and
+        // tracks merged child ids in parent.metadata.data.mergedChildIds so the merge survives
+        // git sync (where deleted-only-on-our-side cells would otherwise be re-added by the
+        // codex merge resolver, causing the next migration run to double the parent's content).
         const idToContentIndex = new Map<string, number>();
         for (let i = 0; i < contentWithRef.length; i++) {
             const id = contentWithRef[i].cell.metadata?.id;
             if (id) idToContentIndex.set(id, i);
         }
-        const mergedChildIndices = new Set<number>();
         for (let i = 0; i < contentWithRef.length; i++) {
             const childMd = contentWithRef[i].cell.metadata || {};
             const parentId = childMd.parentId;
@@ -3103,24 +3106,77 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
                         : false);
             if (!sameRange) continue;
 
-            parent.cell.value = (parent.cell.value || "") + (child.cell.value || "");
-            const parentEdits: any[] = parent.cell.metadata?.edits || [];
-            parentEdits.push({
-                editMap: ["value"],
-                value: parent.cell.value,
-                timestamp: Date.now(),
-                type: EditType.MIGRATION,
-                author: "system",
-                validatedBy: [],
-            });
-            parent.cell.metadata.edits = parentEdits;
-            mergedChildIndices.add(i);
-            hasChanges = true;
-        }
-        if (mergedChildIndices.size > 0) {
-            const filtered = contentWithRef.filter((_, idx) => !mergedChildIndices.has(idx));
-            contentWithRef.length = 0;
-            contentWithRef.push(...filtered);
+            const childId = child.cell.metadata?.id;
+            const childValue = child.cell.value || "";
+            const childAlreadyDeleted = child.cell.metadata?.data?.deleted === true;
+
+            // Ensure parent has metadata.data with a mergedChildIds list available for tracking.
+            const parentMd: any = parent.cell.metadata || (parent.cell.metadata = {});
+            const parentData: any = parentMd.data || (parentMd.data = {});
+            const existingMergedIds: string[] = Array.isArray(parentData.mergedChildIds)
+                ? parentData.mergedChildIds.slice()
+                : [];
+            const alreadyTrackedById =
+                typeof childId === "string" && existingMergedIds.includes(childId);
+
+            // Idempotency guards (in priority order):
+            //  1. Child already soft-deleted -> previous run handled this; nothing to do.
+            //  2. Parent already lists this child id in mergedChildIds -> ensure soft-delete only.
+            //  3. Parent.value already endsWith child.value -> previous run merged but tracking
+            //     was lost (e.g. via sync); skip append, ensure soft-delete + tracking.
+            const skipAppend =
+                childAlreadyDeleted ||
+                alreadyTrackedById ||
+                (childValue.length > 0 && (parent.cell.value || "").endsWith(childValue));
+
+            if (!skipAppend) {
+                parent.cell.value = (parent.cell.value || "") + childValue;
+                const parentEdits: any[] = parentMd.edits || (parentMd.edits = []);
+                parentEdits.push({
+                    editMap: EditMapUtils.value(),
+                    value: parent.cell.value,
+                    timestamp: Date.now(),
+                    type: EditType.MIGRATION,
+                    author: "system",
+                    validatedBy: [],
+                });
+                hasChanges = true;
+            }
+
+            // Track the merged child id on the parent (defensive, survives sync via edit history).
+            if (typeof childId === "string" && !existingMergedIds.includes(childId)) {
+                existingMergedIds.push(childId);
+                parentData.mergedChildIds = existingMergedIds;
+                const parentEdits: any[] = parentMd.edits || (parentMd.edits = []);
+                parentEdits.push({
+                    editMap: ["metadata", "data", "mergedChildIds"],
+                    value: existingMergedIds.slice(),
+                    timestamp: Date.now(),
+                    type: EditType.MIGRATION,
+                    author: "system",
+                    validatedBy: [],
+                });
+                hasChanges = true;
+            }
+
+            // Soft-delete the child instead of hard-removing it. Keeps the deletion in edit
+            // history so it propagates across syncs (resolveMetadataConflictsUsingEditHistory
+            // applies the most recent metadata.data.deleted edit).
+            if (!childAlreadyDeleted) {
+                const cMd: any = child.cell.metadata || (child.cell.metadata = {});
+                const cData: any = cMd.data || (cMd.data = {});
+                cData.deleted = true;
+                const childEdits: any[] = cMd.edits || (cMd.edits = []);
+                childEdits.push({
+                    editMap: EditMapUtils.dataDeleted(),
+                    value: true,
+                    timestamp: Date.now(),
+                    type: EditType.MIGRATION,
+                    author: "system",
+                    validatedBy: [],
+                });
+                hasChanges = true;
+            }
         }
 
         // Partition content-with-ref by (book, chapter), sort each by verse
