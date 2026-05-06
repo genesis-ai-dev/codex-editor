@@ -185,7 +185,9 @@ function buildSplitCues(units: ProcessedUnit[], formatTime: (s: number) => strin
         const active = units.filter((unit) => unit.startTime < tEnd && unit.endTime > tStart);
         if (active.length === 0) continue;
 
-        const text = active.map((unit) => unit.payload).join("\n\n");
+        // Join overlapping cells' payloads with a single newline. A blank line inside
+        // a cue payload terminates the cue per the WebVTT spec, so we must not use "\n\n".
+        const text = active.map((unit) => unit.payload).join("\n");
         const cueId = `${active[0].id}-split`;
         parts.push(`${cueId}
 ${formatTime(tStart)} --> ${formatTime(tEnd)}
