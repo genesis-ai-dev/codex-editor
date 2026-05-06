@@ -51,7 +51,7 @@ const SUBTITLE_OVERLAP_WARNING =
  * Checks selected files for overlapping VTT/SRT cues. If any file has overlaps, shows a warning
  * and asks the user to confirm. Returns true if export should proceed, false to cancel.
  */
-async function checkSubtitleOverlapsAndConfirm(filesToExport: string[]): Promise<boolean> {
+export async function checkSubtitleOverlapsAndConfirm(filesToExport: string[]): Promise<boolean> {
     let hasOverlaps = false;
     for (const filePath of filesToExport) {
         try {
@@ -61,8 +61,11 @@ async function checkSubtitleOverlapsAndConfirm(filesToExport: string[]): Promise
                 hasOverlaps = true;
                 break;
             }
-        } catch {
-            // If we can't read a file, skip overlap check for it; export will fail later if needed
+        } catch (err) {
+            console.warn(
+                `[checkSubtitleOverlapsAndConfirm] Failed to inspect ${filePath} for overlaps:`,
+                err
+            );
         }
     }
     if (!hasOverlaps) return true;
@@ -1763,9 +1766,6 @@ async function exportCodexContentAsRebuild(
     );
 }
 
-/**
- * @returns true if export completed, false if user cancelled due to subtitle overlap warning.
- */
 export async function exportCodexContent(
     format: CodexExportFormat,
     userSelectedPath: string,
@@ -1816,6 +1816,9 @@ export async function exportCodexContent(
             break;
         case CodexExportFormat.SUBTITLES_VTT_WITHOUT_STYLES:
             exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, options, false));
+            break;
+        case CodexExportFormat.SUBTITLES_VTT_WITH_CUE_SPLITTING:
+            exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, options, false, true));
             break;
         case CodexExportFormat.SUBTITLES_SRT:
             exportPromises.push(exportCodexContentAsSubtitlesSrt(formatPath, filesToExport, options));

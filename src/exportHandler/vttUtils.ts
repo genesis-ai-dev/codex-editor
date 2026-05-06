@@ -102,7 +102,7 @@ export const generateVttData = (
                 : finalText;
 
             return {
-                id: unit.metadata?.cellLabel || unit.metadata?.id,
+                id: unit.metadata?.id,
                 startTime,
                 endTime,
                 finalText,
@@ -141,12 +141,17 @@ export const hasOverlappingCues = (cells: CodexNotebookAsJSONData["cells"]): boo
     const units = cells
         .filter((unit) => {
             const metadata = unit.metadata;
-            return !metadata?.data?.merged && !!unit.metadata?.data?.startTime;
+            return (
+                !metadata?.data?.merged &&
+                metadata?.type !== CodexCellTypes.MILESTONE &&
+                metadata?.data?.startTime != null
+            );
         })
         .map((unit, index) => ({
             startTime: Number(unit.metadata?.data?.startTime ?? index),
             endTime: Number(unit.metadata?.data?.endTime ?? index + 1),
-        }));
+        }))
+        .filter((unit) => Number.isFinite(unit.startTime) && Number.isFinite(unit.endTime));
 
     for (let i = 0; i < units.length; i++) {
         for (let j = i + 1; j < units.length; j++) {
@@ -180,7 +185,7 @@ function buildSplitCues(units: ProcessedUnit[], formatTime: (s: number) => strin
         const active = units.filter((unit) => unit.startTime < tEnd && unit.endTime > tStart);
         if (active.length === 0) continue;
 
-        const text = active.map((unit) => unit.finalText).join("\n\n");
+        const text = active.map((unit) => unit.payload).join("\n\n");
         const cueId = `${active[0].id}-split`;
         parts.push(`${cueId}
 ${formatTime(tStart)} --> ${formatTime(tEnd)}
