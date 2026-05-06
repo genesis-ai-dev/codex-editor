@@ -1,8 +1,11 @@
-# Ignore everything
+# VSIX packaging is deny-by-default. Prefer narrow allowlists; broad negations
+# like !out/**, !**/*.svg, !package*.json, or !node_modules/** can pull in
+# source maps, test installs, lockfiles, or large dependency trees.
 *
 */**
 
-# Extension output (JS bundles only)
+# Extension output. Keep this narrow: out/*.js is the extension bundle, while
+# out/node_modules/** is only for runtime files explicitly copied by webpack.
 !out/*.js
 !out/node_modules/**
 
@@ -15,7 +18,8 @@
 !webviews/codex-webviews/dist/**
 !webviews/codex-webviews/src/assets/**
 
-# Runtime dependencies
+# Runtime dependencies not copied into out/. Dugite is externalized, but we
+# ship only its JS wrapper metadata here, not node_modules/dugite/git/**.
 !node_modules/dugite/build/**
 !node_modules/dugite/package.json
 
@@ -25,6 +29,6 @@
 !package.json
 !README.md
 
-# Global exclusions — override any includes above
+# Global exclusions override earlier includes to keep published VSIX files lean.
 **/*.map
 .vscode-test/**

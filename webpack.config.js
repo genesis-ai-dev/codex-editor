@@ -27,11 +27,13 @@ const extensionConfig = {
     },
     externals: {
         vscode: "commonjs vscode", // the vscode-module is created on-the-fly and must be excluded. Add other modules that cannot be webpack'ed, 📖 -> https://webpack.js.org/configuration/externals/
-        // modules added here also need to be added in the .vscodeignore file
+        // Packaging contract: externals are not bundled into extension.js.
+        // Runtime files must be copied into out/node_modules below or narrowly
+        // allowlisted in .vscodeignore; otherwise installs break or VSIX grows.
         "fts5-sql-bundle": "commonjs fts5-sql-bundle", // WASM-based SQLite fallback — must remain external so locateFile can resolve the .wasm at runtime
         vm: "commonjs vm",
         encoding: "commonjs encoding",
-        dugite: "commonjs dugite", // Must be external so its embedded binary resolution works (needs real __dirname and process.platform)
+        dugite: "commonjs dugite", // Keep external so dugite uses real paths/env when Frontier Auth provides the Git runtime.
         // Note: tar is NOT external - it's bundled so audio import can extract FFmpeg on-demand
     },
     resolve: {
@@ -89,6 +91,7 @@ const extensionConfig = {
             {
                 test: /\.js\.map$/,
                 include: /pdf-parse/,
+                // pdf-parse ships maps next to JS; do not parse them as code.
                 type: "asset/resource",
                 generator: { emit: false },
             },
@@ -105,6 +108,8 @@ const extensionConfig = {
         new webpack.DefinePlugin({
             "process.env.NODE_ENV": JSON.stringify("production"),
         }),
+        // Keep copied runtime assets under out/node_modules so .vscodeignore can
+        // allowlist that output instead of broad root dependency folders.
         new CopyWebpackPlugin({
             patterns: [
                 {
@@ -133,6 +138,8 @@ const extensionConfig = {
                 },
             ],
         }),
+        // pdf-parse dynamically requires pdf.js versions; pin to its default so
+        // webpack does not bundle every pdf.js copy in that package.
         new webpack.ContextReplacementPlugin(
             /pdf-parse[/\\]lib[/\\]pdf\.js/,
             /^\.\/v1\.10\.100/
