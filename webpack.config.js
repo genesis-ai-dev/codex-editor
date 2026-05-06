@@ -86,6 +86,12 @@ const extensionConfig = {
                 include: /node_modules/,
                 type: "javascript/auto",
             },
+            {
+                test: /\.js\.map$/,
+                include: /pdf-parse/,
+                type: "asset/resource",
+                generator: { emit: false },
+            },
         ],
     },
     devtool: "nosources-source-map",
@@ -127,10 +133,11 @@ const extensionConfig = {
                 },
             ],
         }),
+        new webpack.ContextReplacementPlugin(
+            /pdf-parse[/\\]lib[/\\]pdf\.js/,
+            /^\.\/v1\.10\.100/
+        ),
     ],
-    optimization: {
-        minimize: false,
-    },
     ignoreWarnings: [
         {
             module: /node_modules\/mocha/,

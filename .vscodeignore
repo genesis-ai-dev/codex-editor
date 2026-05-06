@@ -2,30 +2,31 @@
 *
 */**
 
-# Allowlist what we need (only extension output, NOT test bundles)
+# Extension output (JS bundles only)
 !out/*.js
-!out/*.js.map
 !out/node_modules/**
+
+# Static assets
 !assets/**
+!src/assets/reset.css
+!src/assets/bible_data_with_vref_keys.json.gz
 
-# Exclude test output and source maps from VSIX
-out/test/**
-out/test-runner/**
-out/**/*.map
-.vscode-test/**
-# !servers/**
-
+# Webview bundles
 !webviews/codex-webviews/dist/**
 !webviews/codex-webviews/src/assets/**
 
-!src/assets/reset.css
-# vscode.css was removed in favor of Tailwind CSS
-!src/assets/bible_data_with_vref_keys.json.gz
-!**/*.svg
+# Runtime dependencies
 !node_modules/dugite/build/**
 !node_modules/dugite/package.json
+!node_modules/@vscode/codicons/dist/**
+!node_modules/vscode-uri
 
+# Documentation
 !CHANGELOG.md
 !LICENSE
-!package*.json
+!package.json
 !README.md
+
+# Global exclusions — override any includes above
+**/*.map
+.vscode-test/**
