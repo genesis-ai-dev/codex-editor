@@ -38,6 +38,13 @@ function sanitizeFileComponent(input: string): string {
         .replace(/_+/g, "_");
 }
 
+function sanitizeFolderName(input: string): string {
+    return input
+        .replace(/[<>:"/\\|?*]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 /**
  * Parses a cell reference ID (from globalReferences) to extract book, chapter, and verse.
  * Falls back to parsing cellId if globalReferences not available (legacy support).
@@ -93,6 +100,42 @@ function getTargetLanguageCode(): string {
     const lang = projectConfig.get<any>("targetLanguage") || {};
     const code: string = lang.tag || lang.refName || "lang";
     return sanitizeFileComponent(String(code).toLowerCase());
+}
+
+/**
+ * Builds a mapping from cell ID to its milestone folder name.
+ * Folder names follow the pattern "N - milestone name" (e.g. "1 - Genesis 1").
+ * If the milestone value is purely numeric, the folder is just the sequential number (e.g. "1").
+ */
+function buildCellMilestoneMap(cells: CodexNotebookAsJSONData["cells"]): Map<string, string> {
+    const map = new Map<string, string>();
+    let milestoneSeq = 0;
+    let currentFolderName: string | null = null;
+
+    for (const cell of cells) {
+        const isMilestone = cell?.metadata?.type === "milestone";
+        const data = cell?.metadata?.data;
+        const isDeleted = !!(data && data.deleted);
+
+        if (isMilestone && !isDeleted) {
+            milestoneSeq++;
+            const milestoneValue = typeof cell?.value === "string" ? cell.value.trim() : "";
+            const isNumericOnly = /^\d+$/.test(milestoneValue);
+            currentFolderName = isNumericOnly || !milestoneValue
+                ? `${milestoneSeq}`
+                : `${milestoneSeq} - ${milestoneValue}`;
+            continue;
+        }
+
+        if (!currentFolderName) continue;
+
+        const cellId: string | undefined = cell?.metadata?.id;
+        if (cellId) {
+            map.set(cellId, currentFolderName);
+        }
+    }
+
+    return map;
 }
 
 function computeDialogueLineNumbers(
@@ -623,6 +666,9 @@ export async function exportAudioAttachments(
                 const dialogueMap = computeDialogueLineNumbers(notebook.cells);
                 debug(`Processing notebook with ${notebook.cells.length} cells`);
 
+                // Build milestone folder mapping: cellId -> milestone folder name
+                const cellMilestoneFolder = buildCellMilestoneMap(notebook.cells);
+
                 // Count audio cells for per-book progress
                 const audioCells: Array<{ cell: any; cellId: string; pick: NonNullable<ReturnType<typeof pickAudioAttachmentForCell>> }> = [];
                 for (const cell of notebook.cells) {
@@ -684,6 +730,13 @@ export async function exportAudioAttachments(
                             outputExt = prepared.ext;
                         }
 
+                        // Determine the target folder (milestone sub-folder within book folder)
+                        const milestoneFolderName = cellMilestoneFolder.get(cellId);
+                        const targetFolder = milestoneFolderName
+                            ? vscode.Uri.joinPath(bookFolder, sanitizeFolderName(milestoneFolderName))
+                            : bookFolder;
+                        await vscode.workspace.fs.createDirectory(targetFolder);
+
                         const baseSegments = [sanitizeFileComponent(bookCode)];
                         if (cvSuffix) {
                             baseSegments.push(cvSuffix);
@@ -694,13 +747,13 @@ export async function exportAudioAttachments(
                         const baseName = baseSegments.join("_");
 
                         let destName = `${baseName}${outputExt}`;
-                        let destUri = vscode.Uri.joinPath(bookFolder, destName);
+                        let destUri = vscode.Uri.joinPath(targetFolder, destName);
 
                         // Avoid collisions by appending incremental suffix
                         let attempt = 1;
                         while (await pathExists(destUri)) {
                             destName = `${baseName}_${attempt}${outputExt}`;
-                            destUri = vscode.Uri.joinPath(bookFolder, destName);
+                            destUri = vscode.Uri.joinPath(targetFolder, destName);
                             attempt++;
                         }
 
