@@ -962,6 +962,12 @@
                         "maximum": 5000,
                         "description": "Maximum number of cells the editor will leave inside a single subdivision. Stretches between user-defined breaks that exceed this length are sub-chunked using 'Cells Per Page'. Set to 0 to disable (in which case 'Cells Per Page' itself acts as the threshold). Useful when you want a higher 'Cells Per Page' default but still allow short logical pages between custom breaks to remain unbroken."
                     },
+                    "codex-editor-extension.enableMilestonePlacementEditing": {
+                        "title": "Enable Milestone Placement Editing",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "When enabled, the milestone accordion's settings mode reveals controls for editing where milestones sit in the source document — adding, removing, promoting a subdivision break to a milestone, or demoting a milestone to a subdivision break. Edits made on the source mirror to the paired target by UUID."
+                    },
                     "codex-editor-extension.useOnlyValidatedExamples": {
                         "title": "Use Only Validated Examples",
                         "type": "boolean",

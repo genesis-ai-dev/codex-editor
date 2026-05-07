@@ -22,7 +22,11 @@ import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 import { isSourceFileFlexible } from "../../utils/fileTypeUtils";
-import { FIRST_SUBDIVISION_KEY } from "./utils/subdivisionUtils";
+import {
+    FIRST_SUBDIVISION_KEY,
+    mergePlacementsForRemovedMilestone,
+    splitPlacementsAtAnchor,
+} from "./utils/subdivisionUtils";
 import type { MilestoneSubdivisionPlacement } from "../../../types";
 
 // Enable debug logging if needed
@@ -170,6 +174,10 @@ export async function sendMilestoneRefreshToWebview(
             "useSubdivisionNumberLabels",
             false
         );
+        const enableMilestonePlacementEditing = config.get(
+            "enableMilestonePlacementEditing",
+            false
+        );
         safePostMessageToPanel(webviewPanel, {
             type: "providerSendsInitialContentPaginated",
             rev,
@@ -183,6 +191,7 @@ export async function sendMilestoneRefreshToWebview(
             validationCount: validationCount,
             validationCountAudio: validationCountAudio,
             useSubdivisionNumberLabels,
+            enableMilestonePlacementEditing,
         });
 
         safePostMessageToPanel(webviewPanel, {
@@ -396,6 +405,649 @@ async function commitMilestoneSubdivisionPlacements({
     // webview is open we skip silently — it'll pick up the change on next
     // load via the persisted file.
     if (mirroredTargetDocument) {
+        const targetPanel = provider.getWebviewPanelForUri(mirroredTargetDocument.uri);
+        if (targetPanel) {
+            try {
+                await sendMilestoneRefreshToWebview(
+                    mirroredTargetDocument,
+                    targetPanel,
+                    provider
+                );
+            } catch (refreshError) {
+                console.error(
+                    `${logPrefix} Failed to refresh paired target webview:`,
+                    refreshError
+                );
+            }
+        }
+    }
+}
+
+/**
+ * Reads the existing placements & subdivisionNames blob off a milestone cell.
+ * Tolerant of missing fields so callers can use it on freshly-created
+ * milestones (returns empty maps/arrays).
+ */
+function readMilestoneSubdivisionData(milestoneCell: any): {
+    placements: MilestoneSubdivisionPlacement[];
+    subdivisionNames: { [k: string]: string; };
+    subdivisionNamesFromSource: { [k: string]: string; };
+} {
+    const data = milestoneCell?.metadata?.data as
+        | {
+            subdivisions?: MilestoneSubdivisionPlacement[];
+            subdivisionNames?: { [k: string]: string; };
+            subdivisionNamesFromSource?: { [k: string]: string; };
+        }
+        | undefined;
+    return {
+        placements: Array.isArray(data?.subdivisions) ? [...(data!.subdivisions!)] : [],
+        subdivisionNames: { ...(data?.subdivisionNames ?? {}) },
+        subdivisionNamesFromSource: { ...(data?.subdivisionNamesFromSource ?? {}) },
+    };
+}
+
+/**
+ * Partitions a `subdivisionNames` map across a milestone split.
+ *
+ * `keepKeys` is the set of keys that remain on the original (now-shorter)
+ * milestone — typically `FIRST_SUBDIVISION_KEY` plus the `startCellId` of
+ * every placement still in the "before" partition. `moveKeys` is the set of
+ * keys whose entries should travel to the new milestone, optionally remapped
+ * (e.g. the boundary anchor key becomes `FIRST_SUBDIVISION_KEY` on the new
+ * milestone since it's that milestone's implicit first subdivision now).
+ */
+function partitionSubdivisionNames(
+    nameMap: { [k: string]: string; },
+    keepKeys: Set<string>,
+    moveKeys: Map<string, string>
+): { kept: { [k: string]: string; }; moved: { [k: string]: string; }; } {
+    const kept: { [k: string]: string; } = {};
+    const moved: { [k: string]: string; } = {};
+    for (const [key, value] of Object.entries(nameMap)) {
+        if (typeof value !== "string" || value.length === 0) continue;
+        if (keepKeys.has(key)) {
+            kept[key] = value;
+        } else if (moveKeys.has(key)) {
+            const remappedKey = moveKeys.get(key)!;
+            moved[remappedKey] = value;
+        }
+        // Keys outside both sets are dropped (they reference cells that no
+        // longer correspond to any placement on either milestone — typically
+        // stale entries that the resolver was already pruning at render time).
+    }
+    return { kept, moved };
+}
+
+/**
+ * Validates that the source and target documents agree on which root content
+ * cells belong to a given milestone index. Used as a pre-flight before any
+ * structural milestone edit so we never insert / soft-delete a target cell
+ * by UUID when the documents have already drifted apart structurally.
+ */
+function sourceAndTargetMilestoneRootsMatch(
+    sourceDocument: CodexCellDocument,
+    targetDocument: CodexCellDocument,
+    milestoneIndex: number
+): boolean {
+    const sourceRootIds = sourceDocument.getRootContentCellIdsForMilestone(milestoneIndex);
+    const targetRootIds = targetDocument.getRootContentCellIdsForMilestone(milestoneIndex);
+    if (sourceRootIds.length !== targetRootIds.length) return false;
+    for (let i = 0; i < sourceRootIds.length; i++) {
+        if (sourceRootIds[i] !== targetRootIds[i]) return false;
+    }
+    return true;
+}
+
+/**
+ * Handles the source-side soft-delete + previous-milestone redistribution
+ * shared by `removeMilestone` and `demoteMilestoneToSubdivision`. The two
+ * commands differ only in `preserveBoundary`: demote keeps a custom
+ * subdivision break at the seam (carrying the deleted milestone's label as
+ * its name), remove drops the boundary entirely.
+ *
+ * Always mirrors to the paired target by UUID. When the target's root cell
+ * IDs for the affected milestones diverge from source we skip the structural
+ * mirror so we never delete a target milestone whose content has drifted —
+ * the callers surface a console.warn so the divergence is visible without
+ * popping a dialog at every save.
+ */
+async function commitMergeMilestoneIntoPrevious({
+    document,
+    webviewPanel,
+    provider,
+    milestoneIndex,
+    preserveBoundary,
+    logPrefix,
+    errorPrefix,
+}: {
+    document: CodexCellDocument;
+    webviewPanel: vscode.WebviewPanel;
+    provider: CodexCellEditorProvider;
+    milestoneIndex: number;
+    preserveBoundary: boolean;
+    logPrefix: string;
+    errorPrefix: string;
+}): Promise<void> {
+    if (!isSourceFileFlexible(document.uri)) {
+        console.warn(
+            `${logPrefix} Rejected write from non-source document:`,
+            document.uri.toString()
+        );
+        vscode.window.showWarningMessage(
+            "Milestone placements can only be edited from the source file."
+        );
+        return;
+    }
+
+    if (milestoneIndex <= 0) {
+        console.warn(
+            `${logPrefix} Cannot remove the first milestone (or virtual milestone) at index 0`
+        );
+        vscode.window.showWarningMessage(
+            "The first milestone cannot be removed."
+        );
+        return;
+    }
+
+    const sourceMilestoneIndex = document.buildMilestoneIndex();
+    const removed = sourceMilestoneIndex.milestones[milestoneIndex];
+    const previous = sourceMilestoneIndex.milestones[milestoneIndex - 1];
+    if (!removed || !previous) {
+        console.error(`${logPrefix} Milestone neighbours not found`, {
+            milestoneIndex,
+        });
+        vscode.window.showErrorMessage(
+            `${errorPrefix}: milestone neighbours not found at index ${milestoneIndex}`
+        );
+        return;
+    }
+
+    const removedCell = document.getCellByIndex(removed.cellIndex);
+    const previousCell = document.getCellByIndex(previous.cellIndex);
+    if (
+        !removedCell ||
+        removedCell.metadata?.type !== CodexCellTypes.MILESTONE ||
+        !removedCell.metadata?.id ||
+        !previousCell ||
+        previousCell.metadata?.type !== CodexCellTypes.MILESTONE ||
+        !previousCell.metadata?.id
+    ) {
+        console.error(`${logPrefix} Invalid milestone cells`, {
+            removed: removed.cellIndex,
+            previous: previous.cellIndex,
+        });
+        vscode.window.showErrorMessage(`${errorPrefix}: invalid milestone cells.`);
+        return;
+    }
+
+    const removedMilestoneCellId = removedCell.metadata.id;
+    const removedRootIds = document.getRootContentCellIdsForMilestone(milestoneIndex);
+    const boundaryAnchorCellId = removedRootIds[0];
+    const removedLabel = (removedCell.value as string | undefined) ?? "";
+    const removedData = readMilestoneSubdivisionData(removedCell);
+    const previousData = readMilestoneSubdivisionData(previousCell);
+
+    const merged = mergePlacementsForRemovedMilestone({
+        prevPlacements: previousData.placements,
+        removedPlacements: removedData.placements,
+        boundaryAnchorCellId,
+        boundaryName: removedLabel.length > 0 ? removedLabel : undefined,
+        preserveBoundary,
+    });
+
+    // Combine subdivisionNames maps. Removed milestone's __start__ entry maps
+    // onto the boundary cell ID on the surviving milestone (so its label
+    // travels with the cells). All other named entries keep their cell-ID
+    // keys verbatim — they still resolve to the same root cells, just inside
+    // a wider milestone range now.
+    const mergedSourceNames: { [k: string]: string; } = { ...previousData.subdivisionNames };
+    for (const [key, value] of Object.entries(removedData.subdivisionNames)) {
+        if (typeof value !== "string" || value.length === 0) continue;
+        if (key === FIRST_SUBDIVISION_KEY) {
+            if (preserveBoundary && boundaryAnchorCellId) {
+                // Demote: the removed milestone's __start__ name becomes the
+                // boundary placement's name (overriding any inline name we
+                // already stamped from `removedLabel`, since explicit
+                // subdivision names are more specific than the milestone
+                // label). For pure remove, drop it (no boundary placement
+                // exists to attach the name to).
+                mergedSourceNames[boundaryAnchorCellId] = value;
+            }
+            continue;
+        }
+        mergedSourceNames[key] = value;
+    }
+
+    const cancellationToken = new vscode.CancellationTokenSource().token;
+
+    try {
+        await document.refreshAuthor();
+        document.softDeleteCell(removedMilestoneCellId);
+        document.updateCellData(previousCell.metadata.id, {
+            subdivisions: merged.placements,
+            subdivisionNames: mergedSourceNames,
+        });
+        await provider.saveCustomDocument(document, cancellationToken);
+        // Reflush per-cell milestoneIndex on the source. Cell count is
+        // unchanged after a soft-delete, so the optimistic short-circuit in
+        // updateCellMilestoneIndices would otherwise skip this update.
+        await document.updateCellMilestoneIndices({ force: true });
+    } catch (error) {
+        console.error(`${logPrefix} Failed to update source:`, error);
+        vscode.window.showErrorMessage(
+            `${errorPrefix}: ${error instanceof Error ? error.message : String(error)}`
+        );
+        return;
+    }
+
+    let mirroredTargetDocument: CodexCellDocument | null = null;
+    try {
+        const pairedUri = provider.getPairedNotebookUri(document.uri);
+        if (pairedUri) {
+            const targetDocument = await provider.getOrOpenDocumentForUri(pairedUri);
+            const targetMilestones = targetDocument.buildMilestoneIndex();
+            const targetRemoved = targetMilestones.milestones[milestoneIndex];
+            const targetPrevious = targetMilestones.milestones[milestoneIndex - 1];
+
+            // Skip mirror unless the target has the same milestone neighbours
+            // backed by cells with matching IDs. We compare BOTH milestones'
+            // root cell ID lists so a previously-divergent pair (e.g. user
+            // mutated the target file independently) doesn't end up with a
+            // missing milestone on one side after the merge.
+            const removedCellId = targetRemoved
+                ? targetDocument.getCellByIndex(targetRemoved.cellIndex)?.metadata?.id
+                : undefined;
+            const removedIdMatches = removedCellId === removedMilestoneCellId;
+            const rootsMatchPrev = sourceAndTargetMilestoneRootsMatch(
+                document,
+                targetDocument,
+                milestoneIndex - 1
+            );
+            const rootsMatchRemoved = sourceAndTargetMilestoneRootsMatch(
+                document,
+                targetDocument,
+                milestoneIndex
+            );
+
+            if (!targetRemoved || !targetPrevious || !removedIdMatches || !rootsMatchPrev || !rootsMatchRemoved) {
+                console.warn(`${logPrefix} Source/target diverge; skipping structural mirror.`, {
+                    milestoneIndex,
+                    removedIdMatches,
+                    rootsMatchPrev,
+                    rootsMatchRemoved,
+                });
+            } else {
+                const targetPreviousCell = targetDocument.getCellByIndex(
+                    targetPrevious.cellIndex
+                );
+                if (targetPreviousCell?.metadata?.id) {
+                    await targetDocument.refreshAuthor();
+                    targetDocument.softDeleteCell(removedMilestoneCellId);
+                    // Mirror the source's localized label/name map into the
+                    // target's `subdivisionNamesFromSource` so the translator
+                    // sees the merged section labels by default. The target's
+                    // own `subdivisionNames` is left alone — translators are
+                    // free to keep / override their per-side labels.
+                    targetDocument.updateCellData(targetPreviousCell.metadata.id, {
+                        subdivisions: merged.placements,
+                        subdivisionNamesFromSource: mergedSourceNames,
+                    });
+                    await provider.saveCustomDocument(targetDocument, cancellationToken);
+                    await targetDocument.updateCellMilestoneIndices({ force: true });
+                    mirroredTargetDocument = targetDocument;
+                }
+            }
+        }
+    } catch (mirrorError) {
+        console.error(`${logPrefix} Failed to mirror to target:`, mirrorError);
+    }
+
+    // Adjust the cached milestone position so the user lands on the survivor
+    // rather than a phantom index after the merge. If they were on the
+    // removed milestone, we shift to the previous one; if they were below
+    // it, we shift down by 1 to keep the same content in view.
+    const docUri = document.uri.toString();
+    const cachedPosition = provider.currentMilestoneSubsectionMap.get(docUri);
+    if (cachedPosition && cachedPosition.milestoneIndex >= milestoneIndex) {
+        provider.currentMilestoneSubsectionMap.set(docUri, {
+            milestoneIndex: Math.max(0, cachedPosition.milestoneIndex - 1),
+            subsectionIndex: 0,
+        });
+    }
+
+    await sendMilestoneRefreshToWebview(document, webviewPanel, provider);
+
+    if (mirroredTargetDocument) {
+        const targetUri = mirroredTargetDocument.uri.toString();
+        const targetCachedPosition =
+            provider.currentMilestoneSubsectionMap.get(targetUri);
+        if (
+            targetCachedPosition &&
+            targetCachedPosition.milestoneIndex >= milestoneIndex
+        ) {
+            provider.currentMilestoneSubsectionMap.set(targetUri, {
+                milestoneIndex: Math.max(0, targetCachedPosition.milestoneIndex - 1),
+                subsectionIndex: 0,
+            });
+        }
+        const targetPanel = provider.getWebviewPanelForUri(mirroredTargetDocument.uri);
+        if (targetPanel) {
+            try {
+                await sendMilestoneRefreshToWebview(
+                    mirroredTargetDocument,
+                    targetPanel,
+                    provider
+                );
+            } catch (refreshError) {
+                console.error(
+                    `${logPrefix} Failed to refresh paired target webview:`,
+                    refreshError
+                );
+            }
+        }
+    }
+}
+
+/**
+ * Inserts a new milestone cell at the given anchor inside an existing
+ * milestone, partitioning the existing placements + subdivisionNames across
+ * the new boundary, and mirroring the structural change to the paired target
+ * document by UUID.
+ *
+ * Used by both `addMilestoneAtCell` (anchor = N-th root cell, no pre-existing
+ * placement) and `promoteSubdivisionToMilestone` (anchor = an existing
+ * custom subdivision break). The two callers differ only in how they choose
+ * the anchor and the new milestone's label.
+ */
+async function commitSplitMilestoneAtAnchor({
+    document,
+    webviewPanel,
+    provider,
+    milestoneIndex,
+    boundaryCellId,
+    newMilestoneLabel,
+    logPrefix,
+    errorPrefix,
+}: {
+    document: CodexCellDocument;
+    webviewPanel: vscode.WebviewPanel;
+    provider: CodexCellEditorProvider;
+    milestoneIndex: number;
+    boundaryCellId: string;
+    /**
+     * Optional label for the new milestone cell. When provided we override
+     * the auto-derived `"BookName ChapterNumber"` default — typical when
+     * promoting a named subdivision: the user already has a label they
+     * meant for this section.
+     */
+    newMilestoneLabel?: string;
+    logPrefix: string;
+    errorPrefix: string;
+}): Promise<void> {
+    if (!isSourceFileFlexible(document.uri)) {
+        console.warn(
+            `${logPrefix} Rejected write from non-source document:`,
+            document.uri.toString()
+        );
+        vscode.window.showWarningMessage(
+            "Milestone placements can only be edited from the source file."
+        );
+        return;
+    }
+
+    const sourceMilestoneIndex = document.buildMilestoneIndex();
+    const original = sourceMilestoneIndex.milestones[milestoneIndex];
+    if (!original) {
+        console.error(`${logPrefix} Milestone not found at index`, milestoneIndex);
+        vscode.window.showErrorMessage(
+            `${errorPrefix}: milestone not found at index ${milestoneIndex}`
+        );
+        return;
+    }
+
+    const originalCell = document.getCellByIndex(original.cellIndex);
+    if (
+        !originalCell ||
+        originalCell.metadata?.type !== CodexCellTypes.MILESTONE ||
+        !originalCell.metadata?.id
+    ) {
+        console.error(`${logPrefix} Invalid milestone cell`, original.cellIndex);
+        vscode.window.showErrorMessage(`${errorPrefix}: invalid milestone cell.`);
+        return;
+    }
+
+    const rootIds = document.getRootContentCellIdsForMilestone(milestoneIndex);
+    const boundaryRootIndex = rootIds.indexOf(boundaryCellId);
+    if (boundaryRootIndex <= 0) {
+        // Boundary at index 0 would create an empty milestone before the
+        // anchor; -1 means the cell isn't even in this milestone (stale UI
+        // state).
+        console.warn(`${logPrefix} Boundary out of range`, {
+            boundaryCellId,
+            boundaryRootIndex,
+            rootCount: rootIds.length,
+        });
+        vscode.window.showWarningMessage(
+            `${errorPrefix}: cannot split at this cell.`
+        );
+        return;
+    }
+
+    const originalData = readMilestoneSubdivisionData(originalCell);
+    const split = splitPlacementsAtAnchor(
+        originalData.placements,
+        rootIds,
+        boundaryCellId
+    );
+
+    // Partition subdivisionNames at the boundary so labels travel with their
+    // section. The implicit first subdivision (FIRST_SUBDIVISION_KEY) stays
+    // on the original milestone. The boundary cell's name (if any) becomes
+    // the new milestone's __start__ subdivision name. All other entries are
+    // sorted by whether their cell ID falls before or after the anchor.
+    const keepKeys = new Set<string>([FIRST_SUBDIVISION_KEY]);
+    const moveKeys = new Map<string, string>();
+    for (let i = 0; i < boundaryRootIndex; i++) {
+        keepKeys.add(rootIds[i]);
+    }
+    moveKeys.set(boundaryCellId, FIRST_SUBDIVISION_KEY);
+    for (let i = boundaryRootIndex + 1; i < rootIds.length; i++) {
+        moveKeys.set(rootIds[i], rootIds[i]);
+    }
+    const sourceNamePartition = partitionSubdivisionNames(
+        originalData.subdivisionNames,
+        keepKeys,
+        moveKeys
+    );
+
+    // The label takes precedence on the milestone row. Fall back to the
+    // boundary placement's stored name if no explicit override was provided
+    // (typical when promoting a named subdivision via the dedicated path —
+    // the caller passes `newMilestoneLabel` directly. For ADD-AT-CELL the
+    // boundary usually has no name and we let `buildMilestoneCellPayload`
+    // derive a chapter-style default).
+    const fallbackBoundaryName =
+        split.boundaryName ?? sourceNamePartition.moved[FIRST_SUBDIVISION_KEY];
+    const valueOverride = newMilestoneLabel || fallbackBoundaryName;
+
+    // Newly-created milestone gets its own subdivisions/subdivisionNames
+    // populated atomically in the same `insertMilestoneCell` call, sparing
+    // us a follow-up updateCellData round-trip.
+    const newMilestoneInitialData: Record<string, unknown> = {};
+    if (split.after.length > 0) {
+        newMilestoneInitialData.subdivisions = split.after;
+    }
+    if (Object.keys(sourceNamePartition.moved).length > 0) {
+        newMilestoneInitialData.subdivisionNames = sourceNamePartition.moved;
+    }
+
+    const cancellationToken = new vscode.CancellationTokenSource().token;
+    let insertedMilestoneCellId: string;
+
+    try {
+        await document.refreshAuthor();
+        const inserted = document.insertMilestoneCell({
+            referenceCellId: boundaryCellId,
+            valueOverride,
+            initialData: newMilestoneInitialData,
+        });
+        insertedMilestoneCellId = inserted.cellId;
+        document.updateCellData(originalCell.metadata.id, {
+            subdivisions: split.before,
+            subdivisionNames: sourceNamePartition.kept,
+        });
+        await provider.saveCustomDocument(document, cancellationToken);
+        await document.updateCellMilestoneIndices({ force: true });
+    } catch (error) {
+        console.error(`${logPrefix} Failed to update source:`, error);
+        vscode.window.showErrorMessage(
+            `${errorPrefix}: ${error instanceof Error ? error.message : String(error)}`
+        );
+        return;
+    }
+
+    let mirroredTargetDocument: CodexCellDocument | null = null;
+    try {
+        const pairedUri = provider.getPairedNotebookUri(document.uri);
+        if (pairedUri) {
+            const targetDocument = await provider.getOrOpenDocumentForUri(pairedUri);
+            // Match the source's pre-split milestoneIndex on the target. We
+            // rebuild the target's milestone index here because the source
+            // document's index has already been mutated; we can't use the
+            // source's `original` info anymore.
+            const targetMilestones = targetDocument.buildMilestoneIndex();
+            // After the source insert, source's milestone count = target's + 1.
+            // We mirror against the SAME starting milestone index on the
+            // target (it hasn't been mutated yet), which corresponds to the
+            // same `milestoneIndex` parameter on this side too.
+            const targetOriginal = targetMilestones.milestones[milestoneIndex];
+            if (!targetOriginal) {
+                console.warn(`${logPrefix} Target has no milestone at index, skipping mirror.`, {
+                    milestoneIndex,
+                });
+            } else {
+                const targetOriginalCell = targetDocument.getCellByIndex(
+                    targetOriginal.cellIndex
+                );
+                const sharedOriginalId =
+                    targetOriginalCell?.metadata?.id === originalCell.metadata.id;
+                // The source's pre-split root IDs (captured in `rootIds`
+                // before we mutated) must equal the target's CURRENT root
+                // IDs. We can't reuse `sourceAndTargetMilestoneRootsMatch`
+                // here because the source has already been mutated, so its
+                // milestone[milestoneIndex] roots are now just the BEFORE
+                // partition.
+                const targetRootIds = targetDocument.getRootContentCellIdsForMilestone(
+                    milestoneIndex
+                );
+                let rootsMatch = targetRootIds.length === rootIds.length;
+                if (rootsMatch) {
+                    for (let i = 0; i < rootIds.length; i++) {
+                        if (rootIds[i] !== targetRootIds[i]) {
+                            rootsMatch = false;
+                            break;
+                        }
+                    }
+                }
+
+                if (!sharedOriginalId || !rootsMatch) {
+                    console.warn(`${logPrefix} Source/target diverge; skipping structural mirror.`, {
+                        milestoneIndex,
+                        sharedOriginalId,
+                        rootsMatch,
+                    });
+                } else if (targetOriginalCell?.metadata?.id) {
+                    const targetData = readMilestoneSubdivisionData(targetOriginalCell);
+                    const targetNamePartition = partitionSubdivisionNames(
+                        targetData.subdivisionNames,
+                        keepKeys,
+                        moveKeys
+                    );
+                    const targetSourceNamePartition = partitionSubdivisionNames(
+                        targetData.subdivisionNamesFromSource,
+                        keepKeys,
+                        moveKeys
+                    );
+
+                    const targetInitialData: Record<string, unknown> = {};
+                    if (split.after.length > 0) {
+                        targetInitialData.subdivisions = split.after;
+                    }
+                    if (Object.keys(targetNamePartition.moved).length > 0) {
+                        targetInitialData.subdivisionNames = targetNamePartition.moved;
+                    }
+                    // Mirror the SOURCE's name partition into the target's
+                    // `subdivisionNamesFromSource` so the target inherits
+                    // source-side labels for the new milestone by default.
+                    const mergedSourceNamesForNewMilestone = {
+                        ...targetSourceNamePartition.moved,
+                        ...sourceNamePartition.moved,
+                    };
+                    if (Object.keys(mergedSourceNamesForNewMilestone).length > 0) {
+                        targetInitialData.subdivisionNamesFromSource =
+                            mergedSourceNamesForNewMilestone;
+                    }
+
+                    await targetDocument.refreshAuthor();
+                    targetDocument.insertMilestoneCell({
+                        newCellId: insertedMilestoneCellId,
+                        referenceCellId: boundaryCellId,
+                        valueOverride,
+                        initialData: targetInitialData,
+                    });
+                    // Update the original target milestone with the BEFORE
+                    // partition of placements + names. Mirror the source's
+                    // BEFORE-partition names map into the target's
+                    // subdivisionNamesFromSource so cross-side rendering
+                    // stays consistent.
+                    const mergedSourceNamesForOriginal = {
+                        ...targetSourceNamePartition.kept,
+                        ...sourceNamePartition.kept,
+                    };
+                    targetDocument.updateCellData(targetOriginalCell.metadata.id, {
+                        subdivisions: split.before,
+                        subdivisionNames: targetNamePartition.kept,
+                        subdivisionNamesFromSource: mergedSourceNamesForOriginal,
+                    });
+                    await provider.saveCustomDocument(targetDocument, cancellationToken);
+                    await targetDocument.updateCellMilestoneIndices({ force: true });
+                    mirroredTargetDocument = targetDocument;
+                }
+            }
+        }
+    } catch (mirrorError) {
+        console.error(`${logPrefix} Failed to mirror to target:`, mirrorError);
+    }
+
+    // Adjust cached position so a user viewing milestone N+ stays on the
+    // equivalent content after the split. Viewers on the original milestone
+    // (index === milestoneIndex) stay put — the original is now the first
+    // half, which still makes sense as their current position.
+    const docUri = document.uri.toString();
+    const cachedPosition = provider.currentMilestoneSubsectionMap.get(docUri);
+    if (cachedPosition && cachedPosition.milestoneIndex > milestoneIndex) {
+        provider.currentMilestoneSubsectionMap.set(docUri, {
+            milestoneIndex: cachedPosition.milestoneIndex + 1,
+            subsectionIndex: cachedPosition.subsectionIndex,
+        });
+    }
+
+    await sendMilestoneRefreshToWebview(document, webviewPanel, provider);
+
+    if (mirroredTargetDocument) {
+        const targetUri = mirroredTargetDocument.uri.toString();
+        const targetCachedPosition =
+            provider.currentMilestoneSubsectionMap.get(targetUri);
+        if (
+            targetCachedPosition &&
+            targetCachedPosition.milestoneIndex > milestoneIndex
+        ) {
+            provider.currentMilestoneSubsectionMap.set(targetUri, {
+                milestoneIndex: targetCachedPosition.milestoneIndex + 1,
+                subsectionIndex: targetCachedPosition.subsectionIndex,
+            });
+        }
         const targetPanel = provider.getWebviewPanelForUri(mirroredTargetDocument.uri);
         if (targetPanel) {
             try {
@@ -1853,6 +2505,144 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
         }
+    },
+
+    addMilestoneAtCell: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<
+            EditorPostMessages,
+            { command: "addMilestoneAtCell"; }
+        >;
+        debug("addMilestoneAtCell message received", { event });
+
+        const { milestoneIndex, cellNumber } = typedEvent.content;
+        const rootIds = document.getRootContentCellIdsForMilestone(milestoneIndex);
+        if (
+            !Array.isArray(rootIds) ||
+            rootIds.length === 0 ||
+            typeof cellNumber !== "number" ||
+            !Number.isFinite(cellNumber) ||
+            cellNumber < 2 ||
+            cellNumber > rootIds.length
+        ) {
+            console.warn("[addMilestoneAtCell] cellNumber out of range:", {
+                milestoneIndex,
+                cellNumber,
+                rootCount: rootIds?.length ?? 0,
+            });
+            vscode.window.showWarningMessage(
+                rootIds && rootIds.length >= 2
+                    ? `Cannot add a milestone here — pick a cell between 2 and ${rootIds.length}.`
+                    : "This milestone is too short to split."
+            );
+            return;
+        }
+
+        const boundaryCellId = rootIds[cellNumber - 1];
+        await commitSplitMilestoneAtAnchor({
+            document,
+            webviewPanel,
+            provider,
+            milestoneIndex,
+            boundaryCellId,
+            logPrefix: "[addMilestoneAtCell]",
+            errorPrefix: "Failed to add milestone",
+        });
+    },
+
+    promoteSubdivisionToMilestone: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<
+            EditorPostMessages,
+            { command: "promoteSubdivisionToMilestone"; }
+        >;
+        debug("promoteSubdivisionToMilestone message received", { event });
+
+        const { milestoneIndex, subdivisionKey } = typedEvent.content;
+        if (subdivisionKey === FIRST_SUBDIVISION_KEY) {
+            console.warn(
+                "[promoteSubdivisionToMilestone] Cannot promote the implicit first subdivision (it's already aligned with the milestone start)"
+            );
+            vscode.window.showWarningMessage(
+                "The first subdivision is already at the milestone boundary."
+            );
+            return;
+        }
+
+        const rootIds = document.getRootContentCellIdsForMilestone(milestoneIndex);
+        if (!rootIds.includes(subdivisionKey)) {
+            console.warn("[promoteSubdivisionToMilestone] Subdivision key not in milestone roots", {
+                milestoneIndex,
+                subdivisionKey,
+            });
+            vscode.window.showWarningMessage(
+                "Cannot promote that subdivision — it does not match a current cell in this milestone."
+            );
+            return;
+        }
+
+        // Look up the existing placement's resolved name so it becomes the
+        // promoted milestone's label. Prefer the document-local
+        // `subdivisionNames` override (matches what the user sees in the
+        // accordion) and fall back to the placement's inline `.name`.
+        const milestoneIndexObj = document.buildMilestoneIndex();
+        const milestone = milestoneIndexObj.milestones[milestoneIndex];
+        const milestoneCell = milestone
+            ? document.getCellByIndex(milestone.cellIndex)
+            : undefined;
+        const existing = milestoneCell ? readMilestoneSubdivisionData(milestoneCell) : {
+            placements: [],
+            subdivisionNames: {},
+            subdivisionNamesFromSource: {},
+        };
+        const inlineName = existing.placements.find(
+            (p) => p.startCellId === subdivisionKey
+        )?.name;
+        const promotedLabel =
+            existing.subdivisionNames[subdivisionKey] || inlineName || undefined;
+
+        await commitSplitMilestoneAtAnchor({
+            document,
+            webviewPanel,
+            provider,
+            milestoneIndex,
+            boundaryCellId: subdivisionKey,
+            newMilestoneLabel: promotedLabel,
+            logPrefix: "[promoteSubdivisionToMilestone]",
+            errorPrefix: "Failed to promote subdivision",
+        });
+    },
+
+    removeMilestone: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<
+            EditorPostMessages,
+            { command: "removeMilestone"; }
+        >;
+        debug("removeMilestone message received", { event });
+        await commitMergeMilestoneIntoPrevious({
+            document,
+            webviewPanel,
+            provider,
+            milestoneIndex: typedEvent.content.milestoneIndex,
+            preserveBoundary: false,
+            logPrefix: "[removeMilestone]",
+            errorPrefix: "Failed to remove milestone",
+        });
+    },
+
+    demoteMilestoneToSubdivision: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<
+            EditorPostMessages,
+            { command: "demoteMilestoneToSubdivision"; }
+        >;
+        debug("demoteMilestoneToSubdivision message received", { event });
+        await commitMergeMilestoneIntoPrevious({
+            document,
+            webviewPanel,
+            provider,
+            milestoneIndex: typedEvent.content.milestoneIndex,
+            preserveBoundary: true,
+            logPrefix: "[demoteMilestoneToSubdivision]",
+            errorPrefix: "Failed to demote milestone",
+        });
     },
 
     updateNotebookMetadata: async ({ event, document, webviewPanel, provider }) => {

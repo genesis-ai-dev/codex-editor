@@ -68,6 +68,10 @@ export async function openInterfaceSettings() {
             false
         );
         const maxSubdivisionLength = config.get<number>("maxSubdivisionLength", 0);
+        const enableMilestonePlacementEditing = config.get<boolean>(
+            "enableMilestonePlacementEditing",
+            false
+        );
 
         panel.webview.postMessage({
             command: "init",
@@ -76,6 +80,7 @@ export async function openInterfaceSettings() {
                 cellsPerPage,
                 useSubdivisionNumberLabels,
                 maxSubdivisionLength,
+                enableMilestonePlacementEditing,
             },
         });
     };
@@ -151,6 +156,16 @@ export async function openInterfaceSettings() {
                 );
                 break;
             }
+
+            case "updateEnableMilestonePlacementEditing": {
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                await config.update(
+                    "enableMilestonePlacementEditing",
+                    Boolean(message.value),
+                    vscode.ConfigurationTarget.Workspace
+                );
+                break;
+            }
         }
     });
 
@@ -161,7 +176,10 @@ export async function openInterfaceSettings() {
             e.affectsConfiguration("codex-editor-extension.highlightSearchResults") ||
             e.affectsConfiguration("codex-editor-extension.cellsPerPage") ||
             e.affectsConfiguration("codex-editor-extension.useSubdivisionNumberLabels") ||
-            e.affectsConfiguration("codex-editor-extension.maxSubdivisionLength")
+            e.affectsConfiguration("codex-editor-extension.maxSubdivisionLength") ||
+            e.affectsConfiguration(
+                "codex-editor-extension.enableMilestonePlacementEditing"
+            )
         ) {
             sendInit();
         }

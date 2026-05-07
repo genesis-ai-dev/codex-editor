@@ -95,6 +95,12 @@ interface ChapterNavigationHeaderProps {
      * when a user-assigned name is available. Defaults to false.
      */
     useSubdivisionNumberLabels?: boolean;
+    /**
+     * When true, the milestone-placement editing controls render in the
+     * MilestoneAccordion's settings mode (add/remove/promote/demote).
+     * Defaults to false; gated behind `codex-editor-extension.enableMilestonePlacementEditing`.
+     */
+    enableMilestonePlacementEditing?: boolean;
 }
 
 export function ChapterNavigationHeader({
@@ -155,6 +161,7 @@ export function ChapterNavigationHeader({
     allSubsectionProgress,
     requestSubsectionProgress,
     useSubdivisionNumberLabels = false,
+    enableMilestonePlacementEditing = false,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -1085,6 +1092,7 @@ ChapterNavigationHeaderProps) {
                 requestSubsectionProgress={requestSubsectionProgress}
                 vscode={vscode}
                 useSubdivisionNumberLabels={useSubdivisionNumberLabels}
+                enableMilestonePlacementEditing={enableMilestonePlacementEditing}
             />
         </div>
     );

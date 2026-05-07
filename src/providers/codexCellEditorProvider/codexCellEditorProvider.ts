@@ -146,6 +146,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return typeof raw === "number" && raw > 0 ? Math.floor(raw) : 0;
     }
 
+    /**
+     * User opt-in for the milestone-placement editing controls (add / remove
+     * / promote / demote). Off by default — the feature is gated because it
+     * restructures the document. Pushed to webviews on initial paint and on
+     * the workspace configuration change event below so the controls toggle
+     * live without a reload.
+     */
+    private get ENABLE_MILESTONE_PLACEMENT_EDITING(): boolean {
+        const config = vscode.workspace.getConfiguration("codex-editor-extension");
+        return config.get("enableMilestonePlacementEditing", false);
+    }
+
     private bumpDocumentRevision(documentUri: string): number {
         const next = (this.documentRevisions.get(documentUri) ?? 0) + 1;
         this.documentRevisions.set(documentUri, next);
@@ -374,6 +386,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     safePostMessageToPanel(panel, {
                         type: "updateSubdivisionLabelPreference",
                         useSubdivisionNumberLabels: newPref,
+                    });
+                });
+            }
+
+            if (
+                e.affectsConfiguration(
+                    "codex-editor-extension.enableMilestonePlacementEditing"
+                )
+            ) {
+                const newPref = this.ENABLE_MILESTONE_PLACEMENT_EDITING;
+                this.webviewPanels.forEach((panel) => {
+                    safePostMessageToPanel(panel, {
+                        type: "updateMilestonePlacementEditingPreference",
+                        enableMilestonePlacementEditing: newPref,
                     });
                 });
             }
@@ -967,6 +993,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     isAuthenticated: isAuthenticated,
                     userAccessLevel: userAccessLevel,
                     useSubdivisionNumberLabels: this.USE_SUBDIVISION_NUMBER_LABELS,
+                    enableMilestonePlacementEditing:
+                        this.ENABLE_MILESTONE_PLACEMENT_EDITING,
                 });
 
                 // Record the initial position so subsequent updateWebview() calls
@@ -2721,6 +2749,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 validationCount: validationCount,
                 validationCountAudio: validationCountAudio,
                 useSubdivisionNumberLabels: this.USE_SUBDIVISION_NUMBER_LABELS,
+                enableMilestonePlacementEditing:
+                    this.ENABLE_MILESTONE_PLACEMENT_EDITING,
             });
 
             this.postMessageToWebview(webviewPanel, {

@@ -646,6 +646,73 @@ export type EditorPostMessages =
         };
     }
     | {
+        /**
+         * Insert a new milestone cell at the Nth root content cell of an
+         * existing milestone, splitting the existing milestone in two. The
+         * provider resolves the number to a `startCellId`, redistributes the
+         * existing milestone's subdivisions across the split, and mirrors the
+         * structural change (insertion + redistributed subdivisions) onto the
+         * paired target document by UUID. Source-only — the gating setting
+         * `codex-editor-extension.enableMilestonePlacementEditing` must also
+         * be on for the UI to render the trigger.
+         */
+        command: "addMilestoneAtCell";
+        content: {
+            milestoneIndex: number;
+            /** 1-based position within the milestone's root cells (must be >= 2). */
+            cellNumber: number;
+        };
+    }
+    | {
+        /**
+         * Soft-delete a milestone cell. The previous (surviving) milestone's
+         * range expands to absorb the removed milestone's content cells; any
+         * subdivision breaks inside the removed milestone are lifted onto the
+         * surviving milestone (their cell-ID anchors stay valid). The
+         * boundary itself is NOT preserved as a subdivision break — use
+         * `demoteMilestoneToSubdivision` for that.
+         *
+         * The first milestone cannot be removed (would leave the document
+         * with a virtual milestone). Source-only.
+         */
+        command: "removeMilestone";
+        content: {
+            /** 0-based milestone index in the current source document. */
+            milestoneIndex: number;
+        };
+    }
+    | {
+        /**
+         * Convert an existing custom subdivision break into a full milestone.
+         * The original milestone splits at the subdivision's anchor cell and
+         * the named subdivision becomes the new milestone's label. Equivalent
+         * to `addMilestoneAtCell` against an already-promoted anchor, except
+         * the source's existing placement at the anchor is removed (since
+         * it's now a milestone, not a subdivision break).
+         *
+         * Source-only. The subdivision must currently exist as a `custom`
+         * placement on the milestone's stored `subdivisions` list.
+         */
+        command: "promoteSubdivisionToMilestone";
+        content: {
+            milestoneIndex: number;
+            /** Stable subdivision key — the `startCellId` of the placement. */
+            subdivisionKey: string;
+        };
+    }
+    | {
+        /**
+         * Convert a milestone into a subdivision break of the previous
+         * milestone. Like `removeMilestone`, but the boundary is preserved
+         * as a custom subdivision (carrying the demoted milestone's label
+         * as its name). Source-only; cannot demote the first milestone.
+         */
+        command: "demoteMilestoneToSubdivision";
+        content: {
+            milestoneIndex: number;
+        };
+    }
+    | {
         command: "refreshWebviewAfterMilestoneEdits";
         content?: Record<string, never>;
     }
@@ -1997,6 +2064,14 @@ type EditorReceiveMessages =
          * setting `codex-editor-extension.useSubdivisionNumberLabels`.
          */
         useSubdivisionNumberLabels?: boolean;
+        /**
+         * When true, the milestone-placement editing controls render in the
+         * MilestoneAccordion's settings mode (add/remove/promote/demote).
+         * Mirrors `codex-editor-extension.enableMilestonePlacementEditing`.
+         * Off by default — the feature is gated behind a setting because it
+         * restructures the document, not just relabels regions.
+         */
+        enableMilestonePlacementEditing?: boolean;
     }
     | {
         type: "providerSendsCellPage";
@@ -2293,6 +2368,15 @@ type EditorReceiveMessages =
          * `codex-editor-extension.useSubdivisionNumberLabels`.
          */
         useSubdivisionNumberLabels: boolean;
+    }
+    | {
+        type: "updateMilestonePlacementEditingPreference";
+        /**
+         * When true, the MilestoneAccordion's settings mode reveals
+         * milestone-placement editing controls (add/remove/promote/demote).
+         * Mirrors `codex-editor-extension.enableMilestonePlacementEditing`.
+         */
+        enableMilestonePlacementEditing: boolean;
     }
     | {
         type: "editorPosition";

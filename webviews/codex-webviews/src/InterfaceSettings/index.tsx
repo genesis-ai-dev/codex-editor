@@ -63,6 +63,12 @@ function InterfaceSettingsApp() {
     const [maxSubdivisionLengthInput, setMaxSubdivisionLengthInput] = useState("0");
     const maxSubdivisionLengthEnabled = maxSubdivisionLength > 0;
 
+    // Milestone-placement editing is gated behind this opt-in because it
+    // restructures the document (insert/remove/promote/demote of milestone
+    // cells) rather than just relabelling. Off by default so existing users
+    // don't see new structural buttons in their settings menu unannounced.
+    const [enableMilestonePlacementEditing, setEnableMilestonePlacementEditing] = useState(false);
+
     useEffect(() => {
         const handler = (event: MessageEvent) => {
             const message = event.data;
@@ -81,6 +87,11 @@ function InterfaceSettingsApp() {
                     const v = Math.max(0, Math.floor(message.data.maxSubdivisionLength));
                     setMaxSubdivisionLength(v);
                     setMaxSubdivisionLengthInput(v > 0 ? String(v) : "");
+                }
+                if (typeof message.data?.enableMilestonePlacementEditing === "boolean") {
+                    setEnableMilestonePlacementEditing(
+                        message.data.enableMilestonePlacementEditing
+                    );
                 }
             }
         };
@@ -182,6 +193,14 @@ function InterfaceSettingsApp() {
         } else {
             sendMaxSubdivisionLength(0);
         }
+    };
+
+    const handleToggleEnableMilestonePlacementEditing = (checked: boolean) => {
+        setEnableMilestonePlacementEditing(checked);
+        vscode.postMessage({
+            command: "updateEnableMilestonePlacementEditing",
+            value: checked,
+        });
     };
 
     return (
@@ -463,6 +482,24 @@ function InterfaceSettingsApp() {
                                     onCheckedChange={handleToggleMaxSubdivisionLength}
                                 />
                             </div>
+                        </div>
+
+                        {/* Milestone placement editing */}
+                        <div className="flex items-center justify-between gap-4">
+                            <div className="min-w-0">
+                                <div className="font-medium">
+                                    Edit milestone placement
+                                </div>
+                                <div className="text-sm opacity-70">
+                                    Show controls in the milestone accordion to add, remove,
+                                    promote, or demote milestones on source files. Edits mirror
+                                    to the paired target.
+                                </div>
+                            </div>
+                            <Switch
+                                checked={enableMilestonePlacementEditing}
+                                onCheckedChange={handleToggleEnableMilestonePlacementEditing}
+                            />
                         </div>
                     </div>
                 </div>

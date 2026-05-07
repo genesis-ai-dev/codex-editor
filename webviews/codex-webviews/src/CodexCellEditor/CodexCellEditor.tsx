@@ -247,6 +247,13 @@ const CodexCellEditor: React.FC = () => {
     // `updateSubdivisionLabelPreference` messages; default false when absent.
     const [useSubdivisionNumberLabels, setUseSubdivisionNumberLabels] = useState<boolean>(false);
 
+    // Workspace opt-in for milestone-placement editing controls
+    // (add/remove/promote/demote). Initialized from the provider's first
+    // content payload and kept in sync via
+    // `updateMilestonePlacementEditingPreference` messages; default false.
+    const [enableMilestonePlacementEditing, setEnableMilestonePlacementEditing] =
+        useState<boolean>(false);
+
     // Track cells currently transcribing audio (to show the same loading effect as translations)
     const [transcribingCells, setTranscribingCells] = useState<Set<string>>(new Set());
 
@@ -2343,11 +2350,22 @@ const CodexCellEditor: React.FC = () => {
                         Boolean(event.data.useSubdivisionNumberLabels)
                     );
                 }
+                if (event.data.enableMilestonePlacementEditing !== undefined) {
+                    setEnableMilestonePlacementEditing(
+                        Boolean(event.data.enableMilestonePlacementEditing)
+                    );
+                }
             }
 
             if (event.data.type === "updateSubdivisionLabelPreference") {
                 setUseSubdivisionNumberLabels(
                     Boolean(event.data.useSubdivisionNumberLabels)
+                );
+            }
+
+            if (event.data.type === "updateMilestonePlacementEditingPreference") {
+                setEnableMilestonePlacementEditing(
+                    Boolean(event.data.enableMilestonePlacementEditing)
                 );
             }
         },
@@ -3233,6 +3251,7 @@ const CodexCellEditor: React.FC = () => {
                             allSubsectionProgress={subsectionProgress}
                             requestSubsectionProgress={requestSubsectionProgressForMilestone}
                             useSubdivisionNumberLabels={useSubdivisionNumberLabels}
+                            enableMilestonePlacementEditing={enableMilestonePlacementEditing}
                         />
                     </div>
                 </div>
