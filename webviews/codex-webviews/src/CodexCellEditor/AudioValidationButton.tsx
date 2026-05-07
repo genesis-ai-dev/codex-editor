@@ -186,6 +186,18 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         setIsPendingValidation(false);
         setIsValidationInProgress(false);
     };
+    const isValidationUpdateForSelectedAudio = (content: {
+        cellId?: string;
+        attachmentId?: string;
+        selectedAudioId?: string;
+    }): boolean => {
+        if (content.cellId !== cellId || !selectedAudioIdForReset) {
+            return false;
+        }
+
+        const updatedAudioId = content.attachmentId ?? content.selectedAudioId;
+        return updatedAudioId === selectedAudioIdForReset;
+    };
 
     useMessageHandler(
         `audioValidationButton-${cellId}-${uniqueId.current}`,
@@ -203,7 +215,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                 // which will recalculate isFullyValidated in the render function
             } else if (message.type === "providerUpdatesAudioValidationState") {
                 // Handle audio validation state updates from the backend
-                if (message.content.cellId === cellId) {
+                if (isValidationUpdateForSelectedAudio(message.content)) {
                     applyValidatedByUpdate(message.content.validatedBy);
                 }
             } else if (message.type === "configurationChanged") {
@@ -231,10 +243,12 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                     setIsPendingValidation(false);
                 }
             } else if (message.type === "audioHistorySelectionChanged") {
-                applyValidatedByUpdate(message.content.validatedBy);
+                if (message.content.cellId === cellId) {
+                    applyValidatedByUpdate(message.content.validatedBy);
+                }
             }
         },
-        [cellId, username, currentUsername, requiredAudioValidationsProp]
+        [cellId, username, currentUsername, requiredAudioValidationsProp, selectedAudioIdForReset]
     );
 
     useEffect(() => {

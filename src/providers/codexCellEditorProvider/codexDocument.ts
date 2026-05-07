@@ -2834,13 +2834,22 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public getCellAudioValidatedBy(cellId: string): ValidationEntry[] {
-        const currentAttachment = this.getCurrentAttachment(cellId, "audio");
+        const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
+        const selectedAudioId = cell?.metadata?.selectedAudioId;
+        const selectedAttachment = selectedAudioId
+            ? cell?.metadata?.attachments?.[selectedAudioId]
+            : undefined;
 
-        if (!currentAttachment || !Array.isArray(currentAttachment.attachment?.validatedBy)) {
+        if (
+            !selectedAttachment ||
+            selectedAttachment.type !== "audio" ||
+            selectedAttachment.isDeleted ||
+            !Array.isArray(selectedAttachment.validatedBy)
+        ) {
             return [];
         }
 
-        return currentAttachment.attachment.validatedBy.filter((entry: any) =>
+        return selectedAttachment.validatedBy.filter((entry: any) =>
             this.isValidValidationEntry(entry)
         );
     }

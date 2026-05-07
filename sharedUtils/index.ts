@@ -55,35 +55,18 @@ export const getCellValueData = (cell: QuillCellContent) => {
         reversed.find((edit) => EditMapUtils.isValue(edit.editMap) && edit.value === cell.cellContent) ??
         reversed.find((edit) => EditMapUtils.isValue(edit.editMap) && !edit.preview);
 
-    // Get audio validation from attachments instead of edits
+    // Get audio validation from the explicitly selected attachment only.
+    // If no audio is selected, the cell should not contribute audio validations.
     let audioValidatedBy: ValidationEntry[] = [];
     if (cell.attachments) {
-        const audioAttachments = Object.entries(cell.attachments).filter(([, attachment]: [string, any]) =>
-            attachment && attachment.type === "audio" && !attachment.isDeleted
-        );
-
-        if (audioAttachments.length > 0) {
-            // Prefer the explicitly selected audio attachment when available
-            let currentAudioAttachmentEntry: [string, any] | null = null;
-
-            const selectedAudioId = cell.metadata?.selectedAudioId;
-            if (selectedAudioId) {
-                currentAudioAttachmentEntry =
-                    audioAttachments.find(([attachmentId]) => attachmentId === selectedAudioId) ?? null;
-            }
-
-            // Fall back to the most recently updated audio attachment
-            if (!currentAudioAttachmentEntry) {
-                currentAudioAttachmentEntry = audioAttachments
-                    .sort(([, a]: [string, any], [, b]: [string, any]) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
-            }
-
-            if (currentAudioAttachmentEntry) {
-                const [, currentAudioAttachment] = currentAudioAttachmentEntry;
-                if (currentAudioAttachment?.validatedBy) {
-                    audioValidatedBy = currentAudioAttachment.validatedBy;
-                }
-            }
+        const selectedAudioId = cell.metadata?.selectedAudioId;
+        const selectedAudioAttachment = selectedAudioId ? cell.attachments[selectedAudioId] : undefined;
+        if (
+            selectedAudioAttachment?.type === "audio" &&
+            !selectedAudioAttachment.isDeleted &&
+            selectedAudioAttachment.validatedBy
+        ) {
+            audioValidatedBy = selectedAudioAttachment.validatedBy;
         }
     }
 
