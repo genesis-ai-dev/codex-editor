@@ -28,6 +28,7 @@ import { getSQLiteIndexManager, isDBShuttingDown } from "../../activationHelpers
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
 import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./utils/cellUtils";
 import { FIRST_SUBDIVISION_KEY, findSubdivisionIndexForRoot, resolveSubdivisions } from "./utils/subdivisionUtils";
+import { buildMilestoneCellPayload } from "../../utils/milestoneCellUtils";
 import { formatJsonForNotebookFile, normalizeNotebookFileText } from "../../utils/notebookFileFormattingUtils";
 import { serializeNotebookWithCellCache } from "./utils/cachedNotebookSerializer";
 import { atomicWriteUriText, readExistingFileOrThrow } from "../../utils/notebookSafeSaveUtils";
@@ -1300,6 +1301,95 @@ export class CodexCellDocument implements vscode.CustomDocument {
         });
     }
 
+    /**
+     * Inserts a milestone cell at the position currently occupied by
+     * `referenceCellId`, pushing that root content cell (and everything after
+     * it) into the new milestone's range. Distinct from `addCell` because
+     * milestone cells are top-level structural rows: they MUST NOT carry a
+     * `parentId` (which would erroneously make them children of the reference
+     * cell), they always carry an INITIAL_IMPORT-style edit so the label is
+     * durable across 3-way merges, and they may be born with `metadata.data`
+     * already populated (subdivisions, name overrides) so a structural edit
+     * lands atomically rather than as a sequence of follow-up updates.
+     *
+     * Returns the inserted cell so callers can stash its UUID for paired
+     * source↔target mirroring.
+     */
+    public insertMilestoneCell(opts: {
+        newCellId?: string;
+        referenceCellId: string;
+        valueOverride?: string;
+        initialData?: Record<string, unknown>;
+    }): { cellId: string; cellIndex: number; } {
+        const { newCellId, referenceCellId, valueOverride, initialData } = opts;
+        const indexOfReferenceCell = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === referenceCellId
+        );
+        if (indexOfReferenceCell === -1) {
+            throw new Error(
+                `Could not find reference cell ${referenceCellId} for milestone insertion`
+            );
+        }
+
+        // Use the reference cell's metadata to derive a sensible default
+        // label ("BookName ChapterNumber"). Caller can override via
+        // `valueOverride` — typical when promoting a named subdivision.
+        const referenceCell = this._documentData.cells[indexOfReferenceCell];
+        // Milestone ordinals here are purely for the fallback chapter label
+        // when no structured chapter metadata is available; we count existing
+        // (non-deleted) milestone cells before the insertion point + 1.
+        let ordinal = 1;
+        for (let i = 0; i < indexOfReferenceCell; i++) {
+            const c = this._documentData.cells[i];
+            if (
+                c.metadata?.type === CodexCellTypes.MILESTONE &&
+                c.metadata?.data?.deleted !== true
+            ) {
+                ordinal++;
+            }
+        }
+
+        const payload = buildMilestoneCellPayload({
+            referenceCell,
+            milestoneOrdinal: ordinal,
+            author: this._author,
+            uuid: newCellId,
+            valueOverride,
+            initialData,
+        });
+
+        // Splice in BEFORE the reference cell so it becomes the new
+        // milestone's first content cell.
+        this._documentData.cells.splice(indexOfReferenceCell, 0, payload as CustomNotebookCellData);
+
+        // Cell-list shape changed → milestone partition is stale.
+        this.invalidateMilestoneIndexCache();
+
+        const insertedId = payload.metadata.id;
+        this._edits.push({
+            type: "addCell",
+            newCellId: insertedId,
+            referenceCellId,
+            cellType: CodexCellTypes.MILESTONE,
+            data: payload.metadata.data,
+        });
+
+        this._isDirty = true;
+        this._dirtyCellIds.add(insertedId);
+        this._onDidChangeForVsCodeAndWebview.fire({
+            edits: [
+                {
+                    newCellId: insertedId,
+                    referenceCellId,
+                    cellType: CodexCellTypes.MILESTONE,
+                    data: payload.metadata.data,
+                },
+            ],
+        });
+
+        return { cellId: insertedId, cellIndex: indexOfReferenceCell };
+    }
+
     // Method to update notebook metadata
     public updateNotebookMetadata(newMetadata: Partial<CustomNotebookMetadata>) {
         if (!this._documentData.metadata) {
@@ -1726,8 +1816,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
     /**
      * Updates the database with milestone indices for all cells.
      * This should be called after buildMilestoneIndex() to persist the milestone indices.
+     *
+     * Pass `force: true` for structural edits (insert/soft-delete of a
+     * milestone cell) where the cell COUNT may not change but the per-cell
+     * `milestoneIndex` assignment does. The default fast path keys on cell
+     * count alone and would otherwise skip the reflush.
      */
-    public async updateCellMilestoneIndices(): Promise<void> {
+    public async updateCellMilestoneIndices(options?: { force?: boolean; }): Promise<void> {
         if (!this.refreshIndexManager()) {
             console.warn(`[CodexDocument] Index manager not available for milestone index update`);
             return;
@@ -1736,9 +1831,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const cells = this._documentData.cells || [];
         const currentCellCount = cells.length;
 
-        // Optimization: Skip update if milestone indices haven't changed
-        // If cache is valid and cell count matches last update, indices haven't changed
+        // Optimization: Skip update if milestone indices haven't changed.
+        // Structural edits that mutate `milestoneIndex` without changing the
+        // cell COUNT (notably soft-deleting a milestone cell) must opt out via
+        // `force` so the SQLite mirror doesn't drift from the in-memory state.
         if (
+            !options?.force &&
             this._cachedMilestoneIndex !== null &&
             this._cachedMilestoneIndexCellCount === currentCellCount &&
             this._lastUpdatedMilestoneIndexCellCount === currentCellCount

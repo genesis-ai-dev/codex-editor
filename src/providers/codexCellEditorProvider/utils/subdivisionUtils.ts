@@ -280,3 +280,185 @@ export function findSubdivisionIndexForRoot(
     }
     return -1;
 }
+
+/**
+ * Result of `splitPlacementsAtAnchor`. Used by the milestone-placement edit
+ * pipeline (add / promote) to atomically re-partition an existing milestone's
+ * subdivisions when a new milestone boundary is introduced inside it.
+ */
+export interface SplitPlacementsResult {
+    /**
+     * Placements that fall strictly before the new boundary. These remain on
+     * the original (now-shorter) milestone.
+     */
+    before: MilestoneSubdivisionPlacement[];
+    /**
+     * Placements that fall strictly after the new boundary, re-anchored as
+     * subdivisions of the freshly-created milestone. The placement at the
+     * boundary itself (if any) is NOT included here — it becomes the new
+     * milestone's implicit first subdivision and its name (if any) is
+     * surfaced via `boundaryName`.
+     */
+    after: MilestoneSubdivisionPlacement[];
+    /**
+     * If a placement existed exactly at the new boundary cell, its `name` is
+     * returned here. Callers persist this as the new milestone's
+     * `subdivisionNames["__start__"]` so the implicit first subdivision keeps
+     * the user's label even though it no longer corresponds to a placement.
+     */
+    boundaryName?: string;
+}
+
+/**
+ * Partitions a milestone's existing placements at an anchor cell when a new
+ * milestone is being inserted there (whether by direct add or by promotion of
+ * an existing subdivision break).
+ *
+ * `rootIds` is the ordered list of root content cell IDs in the original
+ * (un-split) milestone. `boundaryCellId` must appear in `rootIds`; otherwise
+ * the function returns the input unchanged in `before` (defensive).
+ *
+ * Placements whose `startCellId` is not a root cell are silently dropped — the
+ * resolver would prune them anyway.
+ */
+export function splitPlacementsAtAnchor(
+    placements: MilestoneSubdivisionPlacement[] | undefined,
+    rootIds: string[],
+    boundaryCellId: string
+): SplitPlacementsResult {
+    const empty: SplitPlacementsResult = { before: [], after: [] };
+    if (!boundaryCellId) return empty;
+    const boundaryIndex = rootIds.indexOf(boundaryCellId);
+    // Boundary outside the milestone or at the very start — caller should have
+    // rejected this earlier; we degrade gracefully to "no split" so we never
+    // silently lose data.
+    if (boundaryIndex <= 0) {
+        return {
+            before: Array.isArray(placements) ? [...placements] : [],
+            after: [],
+        };
+    }
+
+    const before: MilestoneSubdivisionPlacement[] = [];
+    const after: MilestoneSubdivisionPlacement[] = [];
+    let boundaryName: string | undefined;
+    const seen = new Set<string>();
+
+    for (const placement of placements ?? []) {
+        if (!placement || typeof placement.startCellId !== "string") continue;
+        if (seen.has(placement.startCellId)) continue;
+        seen.add(placement.startCellId);
+        const idx = rootIds.indexOf(placement.startCellId);
+        if (idx === -1) continue; // stale anchor — drop
+        if (idx < boundaryIndex) {
+            const entry: MilestoneSubdivisionPlacement = {
+                startCellId: placement.startCellId,
+            };
+            if (typeof placement.name === "string" && placement.name.length > 0) {
+                entry.name = placement.name;
+            }
+            before.push(entry);
+        } else if (idx === boundaryIndex) {
+            // Placement coincides with the new milestone boundary. We don't
+            // carry it into `after` because the new milestone's first
+            // subdivision is implicit; instead we surface its name so callers
+            // can stash it in `subdivisionNames[FIRST_SUBDIVISION_KEY]`.
+            if (typeof placement.name === "string" && placement.name.length > 0) {
+                boundaryName = placement.name;
+            }
+        } else {
+            const entry: MilestoneSubdivisionPlacement = {
+                startCellId: placement.startCellId,
+            };
+            if (typeof placement.name === "string" && placement.name.length > 0) {
+                entry.name = placement.name;
+            }
+            after.push(entry);
+        }
+    }
+
+    return { before, after, boundaryName };
+}
+
+/**
+ * Result of `mergePlacementsForRemovedMilestone`. Captures both the new
+ * placement list to write onto the surviving (previous) milestone, and the
+ * recommended source-side first-subdivision name carried over from the
+ * removed milestone (relevant only when `boundaryAnchorCellId` matches the
+ * surviving milestone's first root cell — see merge logic below).
+ */
+export interface MergePlacementsResult {
+    placements: MilestoneSubdivisionPlacement[];
+}
+
+/**
+ * Builds the merged placement list for the surviving (previous) milestone
+ * when a milestone is removed or demoted. Both operations expand the
+ * previous milestone's range to absorb the removed milestone's content
+ * cells; the difference is whether the boundary itself is preserved as a
+ * custom subdivision break.
+ *
+ *  - `prevPlacements`: existing placements on the surviving milestone.
+ *  - `removedPlacements`: placements on the milestone being removed (these
+ *    are lifted up because their anchors still point at valid root cells in
+ *    the merged milestone).
+ *  - `boundaryAnchorCellId`: the first root content cell of the removed
+ *    milestone. After the merge it sits at the seam between the two
+ *    milestones' original cell ranges.
+ *  - `boundaryName`: optional label for the boundary placement. When
+ *    `preserveBoundary` is `true` and `boundaryName` is set, the boundary
+ *    becomes a new placement on the surviving milestone (carrying that
+ *    name) so the section heading isn't silently lost.
+ *  - `preserveBoundary`: `true` for **demote** semantics (boundary kept as
+ *    a subdivision break), `false` for **remove** semantics (boundary gone
+ *    entirely).
+ *
+ * Placements are deduplicated by `startCellId` (last write wins on name).
+ */
+export function mergePlacementsForRemovedMilestone({
+    prevPlacements,
+    removedPlacements,
+    boundaryAnchorCellId,
+    boundaryName,
+    preserveBoundary,
+}: {
+    prevPlacements: MilestoneSubdivisionPlacement[] | undefined;
+    removedPlacements: MilestoneSubdivisionPlacement[] | undefined;
+    boundaryAnchorCellId?: string;
+    boundaryName?: string;
+    preserveBoundary: boolean;
+}): MergePlacementsResult {
+    const merged = new Map<string, MilestoneSubdivisionPlacement>();
+    const push = (p: MilestoneSubdivisionPlacement | undefined) => {
+        if (!p || typeof p.startCellId !== "string") return;
+        const entry: MilestoneSubdivisionPlacement = { startCellId: p.startCellId };
+        if (typeof p.name === "string" && p.name.length > 0) {
+            entry.name = p.name;
+        }
+        merged.set(p.startCellId, entry);
+    };
+
+    for (const p of prevPlacements ?? []) push(p);
+
+    if (
+        preserveBoundary &&
+        typeof boundaryAnchorCellId === "string" &&
+        boundaryAnchorCellId.length > 0
+    ) {
+        // For demote: stamp the boundary as a fresh placement carrying the
+        // removed milestone's label as its name (when provided). Setting it
+        // before the removed milestone's other placements means the explicit
+        // boundary entry will be replaced if the removed milestone happened
+        // to also have a placement at that exact cell ID — that's fine; the
+        // removed-side name takes precedence as the more specific override.
+        const entry: MilestoneSubdivisionPlacement = { startCellId: boundaryAnchorCellId };
+        if (typeof boundaryName === "string" && boundaryName.length > 0) {
+            entry.name = boundaryName;
+        }
+        merged.set(boundaryAnchorCellId, entry);
+    }
+
+    for (const p of removedPlacements ?? []) push(p);
+
+    return { placements: Array.from(merged.values()) };
+}
