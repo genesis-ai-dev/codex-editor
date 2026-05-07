@@ -4294,14 +4294,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Refresh all open webviews so hidden/merged cells are shown or filtered correctly
         for (const [docUri, panel] of this.webviewPanels) {
-            const rev = this.getDocumentRevision(docUri);
-            const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
-            safePostMessageToPanel(panel, {
-                type: "refreshCurrentPage",
-                rev,
-                milestoneIndex: currentPosition?.milestoneIndex ?? 0,
-                subsectionIndex: currentPosition?.subsectionIndex ?? 0,
-            });
+            if (this.currentDocument && docUri === this.currentDocument.uri.toString()) {
+                await this.refreshWebview(panel, this.currentDocument);
+            } else {
+                const rev = this.getDocumentRevision(docUri);
+                const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
+                safePostMessageToPanel(panel, {
+                    type: "refreshCurrentPage",
+                    rev,
+                    milestoneIndex: currentPosition?.milestoneIndex ?? 0,
+                    subsectionIndex: currentPosition?.subsectionIndex ?? 0,
+                });
+            }
         }
     }
 
