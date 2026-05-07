@@ -134,17 +134,22 @@ const CellList: React.FC<CellListProps> = ({
     // State to track unresolved comments count for each cell
     const [cellCommentsCount, setCellCommentsCount] = useState<Map<string, number>>(new Map());
 
-    // Filter out merged cells if we're in correction editor mode for source text
     const filteredTranslationUnits = useMemo(() => {
         let filtered = translationUnits;
 
+        const isSourceCorrectionMode = isSourceText && isCorrectionEditorMode;
+
         // Filter out merged cells if we're in correction editor mode for source text
-        if (isSourceText && isCorrectionEditorMode) {
+        if (isSourceCorrectionMode) {
             filtered = filtered.filter((unit) => {
-                // Check if cell has merged metadata in the data property
                 const cellData = unit.data as any;
                 return !cellData?.merged;
             });
+        }
+
+        // Hide hidden cells unless we're in source correction mode (where the eyeball toggle is available)
+        if (!isSourceCorrectionMode) {
+            filtered = filtered.filter((unit) => !unit.hidden);
         }
 
         // Filter out milestone cells from the view (they remain in JSON)
@@ -563,7 +568,8 @@ const CellList: React.FC<CellListProps> = ({
                     unit.cellType !== CodexCellTypes.PARATEXT &&
                     unit.cellType !== CodexCellTypes.MILESTONE &&
                     !isChildCell(unit) &&
-                    !unit.merged
+                    !unit.merged &&
+                    !unit.hidden
                 ) {
                     visibleCellCount++;
                 }

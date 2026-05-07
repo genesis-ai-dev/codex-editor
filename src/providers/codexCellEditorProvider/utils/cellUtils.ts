@@ -69,6 +69,7 @@ export function convertCellToQuillContent(cell: CustomNotebookCellData): QuillCe
         cellLabel: cell.metadata?.cellLabel,
         merged: cell.metadata?.data?.merged,
         deleted: cell.metadata?.data?.deleted,
+        hidden: cell.metadata?.data?.hidden,
         data: cell.metadata?.data,
         attachments: cell.metadata?.attachments || {},
         metadata: {

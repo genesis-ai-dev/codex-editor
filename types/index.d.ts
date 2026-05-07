@@ -551,6 +551,13 @@ export type EditorPostMessages =
     }
     | { command: "toggleCorrectionEditorMode"; }
     | {
+        command: "toggleCellVisibility";
+        content: {
+            cellId: string;
+            hidden: boolean;
+        };
+    }
+    | {
         command: "cancelMerge";
         content: {
             cellId: string;
@@ -709,6 +716,7 @@ type CodexData = Timestamps & {
     verse?: string;
     merged?: boolean;
     deleted?: boolean;
+    hidden?: boolean;
     originalText?: string;
     globalReferences?: string[]; // Array of cell IDs in original format (e.g., "GEN 1:1") used for header generation
     milestoneIndex?: number | null; // 0-based milestone index for O(1) lookup (null if no milestone)
@@ -939,6 +947,7 @@ interface QuillCellContent {
     cellLabel?: string;
     merged?: boolean;
     deleted?: boolean;
+    hidden?: boolean;
     data?: { [key: string]: any; footnotes?: Footnote[]; };
     attachments?: { [attachmentId: string]: { type: string; isDeleted?: boolean; isMissing?: boolean; url?: string; validatedBy?: ValidationEntry[]; }; };
     metadata?: {
