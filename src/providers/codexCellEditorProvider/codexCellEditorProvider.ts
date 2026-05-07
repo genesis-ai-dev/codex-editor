@@ -2362,6 +2362,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             cellLabel: cell.metadata?.cellLabel,
             merged: cell.metadata?.data?.merged,
             deleted: cell.metadata?.data?.deleted,
+            hidden: cell.metadata?.data?.hidden,
             data: cell.metadata?.data,
             attachments: cell.metadata?.attachments,
             metadata: {
@@ -2394,6 +2395,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 return;
             }
 
+            if (cell.hidden && !isSourceAndCorrectionEditorMode) {
+                return;
+            }
+
             if (cell.deleted) {
                 return;
             }
@@ -2419,6 +2424,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 timestamps: cell.timestamps,
                 cellLabel: cell.cellLabel,
                 merged: cell.merged,
+                hidden: cell.hidden,
                 data: cell.data,
                 attachments: cell.attachments,
                 metadata: cell.metadata,
@@ -3059,6 +3065,107 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             console.error("Error unmerging cell in target file:", error);
             vscode.window.showErrorMessage(
                 `Failed to unmerge corresponding cell: ${error instanceof Error ? error.message : String(error)}`
+            );
+        }
+    }
+
+    public async toggleCellVisibilityInPairedFile(cellId: string, hidden: boolean, uri: string, workspaceFolder: vscode.WorkspaceFolder) {
+        debug("Toggling cell visibility in paired file:", { cellId, hidden, uri });
+
+        try {
+            const normalizedPath = uri.replace(/\\/g, "/");
+            const baseFileName = path.basename(normalizedPath);
+
+            let targetPath: vscode.Uri;
+            let targetFileName: string;
+            let isSourceToTarget: boolean;
+
+            if (baseFileName.endsWith(".source")) {
+                targetFileName = baseFileName.replace(".source", ".codex");
+                targetPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "target", targetFileName);
+                isSourceToTarget = true;
+            } else if (baseFileName.endsWith(".codex")) {
+                targetFileName = baseFileName.replace(".codex", ".source");
+                targetPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts", targetFileName);
+                isSourceToTarget = false;
+            } else {
+                throw new Error(`Unsupported file type for visibility toggle: ${baseFileName}`);
+            }
+
+            await vscode.commands.executeCommand(
+                "vscode.openWith",
+                targetPath,
+                "codex.cellEditor",
+                { viewColumn: isSourceToTarget ? vscode.ViewColumn.Two : vscode.ViewColumn.One }
+            );
+
+            let targetDocument: CodexCellDocument | undefined;
+            const targetDocumentUri = targetPath.toString();
+
+            for (const [panelUri] of this.webviewPanels.entries()) {
+                if (this.isMatchingFilePair(targetDocumentUri, panelUri)) {
+                    targetDocument = await this.openCustomDocument(
+                        vscode.Uri.parse(panelUri),
+                        {},
+                        new vscode.CancellationTokenSource().token
+                    );
+                    break;
+                }
+            }
+
+            if (!targetDocument) {
+                targetDocument = await this.openCustomDocument(
+                    targetPath,
+                    {},
+                    new vscode.CancellationTokenSource().token
+                );
+            }
+
+            const targetCellData = targetDocument.getCellData(cellId) || {};
+            targetDocument.updateCellData(cellId, {
+                ...targetCellData,
+                hidden,
+            });
+
+            try {
+                const cell = (targetDocument as any).getCell(cellId);
+                if (cell) {
+                    cell.metadata.edits = cell.metadata.edits || [];
+                    cell.metadata.edits.push({
+                        editMap: ["metadata", "data", "hidden"],
+                        value: hidden,
+                        timestamp: Date.now(),
+                        type: "user-edit",
+                        author: "anonymous",
+                        validatedBy: [],
+                    });
+                }
+            } catch (e) {
+                console.warn("Failed to append hidden edit on paired file cell", e);
+            }
+
+            await targetDocument.save(new vscode.CancellationTokenSource().token);
+
+            debug(`Successfully toggled visibility for cell ${cellId} in ${isSourceToTarget ? "target" : "source"} file ${targetFileName}`);
+
+            for (const [panelUri, panel] of this.webviewPanels.entries()) {
+                if (this.isMatchingFilePair(targetDocumentUri, panelUri)) {
+                    const docUri = panelUri;
+                    const rev = this.getDocumentRevision(docUri);
+                    const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
+                    safePostMessageToPanel(panel, {
+                        type: "refreshCurrentPage",
+                        rev,
+                        milestoneIndex: currentPosition?.milestoneIndex ?? 0,
+                        subsectionIndex: currentPosition?.subsectionIndex ?? 0,
+                    });
+                    break;
+                }
+            }
+        } catch (error) {
+            console.error("Error toggling cell visibility in paired file:", error);
+            vscode.window.showErrorMessage(
+                `Failed to toggle visibility in paired file: ${error instanceof Error ? error.message : String(error)}`
             );
         }
     }
@@ -4185,11 +4292,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             });
         });
 
-        // Refresh all webviews to show/hide merged cells appropriately
+        // Refresh all open webviews so hidden/merged cells are shown or filtered correctly
         for (const [docUri, panel] of this.webviewPanels) {
-            if (this.currentDocument && docUri === this.currentDocument.uri.toString()) {
-                await this.refreshWebview(panel, this.currentDocument);
-            }
+            const rev = this.getDocumentRevision(docUri);
+            const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
+            safePostMessageToPanel(panel, {
+                type: "refreshCurrentPage",
+                rev,
+                milestoneIndex: currentPosition?.milestoneIndex ?? 0,
+                subsectionIndex: currentPosition?.subsectionIndex ?? 0,
+            });
         }
     }
 

@@ -1787,6 +1787,66 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
+    toggleCellVisibility: async ({ event, document, webviewPanel, provider, updateWebview }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "toggleCellVisibility" }>;
+        const { cellId, hidden } = typedEvent.content;
+
+        debug("toggleCellVisibility message received for cell:", cellId, "hidden:", hidden);
+
+        try {
+            const currentCellData = document.getCellData(cellId) || {};
+
+            document.updateCellData(cellId, {
+                ...currentCellData,
+                hidden,
+            });
+
+            try {
+                const cellForEdits = document.getCell(cellId);
+                if (cellForEdits) {
+                    if (!cellForEdits.metadata.edits) {
+                        cellForEdits.metadata.edits = [] as any;
+                    }
+                    const ts = Date.now();
+                    let user = "anonymous";
+                    try {
+                        const authApi = await provider.getAuthApi();
+                        const userInfo = await authApi?.getUserInfo();
+                        user = userInfo?.username || "anonymous";
+                    } catch { /* ignore */ }
+                    (cellForEdits.metadata.edits as any[]).push({
+                        editMap: EditMapUtils.metadataNested("data", "hidden"),
+                        value: hidden,
+                        timestamp: ts,
+                        type: EditType.USER_EDIT,
+                        author: user,
+                        validatedBy: [],
+                    });
+                }
+            } catch (e) {
+                console.warn("Failed to record visibility edit entry on cell", e);
+            }
+
+            await document.save(new vscode.CancellationTokenSource().token);
+
+            debug(`Successfully toggled visibility for cell: ${cellId}, hidden: ${hidden}`);
+
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+            if (workspaceFolder) {
+                await provider.toggleCellVisibilityInPairedFile(cellId, hidden, document.uri.toString(), workspaceFolder);
+            } else {
+                console.warn("No workspace folder found, skipping paired file visibility toggle");
+            }
+
+            updateWebview();
+        } catch (error) {
+            console.error("Error toggling cell visibility:", cellId, error);
+            vscode.window.showErrorMessage(
+                `Failed to toggle cell visibility: ${error instanceof Error ? error.message : String(error)}`
+            );
+        }
+    },
+
     triggerReindexing: async () => {
         debug("Triggering reindexing after all translations completed");
         await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
