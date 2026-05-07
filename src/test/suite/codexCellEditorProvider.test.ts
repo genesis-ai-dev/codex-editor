@@ -4820,18 +4820,18 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     "correctionEditorModeChanged should have enabled: true"
                 );
 
-                // Verify that the HTML contains isCorrectionEditorMode: true
-                // The HTML is set during refreshWebview which is called after toggleCorrectionEditorMode
+                // Verify that a refreshCurrentPage message was sent to refresh all panels
+                // toggleCorrectionEditorMode sends refreshCurrentPage (lightweight) instead of
+                // regenerating the full HTML, so the webview re-fetches data at its current position.
+                const refreshPageMessage = postMessageCalls.find(
+                    (msg) => msg.type === "refreshCurrentPage"
+                );
                 assert.ok(
-                    webviewHtml.includes("isCorrectionEditorMode: true"),
-                    "HTML should contain isCorrectionEditorMode: true when source editing mode is on"
+                    refreshPageMessage,
+                    "refreshCurrentPage message should be sent after toggling correction editor mode"
                 );
 
                 // Simulate webview-ready message to trigger pending updates
-                // refreshWebview resets the webview ready state, so scheduled messages won't be sent
-                // until the webview reports ready
-                // Call the actual message callback that was registered during resolveCustomEditor
-                // This will trigger markWebviewReady which executes the scheduled messages
                 if (messageCallback) {
                     await (messageCallback as (message: any) => Promise<void> | void)({ command: 'webviewReady' });
                 }
