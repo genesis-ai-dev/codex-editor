@@ -593,9 +593,11 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                     padding: "20px",
                     maxWidth: "680px",
                     maxHeight: "80vh",
-                    overflow: "auto",
+                    overflow: "hidden",
                     width: "92%",
                     boxShadow: "0 10px 24px rgba(0,0,0,0.3)",
+                    display: "flex",
+                    flexDirection: "column",
                 }}
             >
                 <div
@@ -627,12 +629,10 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                         display: "flex",
                         flexDirection: "column",
                         gap: "12px",
-                        // Reserve a stable min-height so the card doesn't grow when the
-                        // placeholder swaps to populated rows.  Two-row equivalent is enough
-                        // to feel substantial in the loading/empty state without bloating
-                        // the dialog when only a single take exists.  Rows beyond this
-                        // height extend the container naturally (one-way grow only).
-                        minHeight: "200px",
+                        flex: "1 1 auto",
+                        minHeight: 0,
+                        overflowY: "auto",
+                        paddingRight: "4px",
                     }}
                 >
                     {audioHistory.length > 0 ? (
@@ -893,18 +893,6 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                     )}
                 </div>
 
-                <div
-                    style={{
-                        marginTop: "16px",
-                        paddingTop: "12px",
-                        borderTop: "1px solid var(--vscode-editor-foreground)",
-                        textAlign: "center",
-                    }}
-                >
-                    <Button onClick={onClose} variant="outline">
-                        Close
-                    </Button>
-                </div>
             </div>
         </div>
     );
