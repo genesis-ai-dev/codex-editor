@@ -1602,4 +1602,216 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             expect(refreshCalls).toHaveLength(0);
         });
     });
+
+    // ----------------------------------------------------------------
+    // Milestone-placement editing controls (gated by the workspace
+    // setting + isSourceText + settings mode). Hidden by default — when
+    // the controls are reachable they post the new structural commands
+    // (`addMilestoneAtCell`, `removeMilestone`,
+    // `promoteSubdivisionToMilestone`, `demoteMilestoneToSubdivision`).
+    // ----------------------------------------------------------------
+    describe("Milestone Placement Editing", () => {
+        it("hides Add Milestone, demote, remove, and promote controls when the setting is off", () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                initialSettingsMode: true,
+                enableMilestonePlacementEditing: false,
+                getSubsectionsForMilestone: vi.fn(() => [
+                    {
+                        id: "sub-0-1",
+                        label: "1–5",
+                        startIndex: 0,
+                        endIndex: 5,
+                        key: "__start__",
+                        source: "auto",
+                    } as Subsection,
+                    {
+                        id: "sub-0-2",
+                        label: "6–10",
+                        startIndex: 5,
+                        endIndex: 10,
+                        key: "v6",
+                        startCellId: "v6",
+                        source: "custom",
+                    } as Subsection,
+                ]),
+            });
+
+            expect(screen.queryByLabelText("Add Milestone")).not.toBeInTheDocument();
+            expect(
+                screen.queryByLabelText("Promote Subdivision to Milestone")
+            ).not.toBeInTheDocument();
+            expect(
+                screen.queryByLabelText("Demote Milestone to Subdivision")
+            ).not.toBeInTheDocument();
+            expect(screen.queryByLabelText("Remove Milestone")).not.toBeInTheDocument();
+        });
+
+        it("shows the Add Milestone button when the feature is on, source, in settings mode", () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                initialSettingsMode: true,
+                enableMilestonePlacementEditing: true,
+            });
+            expect(screen.getAllByLabelText("Add Milestone").length).toBeGreaterThan(0);
+        });
+
+        it("posts addMilestoneAtCell with the entered cell number", async () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                initialSettingsMode: true,
+                enableMilestonePlacementEditing: true,
+            });
+
+            // Open the milestone form on the first milestone.
+            const openButtons = screen.getAllByLabelText("Add Milestone");
+            await act(async () => {
+                fireEvent.click(openButtons[0]);
+            });
+
+            const input = screen.getByLabelText("Cell number for new milestone");
+            await act(async () => {
+                fireEvent.change(input, { target: { value: "3" } });
+            });
+
+            const submitButtons = screen.getAllByLabelText("Add Milestone");
+            // After opening the form there are two "Add Milestone" buttons:
+            // the open trigger on other milestones + the submit button on
+            // this one. The submit one is type=submit.
+            const submit = submitButtons.find(
+                (b) => (b as HTMLButtonElement).type === "submit"
+            ) as HTMLButtonElement;
+            expect(submit).toBeTruthy();
+            await act(async () => {
+                fireEvent.click(submit);
+            });
+
+            const calls = mockVscode.postMessage.mock.calls.filter(
+                (c: any[]) => c[0]?.command === "addMilestoneAtCell"
+            );
+            expect(calls).toHaveLength(1);
+            expect(calls[0][0].content).toEqual({ milestoneIndex: 0, cellNumber: 3 });
+        });
+
+        it("posts promoteSubdivisionToMilestone when the promote icon is clicked on a custom subdivision", async () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                initialSettingsMode: true,
+                enableMilestonePlacementEditing: true,
+                getSubsectionsForMilestone: vi.fn(() => [
+                    {
+                        id: "sub-0-1",
+                        label: "1–5",
+                        startIndex: 0,
+                        endIndex: 5,
+                        key: "__start__",
+                        source: "auto",
+                    } as Subsection,
+                    {
+                        id: "sub-0-2",
+                        label: "6–10",
+                        startIndex: 5,
+                        endIndex: 10,
+                        key: "v6",
+                        startCellId: "v6",
+                        source: "custom",
+                    } as Subsection,
+                ]),
+            });
+
+            const promoteButton = screen.getAllByLabelText(
+                "Promote Subdivision to Milestone"
+            )[0];
+            await act(async () => {
+                fireEvent.click(promoteButton);
+            });
+
+            const calls = mockVscode.postMessage.mock.calls.filter(
+                (c: any[]) => c[0]?.command === "promoteSubdivisionToMilestone"
+            );
+            expect(calls).toHaveLength(1);
+            expect(calls[0][0].content.subdivisionKey).toBe("v6");
+        });
+
+        it("first milestone never exposes remove or demote buttons", () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                initialSettingsMode: true,
+                enableMilestonePlacementEditing: true,
+                milestoneIndex: createMockMilestoneIndex([
+                    { value: "Chapter 1", index: 0 },
+                ]),
+            });
+            expect(screen.queryByLabelText("Remove Milestone")).not.toBeInTheDocument();
+            expect(
+                screen.queryByLabelText("Demote Milestone to Subdivision")
+            ).not.toBeInTheDocument();
+        });
+
+        it("requires two clicks on Remove before posting removeMilestone", async () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                initialSettingsMode: true,
+                enableMilestonePlacementEditing: true,
+            });
+
+            const removeButtons = screen.getAllByLabelText("Remove Milestone");
+            // First click arms the action — no message yet.
+            await act(async () => {
+                fireEvent.click(removeButtons[0]);
+            });
+            let calls = mockVscode.postMessage.mock.calls.filter(
+                (c: any[]) => c[0]?.command === "removeMilestone"
+            );
+            expect(calls).toHaveLength(0);
+
+            // Second click commits.
+            const armed = screen.getByLabelText("Confirm Remove Milestone");
+            await act(async () => {
+                fireEvent.click(armed);
+            });
+            calls = mockVscode.postMessage.mock.calls.filter(
+                (c: any[]) => c[0]?.command === "removeMilestone"
+            );
+            expect(calls).toHaveLength(1);
+            expect(calls[0][0].content).toEqual({ milestoneIndex: 1 });
+        });
+
+        it("requires two clicks on Demote before posting demoteMilestoneToSubdivision", async () => {
+            renderMilestoneAccordion({
+                isSourceText: true,
+                initialSettingsMode: true,
+                enableMilestonePlacementEditing: true,
+            });
+
+            const demoteButtons = screen.getAllByLabelText(
+                "Demote Milestone to Subdivision"
+            );
+            await act(async () => {
+                fireEvent.click(demoteButtons[0]);
+            });
+            const armed = screen.getByLabelText("Confirm Demote Milestone");
+            await act(async () => {
+                fireEvent.click(armed);
+            });
+            const calls = mockVscode.postMessage.mock.calls.filter(
+                (c: any[]) => c[0]?.command === "demoteMilestoneToSubdivision"
+            );
+            expect(calls).toHaveLength(1);
+            expect(calls[0][0].content).toEqual({ milestoneIndex: 1 });
+        });
+
+        it("does not render placement controls on target documents", () => {
+            renderMilestoneAccordion({
+                isSourceText: false,
+                initialSettingsMode: true,
+                enableMilestonePlacementEditing: true,
+            });
+            expect(screen.queryByLabelText("Add Milestone")).not.toBeInTheDocument();
+            expect(screen.queryByLabelText("Remove Milestone")).not.toBeInTheDocument();
+            expect(
+                screen.queryByLabelText("Demote Milestone to Subdivision")
+            ).not.toBeInTheDocument();
+        });
+    });
 });

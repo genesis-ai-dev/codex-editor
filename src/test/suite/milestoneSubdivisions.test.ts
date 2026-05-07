@@ -6,7 +6,9 @@ import { CodexCellTypes } from "../../../types/enums";
 import {
     FIRST_SUBDIVISION_KEY,
     findSubdivisionIndexForRoot,
+    mergePlacementsForRemovedMilestone,
     resolveSubdivisions,
+    splitPlacementsAtAnchor,
 } from "../../providers/codexCellEditorProvider/utils/subdivisionUtils";
 import { __testOnlyMessageHandlers } from "../../providers/codexCellEditorProvider/codexCellEditorMessagehandling";
 import {
@@ -1018,6 +1020,464 @@ suite("Milestone Subdivisions Test Suite", () => {
             assert.strictEqual(document.getCellsForMilestone(0, 0, 50).length, 50);
             assert.strictEqual(document.getCellsForMilestone(0, 1, 50).length, 50);
             assert.strictEqual(document.getCellsForMilestone(0, 2, 50).length, 25);
+        });
+    });
+
+    // ---------------------------------------------------------------------------
+    // Pure-function tests for the milestone-placement edit redistribution helpers
+    // ---------------------------------------------------------------------------
+
+    suite("splitPlacementsAtAnchor()", () => {
+        const rootIds = ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10"];
+
+        test("partitions placements strictly before / after the anchor", () => {
+            const result = splitPlacementsAtAnchor(
+                [
+                    { startCellId: "v3", name: "Pre" },
+                    { startCellId: "v8", name: "Post" },
+                ],
+                rootIds,
+                "v6"
+            );
+            assert.deepStrictEqual(result.before, [{ startCellId: "v3", name: "Pre" }]);
+            assert.deepStrictEqual(result.after, [{ startCellId: "v8", name: "Post" }]);
+            assert.strictEqual(result.boundaryName, undefined);
+        });
+
+        test("placement at the anchor surfaces as boundaryName, not as a placement", () => {
+            const result = splitPlacementsAtAnchor(
+                [
+                    { startCellId: "v3" },
+                    { startCellId: "v6", name: "Mid Section" },
+                    { startCellId: "v9" },
+                ],
+                rootIds,
+                "v6"
+            );
+            assert.deepStrictEqual(result.before, [{ startCellId: "v3" }]);
+            assert.deepStrictEqual(result.after, [{ startCellId: "v9" }]);
+            assert.strictEqual(result.boundaryName, "Mid Section");
+        });
+
+        test("stale anchors are silently dropped", () => {
+            const result = splitPlacementsAtAnchor(
+                [
+                    { startCellId: "v3" },
+                    { startCellId: "ghost" },
+                    { startCellId: "v8" },
+                ],
+                rootIds,
+                "v6"
+            );
+            assert.strictEqual(result.before.length, 1);
+            assert.strictEqual(result.after.length, 1);
+        });
+
+        test("anchor at index 0 returns input unchanged in `before`", () => {
+            const result = splitPlacementsAtAnchor(
+                [{ startCellId: "v3" }],
+                rootIds,
+                "v1"
+            );
+            assert.deepStrictEqual(result.before, [{ startCellId: "v3" }]);
+            assert.strictEqual(result.after.length, 0);
+        });
+
+        test("anchor not in rootIds returns empty result", () => {
+            const result = splitPlacementsAtAnchor(
+                [{ startCellId: "v3" }],
+                rootIds,
+                "ghost"
+            );
+            assert.deepStrictEqual(result, {
+                before: [{ startCellId: "v3" }],
+                after: [],
+            });
+        });
+
+        test("undefined placements yield empty partitions", () => {
+            const result = splitPlacementsAtAnchor(undefined, rootIds, "v5");
+            assert.deepStrictEqual(result.before, []);
+            assert.deepStrictEqual(result.after, []);
+        });
+
+        test("duplicate placements are deduped (first wins)", () => {
+            const result = splitPlacementsAtAnchor(
+                [
+                    { startCellId: "v3", name: "First" },
+                    { startCellId: "v3", name: "Second" },
+                    { startCellId: "v8" },
+                ],
+                rootIds,
+                "v6"
+            );
+            assert.strictEqual(result.before.length, 1);
+            assert.strictEqual(result.before[0].name, "First");
+        });
+    });
+
+    suite("mergePlacementsForRemovedMilestone()", () => {
+        test("preserveBoundary=true stamps boundary placement with the milestone label", () => {
+            const result = mergePlacementsForRemovedMilestone({
+                prevPlacements: [{ startCellId: "v3" }],
+                removedPlacements: [{ startCellId: "v9" }],
+                boundaryAnchorCellId: "v7",
+                boundaryName: "Luke 2",
+                preserveBoundary: true,
+            });
+            assert.deepStrictEqual(result.placements, [
+                { startCellId: "v3" },
+                { startCellId: "v7", name: "Luke 2" },
+                { startCellId: "v9" },
+            ]);
+        });
+
+        test("preserveBoundary=false omits the boundary placement entirely", () => {
+            const result = mergePlacementsForRemovedMilestone({
+                prevPlacements: [{ startCellId: "v3" }],
+                removedPlacements: [{ startCellId: "v9", name: "Tail" }],
+                boundaryAnchorCellId: "v7",
+                boundaryName: "Luke 2",
+                preserveBoundary: false,
+            });
+            assert.deepStrictEqual(result.placements, [
+                { startCellId: "v3" },
+                { startCellId: "v9", name: "Tail" },
+            ]);
+        });
+
+        test("removed-side name on boundary cell wins over preserveBoundary's milestone label", () => {
+            // When the demoted milestone already had an explicit name on its
+            // own first cell (in `subdivisions[]`), that name takes precedence
+            // because it's more specific than the milestone label.
+            const result = mergePlacementsForRemovedMilestone({
+                prevPlacements: [],
+                removedPlacements: [
+                    { startCellId: "v7", name: "Specific Name" },
+                ],
+                boundaryAnchorCellId: "v7",
+                boundaryName: "Luke 2",
+                preserveBoundary: true,
+            });
+            assert.strictEqual(result.placements.length, 1);
+            assert.strictEqual(result.placements[0].name, "Specific Name");
+        });
+
+        test("dedupes by startCellId across both sources", () => {
+            const result = mergePlacementsForRemovedMilestone({
+                prevPlacements: [{ startCellId: "v3", name: "A" }],
+                removedPlacements: [{ startCellId: "v3", name: "B" }],
+                boundaryAnchorCellId: "v7",
+                preserveBoundary: false,
+            });
+            assert.strictEqual(result.placements.length, 1);
+            assert.strictEqual(result.placements[0].name, "B", "removed-side overwrites prev for same key");
+        });
+    });
+
+    // ---------------------------------------------------------------------------
+    // Handler integration tests for the milestone-placement edit pipeline.
+    // ---------------------------------------------------------------------------
+
+    suite("Milestone placement edit handlers", () => {
+        function stampSourceUri(document: CodexCellDocument) {
+            (document as any).uri = vscode.Uri.parse("file:///test.source");
+        }
+
+        function stubProviderForHandlerTest(p: CodexCellEditorProvider) {
+            sinon.stub(p, "saveCustomDocument").resolves();
+            sinon.stub(p, "getPairedNotebookUri").returns(null);
+            sinon.stub(p, "refreshWebview").resolves();
+            (p as any).currentMilestoneSubsectionMap = new Map();
+            sinon.stub(CodexCellDocument.prototype as any, "refreshAuthor").resolves();
+            // Avoid SQLite-mirror writes during structural-edit tests; the
+            // milestone-index reflush isn't observable in the in-memory
+            // assertions below and the stubs above already disable database
+            // I/O.
+            sinon.stub(
+                CodexCellDocument.prototype as any,
+                "updateCellMilestoneIndices"
+            ).resolves();
+        }
+
+        /** Builds a single-milestone document with N text cells (v1..vN). */
+        function buildMilestoneWithRoots(rootCount: number, milestoneId = "m1", milestoneValue = "Luke 1") {
+            const cells: any[] = [
+                {
+                    kind: 2,
+                    languageId: "scripture",
+                    value: milestoneValue,
+                    metadata: { type: CodexCellTypes.MILESTONE, id: milestoneId },
+                },
+            ];
+            for (let i = 1; i <= rootCount; i++) {
+                cells.push({
+                    kind: 2,
+                    languageId: "scripture",
+                    value: `verse ${i}`,
+                    metadata: { type: CodexCellTypes.TEXT, id: `v${i}` },
+                });
+            }
+            return cells;
+        }
+
+        /** Builds a doc with two milestones, each with their own root cells. */
+        function buildTwoMilestoneDoc() {
+            const cells: any[] = [
+                {
+                    kind: 2,
+                    languageId: "scripture",
+                    value: "Luke 1",
+                    metadata: { type: CodexCellTypes.MILESTONE, id: "m1" },
+                },
+            ];
+            for (let i = 1; i <= 5; i++) {
+                cells.push({
+                    kind: 2,
+                    languageId: "scripture",
+                    value: `verse ${i}`,
+                    metadata: { type: CodexCellTypes.TEXT, id: `v${i}` },
+                });
+            }
+            cells.push({
+                kind: 2,
+                languageId: "scripture",
+                value: "Luke 2",
+                metadata: { type: CodexCellTypes.MILESTONE, id: "m2" },
+            });
+            for (let i = 6; i <= 10; i++) {
+                cells.push({
+                    kind: 2,
+                    languageId: "scripture",
+                    value: `verse ${i}`,
+                    metadata: { type: CodexCellTypes.TEXT, id: `v${i}` },
+                });
+            }
+            return cells;
+        }
+
+        async function invokeHandler(
+            handlerName: string,
+            { document, content }: { document: CodexCellDocument; content: any; }
+        ): Promise<void> {
+            const handler = __testOnlyMessageHandlers[handlerName];
+            assert.ok(handler, `${handlerName} handler must be registered`);
+            await handler({
+                event: { command: handlerName, content } as any,
+                document,
+                webviewPanel: {} as any,
+                provider,
+                updateWebview: () => { /* no-op */ },
+            });
+        }
+
+        test("addMilestoneAtCell inserts a milestone and partitions placements", async () => {
+            const cells = buildMilestoneWithRoots(10);
+            // Pre-existing custom subdivisions: one before the new boundary
+            // (should stay on the original) and one after (should travel).
+            cells[0].metadata.data = {
+                subdivisions: [
+                    { startCellId: "v3", name: "Early" },
+                    { startCellId: "v8", name: "Late" },
+                ],
+            };
+            const document = await createDocumentWithCells(cells);
+            stampSourceUri(document);
+            stubProviderForHandlerTest(provider);
+
+            await invokeHandler("addMilestoneAtCell", {
+                document,
+                content: { milestoneIndex: 0, cellNumber: 6 },
+            });
+
+            const index = document.buildMilestoneIndex(50);
+            assert.strictEqual(index.milestones.length, 2, "Should now have two milestones");
+            // Original milestone: only v1..v5, with v3 placement preserved
+            assert.deepStrictEqual(
+                document.getRootContentCellIdsForMilestone(0),
+                ["v1", "v2", "v3", "v4", "v5"]
+            );
+            const original = document.getCellByIndex(index.milestones[0].cellIndex);
+            const originalData = original?.metadata?.data as any;
+            assert.deepStrictEqual(
+                originalData?.subdivisions,
+                [{ startCellId: "v3", name: "Early" }]
+            );
+            // New milestone: v6..v10, with v8 placement preserved
+            assert.deepStrictEqual(
+                document.getRootContentCellIdsForMilestone(1),
+                ["v6", "v7", "v8", "v9", "v10"]
+            );
+            const inserted = document.getCellByIndex(index.milestones[1].cellIndex);
+            const insertedData = inserted?.metadata?.data as any;
+            assert.deepStrictEqual(
+                insertedData?.subdivisions,
+                [{ startCellId: "v8", name: "Late" }]
+            );
+            assert.strictEqual(
+                inserted?.metadata?.type,
+                CodexCellTypes.MILESTONE
+            );
+        });
+
+        test("addMilestoneAtCell rejects cellNumber < 2 as a no-op", async () => {
+            const document = await createDocumentWithCells(buildMilestoneWithRoots(10));
+            stampSourceUri(document);
+            stubProviderForHandlerTest(provider);
+            sinon.stub(vscode.window, "showWarningMessage");
+
+            await invokeHandler("addMilestoneAtCell", {
+                document,
+                content: { milestoneIndex: 0, cellNumber: 1 },
+            });
+
+            const index = document.buildMilestoneIndex(50);
+            assert.strictEqual(index.milestones.length, 1, "No new milestone should be created");
+        });
+
+        test("addMilestoneAtCell rejects writes from non-source documents", async () => {
+            const document = await createDocumentWithCells(buildMilestoneWithRoots(10));
+            // Leave URI as the temp .codex file → handler must reject.
+            stubProviderForHandlerTest(provider);
+            const warnStub = sinon.stub(vscode.window, "showWarningMessage");
+
+            await invokeHandler("addMilestoneAtCell", {
+                document,
+                content: { milestoneIndex: 0, cellNumber: 6 },
+            });
+
+            assert.strictEqual(warnStub.called, true, "Should surface a warning on target write");
+            const index = document.buildMilestoneIndex(50);
+            assert.strictEqual(index.milestones.length, 1, "Document must not be mutated");
+        });
+
+        test("promoteSubdivisionToMilestone uses the subdivision's name as the new milestone label", async () => {
+            const cells = buildMilestoneWithRoots(10);
+            cells[0].metadata.data = {
+                subdivisions: [{ startCellId: "v6", name: "Section B" }],
+            };
+            const document = await createDocumentWithCells(cells);
+            stampSourceUri(document);
+            stubProviderForHandlerTest(provider);
+
+            await invokeHandler("promoteSubdivisionToMilestone", {
+                document,
+                content: { milestoneIndex: 0, subdivisionKey: "v6" },
+            });
+
+            const index = document.buildMilestoneIndex(50);
+            assert.strictEqual(index.milestones.length, 2);
+            const inserted = document.getCellByIndex(index.milestones[1].cellIndex);
+            assert.strictEqual(inserted?.value, "Section B", "Promoted milestone takes the subdivision's name");
+            // The promoted placement should NOT remain on the original
+            // milestone — it has been promoted.
+            const original = document.getCellByIndex(index.milestones[0].cellIndex);
+            const originalData = original?.metadata?.data as any;
+            assert.ok(
+                !originalData?.subdivisions || originalData.subdivisions.length === 0,
+                "Promoted placement should be removed from the original milestone"
+            );
+        });
+
+        test("promoteSubdivisionToMilestone refuses the implicit first subdivision", async () => {
+            const document = await createDocumentWithCells(buildMilestoneWithRoots(10));
+            stampSourceUri(document);
+            stubProviderForHandlerTest(provider);
+            sinon.stub(vscode.window, "showWarningMessage");
+
+            await invokeHandler("promoteSubdivisionToMilestone", {
+                document,
+                content: {
+                    milestoneIndex: 0,
+                    subdivisionKey: FIRST_SUBDIVISION_KEY,
+                },
+            });
+
+            const index = document.buildMilestoneIndex(50);
+            assert.strictEqual(index.milestones.length, 1, "First subdivision is unpromotable");
+        });
+
+        test("removeMilestone soft-deletes the milestone and lifts its subdivisions", async () => {
+            const cells = buildTwoMilestoneDoc();
+            // Give the second milestone a custom subdivision on v8.
+            cells[6].metadata.data = {
+                subdivisions: [{ startCellId: "v8", name: "Tail" }],
+            };
+            const document = await createDocumentWithCells(cells);
+            stampSourceUri(document);
+            stubProviderForHandlerTest(provider);
+
+            await invokeHandler("removeMilestone", {
+                document,
+                content: { milestoneIndex: 1 },
+            });
+
+            const index = document.buildMilestoneIndex(50);
+            assert.strictEqual(index.milestones.length, 1, "Only the first milestone should remain");
+            // Surviving milestone must absorb v6..v10 alongside v1..v5.
+            const survivor = document.getCellByIndex(index.milestones[0].cellIndex);
+            const data = survivor?.metadata?.data as any;
+            assert.deepStrictEqual(
+                data?.subdivisions,
+                [{ startCellId: "v8", name: "Tail" }],
+                "Removed milestone's placements lift onto the survivor"
+            );
+            // No boundary placement at v6 — pure remove drops the seam.
+            assert.ok(
+                !data?.subdivisions?.some((p: any) => p.startCellId === "v6"),
+                "Pure remove should not preserve the boundary as a subdivision"
+            );
+        });
+
+        test("removeMilestone refuses to remove the first milestone", async () => {
+            const document = await createDocumentWithCells(buildTwoMilestoneDoc());
+            stampSourceUri(document);
+            stubProviderForHandlerTest(provider);
+            sinon.stub(vscode.window, "showWarningMessage");
+
+            await invokeHandler("removeMilestone", {
+                document,
+                content: { milestoneIndex: 0 },
+            });
+
+            const index = document.buildMilestoneIndex(50);
+            assert.strictEqual(index.milestones.length, 2, "First milestone must not be removable");
+        });
+
+        test("demoteMilestoneToSubdivision preserves the boundary and carries the milestone label", async () => {
+            const document = await createDocumentWithCells(buildTwoMilestoneDoc());
+            stampSourceUri(document);
+            stubProviderForHandlerTest(provider);
+
+            await invokeHandler("demoteMilestoneToSubdivision", {
+                document,
+                content: { milestoneIndex: 1 },
+            });
+
+            const index = document.buildMilestoneIndex(50);
+            assert.strictEqual(index.milestones.length, 1);
+            const survivor = document.getCellByIndex(index.milestones[0].cellIndex);
+            const data = survivor?.metadata?.data as any;
+            assert.deepStrictEqual(
+                data?.subdivisions,
+                [{ startCellId: "v6", name: "Luke 2" }],
+                "Demoted milestone's label becomes the boundary placement's name"
+            );
+        });
+
+        test("demoteMilestoneToSubdivision refuses to demote the first milestone", async () => {
+            const document = await createDocumentWithCells(buildTwoMilestoneDoc());
+            stampSourceUri(document);
+            stubProviderForHandlerTest(provider);
+            sinon.stub(vscode.window, "showWarningMessage");
+
+            await invokeHandler("demoteMilestoneToSubdivision", {
+                document,
+                content: { milestoneIndex: 0 },
+            });
+
+            const index = document.buildMilestoneIndex(50);
+            assert.strictEqual(index.milestones.length, 2, "First milestone must not be demotable");
         });
     });
 });
