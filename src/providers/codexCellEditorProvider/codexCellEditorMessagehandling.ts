@@ -308,10 +308,13 @@ async function commitMilestoneSubdivisionPlacements({
     const sourceCellId = sourceMilestoneCell.metadata.id;
     const cancellationToken = new vscode.CancellationTokenSource().token;
 
+    // In-memory source mutation only; persistence is hoisted to the bottom
+    // so the webview refresh fires before disk I/O completes — keeping the
+    // subdivision break edit visually instant. See the matching block in
+    // `commitSplitMilestoneAtAnchor` for the rationale.
     try {
         await document.refreshAuthor();
         document.updateCellData(sourceCellId, { subdivisions: sanitized });
-        await provider.saveCustomDocument(document, cancellationToken);
     } catch (error) {
         console.error(`${logPrefix} Failed to update source:`, error);
         vscode.window.showErrorMessage(
@@ -396,7 +399,6 @@ async function commitMilestoneSubdivisionPlacements({
                             subdivisions: mirroredPlacements,
                             subdivisionNamesFromSource: mirroredSourceNames,
                         });
-                        await provider.saveCustomDocument(targetDocument, cancellationToken);
                         mirroredTargetDocument = targetDocument;
                     }
                 }
@@ -432,6 +434,29 @@ async function commitMilestoneSubdivisionPlacements({
                 );
             }
         }
+    }
+
+    // Persist source + target in parallel AFTER the webviews have been told
+    // about the new placements. Mirrors the snappy ordering used by the
+    // structural milestone helpers — disk I/O latency no longer gates the
+    // user's perceived completion of subdivision break edits.
+    const persistenceWork: Promise<unknown>[] = [
+        provider.saveCustomDocument(document, cancellationToken),
+    ];
+    if (mirroredTargetDocument) {
+        persistenceWork.push(
+            provider.saveCustomDocument(mirroredTargetDocument, cancellationToken)
+        );
+    }
+    try {
+        await Promise.all(persistenceWork);
+    } catch (persistError) {
+        console.error(`${logPrefix} Persistence failed (UI already updated):`, persistError);
+        vscode.window.showErrorMessage(
+            `${errorPrefix}: failed to persist changes — ${
+                persistError instanceof Error ? persistError.message : String(persistError)
+            }`
+        );
     }
 }
 
@@ -2581,10 +2606,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             return;
         }
 
+        // In-memory source mutation only; persistence is hoisted below so
+        // the source webview refreshes before the disk save completes.
         try {
             await document.refreshAuthor();
             document.updateCellData(milestoneCell.metadata.id, { subdivisionNames: nextNames });
-            await provider.saveCustomDocument(document, cancellationToken);
             debug(
                 `[updateMilestoneSubdivisionName] Updated name for milestone ${milestoneIndex}, key ${subdivisionKey}`
             );
@@ -2634,7 +2660,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 targetDocument.updateCellData(targetMilestoneCell.metadata.id, {
                                     subdivisionNamesFromSource: nextMirror,
                                 });
-                                await provider.saveCustomDocument(targetDocument, cancellationToken);
                                 mirroredTargetDocument = targetDocument;
                             }
                         }
@@ -2666,6 +2691,30 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     );
                 }
             }
+        }
+
+        // Persist source + target in parallel AFTER the webviews are
+        // up-to-date. See `commitSplitMilestoneAtAnchor` for rationale.
+        const persistenceWork: Promise<unknown>[] = [
+            provider.saveCustomDocument(document, cancellationToken),
+        ];
+        if (mirroredTargetDocument) {
+            persistenceWork.push(
+                provider.saveCustomDocument(mirroredTargetDocument, cancellationToken)
+            );
+        }
+        try {
+            await Promise.all(persistenceWork);
+        } catch (persistError) {
+            console.error(
+                "[updateMilestoneSubdivisionName] Persistence failed (UI already updated):",
+                persistError
+            );
+            vscode.window.showErrorMessage(
+                `Failed to save subdivision rename: ${
+                    persistError instanceof Error ? persistError.message : String(persistError)
+                }`
+            );
         }
     },
 
