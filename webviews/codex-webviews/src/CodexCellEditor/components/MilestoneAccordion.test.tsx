@@ -1780,7 +1780,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             expect(calls[0][0].content).toEqual({ milestoneIndex: 1 });
         });
 
-        it("requires two clicks on Demote before posting demoteMilestoneToSubdivision", async () => {
+        it("posts demoteMilestoneToSubdivision on a single click", async () => {
             renderMilestoneAccordion({
                 isSourceText: true,
                 initialSettingsMode: true,
@@ -1793,15 +1793,16 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             await act(async () => {
                 fireEvent.click(demoteButtons[0]);
             });
-            const armed = screen.getByLabelText("Confirm Demote Milestone");
-            await act(async () => {
-                fireEvent.click(armed);
-            });
             const calls = mockVscode.postMessage.mock.calls.filter(
                 (c: any[]) => c[0]?.command === "demoteMilestoneToSubdivision"
             );
             expect(calls).toHaveLength(1);
             expect(calls[0][0].content).toEqual({ milestoneIndex: 1 });
+            // Confirm there's no two-click "Confirm Demote Milestone" arming
+            // step left over from the previous behavior.
+            expect(
+                screen.queryByLabelText("Confirm Demote Milestone")
+            ).not.toBeInTheDocument();
         });
 
         it("does not render placement controls on target documents", () => {

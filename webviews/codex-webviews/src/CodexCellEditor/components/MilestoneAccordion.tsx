@@ -179,29 +179,21 @@ export function MilestoneAccordion({
     const [addMilestoneError, setAddMilestoneError] = useState<string>("");
     const addMilestoneInputRef = useRef<HTMLInputElement>(null);
 
-    // Two-click confirmation for the milestone trash + demote actions. Same
-    // shape as `resetConfirmMilestoneIdx` so we can share the timer logic.
+    // Two-click confirmation for the milestone trash. Demote is reversible
+    // (you can promote back) so it commits on a single click; remove drops
+    // the seam entirely, so it stays gated on the arm-then-confirm pattern.
     const [removeConfirmMilestoneIdx, setRemoveConfirmMilestoneIdx] = useState<number | null>(null);
     const removeConfirmTimeoutRef = useRef<number | null>(null);
-    const [demoteConfirmMilestoneIdx, setDemoteConfirmMilestoneIdx] = useState<number | null>(null);
-    const demoteConfirmTimeoutRef = useRef<number | null>(null);
 
     useEffect(() => {
-        // Snapshot the refs at effect-entry so the cleanup closure doesn't
-        // capture stale `.current` values across rerenders (and so eslint's
-        // exhaustive-deps doesn't flag them).
         const resetTimer = resetConfirmTimeoutRef;
         const removeTimer = removeConfirmTimeoutRef;
-        const demoteTimer = demoteConfirmTimeoutRef;
         return () => {
             if (resetTimer.current !== null) {
                 window.clearTimeout(resetTimer.current);
             }
             if (removeTimer.current !== null) {
                 window.clearTimeout(removeTimer.current);
-            }
-            if (demoteTimer.current !== null) {
-                window.clearTimeout(demoteTimer.current);
             }
         };
     }, []);
@@ -493,18 +485,14 @@ export function MilestoneAccordion({
         if (!isSourceText) return;
         if (!enableMilestonePlacementEditing) return;
         if (milestoneIdx === 0) return;
-        armOrCommit(
-            milestoneIdx,
-            demoteConfirmMilestoneIdx,
-            setDemoteConfirmMilestoneIdx,
-            demoteConfirmTimeoutRef,
-            () => {
-                vscode.postMessage({
-                    command: "demoteMilestoneToSubdivision",
-                    content: { milestoneIndex: milestoneIdx },
-                });
-            }
-        );
+        // Demote commits on a single click — it's reversible (promote back to
+        // a milestone) and only flips an existing milestone's role to a
+        // subdivision break. Pure remove keeps the two-click confirmation
+        // since it drops the seam entirely.
+        vscode.postMessage({
+            command: "demoteMilestoneToSubdivision",
+            content: { milestoneIndex: milestoneIdx },
+        });
     };
 
     // Calculate position and dimensions
@@ -1283,30 +1271,14 @@ export function MilestoneAccordion({
                                                                 milestoneIdx > 0 ? (
                                                                     <>
                                                                         <VSCodeButton
-                                                                            aria-label={
-                                                                                demoteConfirmMilestoneIdx ===
-                                                                                milestoneIdx
-                                                                                    ? "Confirm Demote Milestone"
-                                                                                    : "Demote Milestone to Subdivision"
-                                                                            }
+                                                                            aria-label="Demote Milestone to Subdivision"
                                                                             appearance="icon"
-                                                                            title={
-                                                                                demoteConfirmMilestoneIdx ===
-                                                                                milestoneIdx
-                                                                                    ? "Click again within 3s to confirm"
-                                                                                    : "Demote to subdivision break of the previous milestone"
-                                                                            }
+                                                                            title="Demote to subdivision break of the previous milestone"
                                                                             onClick={(e) =>
                                                                                 handleDemoteMilestoneClick(
                                                                                     e,
                                                                                     milestoneIdx
                                                                                 )
-                                                                            }
-                                                                            className={
-                                                                                demoteConfirmMilestoneIdx ===
-                                                                                milestoneIdx
-                                                                                    ? "bg-inputValidation-warningBackground"
-                                                                                    : undefined
                                                                             }
                                                                         >
                                                                             <ArrowDownToLine className="h-4 w-4" />
