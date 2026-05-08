@@ -633,12 +633,15 @@ suite("migrateVerseRangeLabelsAndPositionsForFile", () => {
         );
     });
 
-    test("paratext that originally appeared after its parent stays after", async () => {
+    test("paratext that originally appeared after its parent is moved above the parent", async () => {
         const milestoneId = randomUUID();
         const verseId = randomUUID();
         const noteId = randomUUID();
         const verse2Id = randomUUID();
 
+        // Section-heading style paratexts in scripture (\\s) belong above the verse they
+        // introduce, so the migration normalises every parented paratext to BEFORE its parent
+        // regardless of its original index.
         const uri = await createTempNotebookFile(".codex", [
             {
                 value: "Genesis 1",
@@ -656,7 +659,7 @@ suite("migrateVerseRangeLabelsAndPositionsForFile", () => {
                 },
             },
             {
-                value: "<span><em>Translator note</em></span>",
+                value: "<span><em>Section heading</em></span>",
                 languageId: "html",
                 metadata: {
                     id: noteId,
@@ -684,8 +687,8 @@ suite("migrateVerseRangeLabelsAndPositionsForFile", () => {
         const ids = data.cells.map((c: any) => c.metadata?.id);
         assert.deepStrictEqual(
             ids,
-            [milestoneId, verseId, noteId, verse2Id],
-            "AFTER-parent paratext should remain right after its parent"
+            [milestoneId, noteId, verseId, verse2Id],
+            "Paratext should be moved above its parent verse, even when originally below"
         );
     });
 

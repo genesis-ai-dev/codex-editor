@@ -25,12 +25,12 @@ isProject: false
 
 ## Goals
 
-- Issue 1: paratext that originally sat between a milestone and the first verse (e.g. the chapter heading "ဖန်ဆင်းခြင်း" with `parentId: 98c7b6a3-…` in your sample) must stay there. Only paratext that was actually disconnected from its parent should move.
+- Issue 1: every parented paratext must be emitted ABOVE its parent verse cell (section-heading paratexts like `\s` in USFM belong above the verse they introduce). Paratext that was already between a milestone and the first verse stays where it was; paratext that originally sat after its parent gets moved to above the parent.
 - Issue 2: the cell ordering produced by `migration_verseRangeLabelsAndPositions` (and the verse-range `cellLabel` it sets) must survive git sync, regardless of which side of the merge the local file is on.
 
 ## Root causes
 
-- Paratext placement: in [`migrateVerseRangeLabelsAndPositionsForFile`](src/projectManager/utils/migrationUtils.ts) lines 3037–3048 every paratext gets bucketed by `parentId` and `emitContentCell` always emits the bucket _after_ the parent ([3212–3217](src/projectManager/utils/migrationUtils.ts)). There is no "before-parent" bucket, so chapter-heading paratexts placed between a milestone and the first verse are forced to after the parent verse.
+- Paratext placement: in [`migrateVerseRangeLabelsAndPositionsForFile`](src/projectManager/utils/migrationUtils.ts) lines 3037–3048 every paratext gets bucketed by `parentId` and `emitContentCell` always emits the bucket _after_ the parent ([3212–3217](src/projectManager/utils/migrationUtils.ts)). There is no "before-parent" bucket, so chapter-heading paratexts placed between a milestone and the first verse are forced to after the parent verse, and paratexts that originally sat after their parent stay where they are even though they should be re-positioned above the parent.
 - Sync overwrite: `resolveCodexCustomMerge` in [src/projectManager/utils/merge/resolvers.ts](src/projectManager/utils/merge/resolvers.ts) walks `ourCells` first and preserves their order (lines 1220–1244), and `applyEditToCell` only knows about `value`, `cellLabel`, `selectedAudioId`, `selectionTimestamp`, `isLocked`, `startTime`, `endTime`, `deleted`, and a generic `data.*` setter ([927–984](src/projectManager/utils/merge/resolvers.ts)). Cell _order_ is not part of edit history, and the migration writes `cellLabel`/`chapterNumber` directly without an `EditHistory` entry, so once any peer's local file is in the unmigrated order during a merge the structural fix is silently dropped.
 
 ## Approach
@@ -39,11 +39,11 @@ isProject: false
 flowchart TD
     raw[Raw cells from disk or merge] --> bail{No milestones AND no range cells?}
     bail -- yes --> noop[Return cells unchanged]
-    bail -- no --> partition[Partition into milestones, contentWithRef, contentWithoutRef, paratextByParentBefore, paratextByParentAfter, styleOrOther]
+    bail -- no --> partition[Partition into milestones, contentWithRef, contentWithoutRef, paratextByParent, orphanParatexts, styleOrOther]
     partition --> emitChap[Emit each milestone then its chapter cells in verse order]
-    emitChap --> emitPara[For each parent: emit BEFORE-paratexts, then parent, then AFTER-paratexts]
+    emitChap --> emitPara[For each parent: emit BEFORE-paratexts, then parent]
     emitChap --> remaining[Emit remaining contentWithRef sorted by book/chapter/verse]
-    remaining --> tail[Emit contentWithoutRef and styleOrOther in original positions]
+    remaining --> tail[Emit contentWithoutRef, styleOrOther, and orphan paratexts in original positions]
     tail --> relabel[Auto-fill cellLabel/chapterNumber for range cells unless user-edited]
     relabel --> out[Reordered cells]
 ```
@@ -67,12 +67,9 @@ export function reorderVerseRangeCells(cells: any[]): VerseRangeReorderResult;
 Behavior:
 
 - **Early exit (no-op for non-scripture files):** Walk the input once. If there are no milestones AND no cells with `parsed.kind === "range"`, return `{ cells, mutated: false, orderChanged: false }` immediately. This keeps the helper inert on notes/glossary `.codex` files and on any file the migration is not trying to fix.
-- Partition cells like the current migration does, but build TWO paratext buckets per parent based on each paratext's original index relative to its parent's original index:
-    - `paratextBeforeParent: Map<parentId, cell[]>` for paratexts whose original index is `< parentIndex`.
-    - `paratextAfterParent: Map<parentId, cell[]>` for those `> parentIndex`.
-    - Paratexts whose `parentId` is not present in the cells array are NOT touched here (no soft-delete, no relocation). They flow through as if they were `styleOrOther` and keep their original index. The migration handles orphan soft-delete itself (see §2 below) so this helper has zero mutating side-effects when called from the resolver.
+- Partition cells like the current migration does, but bucket every parented paratext into a single `paratextBeforeParent: Map<parentId, cell[]>`. Multiple paratexts pointing at the same parent retain their original relative order in the bucket. Paratexts whose `parentId` is not present in the cells array are NOT touched here (no soft-delete, no relocation). They flow through as if they were `styleOrOther` and keep their original index. The migration handles orphan soft-delete itself (see §2 below) so this helper has zero mutating side-effects when called from the resolver.
 - Strip `:1` suffixes from `globalReferences` (existing logic). This is metadata-level cleanup of a malformed value, idempotent, and still safe to do on every merge.
-- Emit logic: push `paratextBeforeParent.get(parentId)` BEFORE pushing the parent cell, then push the parent, then push `paratextAfterParent.get(parentId)`.
+- Emit logic: push `paratextBeforeParent.get(parentId)` BEFORE pushing the parent cell. Section-heading style paratexts (e.g. `\s`) belong above the verse they introduce, so the helper normalises every parented paratext to the BEFORE side regardless of where it sat in the input.
 - Auto-fill `cellLabel` and `chapterNumber` on verse-range cells from the parsed ref **only when the user hasn't already set a value**. Concretely: skip the autofill on a cell if `metadata.edits` contains any entry whose `editMap.join(".") === "metadata.cellLabel"` and `type !== EditType.MIGRATION` — i.e. there is a non-migration edit explicitly setting `cellLabel`. Otherwise set it (and add no edit). This preserves intent for human relabels while keeping the auto-derive idempotent across merges.
 - Cells in `contentWithoutRef` and `styleOrOther` keep their original positions in the final output as much as possible (they fall through after the milestone-chapter blocks).
 - The helper does NOT add edit-history entries. It only sets `cellLabel`, `chapterNumber`, and a cleaned `globalReferences[0]`.
@@ -110,7 +107,7 @@ The merge phase (combining child→parent, soft-deleting merged children, tracki
 Add cases to [src/test/suite/migration_verseRangeLabelsAndPositions.test.ts](src/test/suite/migration_verseRangeLabelsAndPositions.test.ts):
 
 - Paratext immediately after a milestone (and before any verse cell) stays between the milestone and the first verse.
-- Paratext immediately after its parent stays after the parent.
+- Paratext that originally appeared after its parent is moved above the parent (section-heading semantics).
 - Multiple paratexts before a parent retain their relative order before the parent.
 - Orphan paratext (parentId not in cells): stays in its original position AND gets `data.deleted = true` with a single MIGRATION edit; running the migration again does not add a second edit.
 - A verse-range cell with a user-edited `cellLabel` (a non-MIGRATION edit on `metadata.cellLabel`) is NOT overwritten by the helper, even on repeated migration runs.

@@ -48,10 +48,11 @@ function hasUserCellLabelEdit(cell: any): boolean {
  * Behavior:
  *   - Early-exits when the file has no milestones AND no verse-range cells (`parsed.kind === "range"`).
  *     Non-scripture notebooks (notes, glossaries, etc.) are returned untouched.
- *   - Builds two paratext buckets per parent — BEFORE and AFTER — based on each paratext's original
- *     index relative to its parent's original index, and emits each bucket on the correct side of
- *     the parent. Paratext that was originally adjacent to its parent (e.g. a chapter-heading
- *     paratext between a milestone and the first verse) stays where it was.
+ *   - Always emits paratext cells immediately BEFORE their parent verse cell. Section-heading
+ *     style paratexts in scripture (e.g. \\s) belong above the verse they introduce, so the
+ *     helper places every parented paratext on the BEFORE side regardless of its original
+ *     index. Multiple paratexts pointing at the same parent retain their original relative
+ *     order in the BEFORE block.
  *   - Strips legacy `:1`-style cell-id suffixes from `globalReferences[0]` (idempotent).
  *   - Auto-fills `cellLabel` and `chapterNumber` on verse-range cells from the parsed ref, but
  *     skips the autofill when the cell already has a non-MIGRATION `metadata.cellLabel` edit so
@@ -91,9 +92,8 @@ export function reorderVerseRangeCells(cells: any[]): VerseRangeReorderResult {
         return { cells, mutated: false, orderChanged: false };
     }
 
-    // Second pass: full partition. We track each cell's original index so we can place paratexts
-    // on the correct side of their parent (BEFORE vs AFTER) and decide where orphan paratexts
-    // belong in the final output.
+    // Second pass: full partition. We track each cell's original index so we can re-insert
+    // orphan paratexts at their original index in the tail.
     const milestones: Array<{ cell: any; chapter: number | null; originalIndex: number; }> = [];
     const contentWithRef: Array<{
         cell: any;
@@ -164,22 +164,19 @@ export function reorderVerseRangeCells(cells: any[]): VerseRangeReorderResult {
         }
     }
 
-    // Bucket paratexts by parent + side (BEFORE/AFTER), and collect orphans separately.
+    // Bucket every parented paratext into a single BEFORE-parent block. Section-heading
+    // paratexts belong above the verse they introduce, so we drop the original index and emit
+    // them above their parent regardless of where they sat in the input. Orphans (parentId
+    // not present) are kept aside and re-inserted at their original index further down.
     const paratextBeforeParent = new Map<string, any[]>();
-    const paratextAfterParent = new Map<string, any[]>();
     const orphanParatexts: Array<{ cell: any; originalIndex: number; }> = [];
     for (const pt of paratextOriginal) {
         const parentId = pt.parentId;
         const parentIndex =
             typeof parentId === "string" ? originalIndexById.get(parentId) : undefined;
         if (parentId && parentIndex !== undefined) {
-            if (pt.originalIndex < parentIndex) {
-                if (!paratextBeforeParent.has(parentId)) paratextBeforeParent.set(parentId, []);
-                paratextBeforeParent.get(parentId)!.push(pt.cell);
-            } else {
-                if (!paratextAfterParent.has(parentId)) paratextAfterParent.set(parentId, []);
-                paratextAfterParent.get(parentId)!.push(pt.cell);
-            }
+            if (!paratextBeforeParent.has(parentId)) paratextBeforeParent.set(parentId, []);
+            paratextBeforeParent.get(parentId)!.push(pt.cell);
         } else {
             orphanParatexts.push({ cell: pt.cell, originalIndex: pt.originalIndex });
         }
@@ -224,13 +221,6 @@ export function reorderVerseRangeCells(cells: any[]): VerseRangeReorderResult {
             }
         }
         newCells.push(cell);
-        if (typeof parentId === "string") {
-            const after = paratextAfterParent.get(parentId);
-            if (after) {
-                for (const pt of after) newCells.push(pt);
-                consumedParentIds.add(parentId);
-            }
-        }
     };
 
     for (const { cell, chapter } of milestones) {
@@ -270,13 +260,6 @@ export function reorderVerseRangeCells(cells: any[]): VerseRangeReorderResult {
             }
         }
         newCells.push(cell);
-        if (typeof parentId === "string") {
-            const after = paratextAfterParent.get(parentId);
-            if (after) {
-                for (const pt of after) newCells.push(pt);
-                consumedParentIds.add(parentId);
-            }
-        }
     }
 
     // Any paratext buckets we didn't consume (parent existed but was filtered out, e.g. as a
@@ -284,18 +267,6 @@ export function reorderVerseRangeCells(cells: any[]): VerseRangeReorderResult {
     // aren't lost.
     const leftoverBuckets: Array<{ cell: any; originalIndex: number; }> = [];
     for (const [parentId, bucket] of paratextBeforeParent) {
-        if (consumedParentIds.has(parentId)) continue;
-        for (const pt of bucket) {
-            const originalIndex = (() => {
-                const id = pt.metadata?.id;
-                return typeof id === "string"
-                    ? originalIndexById.get(id) ?? Number.MAX_SAFE_INTEGER
-                    : Number.MAX_SAFE_INTEGER;
-            })();
-            leftoverBuckets.push({ cell: pt, originalIndex });
-        }
-    }
-    for (const [parentId, bucket] of paratextAfterParent) {
         if (consumedParentIds.has(parentId)) continue;
         for (const pt of bucket) {
             const originalIndex = (() => {
