@@ -136,6 +136,14 @@ const extensionConfig = {
                     from: "node_modules/@vscode/codicons/dist/codicon.ttf",
                     to: "node_modules/@vscode/codicons/dist/codicon.ttf",
                 },
+                {
+                    from: "node_modules/dugite/build",
+                    to: "node_modules/dugite/build",
+                },
+                {
+                    from: "node_modules/dugite/package.json",
+                    to: "node_modules/dugite/package.json",
+                },
             ],
         }),
         // pdf-parse dynamically requires pdf.js versions; pin to its default so

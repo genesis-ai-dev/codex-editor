@@ -18,11 +18,6 @@
 !webviews/codex-webviews/dist/**
 !webviews/codex-webviews/src/assets/**
 
-# Runtime dependencies not copied into out/. Dugite is externalized, but we
-# ship only its JS wrapper metadata here, not node_modules/dugite/git/**.
-!node_modules/dugite/build/**
-!node_modules/dugite/package.json
-
 # Documentation
 !CHANGELOG.md
 !LICENSE
