@@ -120,10 +120,14 @@ export function MilestoneAccordion({
     const [expandedMilestone, setExpandedMilestone] = useState<string | null>(
         currentMilestoneIndex.toString()
     );
-    const [isEditingMilestone, setIsEditingMilestone] = useState(false);
+    // Per-row milestone rename. The input lives inline on the milestone row
+    // (parity with the subsection rename pencil), so we track WHICH milestone
+    // index is in edit mode rather than a global boolean. `null` = not editing.
+    const [editingMilestoneIdx, setEditingMilestoneIdx] = useState<number | null>(null);
     const [editedMilestoneValue, setEditedMilestoneValue] = useState("");
     const [originalMilestoneValue, setOriginalMilestoneValue] = useState("");
     const inputRef = useRef<HTMLInputElement>(null);
+    const isEditingMilestone = editingMilestoneIdx !== null;
     // Settings mode reveals destructive / structural controls (title pencil,
     // per-subsection pencils, add-break / reset footers). Default off so the
     // accordion stays read-only on first open; the gear button toggles it.
@@ -624,7 +628,7 @@ export function MilestoneAccordion({
     // Reset editing state when accordion closes
     useEffect(() => {
         if (!isOpen) {
-            setIsEditingMilestone(false);
+            setEditingMilestoneIdx(null);
             // Also collapse the gear/settings affordances so reopening the
             // accordion always starts from the read-only baseline (matches
             // initialSettingsMode default and avoids "stuck open" surprises).
@@ -923,13 +927,10 @@ export function MilestoneAccordion({
         const milestone = milestoneIndex?.milestones[milestoneIdx];
         if (!milestone) return;
 
-        // Ensure the edited milestone is what the header will render.
-        setExpandedMilestone(milestoneIdx.toString());
-
         const displayValue = localMilestoneValues[milestoneIdx] || milestone.value;
         setOriginalMilestoneValue(displayValue);
         setEditedMilestoneValue(displayValue);
-        setIsEditingMilestone(true);
+        setEditingMilestoneIdx(milestoneIdx);
 
         setTimeout(() => {
             inputRef.current?.focus();
@@ -937,65 +938,58 @@ export function MilestoneAccordion({
         }, 0);
     };
 
-    const handleSaveMilestone = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const handleSaveMilestone = (e: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>) => {
         e.stopPropagation();
-        const displayedIndex = getDisplayedMilestoneIndex();
+        const targetIdx = editingMilestoneIdx;
+        if (targetIdx === null) return;
         const trimmedValue = editedMilestoneValue.trim();
-        const displayedMilestone = getDisplayedMilestone();
+        const targetMilestone = milestoneIndex?.milestones[targetIdx];
 
         if (
-            displayedMilestone &&
+            targetMilestone &&
             trimmedValue !== "" &&
-            trimmedValue !== displayedMilestone.value
+            trimmedValue !== targetMilestone.value
         ) {
-            // Validate that the milestone index is still valid before sending
-            if (displayedIndex < 0 || displayedIndex >= (milestoneIndex?.milestones.length || 0)) {
+            if (targetIdx < 0 || targetIdx >= (milestoneIndex?.milestones.length || 0)) {
                 console.error(
-                    `[handleSaveMilestone] Invalid milestone index: ${displayedIndex}, total milestones: ${
+                    `[handleSaveMilestone] Invalid milestone index: ${targetIdx}, total milestones: ${
                         milestoneIndex?.milestones.length || 0
                     }`
                 );
                 return;
             }
 
-            // Send message to update milestone value; provider pushes updated data to webview immediately
             vscode.postMessage({
                 command: "updateMilestoneValue",
                 content: {
-                    milestoneIndex: displayedIndex,
+                    milestoneIndex: targetIdx,
                     newValue: trimmedValue,
                 },
             });
 
-            // Update the original value to the new saved value so the checkmark state is correct
             setOriginalMilestoneValue(trimmedValue);
 
-            // Update local cache immediately so the accordion shows the change before webview refresh
             setLocalMilestoneValues((prev) => ({
                 ...prev,
-                [displayedIndex]: trimmedValue,
+                [targetIdx]: trimmedValue,
             }));
         }
-        // Keep the accordion open and exit edit mode to show the saved result
-        setIsEditingMilestone(false);
+        setEditingMilestoneIdx(null);
     };
 
-    const handleRevertMilestone = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const handleRevertMilestone = (e: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>) => {
         e.stopPropagation();
-        // Revert the value and close the edit field
         setEditedMilestoneValue(originalMilestoneValue);
-        setIsEditingMilestone(false);
+        setEditingMilestoneIdx(null);
     };
 
     const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === "Enter") {
             e.preventDefault();
-            handleSaveMilestone(e as any);
+            handleSaveMilestone(e);
         } else if (e.key === "Escape") {
             e.preventDefault();
-            // Escape should exit edit mode and revert
-            setEditedMilestoneValue(originalMilestoneValue);
-            setIsEditingMilestone(false);
+            handleRevertMilestone(e);
         }
     };
 
@@ -1060,31 +1054,11 @@ export function MilestoneAccordion({
         }
     };
 
-    // Handle milestone expansion - if editing, switch to editing the new milestone
+    // Handle milestone expansion. Rename now lives inline on each row so we no
+    // longer need to follow the user's selection — the input stays anchored to
+    // the milestone it was opened on.
     const handleMilestoneExpansion = (value: string | null) => {
-        // Update expanded milestone first
         setExpandedMilestone(value);
-
-        if (isEditingMilestone && value !== null) {
-            // User clicked on another milestone while editing - switch to editing that milestone
-            const newMilestoneIndex = parseInt(value);
-            if (!isNaN(newMilestoneIndex) && milestoneIndex?.milestones[newMilestoneIndex]) {
-                // Use getDisplayedMilestone to get the value (which includes local cache)
-                const displayedIndex = newMilestoneIndex;
-                const milestone = milestoneIndex.milestones[displayedIndex];
-                if (milestone) {
-                    // Use cached value if available, otherwise use prop value
-                    const displayValue = localMilestoneValues[displayedIndex] || milestone.value;
-                    setOriginalMilestoneValue(displayValue);
-                    setEditedMilestoneValue(displayValue);
-                    // Keep edit mode open and focus the input
-                    setTimeout(() => {
-                        inputRef.current?.focus();
-                        inputRef.current?.select();
-                    }, 0);
-                }
-            }
-        }
     };
 
     return (
@@ -1112,73 +1086,32 @@ export function MilestoneAccordion({
             }}
         >
             <div className="flex items-center justify-between px-4 pt-4 pb-2 mb-2 border-b border-[var(--vscode-widget-border)] flex-shrink-0">
-                {isEditingMilestone ? (
-                    <input
-                        ref={inputRef}
-                        type="text"
-                        value={editedMilestoneValue}
-                        onChange={(e) => setEditedMilestoneValue(e.target.value)}
-                        onKeyDown={handleInputKeyDown}
-                        className="text-lg font-semibold m-0 bg-transparent border border-[var(--vscode-input-border)] rounded px-2 py-1 flex-1 mr-2 focus:outline-none focus:ring-2 focus:ring-[var(--vscode-focusBorder)]"
-                        style={{
-                            color: "var(--vscode-input-foreground)",
-                        }}
-                    />
-                ) : (
-                    <h2 className="text-lg font-semibold m-0">{getDisplayedMilestoneValue()}</h2>
-                )}
+                <h2 className="text-lg font-semibold m-0">{getDisplayedMilestoneValue()}</h2>
                 <div className="flex gap-y-2">
                     <div className="flex items-center justify-center gap-x-1">
-                        {isEditingMilestone ? (
-                            <>
-                                <VSCodeButton
-                                    aria-label="Save Milestone Rename"
-                                    appearance="icon"
-                                    title="Save Milestone Rename"
-                                    onClick={handleSaveMilestone}
-                                    disabled={
-                                        !editedMilestoneValue.trim() ||
-                                        editedMilestoneValue.trim() === originalMilestoneValue
-                                    }
-                                >
-                                    <Check className="h-4 w-4" />
-                                </VSCodeButton>
-                                <VSCodeButton
-                                    aria-label="Cancel Milestone Rename"
-                                    appearance="icon"
-                                    title="Cancel Milestone Rename"
-                                    onClick={handleRevertMilestone}
-                                >
-                                    <RotateCcw className="h-4 w-4" />
-                                </VSCodeButton>
-                            </>
-                        ) : (
-                            <>
-                                <VSCodeButton
-                                    aria-label="Toggle Milestone Settings"
-                                    appearance="icon"
-                                    title={
-                                        isSettingsMode
-                                            ? "Close milestone settings"
-                                            : "Open milestone settings"
-                                    }
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setIsSettingsMode((prev) => !prev);
-                                    }}
-                                    aria-pressed={isSettingsMode}
-                                >
-                                    <i
-                                        className="codicon codicon-settings-gear"
-                                        style={
-                                            isSettingsMode
-                                                ? { color: "var(--vscode-focusBorder)" }
-                                                : undefined
-                                        }
-                                    />
-                                </VSCodeButton>
-                            </>
-                        )}
+                        <VSCodeButton
+                            aria-label="Toggle Milestone Settings"
+                            appearance="icon"
+                            title={
+                                isSettingsMode
+                                    ? "Close milestone settings"
+                                    : "Open milestone settings"
+                            }
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setIsSettingsMode((prev) => !prev);
+                            }}
+                            aria-pressed={isSettingsMode}
+                        >
+                            <i
+                                className="codicon codicon-settings-gear"
+                                style={
+                                    isSettingsMode
+                                        ? { color: "var(--vscode-focusBorder)" }
+                                        : undefined
+                                }
+                            />
+                        </VSCodeButton>
                     </div>
                     <VSCodeButton
                         aria-label="Close Milestone"
@@ -1263,6 +1196,9 @@ export function MilestoneAccordion({
                             const isTextFullyTranslated =
                                 milestoneProgress.textCompletedPercent >= 100;
 
+                            const isEditingThisMilestone =
+                                editingMilestoneIdx === milestoneIdx;
+
                             return (
                                 <div
                                     key={milestoneIdx}
@@ -1279,11 +1215,55 @@ export function MilestoneAccordion({
                                         >
                                             <div className="flex items-center justify-between w-full">
                                                 <div className="flex justify-between items-center gap-3 flex-1 min-w-0">
-                                                    <span className="font-medium truncate hover:underline milestone-navigate">
-                                                        {displayValue}
-                                                    </span>
+                                                    {isEditingThisMilestone ? (
+                                                        <input
+                                                            ref={inputRef}
+                                                            type="text"
+                                                            value={editedMilestoneValue}
+                                                            onChange={(e) =>
+                                                                setEditedMilestoneValue(
+                                                                    e.target.value
+                                                                )
+                                                            }
+                                                            onKeyDown={handleInputKeyDown}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="font-medium flex-1 mr-2 bg-transparent border border-[var(--vscode-input-border)] rounded px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-[var(--vscode-focusBorder)]"
+                                                            style={{
+                                                                color: "var(--vscode-input-foreground)",
+                                                            }}
+                                                        />
+                                                    ) : (
+                                                        <span className="font-medium truncate hover:underline milestone-navigate">
+                                                            {displayValue}
+                                                        </span>
+                                                    )}
                                                     <div className="flex items-center gap-2 flex-shrink-0">
-                                                        {isSettingsMode && (
+                                                        {isEditingThisMilestone ? (
+                                                            <>
+                                                                <VSCodeButton
+                                                                    aria-label="Save Milestone Rename"
+                                                                    appearance="icon"
+                                                                    title="Save Milestone Rename"
+                                                                    onClick={handleSaveMilestone}
+                                                                    disabled={
+                                                                        !editedMilestoneValue.trim() ||
+                                                                        editedMilestoneValue.trim() ===
+                                                                            originalMilestoneValue
+                                                                    }
+                                                                >
+                                                                    <Check className="h-4 w-4" />
+                                                                </VSCodeButton>
+                                                                <VSCodeButton
+                                                                    aria-label="Cancel Milestone Rename"
+                                                                    appearance="icon"
+                                                                    title="Cancel Milestone Rename"
+                                                                    onClick={handleRevertMilestone}
+                                                                >
+                                                                    <RotateCcw className="h-4 w-4" />
+                                                                </VSCodeButton>
+                                                            </>
+                                                        ) : (
+                                                            isSettingsMode && (
                                                             <>
                                                                 <VSCodeButton
                                                                     aria-label="Rename Milestone"
@@ -1378,6 +1358,7 @@ export function MilestoneAccordion({
                                                                     </VSCodeButton>
                                                                 )}
                                                             </>
+                                                            )
                                                         )}
                                                         <div
                                                             className={`flex items-center ${audioDisplay.colorClass}`}

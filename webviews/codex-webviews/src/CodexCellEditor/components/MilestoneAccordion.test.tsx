@@ -213,7 +213,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
     }
 
     describe("Milestone Rename - Starting", () => {
-        it("swaps the dropdown header from gear → save/cancel and reveals the rename input", async () => {
+        it("swaps the milestone row's pencil for a save/cancel cluster + inline input", async () => {
             renderMilestoneAccordion();
 
             const renameButton = getRenameMilestoneButton();
@@ -223,18 +223,21 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.click(renameButton);
             });
 
-            // Header now hosts the rename input, prefilled with the milestone's
-            // current display value.
+            // The row now hosts the rename input, prefilled with the
+            // milestone's current display value (no longer in the dropdown
+            // header — the header keeps showing the static <h2> + gear).
             const input = screen.getByDisplayValue("Chapter 1");
             expect(input).toBeInTheDocument();
             expect(input.tagName).toBe("INPUT");
 
-            // Save + Cancel replace the gear in the header during a rename.
+            // Save + Cancel replace the row's pencil/destructive cluster.
             expect(screen.getByLabelText("Save Milestone Rename")).toBeInTheDocument();
             expect(screen.getByLabelText("Cancel Milestone Rename")).toBeInTheDocument();
+            // Gear stays in the header during rename — inline editing is
+            // anchored to the row, not a header swap.
             expect(
                 screen.queryByLabelText("Toggle Milestone Settings")
-            ).not.toBeInTheDocument();
+            ).toBeInTheDocument();
         });
 
         it("should initialize input with current milestone value", async () => {
