@@ -1397,6 +1397,51 @@ suite("Milestone Subdivisions Test Suite", () => {
             assert.strictEqual(index.milestones.length, 1, "First subdivision is unpromotable");
         });
 
+        test("promoteSubdivisionToMilestone falls back to 'New milestone' when the subdivision is unnamed", async () => {
+            const cells = buildMilestoneWithRoots(10);
+            // Custom subdivision at v6 with NO `name` — i.e. just a break.
+            cells[0].metadata.data = {
+                subdivisions: [{ startCellId: "v6" }],
+            };
+            const document = await createDocumentWithCells(cells);
+            stampSourceUri(document);
+            stubProviderForHandlerTest(provider);
+
+            await invokeHandler("promoteSubdivisionToMilestone", {
+                document,
+                content: { milestoneIndex: 0, subdivisionKey: "v6" },
+            });
+
+            const index = document.buildMilestoneIndex(50);
+            assert.strictEqual(index.milestones.length, 2);
+            const inserted = document.getCellByIndex(index.milestones[1].cellIndex);
+            assert.strictEqual(
+                inserted?.value,
+                "New milestone",
+                "Unnamed promotions should not duplicate the parent milestone's chapter label"
+            );
+        });
+
+        test("addMilestoneAtCell stamps 'New milestone' as the placeholder label", async () => {
+            const document = await createDocumentWithCells(buildMilestoneWithRoots(10));
+            stampSourceUri(document);
+            stubProviderForHandlerTest(provider);
+
+            await invokeHandler("addMilestoneAtCell", {
+                document,
+                content: { milestoneIndex: 0, cellNumber: 6 },
+            });
+
+            const index = document.buildMilestoneIndex(50);
+            assert.strictEqual(index.milestones.length, 2);
+            const inserted = document.getCellByIndex(index.milestones[1].cellIndex);
+            assert.strictEqual(
+                inserted?.value,
+                "New milestone",
+                "New milestones should default to a placeholder, not the parent chapter label"
+            );
+        });
+
         test("removeMilestone soft-deletes the milestone and lifts its subdivisions", async () => {
             const cells = buildTwoMilestoneDoc();
             // Give the second milestone a custom subdivision on v8.

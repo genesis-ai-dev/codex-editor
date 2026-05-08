@@ -207,6 +207,18 @@ export async function sendMilestoneRefreshToWebview(
 }
 
 /**
+ * Default label stamped on a milestone created from `addMilestoneAtCell` or
+ * `promoteSubdivisionToMilestone` when no other name is available (the
+ * boundary subdivision is unnamed and the caller didn't pass an override).
+ *
+ * We deliberately don't fall back to the chapter-style auto-label here —
+ * that would duplicate the parent milestone's name (e.g. two "Luke 1"s),
+ * which is the duplication users complain about. The placeholder makes it
+ * obvious the milestone needs a name.
+ */
+const NEW_MILESTONE_DEFAULT_LABEL = "New milestone";
+
+/**
  * Shared worker for all handlers that need to persist a new placement list
  * onto a source milestone. Performs validation (source-only, milestone must
  * exist, anchors must refer to real root cells), saves the source document,
@@ -861,15 +873,18 @@ async function commitSplitMilestoneAtAnchor({
         moveKeys
     );
 
-    // The label takes precedence on the milestone row. Fall back to the
-    // boundary placement's stored name if no explicit override was provided
-    // (typical when promoting a named subdivision via the dedicated path —
-    // the caller passes `newMilestoneLabel` directly. For ADD-AT-CELL the
-    // boundary usually has no name and we let `buildMilestoneCellPayload`
-    // derive a chapter-style default).
+    // The label takes precedence on the milestone row. Cascade:
+    //   1. Explicit override from the caller (promote-named-subdivision).
+    //   2. Boundary placement's inline name.
+    //   3. Subdivision-names override at the boundary key.
+    //   4. Generic "New milestone" placeholder.
+    // We deliberately do NOT fall back to the chapter-style default here:
+    // that would clone the parent milestone's label (e.g. two "Luke 1"s),
+    // which is exactly the duplication the user has to rename away from.
     const fallbackBoundaryName =
         split.boundaryName ?? sourceNamePartition.moved[FIRST_SUBDIVISION_KEY];
-    const valueOverride = newMilestoneLabel || fallbackBoundaryName;
+    const valueOverride =
+        newMilestoneLabel || fallbackBoundaryName || NEW_MILESTONE_DEFAULT_LABEL;
 
     // Newly-created milestone gets its own subdivisions/subdivisionNames
     // populated atomically in the same `insertMilestoneCell` call, sparing
