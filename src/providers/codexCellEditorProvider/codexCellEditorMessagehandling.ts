@@ -633,6 +633,8 @@ async function commitMergeMilestoneIntoPrevious({
 
     const cancellationToken = new vscode.CancellationTokenSource().token;
 
+    // In-memory source mutation only. Persistence + FTS reflush happen at
+    // the end so the source webview sees the merge before disk I/O finishes.
     try {
         await document.refreshAuthor();
         document.softDeleteCell(removedMilestoneCellId);
@@ -640,11 +642,6 @@ async function commitMergeMilestoneIntoPrevious({
             subdivisions: merged.placements,
             subdivisionNames: mergedSourceNames,
         });
-        await provider.saveCustomDocument(document, cancellationToken);
-        // Reflush per-cell milestoneIndex on the source. Cell count is
-        // unchanged after a soft-delete, so the optimistic short-circuit in
-        // updateCellMilestoneIndices would otherwise skip this update.
-        await document.updateCellMilestoneIndices({ force: true });
     } catch (error) {
         console.error(`${logPrefix} Failed to update source:`, error);
         vscode.window.showErrorMessage(
@@ -705,8 +702,6 @@ async function commitMergeMilestoneIntoPrevious({
                         subdivisions: merged.placements,
                         subdivisionNamesFromSource: mergedSourceNames,
                     });
-                    await provider.saveCustomDocument(targetDocument, cancellationToken);
-                    await targetDocument.updateCellMilestoneIndices({ force: true });
                     mirroredTargetDocument = targetDocument;
                 }
             }
@@ -758,6 +753,30 @@ async function commitMergeMilestoneIntoPrevious({
                 );
             }
         }
+    }
+
+    // Persist source + target + FTS rebuilds in parallel AFTER the webviews
+    // have already been told about the merge. See the matching block in
+    // `commitSplitMilestoneAtAnchor` for the rationale.
+    const persistenceWork: Promise<unknown>[] = [
+        provider.saveCustomDocument(document, cancellationToken),
+        document.updateCellMilestoneIndices({ force: true }),
+    ];
+    if (mirroredTargetDocument) {
+        persistenceWork.push(
+            provider.saveCustomDocument(mirroredTargetDocument, cancellationToken),
+            mirroredTargetDocument.updateCellMilestoneIndices({ force: true }),
+        );
+    }
+    try {
+        await Promise.all(persistenceWork);
+    } catch (persistError) {
+        console.error(`${logPrefix} Persistence failed (UI already updated):`, persistError);
+        vscode.window.showErrorMessage(
+            `${errorPrefix}: failed to persist changes — ${
+                persistError instanceof Error ? persistError.message : String(persistError)
+            }`
+        );
     }
 }
 
@@ -900,6 +919,10 @@ async function commitSplitMilestoneAtAnchor({
     const cancellationToken = new vscode.CancellationTokenSource().token;
     let insertedMilestoneCellId: string;
 
+    // In-memory source mutation only; persistence (saveCustomDocument +
+    // updateCellMilestoneIndices) is hoisted to the bottom of the function so
+    // the webview refresh fires before disk I/O completes — keeping
+    // promote/demote/add/remove visually instant.
     try {
         await document.refreshAuthor();
         const inserted = document.insertMilestoneCell({
@@ -912,8 +935,6 @@ async function commitSplitMilestoneAtAnchor({
             subdivisions: split.before,
             subdivisionNames: sourceNamePartition.kept,
         });
-        await provider.saveCustomDocument(document, cancellationToken);
-        await document.updateCellMilestoneIndices({ force: true });
     } catch (error) {
         console.error(`${logPrefix} Failed to update source:`, error);
         vscode.window.showErrorMessage(
@@ -1025,8 +1046,6 @@ async function commitSplitMilestoneAtAnchor({
                         subdivisionNames: targetNamePartition.kept,
                         subdivisionNamesFromSource: mergedSourceNamesForOriginal,
                     });
-                    await provider.saveCustomDocument(targetDocument, cancellationToken);
-                    await targetDocument.updateCellMilestoneIndices({ force: true });
                     mirroredTargetDocument = targetDocument;
                 }
             }
@@ -1078,6 +1097,31 @@ async function commitSplitMilestoneAtAnchor({
                 );
             }
         }
+    }
+
+    // Persist source + target + FTS rebuilds in parallel AFTER the webviews
+    // have already been told about the new structure. The in-memory state
+    // is the source of truth for the refresh, so disk I/O latency no longer
+    // gates the user's perceived completion of promote/demote/add/remove.
+    const persistenceWork: Promise<unknown>[] = [
+        provider.saveCustomDocument(document, cancellationToken),
+        document.updateCellMilestoneIndices({ force: true }),
+    ];
+    if (mirroredTargetDocument) {
+        persistenceWork.push(
+            provider.saveCustomDocument(mirroredTargetDocument, cancellationToken),
+            mirroredTargetDocument.updateCellMilestoneIndices({ force: true }),
+        );
+    }
+    try {
+        await Promise.all(persistenceWork);
+    } catch (persistError) {
+        console.error(`${logPrefix} Persistence failed (UI already updated):`, persistError);
+        vscode.window.showErrorMessage(
+            `${errorPrefix}: failed to persist changes — ${
+                persistError instanceof Error ? persistError.message : String(persistError)
+            }`
+        );
     }
 }
 
