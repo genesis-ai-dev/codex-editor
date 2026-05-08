@@ -2151,6 +2151,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         const milestoneCellId = milestoneCell.metadata.id;
         const cancellationToken = new vscode.CancellationTokenSource().token;
+        const newValue = typedEvent.content.newValue;
+        const isSourceRename = isSourceFileFlexible(document.uri);
 
         // Preserve current milestone index and subsection before refreshing webview
         // Get current subsection from map if available, otherwise use cached subsection
@@ -2164,40 +2166,19 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             subsectionIndex: subsectionIndex,
         });
 
+        // In-memory mutation only; persistence is hoisted to the bottom so the
+        // webview refresh fires before disk I/O completes.
         try {
-            // Ensure author is set correctly before creating edit
             await document.refreshAuthor();
-
-            // Update the milestone cell value in the current document
             await document.updateCellContent(
                 milestoneCellId,
-                typedEvent.content.newValue,
+                newValue,
                 EditType.USER_EDIT,
                 true, // shouldUpdateValue
                 false, // retainValidations
                 false // skipAutoValidation
             );
-
-            // Note: The custom document change event is automatically fired by updateCellContent
-            // through the document's _onDidChangeForVsCodeAndWebview event, which the provider
-            // listens to and fires _onDidChangeCustomDocument. No need to fire it explicitly here.
-
-            // Save the document using provider's saveCustomDocument for proper VS Code integration
-            try {
-                await provider.saveCustomDocument(document, cancellationToken);
-                debug(`[updateMilestoneValue] Successfully updated and saved milestone in file: ${document.uri.fsPath}`);
-                vscode.window.showInformationMessage(
-                    `Milestone "${typedEvent.content.newValue}" updated successfully.`
-                );
-            } catch (saveError) {
-                console.error(`[updateMilestoneValue] Failed to save file ${document.uri.fsPath}:`, saveError);
-                vscode.window.showErrorMessage(
-                    `Failed to save milestone update: ${saveError instanceof Error ? saveError.message : String(saveError)}`
-                );
-                return;
-            }
         } catch (error) {
-            // Critical error - milestone update failed
             console.error(`[updateMilestoneValue] Critical error updating milestone:`, error);
             vscode.window.showErrorMessage(
                 `Failed to update milestone: ${error instanceof Error ? error.message : String(error)}`
@@ -2205,8 +2186,130 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             return;
         }
 
-        // Always push updated milestone index and cells to webview so the edit appears immediately
+        // Mirror the rename to the paired target document when this edit
+        // originated on the source file. We deliberately overwrite the
+        // target's `cell.value` rather than maintain a separate
+        // `valueFromSource` field — the user wants source-side renames to
+        // propagate as-is. If the target user has independently renamed the
+        // milestone locally, the next source rename will replace that label.
+        // Symmetric mirroring (target → source) is intentionally NOT done:
+        // milestone placements remain source-authoritative.
+        let mirroredTargetDocument: CodexCellDocument | null = null;
+        if (isSourceRename) {
+            try {
+                const pairedUri = provider.getPairedNotebookUri(document.uri);
+                if (pairedUri) {
+                    const targetDocument = await provider.getOrOpenDocumentForUri(pairedUri);
+                    const targetMilestones = targetDocument.buildMilestoneIndex();
+                    const targetMilestoneInfo =
+                        targetMilestones.milestones[typedEvent.content.milestoneIndex];
+                    if (!targetMilestoneInfo) {
+                        debug(
+                            "[updateMilestoneValue] Target has no milestone at index, skipping mirror",
+                            { milestoneIndex: typedEvent.content.milestoneIndex }
+                        );
+                    } else {
+                        // Gate by milestone cell id + root cell IDs so we
+                        // never overwrite a milestone whose content has
+                        // diverged from the source's structurally.
+                        const targetCell = targetDocument.getCellByIndex(
+                            targetMilestoneInfo.cellIndex
+                        );
+                        const sharedId =
+                            targetCell?.metadata?.id === milestoneCellId;
+                        const rootsMatch = sourceAndTargetMilestoneRootsMatch(
+                            document,
+                            targetDocument,
+                            typedEvent.content.milestoneIndex
+                        );
+                        if (
+                            sharedId &&
+                            rootsMatch &&
+                            targetCell?.metadata?.type === CodexCellTypes.MILESTONE &&
+                            targetCell.metadata.data?.deleted !== true
+                        ) {
+                            await targetDocument.refreshAuthor();
+                            await targetDocument.updateCellContent(
+                                milestoneCellId,
+                                newValue,
+                                EditType.USER_EDIT,
+                                true,
+                                false,
+                                false
+                            );
+                            mirroredTargetDocument = targetDocument;
+                        } else {
+                            console.warn(
+                                "[updateMilestoneValue] Source/target diverge; skipping milestone-value mirror.",
+                                {
+                                    milestoneIndex: typedEvent.content.milestoneIndex,
+                                    sharedId,
+                                    rootsMatch,
+                                }
+                            );
+                        }
+                    }
+                }
+            } catch (mirrorError) {
+                console.error(
+                    "[updateMilestoneValue] Failed to mirror to target:",
+                    mirrorError
+                );
+            }
+        }
+
+        // Push the rename to the originating webview immediately so the user
+        // sees their edit reflect without waiting on disk I/O.
         await sendMilestoneRefreshToWebview(document, webviewPanel, provider);
+
+        // Refresh the paired target webview if mirrored AND its panel is
+        // currently open. When the target panel is closed we skip silently;
+        // it'll pick up the new label on next load via the saved file.
+        if (mirroredTargetDocument) {
+            const targetPanel = provider.getWebviewPanelForUri(
+                mirroredTargetDocument.uri
+            );
+            if (targetPanel) {
+                try {
+                    await sendMilestoneRefreshToWebview(
+                        mirroredTargetDocument,
+                        targetPanel,
+                        provider
+                    );
+                } catch (refreshError) {
+                    console.error(
+                        "[updateMilestoneValue] Failed to refresh paired target webview:",
+                        refreshError
+                    );
+                }
+            }
+        }
+
+        // Persist both documents in parallel AFTER the UI is up-to-date.
+        const persistenceWork: Promise<unknown>[] = [
+            provider.saveCustomDocument(document, cancellationToken),
+        ];
+        if (mirroredTargetDocument) {
+            persistenceWork.push(
+                provider.saveCustomDocument(mirroredTargetDocument, cancellationToken)
+            );
+        }
+        try {
+            await Promise.all(persistenceWork);
+            debug(
+                `[updateMilestoneValue] Saved rename for milestone ${typedEvent.content.milestoneIndex} (mirrored=${mirroredTargetDocument ? "yes" : "no"})`
+            );
+        } catch (saveError) {
+            console.error(
+                `[updateMilestoneValue] Failed to save file ${document.uri.fsPath}:`,
+                saveError
+            );
+            vscode.window.showErrorMessage(
+                `Failed to save milestone update: ${
+                    saveError instanceof Error ? saveError.message : String(saveError)
+                }`
+            );
+        }
     },
 
     refreshWebviewAfterMilestoneEdits: async ({ document, webviewPanel, provider }) => {

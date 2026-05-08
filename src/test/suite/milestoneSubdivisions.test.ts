@@ -1525,4 +1525,203 @@ suite("Milestone Subdivisions Test Suite", () => {
             assert.strictEqual(index.milestones.length, 2, "First milestone must not be demotable");
         });
     });
+
+    // ---------------------------------------------------------------------------
+    // Milestone rename mirror: renaming a milestone on the source should
+    // overwrite the paired target's `cell.value` as-is (no override pattern).
+    // Renaming on the target should leave the source untouched.
+    // ---------------------------------------------------------------------------
+
+    suite("Milestone rename mirror (source -> target)", () => {
+        let pairedTempUri: vscode.Uri | undefined;
+
+        teardown(async () => {
+            if (pairedTempUri) {
+                await deleteIfExists(pairedTempUri);
+                pairedTempUri = undefined;
+            }
+        });
+
+        function buildSingleMilestoneCells(milestoneId: string, milestoneValue: string) {
+            const cells: any[] = [
+                {
+                    kind: 2,
+                    languageId: "scripture",
+                    value: milestoneValue,
+                    metadata: { type: CodexCellTypes.MILESTONE, id: milestoneId },
+                },
+            ];
+            for (let i = 1; i <= 3; i++) {
+                cells.push({
+                    kind: 2,
+                    languageId: "scripture",
+                    value: `verse ${i}`,
+                    metadata: { type: CodexCellTypes.TEXT, id: `v${i}` },
+                });
+            }
+            return cells;
+        }
+
+        async function createPairedTargetDocument(cells: any[]): Promise<{
+            uri: vscode.Uri;
+            document: CodexCellDocument;
+        }> {
+            const targetUri = await createTempCodexFile(
+                `test-target-${Date.now()}-${Math.random().toString(36).slice(2)}.codex`,
+                { cells, metadata: {} }
+            );
+            pairedTempUri = targetUri;
+            const targetDocument = await provider.openCustomDocument(
+                targetUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            return { uri: targetUri, document: targetDocument };
+        }
+
+        function stampSourceUri(document: CodexCellDocument) {
+            (document as any).uri = vscode.Uri.parse("file:///test.source");
+        }
+
+        async function invokeHandler(
+            handlerName: string,
+            { document, content }: { document: CodexCellDocument; content: any; }
+        ): Promise<void> {
+            const handler = __testOnlyMessageHandlers[handlerName];
+            assert.ok(handler, `${handlerName} handler must be registered`);
+            await handler({
+                event: { command: handlerName, content } as any,
+                document,
+                webviewPanel: {} as any,
+                provider,
+                updateWebview: () => { /* no-op */ },
+            });
+        }
+
+        function stubProviderForRenameTest(p: CodexCellEditorProvider, targetDoc?: CodexCellDocument, targetUri?: vscode.Uri) {
+            sinon.stub(p, "saveCustomDocument").resolves();
+            sinon.stub(p, "refreshWebview").resolves();
+            sinon.stub(p, "getWebviewPanelForUri").returns(undefined);
+            (p as any).currentMilestoneSubsectionMap = new Map();
+            sinon.stub(CodexCellDocument.prototype as any, "refreshAuthor").resolves();
+            sinon.stub(
+                CodexCellDocument.prototype as any,
+                "updateCellMilestoneIndices"
+            ).resolves();
+            if (targetDoc && targetUri) {
+                sinon.stub(p, "getPairedNotebookUri").returns(targetUri);
+                sinon.stub(p, "getOrOpenDocumentForUri").resolves(targetDoc);
+            } else {
+                sinon.stub(p, "getPairedNotebookUri").returns(null);
+            }
+        }
+
+        test("source rename overwrites the paired target's milestone value", async () => {
+            const sourceCells = buildSingleMilestoneCells("ms-1", "Luke 1");
+            const targetCells = buildSingleMilestoneCells("ms-1", "Luke 1");
+            const sourceDoc = await createDocumentWithCells(sourceCells);
+            stampSourceUri(sourceDoc);
+            const { uri: targetUri, document: targetDoc } = await createPairedTargetDocument(targetCells);
+            stubProviderForRenameTest(provider, targetDoc, targetUri);
+
+            await invokeHandler("updateMilestoneValue", {
+                document: sourceDoc,
+                content: { milestoneIndex: 0, newValue: "Section A" },
+            });
+
+            const sourceIndex = sourceDoc.buildMilestoneIndex(50);
+            const sourceCell = sourceDoc.getCellByIndex(sourceIndex.milestones[0].cellIndex);
+            assert.strictEqual(sourceCell?.value, "Section A", "Source should be renamed");
+
+            const targetIndex = targetDoc.buildMilestoneIndex(50);
+            const targetCell = targetDoc.getCellByIndex(targetIndex.milestones[0].cellIndex);
+            assert.strictEqual(
+                targetCell?.value,
+                "Section A",
+                "Target should mirror the source's new label as-is"
+            );
+        });
+
+        test("source rename overwrites a target-side rename (no override stickiness)", async () => {
+            // Target user has already renamed the milestone locally to "Lucas 1".
+            // The user's clarification was: "just bring it over and name it as-is.
+            // The user can change it later." → next source rename wins.
+            const sourceCells = buildSingleMilestoneCells("ms-1", "Luke 1");
+            const targetCells = buildSingleMilestoneCells("ms-1", "Lucas 1");
+            const sourceDoc = await createDocumentWithCells(sourceCells);
+            stampSourceUri(sourceDoc);
+            const { uri: targetUri, document: targetDoc } = await createPairedTargetDocument(targetCells);
+            stubProviderForRenameTest(provider, targetDoc, targetUri);
+
+            await invokeHandler("updateMilestoneValue", {
+                document: sourceDoc,
+                content: { milestoneIndex: 0, newValue: "Section A" },
+            });
+
+            const targetIndex = targetDoc.buildMilestoneIndex(50);
+            const targetCell = targetDoc.getCellByIndex(targetIndex.milestones[0].cellIndex);
+            assert.strictEqual(
+                targetCell?.value,
+                "Section A",
+                "Source rename overwrites target's local label"
+            );
+        });
+
+        test("target rename does NOT mirror back to the source", async () => {
+            // The target document is being renamed directly. Source must stay
+            // untouched — placements remain source-authoritative.
+            const sourceCells = buildSingleMilestoneCells("ms-1", "Luke 1");
+            const targetCells = buildSingleMilestoneCells("ms-1", "Luke 1");
+            const sourceDoc = await createDocumentWithCells(sourceCells);
+            // Leave sourceDoc URI as the temp .codex; we only need it to be a
+            // separate doc to verify it isn't touched.
+            const { document: targetDoc } = await createPairedTargetDocument(targetCells);
+            // Intentionally do NOT pass sourceDoc as paired; the handler should
+            // detect it's a target rename via `isSourceFileFlexible` and skip
+            // the mirror entirely.
+            stubProviderForRenameTest(provider);
+
+            await invokeHandler("updateMilestoneValue", {
+                document: targetDoc,
+                content: { milestoneIndex: 0, newValue: "Lucas 1" },
+            });
+
+            const targetIndex = targetDoc.buildMilestoneIndex(50);
+            const targetCell = targetDoc.getCellByIndex(targetIndex.milestones[0].cellIndex);
+            assert.strictEqual(targetCell?.value, "Lucas 1", "Target rename applies locally");
+
+            const sourceIndex = sourceDoc.buildMilestoneIndex(50);
+            const sourceCell = sourceDoc.getCellByIndex(sourceIndex.milestones[0].cellIndex);
+            assert.strictEqual(
+                sourceCell?.value,
+                "Luke 1",
+                "Source must not be mutated by a target-side rename"
+            );
+        });
+
+        test("mirror is skipped when the target's milestone cell ID has diverged", async () => {
+            // Same root cell IDs, but the milestone cell itself has a different
+            // ID on the target — e.g. the project drifted apart structurally.
+            // We must NOT overwrite an unrelated milestone's label.
+            const sourceCells = buildSingleMilestoneCells("ms-source-1", "Luke 1");
+            const targetCells = buildSingleMilestoneCells("ms-target-1", "Luke 1");
+            const sourceDoc = await createDocumentWithCells(sourceCells);
+            stampSourceUri(sourceDoc);
+            const { uri: targetUri, document: targetDoc } = await createPairedTargetDocument(targetCells);
+            stubProviderForRenameTest(provider, targetDoc, targetUri);
+
+            await invokeHandler("updateMilestoneValue", {
+                document: sourceDoc,
+                content: { milestoneIndex: 0, newValue: "Section A" },
+            });
+
+            const targetIndex = targetDoc.buildMilestoneIndex(50);
+            const targetCell = targetDoc.getCellByIndex(targetIndex.milestones[0].cellIndex);
+            assert.strictEqual(
+                targetCell?.value,
+                "Luke 1",
+                "Target must not be touched when milestone IDs diverge"
+            );
+        });
+    });
 });
