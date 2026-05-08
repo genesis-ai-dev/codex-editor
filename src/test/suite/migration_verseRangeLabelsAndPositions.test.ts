@@ -5,6 +5,7 @@ import * as path from "path";
 import { randomUUID } from "crypto";
 import { CodexContentSerializer } from "../../serializer";
 import { migrateVerseRangeLabelsAndPositionsForFile } from "../../projectManager/utils/migrationUtils";
+import { resolveCodexCustomMerge } from "../../projectManager/utils/merge/resolvers";
 import { CodexCellTypes } from "../../../types/enums";
 
 async function createTempNotebookFile(
@@ -574,5 +575,383 @@ suite("migrateVerseRangeLabelsAndPositionsForFile", () => {
         const data = await readNotebookFile(uri);
         const parent = data.cells.find((c: any) => c.metadata?.id === parentId);
         assert.strictEqual(parent.value, "<span>Parent X.</span><span>Child Y.</span>");
+    });
+
+    test("paratext between a milestone and the first verse stays in place", async () => {
+        const milestoneId = randomUUID();
+        const headingId = randomUUID();
+        const verse1Id = randomUUID();
+        const verse2Id = randomUUID();
+
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 1",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: "<span><strong>Heading</strong></span>",
+                languageId: "html",
+                metadata: {
+                    id: headingId,
+                    type: CodexCellTypes.PARATEXT,
+                    parentId: verse1Id,
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>In the beginning...</span>",
+                metadata: {
+                    id: verse1Id,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 1:1"),
+                    cellLabel: "1",
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>...and the earth was formless.</span>",
+                metadata: {
+                    id: verse2Id,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 1:2"),
+                    cellLabel: "2",
+                    edits: [],
+                },
+            },
+        ]);
+        testFiles.push(uri);
+
+        await migrateVerseRangeLabelsAndPositionsForFile(uri);
+
+        const data = await readNotebookFile(uri);
+        const ids = data.cells.map((c: any) => c.metadata?.id);
+        assert.deepStrictEqual(
+            ids,
+            [milestoneId, headingId, verse1Id, verse2Id],
+            "Heading paratext should stay between the milestone and verse 1"
+        );
+    });
+
+    test("paratext that originally appeared after its parent stays after", async () => {
+        const milestoneId = randomUUID();
+        const verseId = randomUUID();
+        const noteId = randomUUID();
+        const verse2Id = randomUUID();
+
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 1",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: "<span>In the beginning...</span>",
+                metadata: {
+                    id: verseId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 1:1"),
+                    cellLabel: "1",
+                    edits: [],
+                },
+            },
+            {
+                value: "<span><em>Translator note</em></span>",
+                languageId: "html",
+                metadata: {
+                    id: noteId,
+                    type: CodexCellTypes.PARATEXT,
+                    parentId: verseId,
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>...and the earth was formless.</span>",
+                metadata: {
+                    id: verse2Id,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 1:2"),
+                    cellLabel: "2",
+                    edits: [],
+                },
+            },
+        ]);
+        testFiles.push(uri);
+
+        await migrateVerseRangeLabelsAndPositionsForFile(uri);
+
+        const data = await readNotebookFile(uri);
+        const ids = data.cells.map((c: any) => c.metadata?.id);
+        assert.deepStrictEqual(
+            ids,
+            [milestoneId, verseId, noteId, verse2Id],
+            "AFTER-parent paratext should remain right after its parent"
+        );
+    });
+
+    test("multiple paratexts before a parent retain their relative order", async () => {
+        const milestoneId = randomUUID();
+        const heading1 = randomUUID();
+        const heading2 = randomUUID();
+        const heading3 = randomUUID();
+        const verseId = randomUUID();
+
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 1",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: "<span>A</span>",
+                languageId: "html",
+                metadata: {
+                    id: heading1,
+                    type: CodexCellTypes.PARATEXT,
+                    parentId: verseId,
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>B</span>",
+                languageId: "html",
+                metadata: {
+                    id: heading2,
+                    type: CodexCellTypes.PARATEXT,
+                    parentId: verseId,
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>C</span>",
+                languageId: "html",
+                metadata: {
+                    id: heading3,
+                    type: CodexCellTypes.PARATEXT,
+                    parentId: verseId,
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>Verse text.</span>",
+                metadata: {
+                    id: verseId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 1:1"),
+                    cellLabel: "1",
+                    edits: [],
+                },
+            },
+        ]);
+        testFiles.push(uri);
+
+        await migrateVerseRangeLabelsAndPositionsForFile(uri);
+
+        const data = await readNotebookFile(uri);
+        const ids = data.cells.map((c: any) => c.metadata?.id);
+        assert.deepStrictEqual(
+            ids,
+            [milestoneId, heading1, heading2, heading3, verseId],
+            "BEFORE-parent paratexts must keep their relative order"
+        );
+    });
+
+    test("orphan paratext is soft-deleted in place idempotently", async () => {
+        const milestoneId = randomUUID();
+        const verseId = randomUUID();
+        const orphanId = randomUUID();
+
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 1",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: "<span>Verse 1</span>",
+                metadata: {
+                    id: verseId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 1:1"),
+                    cellLabel: "1",
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>Stale heading</span>",
+                languageId: "html",
+                metadata: {
+                    id: orphanId,
+                    type: CodexCellTypes.PARATEXT,
+                    parentId: "missing-parent-id",
+                    edits: [],
+                },
+            },
+        ]);
+        testFiles.push(uri);
+
+        await migrateVerseRangeLabelsAndPositionsForFile(uri);
+        const data1 = await readNotebookFile(uri);
+        const orphan1 = data1.cells.find((c: any) => c.metadata?.id === orphanId);
+        assert.ok(orphan1, "Orphan paratext should still be present");
+        assert.strictEqual(orphan1.metadata?.data?.deleted, true, "Orphan should be soft-deleted");
+        const orphanIndex1 = data1.cells.findIndex(
+            (c: any) => c.metadata?.id === orphanId
+        );
+        assert.strictEqual(
+            orphanIndex1,
+            data1.cells.length - 1,
+            "Orphan paratext should keep its trailing position"
+        );
+
+        const orphanDeleteEdits1 = (orphan1.metadata?.edits || []).filter(
+            (e: any) => e.editMap?.join(".") === "metadata.data.deleted"
+        );
+        assert.strictEqual(orphanDeleteEdits1.length, 1, "First run should add exactly one deletion edit");
+
+        const second = await migrateVerseRangeLabelsAndPositionsForFile(uri);
+        assert.strictEqual(second, false, "Second migration run should be a no-op");
+        const data2 = await readNotebookFile(uri);
+        const orphan2 = data2.cells.find((c: any) => c.metadata?.id === orphanId);
+        const orphanDeleteEdits2 = (orphan2.metadata?.edits || []).filter(
+            (e: any) => e.editMap?.join(".") === "metadata.data.deleted"
+        );
+        assert.strictEqual(
+            orphanDeleteEdits2.length,
+            1,
+            "Second run must NOT add another deletion edit"
+        );
+    });
+
+    test("user-edited cellLabel on a verse-range cell is not overwritten by the helper", async () => {
+        const milestoneId = randomUUID();
+        const rangeId = randomUUID();
+
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 1",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: "<span>Verses 1-3</span>",
+                metadata: {
+                    id: rangeId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 1:1-3"),
+                    // User has explicitly relabelled this cell
+                    cellLabel: "1a",
+                    edits: [
+                        {
+                            editMap: ["metadata", "cellLabel"],
+                            value: "1a",
+                            timestamp: 1,
+                            type: "user-edit",
+                            author: "translator",
+                            validatedBy: [],
+                        },
+                    ],
+                },
+            },
+        ]);
+        testFiles.push(uri);
+
+        await migrateVerseRangeLabelsAndPositionsForFile(uri);
+        await migrateVerseRangeLabelsAndPositionsForFile(uri);
+
+        const data = await readNotebookFile(uri);
+        const range = data.cells.find((c: any) => c.metadata?.id === rangeId);
+        assert.strictEqual(
+            range.metadata?.cellLabel,
+            "1a",
+            "User-edited cellLabel must be preserved across migration runs"
+        );
+    });
+
+    test("double-run after a sync round-trip does not append a new mergedChildIds edit", async () => {
+        const milestoneId = randomUUID();
+        const parentId = randomUUID();
+        const childId = randomUUID();
+
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 50",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: "<span>Parent first.</span>",
+                metadata: {
+                    id: parentId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-13"),
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>Child second.</span>",
+                metadata: {
+                    id: childId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-13"),
+                    parentId,
+                    edits: [],
+                },
+            },
+        ]);
+        testFiles.push(uri);
+
+        // First migration: merges child -> parent
+        await migrateVerseRangeLabelsAndPositionsForFile(uri);
+        const after1Bytes = await vscode.workspace.fs.readFile(uri);
+        const after1Text = Buffer.from(after1Bytes).toString("utf8");
+
+        // Build a "peer" branch where the child still looks like an unmerged sibling
+        // (no data.deleted, no mergedChildIds tracked on the parent).
+        const peer: any = JSON.parse(after1Text);
+        for (const c of peer.cells) {
+            if (c.metadata?.id === childId && c.metadata?.data) {
+                delete c.metadata.data.deleted;
+                c.metadata.edits = (c.metadata.edits || []).filter(
+                    (e: any) => e.editMap?.join(".") !== "metadata.data.deleted"
+                );
+            }
+            if (c.metadata?.id === parentId && c.metadata?.data) {
+                delete c.metadata.data.mergedChildIds;
+                c.metadata.edits = (c.metadata.edits || []).filter(
+                    (e: any) =>
+                        e.editMap?.join(".") !== "metadata.data.mergedChildIds" &&
+                        e.editMap?.join(".") !== "value"
+                );
+                c.value = "<span>Parent first.</span>";
+            }
+        }
+        const peerText = JSON.stringify(peer);
+
+        // Sync round-trip: merge ours-migrated against peer-unmigrated. Ours order should win,
+        // and the helper running inside the resolver guarantees the merged file is in the
+        // migrated cell order with the merge phase's edits intact.
+        const merged = await resolveCodexCustomMerge(after1Text, peerText);
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(merged, "utf8"));
+
+        // Run the migration again. Because mergedChildIds is still tracked in the merged
+        // edit history, the merge phase must NOT append a new mergedChildIds edit.
+        await migrateVerseRangeLabelsAndPositionsForFile(uri);
+
+        const final = await readNotebookFile(uri);
+        const parentFinal = final.cells.find((c: any) => c.metadata?.id === parentId);
+        const trackingEdits = (parentFinal.metadata?.edits || []).filter(
+            (e: any) => e.editMap?.join(".") === "metadata.data.mergedChildIds"
+        );
+        assert.strictEqual(
+            trackingEdits.length,
+            1,
+            "After sync + re-migration there should still be exactly one mergedChildIds edit"
+        );
+        assert.strictEqual(
+            parentFinal.value,
+            "<span>Parent first.</span><span>Child second.</span>",
+            "Parent value must not be doubled across sync + re-migration"
+        );
     });
 });
