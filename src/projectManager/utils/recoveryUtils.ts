@@ -58,14 +58,24 @@ interface RecoverableCell {
 }
 
 /**
- * Normalize a cell value for substring comparison: strip HTML tags and collapse
- * whitespace. Used so that a paraphrased middle child (whose exact HTML may
- * differ from the parent's text but whose words are present) is not double-
- * appended on recovery.
+ * Normalize a cell value for substring comparison: strip HTML attributes, then
+ * tags, then collapse whitespace. Used so that a paraphrased middle child
+ * (whose exact HTML may differ from the parent's text but whose words are
+ * present) is not double-appended on recovery.
+ *
+ * Attributes are removed before tags because some attribute values in the
+ * codex format carry literal un-escaped HTML (notably `data-footnote="<p>…</p>"`
+ * on `<sup class="footnote-marker">`). Without stripping the attribute first,
+ * the `<[^>]*>` tag regex stops at the first `>` inside the attribute value,
+ * and the rest of the attribute leaks into the normalized text — which then
+ * looks completely different between the parent (which stores `data-footnote`
+ * with `&lt;`/`&gt;` escapes) and its soft-deleted child (which stores it raw),
+ * even when the verse content is identical.
  */
-function normalizeForSubstring(value: string | undefined): string {
+export function normalizeForSubstring(value: string | undefined): string {
     if (!value) return "";
     return value
+        .replace(/\s[a-zA-Z][\w:-]*\s*=\s*("[^"]*"|'[^']*')/g, "")
         .replace(/<[^>]*>/g, "")
         .replace(/\s+/g, " ")
         .trim();

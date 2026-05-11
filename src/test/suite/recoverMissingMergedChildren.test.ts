@@ -420,6 +420,85 @@ suite("recoverMergedChildrenForFile", () => {
         );
     });
 
+    test("does not re-append a child whose only difference is escaped vs un-escaped HTML inside data-footnote", async () => {
+        // Real-world shape from a Genesis 5:28-31 case: the parent stores the
+        // <sup data-footnote="..."> attribute with HTML entities (&lt;/&gt;),
+        // while the soft-deleted child stores the same footnote with literal
+        // <p>/<em> tags. Without stripping attributes before tags, the
+        // tag-stripping regex stopped at the first `>` inside data-footnote
+        // for the child, leaking the footnote markup into the normalized
+        // string. The substring check then failed and the child got re-
+        // appended even though its verse text was already in the parent.
+        const milestoneId = randomUUID();
+        const parentId = randomUUID();
+        const childId = randomUUID();
+
+        const escapedFootnote =
+            '<sup data-footnote="&lt;p&gt;&lt;em&gt;Noé: &lt;/em&gt;En hebreo, descanso o consuelo.&lt;/p&gt;" class="footnote-marker">1</sup>';
+        const rawFootnote =
+            '<sup data-footnote="<p><em>Noé: </em>En hebreo, descanso o consuelo.</p>" class="footnote-marker">1</sup>';
+
+        const verseText =
+            "Lamec lo llamó Noé porque dijo: «Él nos aliviará del duro trabajo que significa labrar la tierra que Dios maldijo».";
+        const parentValue = `<p>${verseText.replace("Noé porque", `Noé${escapedFootnote} porque`)}</p>`;
+        const childValue = `<p>${verseText.replace("Noé porque", `Noé${rawFootnote} porque`)}</p>`;
+
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 5",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: parentValue,
+                metadata: {
+                    id: parentId,
+                    type: CodexCellTypes.TEXT,
+                    cellLabel: "29",
+                    ...ref("GEN 5:29"),
+                    data: {
+                        globalReferences: ["GEN 5:29"],
+                        mergedChildIds: [childId],
+                    },
+                    edits: [],
+                },
+            },
+            {
+                value: childValue,
+                metadata: softDeletedChildMetadata(childId, parentId, "GEN 5:29"),
+            },
+        ]);
+        testFiles.push(uri);
+
+        const beforeBytes = await readFileBytes(uri);
+        const report = await recoverMergedChildrenForFile(uri);
+
+        assert.strictEqual(
+            report.changed,
+            false,
+            "Child whose only difference is attribute escaping should not be treated as missing"
+        );
+        assert.strictEqual(report.parentsRecovered, 0);
+
+        const afterBytes = await readFileBytes(uri);
+        assert.deepStrictEqual(
+            Buffer.from(afterBytes),
+            Buffer.from(beforeBytes),
+            "File bytes must be unchanged when content is already present (modulo attribute escaping)"
+        );
+
+        const data = await readNotebookFile(uri);
+        const parent = data.cells.find((c: any) => c.metadata?.id === parentId);
+        const valueEdits = (parent.metadata?.edits || []).filter(
+            (e: any) => e.editMap?.join(".") === "value"
+        );
+        assert.strictEqual(
+            valueEdits.length,
+            0,
+            "No value edits should have been appended"
+        );
+    });
+
     test("returns changed: false and writes nothing when there are no merged cells in the file", async () => {
         const milestoneId = randomUUID();
         const id1 = randomUUID();
