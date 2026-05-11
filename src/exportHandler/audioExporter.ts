@@ -388,8 +388,9 @@ async function convertToWav(
         throw new Error("FFmpeg not available");
     }
     const tempDir = os.tmpdir();
-    const tempInputPath = `${tempDir}/codex-audio-input-${Date.now()}${originalExt}`;
-    const tempOutputPath = `${tempDir}/codex-audio-output-${Date.now()}.wav`;
+    const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tempInputPath = `${tempDir}/codex-audio-input-${uniqueId}${originalExt}`;
+    const tempOutputPath = `${tempDir}/codex-audio-output-${uniqueId}.wav`;
 
     try {
         fs.writeFileSync(tempInputPath, Buffer.from(inputBytes));
@@ -451,6 +452,51 @@ async function prepareAudioForExport(
 
     // For other formats, export as-is
     return { bytes: original, ext };
+}
+
+const EXPORT_CONCURRENCY = 30;
+
+/**
+ * Runs async tasks with a sliding-window concurrency pool.
+ * Keeps exactly `concurrency` tasks active at all times — as soon as one
+ * finishes, the next pending task starts immediately.
+ */
+export async function runWithConcurrencyPool<T, R>(
+    items: T[],
+    concurrency: number,
+    processor: (item: T, index: number) => Promise<R>,
+    onProgress?: (completed: number, total: number) => void
+): Promise<Array<PromiseSettledResult<R>>> {
+    const results: Array<PromiseSettledResult<R>> = new Array(items.length);
+    let nextIndex = 0;
+    let completedCount = 0;
+
+    const runWorker = async (): Promise<void> => {
+        let idx = nextIndex++;
+        while (idx < items.length) {
+            try {
+                const value = await processor(items[idx], idx);
+                results[idx] = { status: "fulfilled", value };
+            } catch (reason: any) {
+                results[idx] = { status: "rejected", reason };
+            }
+
+            completedCount++;
+            onProgress?.(completedCount, items.length);
+            idx = nextIndex++;
+        }
+    };
+
+    const workerCount = Math.min(concurrency, items.length);
+    await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+    return results;
+}
+
+function predictOutputExt(originalExt: string, includeTimestamps: boolean): string {
+    if (!includeTimestamps) return originalExt;
+    const lower = originalExt.toLowerCase();
+    if (lower === ".webm" || lower === ".m4a") return ".wav";
+    return originalExt;
 }
 
 async function readNotebook(uri: vscode.Uri): Promise<CodexNotebookAsJSONData> {
@@ -681,25 +727,27 @@ export async function exportAudioAttachments(
                     audioCells.push({ cell, cellId, pick });
                 }
 
-                for (const [cellIdx, { cell, cellId, pick }] of audioCells.entries()) {
-                    if (mayNeedStreaming) {
-                        progress.report({
-                            message: `${basename(file.fsPath)}: downloading audio (${cellIdx + 1}/${audioCells.length})`,
-                        });
-                    }
+                // Phase 1: Pre-compute export tasks with unique destination paths
+                type AudioExportTask = {
+                    cellId: string;
+                    absoluteSrc: vscode.Uri;
+                    destUri: vscode.Uri;
+                    targetFolder: vscode.Uri;
+                    originalExt: string;
+                    start?: number;
+                    end?: number;
+                };
 
-                    // Resolve absolute source path
+                const tasks: AudioExportTask[] = [];
+                const assignedPaths = new Set<string>();
+
+                for (const { cell, cellId, pick } of audioCells) {
                     const srcPath = pick.url;
                     const absoluteSrc = srcPath.startsWith("/") || srcPath.match(/^[A-Za-z]:\\/)
                         ? vscode.Uri.file(srcPath)
                         : vscode.Uri.joinPath(workspaceFolder.uri, srcPath);
 
-                    debug(`Cell ${cellId}: Resolved absolute path: ${absoluteSrc.fsPath}`);
-
-                    // Build destination filename
                     const timeFromCell = (cell?.metadata?.data || {}) as { startTime?: number; endTime?: number; };
-                    const start = timeFromCell.startTime;
-                    const end = timeFromCell.endTime;
                     const originalExt = extname(absoluteSrc.fsPath) || ".wav";
                     const labelRaw = cell?.metadata?.cellLabel || "unlabeled";
                     const label = sanitizeFileComponent(String(labelRaw).toLowerCase());
@@ -708,59 +756,126 @@ export async function exportAudioAttachments(
                     const { chapter, verse } = parseCellIdToBookChapterVerse(cell, cellId);
                     const cvSuffix = formatChapterVerseSuffix(chapter, verse);
 
-                    try {
-                        const resolved = await resolveAudioBytes(absoluteSrc, workspaceFolder.uri, frontierApi);
+                    const outputExt = predictOutputExt(originalExt, includeTimestamps);
 
+                    const milestoneFolderName = cellMilestoneFolder.get(cellId);
+                    const targetFolder = milestoneFolderName
+                        ? vscode.Uri.joinPath(bookFolder, sanitizeFolderName(milestoneFolderName))
+                        : bookFolder;
+
+                    const baseSegments = [sanitizeFileComponent(bookCode)];
+                    if (cvSuffix) {
+                        baseSegments.push(cvSuffix);
+                    } else {
+                        baseSegments.push(label);
+                    }
+                    baseSegments.push(`L${lineNumber}`);
+                    const baseName = baseSegments.join("_");
+
+                    let destName = `${baseName}${outputExt}`;
+                    let destUri = vscode.Uri.joinPath(targetFolder, destName);
+
+                    let attempt = 1;
+                    while (assignedPaths.has(destUri.fsPath) || await pathExists(destUri)) {
+                        destName = `${baseName}_${attempt}${outputExt}`;
+                        destUri = vscode.Uri.joinPath(targetFolder, destName);
+                        attempt++;
+                    }
+                    assignedPaths.add(destUri.fsPath);
+
+                    tasks.push({
+                        cellId,
+                        absoluteSrc,
+                        destUri,
+                        targetFolder,
+                        originalExt,
+                        start: timeFromCell.startTime,
+                        end: timeFromCell.endTime,
+                    });
+                }
+
+                // Pre-create all target directories in parallel
+                const uniqueDirs = [...new Set(tasks.map(t => t.targetFolder.fsPath))];
+                await Promise.all(
+                    uniqueDirs.map(dir => vscode.workspace.fs.createDirectory(vscode.Uri.file(dir)))
+                );
+
+                // Phase 2a: Download all audio bytes with concurrency pool (network-bound).
+                // Keeps EXPORT_CONCURRENCY downloads active; as soon as one finishes
+                // the next starts immediately.
+                type DownloadResult =
+                    | { data: Uint8Array; error?: undefined }
+                    | { data?: undefined; error: string };
+
+                const downloadResults = await runWithConcurrencyPool<typeof tasks[number], DownloadResult>(
+                    tasks,
+                    EXPORT_CONCURRENCY,
+                    async (task) => {
+                        debug(`Cell ${task.cellId}: downloading ${task.absoluteSrc.fsPath}`);
+                        const resolved = await resolveAudioBytes(
+                            task.absoluteSrc, workspaceFolder.uri, frontierApi
+                        );
                         if (resolved.error || !resolved.data) {
-                            debug(`Cell ${cellId}: ${resolved.error ?? "No data returned"}`);
-                            if (resolved.error?.includes("Frontier") || resolved.error?.includes("stream")) {
-                                streamFailCount++;
-                            }
-                            missingCount++;
-                            continue;
+                            return { error: resolved.error ?? "No data returned" };
                         }
+                        return { data: resolved.data };
+                    },
+                    (completed, total) => {
+                        progress.report({
+                            message: `${basename(file.fsPath)}: downloading audio (${completed}/${total})`,
+                        });
+                    }
+                );
 
+                // Phase 2b: Convert and write each file (CPU/disk-bound, sequential
+                // to avoid FFmpeg contention and show per-file progress).
+                for (let ti = 0; ti < tasks.length; ti++) {
+                    const task = tasks[ti];
+                    const dlResult = downloadResults[ti];
+
+                    progress.report({
+                        message: `${basename(file.fsPath)}: writing audio (${ti + 1}/${tasks.length})`,
+                    });
+
+                    if (dlResult.status === "rejected") {
+                        console.error("Failed to download audio:", dlResult.reason);
+                        missingCount++;
+                        continue;
+                    }
+
+                    const resolved = dlResult.value;
+                    if (resolved.error || !resolved.data) {
+                        debug(`Cell ${task.cellId}: ${resolved.error ?? "No data returned"}`);
+                        if (resolved.error?.includes("Frontier") || resolved.error?.includes("stream")) {
+                            streamFailCount++;
+                        }
+                        missingCount++;
+                        continue;
+                    }
+
+                    try {
                         let bytes: Uint8Array = resolved.data;
 
-                        // Prepare audio for export (convert to WAV if needed, add BWF metadata)
-                        let outputExt = originalExt;
                         if (includeTimestamps) {
-                            const prepared = await prepareAudioForExport(bytes, originalExt, start, end, cellId);
+                            const prepared = await prepareAudioForExport(
+                                bytes, task.originalExt, task.start, task.end, task.cellId
+                            );
                             bytes = prepared.bytes;
-                            outputExt = prepared.ext;
+
+                            const predicted = predictOutputExt(task.originalExt, true);
+                            if (prepared.ext !== predicted) {
+                                const correctedName = basename(task.destUri.fsPath)
+                                    .replace(new RegExp(`\\${predicted.replace(".", "\\.")}$`), prepared.ext);
+                                task.destUri = vscode.Uri.joinPath(
+                                    task.targetFolder, correctedName
+                                );
+                            }
                         }
 
-                        // Determine the target folder (milestone sub-folder within book folder)
-                        const milestoneFolderName = cellMilestoneFolder.get(cellId);
-                        const targetFolder = milestoneFolderName
-                            ? vscode.Uri.joinPath(bookFolder, sanitizeFolderName(milestoneFolderName))
-                            : bookFolder;
-                        await vscode.workspace.fs.createDirectory(targetFolder);
-
-                        const baseSegments = [sanitizeFileComponent(bookCode)];
-                        if (cvSuffix) {
-                            baseSegments.push(cvSuffix);
-                        } else {
-                            baseSegments.push(label);
-                        }
-                        baseSegments.push(`L${lineNumber}`);
-                        const baseName = baseSegments.join("_");
-
-                        let destName = `${baseName}${outputExt}`;
-                        let destUri = vscode.Uri.joinPath(targetFolder, destName);
-
-                        // Avoid collisions by appending incremental suffix
-                        let attempt = 1;
-                        while (await pathExists(destUri)) {
-                            destName = `${baseName}_${attempt}${outputExt}`;
-                            destUri = vscode.Uri.joinPath(targetFolder, destName);
-                            attempt++;
-                        }
-
-                        await vscode.workspace.fs.writeFile(destUri, bytes);
+                        await vscode.workspace.fs.writeFile(task.destUri, bytes);
                         copiedCount++;
                     } catch (e) {
-                        console.error(`Failed to export audio for ${cellId}:`, e);
+                        console.error(`Failed to export audio for ${task.cellId}:`, e);
                         missingCount++;
                     }
                 }
