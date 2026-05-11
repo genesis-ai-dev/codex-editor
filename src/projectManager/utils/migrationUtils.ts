@@ -18,6 +18,7 @@ import {
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { resolveCodexCustomMerge, mergeDuplicateCellsUsingResolverLogic } from "./merge/resolvers";
 import { reorderVerseRangeCells } from "./merge/utils/verseRangeReorder";
+import { recoverMergedChildrenForFile } from "./recoveryUtils";
 import { atomicWriteUriText } from "../../utils/notebookSafeSaveUtils";
 import { normalizeNotebookFileText, formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
 
@@ -3270,6 +3271,168 @@ export const migration_verseRangeLabelsAndPositions = async (): Promise<void> =>
         }
     } catch (error) {
         console.error("Error running verse range labels/positions migration:", error);
+        throw error;
+    }
+};
+
+/**
+ * Manual recovery: re-emerge soft-deleted merged-child content into the parent
+ * cell. Built to repair the data damage caused by a tie-break bug in the
+ * codex merge resolver (same-timestamp same-type edits could pick the wrong
+ * value, dropping merged children's text).
+ *
+ * Two-pass with a confirmation modal between passes:
+ *   1. Dry-run scan to count affected files / parents.
+ *   2. On user confirmation, re-iterate and apply edits in place.
+ *
+ * Idempotent: re-running after a successful recovery is a no-op because
+ * `recoverMergedChildrenForFile` only emits edits for parents whose value is
+ * still missing some soft-deleted child's content.
+ */
+export const migration_recoverMissingMergedChildren = async (): Promise<void> => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) return;
+
+        debug("Running missing merged children recovery scan...");
+        const workspaceFolder = workspaceFolders[0];
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+        const allFiles = [...codexFiles, ...sourceFiles];
+
+        if (allFiles.length === 0) return;
+
+        const affectedReports: Array<{
+            uri: vscode.Uri;
+            parentsRecovered: number;
+        }> = [];
+        let totalParentsToRecover = 0;
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Scanning for missing merged children",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+                    progress.report({
+                        message: path.basename(file.fsPath),
+                        increment: 100 / allFiles.length,
+                    });
+                    try {
+                        const report = await recoverMergedChildrenForFile(file, {
+                            dryRun: true,
+                        });
+                        if (report.changed && report.parentsRecovered > 0) {
+                            affectedReports.push({
+                                uri: file,
+                                parentsRecovered: report.parentsRecovered,
+                            });
+                            totalParentsToRecover += report.parentsRecovered;
+                        }
+                    } catch (error) {
+                        console.error(
+                            `Error scanning ${file.fsPath} for missing merged children:`,
+                            error
+                        );
+                    }
+                }
+            }
+        );
+
+        if (affectedReports.length === 0) {
+            await vscode.window.showInformationMessage(
+                "No missing merged children detected."
+            );
+            return;
+        }
+
+        const previewLimit = 10;
+        const previewLines = affectedReports
+            .slice(0, previewLimit)
+            .map((r) => `  • ${path.basename(r.uri.fsPath)} (${r.parentsRecovered})`)
+            .join("\n");
+        const moreLine =
+            affectedReports.length > previewLimit
+                ? `\n  …and ${affectedReports.length - previewLimit} more file(s)`
+                : "";
+        const detail = `Files:\n${previewLines}${moreLine}`;
+
+        const choice = await vscode.window.showWarningMessage(
+            `Found ${totalParentsToRecover} parent verse cell(s) across ${affectedReports.length} file(s) with missing merged children. Apply recovery?`,
+            { modal: true, detail },
+            "Apply",
+            "Cancel"
+        );
+
+        if (choice !== "Apply") {
+            return;
+        }
+
+        const appliedFilePaths: string[] = [];
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Recovering missing merged children",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (let i = 0; i < affectedReports.length; i++) {
+                    const { uri } = affectedReports[i];
+                    progress.report({
+                        message: path.basename(uri.fsPath),
+                        increment: 100 / affectedReports.length,
+                    });
+                    try {
+                        const report = await recoverMergedChildrenForFile(uri, {
+                            dryRun: false,
+                        });
+                        if (report.changed) {
+                            appliedFilePaths.push(uri.fsPath);
+                        }
+                    } catch (error) {
+                        console.error(
+                            `Error recovering ${uri.fsPath}:`,
+                            error
+                        );
+                    }
+                }
+            }
+        );
+
+        if (appliedFilePaths.length > 0) {
+            try {
+                const { GlobalProvider } = await import("../../globalProvider");
+                const provider = GlobalProvider.getInstance().getProvider(
+                    "codex-cell-editor"
+                ) as {
+                    refreshWebviewsForFiles?: (
+                        paths: string[],
+                        options?: { isSourceAndCodexFiles?: boolean; }
+                    ) => Promise<void>;
+                };
+                if (provider?.refreshWebviewsForFiles) {
+                    await provider.refreshWebviewsForFiles(appliedFilePaths);
+                }
+            } catch (error) {
+                console.warn(
+                    "Failed to refresh webviews after merged-children recovery:",
+                    error
+                );
+            }
+        }
+
+        await vscode.window.showInformationMessage(
+            `Merged-children recovery complete: ${appliedFilePaths.length} file(s) updated.`
+        );
+    } catch (error) {
+        console.error("Error running missing merged children recovery:", error);
         throw error;
     }
 };
