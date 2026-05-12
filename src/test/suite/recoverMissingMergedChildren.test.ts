@@ -499,6 +499,272 @@ suite("recoverMergedChildrenForFile", () => {
         );
     });
 
+    test("does not re-append a child whose only difference is a single inserted word in the parent (v29-style)", async () => {
+        // Real-world shape: Gretchen edited the parent so it reads "porque se
+        // dijo" while the soft-deleted child still says "porque dijo". Strict
+        // substring fails because of the inserted "se", but the child's
+        // surrounding text is fully present in the parent. Token-bigram
+        // overlap should recognize this and skip the re-append.
+        const milestoneId = randomUUID();
+        const parentId = randomUUID();
+        const childId = randomUUID();
+
+        const parentVerse =
+            "Lamec lo llamó Noé porque se dijo: «Él nos aliviará del duro trabajo que significa labrar la tierra que Dios maldijo».";
+        const childVerse =
+            "Lamec lo llamó Noé porque dijo: «Él nos aliviará del duro trabajo que significa labrar la tierra que Dios maldijo».";
+
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 5",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: `<p>${parentVerse}</p>`,
+                metadata: {
+                    id: parentId,
+                    type: CodexCellTypes.TEXT,
+                    cellLabel: "29",
+                    ...ref("GEN 5:29"),
+                    data: {
+                        globalReferences: ["GEN 5:29"],
+                        mergedChildIds: [childId],
+                    },
+                    edits: [],
+                },
+            },
+            {
+                value: `<p>${childVerse}</p>`,
+                metadata: softDeletedChildMetadata(childId, parentId, "GEN 5:29"),
+            },
+        ]);
+        testFiles.push(uri);
+
+        const beforeBytes = await readFileBytes(uri);
+        const report = await recoverMergedChildrenForFile(uri);
+
+        assert.strictEqual(
+            report.changed,
+            false,
+            "Lightly-edited child should be recognized as already present"
+        );
+        assert.strictEqual(report.parentsRecovered, 0);
+
+        const afterBytes = await readFileBytes(uri);
+        assert.deepStrictEqual(
+            Buffer.from(afterBytes),
+            Buffer.from(beforeBytes),
+            "File bytes must be unchanged when the child is fuzzily present"
+        );
+
+        const data = await readNotebookFile(uri);
+        const parent = data.cells.find((c: any) => c.metadata?.id === parentId);
+        const valueEdits = (parent.metadata?.edits || []).filter(
+            (e: any) => e.editMap?.join(".") === "value"
+        );
+        assert.strictEqual(
+            valueEdits.length,
+            0,
+            "No value edits should have been appended"
+        );
+    });
+
+    test("does not re-append a child whose only difference is digit vs spelled-out number (v30-style)", async () => {
+        // Real-world shape: parent says "Lamec vivió 595 años" while the soft-
+        // deleted child still says "Lamec vivió quinientos noventa y cinco
+        // años". Strict substring fails (entirely different word sequence for
+        // the number), but enough of the surrounding bigrams overlap to push
+        // the child above the fuzzy threshold.
+        const milestoneId = randomUUID();
+        const parentId = randomUUID();
+        const childId = randomUUID();
+
+        const parentVerse =
+            "Después del nacimiento de Noé, Lamec vivió 595 años, tuvo hijos e hijas,";
+        const childVerse =
+            "Después del nacimiento de Noé, Lamec vivió quinientos noventa y cinco años, tuvo hijos e hijas,";
+
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 5",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: `<p>${parentVerse}</p>`,
+                metadata: {
+                    id: parentId,
+                    type: CodexCellTypes.TEXT,
+                    cellLabel: "30",
+                    ...ref("GEN 5:30"),
+                    data: {
+                        globalReferences: ["GEN 5:30"],
+                        mergedChildIds: [childId],
+                    },
+                    edits: [],
+                },
+            },
+            {
+                value: `<p>${childVerse}</p>`,
+                metadata: softDeletedChildMetadata(childId, parentId, "GEN 5:30"),
+            },
+        ]);
+        testFiles.push(uri);
+
+        const beforeBytes = await readFileBytes(uri);
+        const report = await recoverMergedChildrenForFile(uri);
+
+        assert.strictEqual(
+            report.changed,
+            false,
+            "Number-format-only difference should not trigger recovery"
+        );
+        assert.strictEqual(report.parentsRecovered, 0);
+
+        const afterBytes = await readFileBytes(uri);
+        assert.deepStrictEqual(
+            Buffer.from(afterBytes),
+            Buffer.from(beforeBytes),
+            "File bytes must be unchanged when the only difference is number formatting"
+        );
+    });
+
+    test("still recovers a genuinely missing child even when sibling children only fuzzy-match the parent", async () => {
+        // Guards against the fuzzy check being so loose it skips legitimately
+        // missing content. Parent contains paraphrased v22 + v23 (an inserted
+        // "por" defeats strict substring but bigram overlap is high), and v24
+        // is genuinely absent. Only v24 should be appended.
+        const milestoneId = randomUUID();
+        const parentId = randomUUID();
+        const verse22Id = randomUUID();
+        const verse23Id = randomUUID();
+        const verse24Id = randomUUID();
+
+        const childV22 =
+            "Después de tener a Matusalén, Enoc vivió trescientos años más con su familia.";
+        const childV23 =
+            "Enoc vivió trescientos sesenta y cinco años en total con sus hijos.";
+        const childV24 =
+            "Vivía como Dios quería. Después, desapareció, porque Dios se lo llevó sin que muriera.";
+
+        // Parent has paraphrased v22 / v23 (one extra word "por"), no v24.
+        const parentV22 =
+            "Después de tener a Matusalén, Enoc vivió por trescientos años más con su familia.";
+        const parentV23 =
+            "Enoc vivió por trescientos sesenta y cinco años en total con sus hijos.";
+        const parentValue = `${parentV22}${parentV23}`;
+
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 5",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: parentValue,
+                metadata: {
+                    id: parentId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 5:21-24"),
+                    edits: [],
+                },
+            },
+            {
+                value: childV22,
+                metadata: softDeletedChildMetadata(verse22Id, parentId, "GEN 5:21-24"),
+            },
+            {
+                value: childV23,
+                metadata: softDeletedChildMetadata(verse23Id, parentId, "GEN 5:21-24"),
+            },
+            {
+                value: childV24,
+                metadata: softDeletedChildMetadata(verse24Id, parentId, "GEN 5:21-24"),
+            },
+        ]);
+        testFiles.push(uri);
+
+        const report = await recoverMergedChildrenForFile(uri);
+        assert.strictEqual(report.changed, true, "Verse 24 must still be recovered");
+        assert.strictEqual(report.parentsRecovered, 1);
+        assert.deepStrictEqual(
+            report.perParent[0].appendedChildIds,
+            [verse24Id],
+            "Only the genuinely-missing v24 should be appended; fuzzy-present v22/v23 must be skipped"
+        );
+
+        const data = await readNotebookFile(uri);
+        const parent = data.cells.find((c: any) => c.metadata?.id === parentId);
+        assert.strictEqual(
+            parent.value,
+            `${parentValue}${childV24}`,
+            "Parent value should be the paraphrased base with only v24 appended"
+        );
+        assert.deepStrictEqual(
+            parent.metadata?.data?.mergedChildIds,
+            [verse22Id, verse23Id, verse24Id],
+            "mergedChildIds tracks all soft-deleted children regardless of presence"
+        );
+    });
+
+    test("falls back to re-append for very short children whose words are scattered through the parent", async () => {
+        // Below MIN_FUZZY_TOKENS, the helper must NOT trust unigram-style
+        // accidental overlap. Without this floor, a 4-word child whose words
+        // happen to all appear in a long parent would be silently treated as
+        // present and never recovered.
+        const milestoneId = randomUUID();
+        const parentId = randomUUID();
+        const childId = randomUUID();
+
+        const parentValue =
+            "Caín fue al pueblo. Abel salió al campo. Estaba abierto el cielo. Luego volvió Caín.";
+        const childValue = "fue al campo abierto";
+
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 4",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: parentValue,
+                metadata: {
+                    id: parentId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 4:8"),
+                    edits: [],
+                },
+            },
+            {
+                value: childValue,
+                metadata: softDeletedChildMetadata(childId, parentId, "GEN 4:8"),
+            },
+        ]);
+        testFiles.push(uri);
+
+        const report = await recoverMergedChildrenForFile(uri);
+        assert.strictEqual(
+            report.changed,
+            true,
+            "Short child below the fuzzy-token floor must be treated as missing"
+        );
+        assert.strictEqual(report.parentsRecovered, 1);
+        assert.deepStrictEqual(
+            report.perParent[0].appendedChildIds,
+            [childId],
+            "The short child should be appended"
+        );
+
+        const data = await readNotebookFile(uri);
+        const parent = data.cells.find((c: any) => c.metadata?.id === parentId);
+        assert.strictEqual(
+            parent.value,
+            `${parentValue}${childValue}`,
+            "Parent value should end with the short child appended verbatim"
+        );
+    });
+
     test("returns changed: false and writes nothing when there are no merged cells in the file", async () => {
         const milestoneId = randomUUID();
         const id1 = randomUUID();

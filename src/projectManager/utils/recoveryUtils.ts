@@ -82,6 +82,87 @@ export function normalizeForSubstring(value: string | undefined): string {
 }
 
 /**
+ * Floor on the number of word tokens a child must have before we trust the
+ * fuzzy-bigram presence check. Below this, we fall back to "treat as missing"
+ * because short token sequences can hit any overlap threshold by chance
+ * against a long parent.
+ */
+export const MIN_FUZZY_TOKENS = 8;
+
+/**
+ * Minimum fraction of a child's bigrams that must be found in the parent for
+ * `isChildPresentInParent` to consider the child already present. Calibrated
+ * against real codex data: a verse that has been lightly edited in the parent
+ * (inserted word, digit-vs-spelled number) lands near 0.7-0.95; a genuinely
+ * missing verse sits near 0.
+ */
+export const FUZZY_BIGRAM_THRESHOLD = 0.6;
+
+/**
+ * Lowercase + Unicode-aware word tokenizer. Punctuation and whitespace become
+ * separators; accents and non-Latin scripts are preserved (we don't know what
+ * language the cells contain). Used by the fuzzy presence check.
+ */
+export function tokenize(normalized: string): string[] {
+    return normalized
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}]+/gu, " ")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+}
+
+/**
+ * Build a multiset of consecutive token pairs (bigrams) keyed by "a\u0000b".
+ * Multiset (not set) so that repeated phrases in the parent count toward
+ * matching repeated phrases in the child rather than collapsing to one.
+ */
+function bigramMultiset(tokens: string[]): Map<string, number> {
+    const out = new Map<string, number>();
+    for (let i = 0; i + 1 < tokens.length; i++) {
+        const key = `${tokens[i]}\u0000${tokens[i + 1]}`;
+        out.set(key, (out.get(key) ?? 0) + 1);
+    }
+    return out;
+}
+
+/**
+ * Tolerant "is the child already in the parent?" check used by the recovery.
+ * Two-stage:
+ *   1. Strict substring on the normalized values (fast path; matches the
+ *      original behaviour for bit-identical content).
+ *   2. Token-bigram overlap: of the child's bigrams, how many appear in the
+ *      parent? If at least `threshold` (default `FUZZY_BIGRAM_THRESHOLD`),
+ *      the child is treated as present.
+ *
+ * Children with fewer than `minTokens` (default `MIN_FUZZY_TOKENS`) tokens
+ * never reach the fuzzy stage — for short verses the safe default is to
+ * re-append (false positives = visible duplication; false negatives =
+ * silent data loss, which is worse).
+ */
+export function isChildPresentInParent(
+    normalizedParent: string,
+    normalizedChild: string,
+    options: { minTokens?: number; threshold?: number; } = {}
+): boolean {
+    if (normalizedParent.includes(normalizedChild)) return true;
+    const childTokens = tokenize(normalizedChild);
+    const minTokens = options.minTokens ?? MIN_FUZZY_TOKENS;
+    if (childTokens.length < minTokens) return false;
+    const childBigrams = bigramMultiset(childTokens);
+    if (childBigrams.size === 0) return false;
+    const parentBigrams = bigramMultiset(tokenize(normalizedParent));
+    let matched = 0;
+    let total = 0;
+    for (const [bg, count] of childBigrams) {
+        total += count;
+        matched += Math.min(count, parentBigrams.get(bg) ?? 0);
+    }
+    const threshold = options.threshold ?? FUZZY_BIGRAM_THRESHOLD;
+    return total > 0 && matched / total >= threshold;
+}
+
+/**
  * Find every parent cell that has at least one soft-deleted child whose
  * content has gone missing from the parent's current value, and compute the
  * target value / mergedChildIds / cellLabel for each such parent.
@@ -149,7 +230,7 @@ function planRecovery(cells: RecoverableCell[]): Array<{
             if (childValue.length === 0) continue;
             const normalizedChild = normalizeForSubstring(childValue);
             if (normalizedChild.length === 0) continue;
-            if (!normalizedParent.includes(normalizedChild)) {
+            if (!isChildPresentInParent(normalizedParent, normalizedChild)) {
                 missing.push(child.cell);
             }
         }
