@@ -1038,10 +1038,10 @@
         ]
     },
     "scripts": {
-        "vscode:prepublish": "npm run build:webviews && npm run test:webviews && npm run compile && npm run test",
+        "vscode:prepublish": "npm run build:webviews && npm run test:webviews && npm run test && npm run package",
         "compile": "webpack --config webpack.config.js",
         "watch": "webpack --config webpack.config.js --watch",
-        "package": "webpack --config webpack.config.js --mode production --devtool hidden-source-map",
+        "package": "rm -rf out && webpack --config webpack.config.js --config-name extension --mode production",
         "lint": "eslint src --ext ts",
         "pretest": "npm run compile && npm run lint",
         "test": "node ./out/test/runTest.js",
