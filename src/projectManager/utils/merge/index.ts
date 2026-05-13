@@ -273,11 +273,91 @@ export async function stageAndCommitAllAndSync(
         return syncResult;
     } catch (error) {
         console.error("Failed to commit and sync changes:", error);
-        vscode.window.showErrorMessage(
-            `Sync failed. Please try again or contact support if the problem persists.`
-        );
+        // Fire-and-forget: showErrorMessage with an action only resolves when
+        // the user dismisses/clicks the toast, and we must not block the sync
+        // promise on that — background sync (syncManager) would stall behind
+        // an ignored notification.
+        void showSyncErrorWithCopy(error, { commitMessage });
         throw error;
     }
+}
+
+/**
+ * Show the sync-failure toast with a "Copy Error Details" action. The action
+ * writes a plaintext diagnostic report to the clipboard so users can paste it
+ * directly to support — most users have no useful access to the dev console.
+ *
+ * The report extracts structured fields from a `GitLabApiError` thrown by
+ * frontier-authentication (status, URL, response body, etc.) when present,
+ * and falls back to the generic Error message + stack otherwise.
+ */
+async function showSyncErrorWithCopy(
+    error: unknown,
+    context: { commitMessage?: string },
+): Promise<void> {
+    const COPY_ACTION = "Copy Error Details";
+    const choice = await vscode.window.showErrorMessage(
+        "Sync failed. Please try again or contact support if the problem persists.",
+        COPY_ACTION,
+    );
+    if (choice !== COPY_ACTION) return;
+    await vscode.env.clipboard.writeText(formatSyncErrorReport(error, context));
+    vscode.window.showInformationMessage("Error details copied to clipboard.");
+}
+
+function formatSyncErrorReport(
+    error: unknown,
+    context: { commitMessage?: string },
+): string {
+    const lines: string[] = [
+        "Codex Sync Error Report",
+        `Time: ${new Date().toISOString()}`,
+    ];
+    if (context.commitMessage) lines.push(`Commit message: ${context.commitMessage}`);
+    lines.push("");
+
+    // Duck-type GitLabApiError thrown by frontier-authentication. We avoid an
+    // import because codex-editor doesn't depend on frontier-authentication;
+    // the error crosses the executeCommand boundary as a plain object whose
+    // `name` and structured fields are preserved.
+    if (
+        error
+        && typeof error === "object"
+        && (error as { name?: unknown }).name === "GitLabApiError"
+    ) {
+        const e = error as {
+            operation?: string;
+            method?: string;
+            url?: string;
+            status?: number;
+            statusText?: string;
+            body?: string;
+            timestamp?: string;
+        };
+        lines.push("GitLab API Error");
+        if (e.timestamp) lines.push(`API call time: ${e.timestamp}`);
+        lines.push(`Operation: ${e.operation ?? "(unknown)"}`);
+        lines.push(`Method:    ${e.method ?? "(unknown)"}`);
+        lines.push(`URL:       ${e.url ?? "(unknown)"}`);
+        lines.push(`Status:    ${e.status ?? "?"} ${e.statusText ?? ""}`);
+        lines.push("");
+        lines.push("Response body:");
+        lines.push(e.body || "(empty)");
+        return lines.join("\n");
+    }
+
+    if (error instanceof Error) {
+        lines.push(`Error: ${error.message}`);
+        if (error.stack) {
+            lines.push("");
+            lines.push("Stack trace:");
+            lines.push(error.stack);
+        }
+        return lines.join("\n");
+    }
+
+    lines.push(`Error: ${String(error)}`);
+    return lines.join("\n");
 }
 
 // Re-export types and functions that should be available to consumers
