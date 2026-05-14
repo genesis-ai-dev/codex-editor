@@ -49,6 +49,8 @@ import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 import { openCodexMigrationTool } from "./codexMigrationTool/codexMigrationTool";
 import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/codexCellEditorProvider";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
+import { initializeStateStore } from "./stateStore";
+import { runOnce } from "./utils/oneTimeMigrations";
 import { fileExists } from "./utils/webviewUtils";
 import { checkIfProjectIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
@@ -346,6 +348,54 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     initToolPreferences(context);
+
+    // Construct the singleton cellId state store (file-backed under
+    // globalStorageUri). Must run before providers register so that any
+    // subsequent initializeStateStore() calls inside providers reuse the
+    // same instance.
+    try {
+        await initializeStateStore(context);
+    } catch (e) {
+        console.error("[Extension] Failed to initialize cellId state store:", e);
+    }
+
+    // One-shot cleanup of orphaned rows inside the project-accelerate.shared-state-store
+    // extension's globalState. Historically codex-editor wrote `sourceCellMap` (full
+    // source-cell content keyed by reference) and `cellId` to that store; the writers
+    // were removed long ago (sourceCellMap in 0.6.1, cellId in the local-store
+    // migration), but the data has been sitting in state.vscdb ever since, triggering
+    // the mainThreadStorage >5 MB warning and bloating activation memory.
+    //
+    // The flag lives in globalStorageUri/migrations.json so the cleanup runs exactly
+    // once per machine (and retries on the next activation if it threw). The ID is
+    // bumped to V2 because V1 only wiped `cellId` (negligible) and missed the real
+    // offender, `sourceCellMap`.
+    try {
+        await runOnce(context, "sharedStateStoreOrphanCleanupV2", async () => {
+            const ext = vscode.extensions.getExtension("project-accelerate.shared-state-store");
+            if (!ext) return;
+            const api = await ext.activate();
+            if (!api || typeof api.updateStoreState !== "function") return;
+            // Setting value to undefined causes the underlying
+            // globalState.update(key, undefined) to delete the key from the row.
+            const orphanKeys = ["cellId", "sourceCellMap"] as const;
+            for (const key of orphanKeys) {
+                try {
+                    api.updateStoreState({ key, value: undefined });
+                } catch (innerErr) {
+                    console.warn(
+                        `[Extension] Failed to wipe '${key}' from shared-state-store:`,
+                        innerErr
+                    );
+                }
+            }
+        });
+    } catch (e) {
+        console.warn(
+            "[Extension] sharedStateStoreOrphanCleanupV2 cleanup failed; will retry on next activation.",
+            e
+        );
+    }
 
     // Save tab layout and close all editors before showing splash screen
     try {
