@@ -19,6 +19,12 @@ import { getAuthApi } from "../../../extension";
 import { ConflictFile } from "./types";
 import { getFrontierVersionStatus } from "../../utils/versionChecks";
 import { migration_recoverTempFilesAndMergeDuplicates } from "../migrationUtils";
+import {
+    TransientSyncError,
+    isRetriableSyncError,
+    isUserSurfacedError,
+    markUserSurfaced,
+} from "./transientSyncError";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -129,43 +135,42 @@ export async function stageAndCommitAllAndSync(
             return syncResult;
         }
 
-        // Optional diagnostics from Frontier to help detect “remote changes not applied” scenarios.
-        // This is intentionally non-destructive: we only warn/log so issues can be triaged.
-        try {
-            const conflictsArr = Array.isArray(conflictsResponse?.conflicts)
-                ? (conflictsResponse.conflicts as Array<{ filepath?: string; }>)
-                : [];
-            const conflictPaths = new Set(
-                conflictsArr.map((c) => c?.filepath).filter((p): p is string => typeof p === "string")
+        // Diagnostic: every remote-changed file MUST appear in the conflict list.
+        // If it doesn't, something dropped silently between Frontier's existence
+        // classification and the conflict list it produced — proceeding would
+        // create a merge commit missing those files. Throw a TransientSyncError
+        // so the retry layer below can re-run sync (which refetches via
+        // fetchOrigin) before bothering the user.
+        //
+        // Unlike the old diagnostic, this checks ALL paths, not just `.codex`,
+        // because the gan-ji-an regression involved .webm pointer files too.
+        const conflictsArr = Array.isArray(conflictsResponse?.conflicts)
+            ? (conflictsResponse.conflicts as Array<{ filepath?: string; }>)
+            : [];
+        const conflictPaths = new Set(
+            conflictsArr.map((c) => c?.filepath).filter((p): p is string => typeof p === "string")
+        );
+
+        const remoteChanged = conflictsResponse?.remoteChangedFilePaths;
+        const allChanged = conflictsResponse?.allChangedFilePaths;
+        const changedList: unknown =
+            Array.isArray(remoteChanged) ? remoteChanged : Array.isArray(allChanged) ? allChanged : [];
+
+        if (Array.isArray(changedList) && changedList.length > 0) {
+            const changedPaths = changedList.filter(
+                (p): p is string => typeof p === "string" && p.length > 0
             );
-
-            const remoteChanged = conflictsResponse?.remoteChangedFilePaths;
-            const allChanged = conflictsResponse?.allChangedFilePaths;
-            const changedList: unknown =
-                Array.isArray(remoteChanged) ? remoteChanged : Array.isArray(allChanged) ? allChanged : [];
-
-            if (Array.isArray(changedList) && changedList.length > 0) {
-                const changedPaths = changedList.filter(
-                    (p): p is string => typeof p === "string" && p.length > 0
+            const missingFromConflicts = changedPaths.filter((p) => !conflictPaths.has(p));
+            if (missingFromConflicts.length > 0) {
+                const sample = missingFromConflicts.slice(0, 5).join(", ");
+                const extra = missingFromConflicts.length > 5
+                    ? ` (+${missingFromConflicts.length - 5} more)`
+                    : "";
+                throw new TransientSyncError(
+                    `${missingFromConflicts.length} remote-changed file(s) were not in the conflict list. Missing: ${sample}${extra}`,
+                    missingFromConflicts
                 );
-                const remoteCodex = changedPaths.filter(
-                    (p) => p.startsWith("files/target/") && p.endsWith(".codex")
-                );
-
-                const missingFromConflicts = remoteCodex.filter((p) => !conflictPaths.has(p));
-                if (missingFromConflicts.length > 0) {
-                    console.warn(
-                        "[Sync] Frontier reported remote `.codex` changes not present in conflict list:",
-                        missingFromConflicts
-                    );
-                    // Avoid modal spam; one-time lightweight warning.
-                    vscode.window.showWarningMessage(
-                        `Some changes from other team members may not have been included. Try syncing again if something looks missing.`
-                    );
-                }
             }
-        } catch (e) {
-            // Never fail sync due to diagnostics
         }
 
         // Capture uploaded LFS files from the sync operation
@@ -199,15 +204,32 @@ export async function stageAndCommitAllAndSync(
                 console.error(
                     `[Merge] ${failedConflicts.length} conflict(s) could not be resolved:\n${failedList}`
                 );
+                // If any failure originated from a BLOB_READ_FAILED: sentinel (e.g.
+                // empty-content isNew in Fix 4), let the outer retry handle it
+                // silently before surfacing UI. Otherwise it's a non-retriable
+                // merge issue and falls through to the existing user-facing path.
+                const anyTransient = failedConflicts.some((f) =>
+                    typeof f.error === "string" && f.error.startsWith("BLOB_READ_FAILED:")
+                );
+                if (anyTransient) {
+                    throw new TransientSyncError(
+                        `Merge aborted: ${failedConflicts.length} conflict(s) could not be resolved due to incomplete fetch. ` +
+                        `Resolved ${resolvedFiles.length} of ${conflicts.length} total.`,
+                        failedConflicts.map((f) => `${f.filepath}: ${f.error}`)
+                    );
+                }
+                // Non-transient: show the specific "data is safe" dialog and tag the
+                // error so the outer catch knows not to surface a generic dialog on
+                // top of this one.
                 vscode.window.showErrorMessage(
                     `${failedConflicts.length} file(s) had changes that couldn't be combined automatically. ` +
                     `Your data is safe — please try syncing again or contact support.`
                 );
-                throw new Error(
+                throw markUserSurfaced(new Error(
                     `Merge aborted: ${failedConflicts.length} conflict(s) could not be resolved. ` +
                     `Resolved ${resolvedFiles.length} of ${conflicts.length} total. ` +
                     `Failed:\n${failedList}`
-                );
+                ));
             }
 
             if (resolvedFiles.length > 0) {
@@ -218,20 +240,9 @@ export async function stageAndCommitAllAndSync(
                     const errorMessage = completeMergeError instanceof Error ? completeMergeError.message : String(completeMergeError);
                     debug("completeMerge error:", errorMessage);
 
-                    // Only retry on transient errors (push rejected because remote
-                    // advanced, network hiccups, etc.). Permanent failures like auth,
-                    // validation, or staging errors should surface immediately.
-                    const isTransient =
-                        errorMessage.includes("non-fast-forward") ||
-                        errorMessage.includes("failed to push") ||
-                        errorMessage.includes("Failed to push") ||
-                        errorMessage.includes("timeout") ||
-                        errorMessage.includes("ETIMEDOUT") ||
-                        errorMessage.includes("ECONNRESET") ||
-                        errorMessage.includes("ECONNREFUSED") ||
-                        errorMessage.includes("network");
-
-                    if (isTransient && retryCount < 3) {
+                    // Use the shared classifier so completeMerge retries stay aligned
+                    // with the outer transient-error policy (single source of truth).
+                    if (isRetriableSyncError(completeMergeError) && retryCount < 3) {
                         debug(`⚠️ Transient completeMerge failure, retrying... (attempt ${retryCount + 1}/3)`);
 
                         const backoffMs = 5 * Math.pow(2, retryCount) * 1000;
@@ -272,37 +283,109 @@ export async function stageAndCommitAllAndSync(
 
         return syncResult;
     } catch (error) {
+        // Self-healing outer retry: re-run the entire sync (which forces a fresh
+        // authApi.syncChanges → fetchOrigin) if this looks like a transient
+        // condition. Caps at 2 retries (1.5s, 3s) so we never block the user
+        // forever; on final failure we still throw (so SyncManager updates its
+        // status) but we also surface a non-modal dialog with a Retry button
+        // for foreground syncs. Background syncs (showCompletionMessage=false)
+        // stay silent so SyncManager's scheduler can reschedule.
+        if (isRetriableSyncError(error) && retryCount < 2) {
+            const backoffMs = 1500 * Math.pow(2, retryCount); // 1.5s then 3s
+            debug(
+                `[Sync] Transient outer failure (attempt ${retryCount + 1}/2), retrying after ${backoffMs}ms: ${(error as Error).message}`
+            );
+            await new Promise((r) => setTimeout(r, backoffMs));
+            return stageAndCommitAllAndSync(commitMessage, showCompletionMessage, retryCount + 1);
+        }
+
         console.error("Failed to commit and sync changes:", error);
-        // Fire-and-forget: showErrorMessage with an action only resolves when
-        // the user dismisses/clicks the toast, and we must not block the sync
-        // promise on that — background sync (syncManager) would stall behind
-        // an ignored notification.
-        void showSyncErrorWithCopy(error, { commitMessage });
+
+        // Suppress the outer dialog if an inner step already showed a more
+        // specific dialog to the user (e.g. failedConflicts non-transient path).
+        // Foreground syncs see the toast; background syncs (showCompletionMessage=false)
+        // stay silent so SyncManager's scheduler can reschedule.
+        //
+        // Fire-and-forget: showErrorMessage with actions only resolves when the
+        // user interacts, and we must not block the sync promise on that —
+        // background sync would stall behind an ignored notification.
+        if (showCompletionMessage && !isUserSurfacedError(error)) {
+            void showSyncErrorWithCopy(error, {
+                commitMessage,
+                wasTransient: isRetriableSyncError(error),
+                onRetry: async () => {
+                    // Use SyncManager directly so the retry flows through the
+                    // same scheduling/UI status path as a manual user-triggered
+                    // sync.
+                    const { SyncManager } = await import("../../syncManager");
+                    await SyncManager.getInstance().executeSync(
+                        "Retrying sync",
+                        true,
+                        undefined,
+                        true
+                    );
+                },
+            });
+        }
+
         throw error;
     }
 }
 
 /**
- * Show the sync-failure toast with a "Copy Error Details" action. The action
- * writes a plaintext diagnostic report to the clipboard so users can paste it
- * directly to support — most users have no useful access to the dev console.
+ * Show the sync-failure toast.
  *
- * The report extracts structured fields from a `GitLabApiError` thrown by
- * frontier-authentication (status, URL, response body, etc.) when present,
- * and falls back to the generic Error message + stack otherwise.
+ * Actions on the toast:
+ *  - "Retry sync now" (only when `onRetry` is provided): re-runs the sync via
+ *    `SyncManager.executeSync`. Surfaced for transient failures so users are
+ *    never permanently blocked after the auto-retry layer gives up.
+ *  - "Copy Error Details": writes a plaintext diagnostic report to the
+ *    clipboard so users can paste it directly to support — most users have no
+ *    useful access to the dev console. The report extracts structured fields
+ *    from a `GitLabApiError` thrown by frontier-authentication (status, URL,
+ *    response body, etc.) when present, and falls back to the generic Error
+ *    message + stack otherwise.
+ *
+ * The message text is adjusted based on `wasTransient` so users get a softer,
+ * more reassuring message ("Your changes are safe...") when the failure looks
+ * like a brief network hiccup, vs the generic "Sync failed" message for
+ * unknown failures.
  */
 async function showSyncErrorWithCopy(
     error: unknown,
-    context: { commitMessage?: string },
+    context: {
+        commitMessage?: string;
+        wasTransient?: boolean;
+        onRetry?: () => Promise<void> | void;
+    },
 ): Promise<void> {
+    const RETRY_ACTION = "Retry sync now";
     const COPY_ACTION = "Copy Error Details";
-    const choice = await vscode.window.showErrorMessage(
-        "Sync failed. Please try again or contact support if the problem persists.",
-        COPY_ACTION,
-    );
-    if (choice !== COPY_ACTION) return;
-    await vscode.env.clipboard.writeText(formatSyncErrorReport(error, context));
-    vscode.window.showInformationMessage("Error details copied to clipboard.");
+
+    const message = context.wasTransient
+        ? "Some files from other team members couldn't be downloaded just now (likely a brief network issue). " +
+        "Your changes are safe. Try again — if it keeps happening, please contact support."
+        : "Sync failed. Please try again or contact support if the problem persists.";
+
+    const actions = context.onRetry
+        ? [RETRY_ACTION, COPY_ACTION]
+        : [COPY_ACTION];
+
+    const choice = await vscode.window.showErrorMessage(message, ...actions);
+
+    if (choice === RETRY_ACTION && context.onRetry) {
+        try {
+            await context.onRetry();
+        } catch (retryError) {
+            console.error("Manual retry from sync error dialog failed:", retryError);
+        }
+        return;
+    }
+
+    if (choice === COPY_ACTION) {
+        await vscode.env.clipboard.writeText(formatSyncErrorReport(error, context));
+        vscode.window.showInformationMessage("Error details copied to clipboard.");
+    }
 }
 
 function formatSyncErrorReport(
