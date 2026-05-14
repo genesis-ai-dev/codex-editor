@@ -3269,6 +3269,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         author: "anonymous",
                         validatedBy: []
                     });
+                    // updateCellData() above already fired the change event, which can
+                    // synchronously trigger updateWebview() → getText() and repopulate
+                    // the per-cell cache with the mid-mutation state. Re-invalidate now
+                    // so the upcoming save() re-serializes the cell with the unmerge edit.
+                    targetDocument.markCellMutated(cellIdToUnmerge);
                 }
             } catch (e) {
                 console.warn("Failed to append merged=false edit on target during unmerge", e);
