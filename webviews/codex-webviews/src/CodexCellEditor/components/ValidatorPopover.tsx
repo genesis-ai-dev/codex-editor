@@ -172,6 +172,12 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
     useEffect(() => {
         if (!show || !popoverRef.current || !anchorRef.current) return;
 
+        // Position the popover in viewport coordinates (it is portaled to
+        // document.body with `position: fixed`). Using fixed + portal lets the
+        // popover escape any stacking context introduced by ancestor rows —
+        // notably the audio history's deleted rows, which use `opacity: 0.9`
+        // and would otherwise paint over a `position: absolute` popover sitting
+        // inside an earlier row.
         const positionPopover = () => {
             if (!popoverRef.current || !anchorRef.current) return;
 
@@ -180,51 +186,55 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
             const viewportHeight = window.innerHeight;
             const viewportWidth = window.innerWidth;
 
-            // Vertical positioning
+            // Vertical: prefer below the anchor, fall back to above, then center.
             const spaceAbove = buttonRect.top;
-            const spaceBelow = viewportHeight - (buttonRect.top + buttonRect.height);
-            let top = 0;
+            const spaceBelow = viewportHeight - buttonRect.bottom;
+            let top: number;
             if (spaceBelow >= popoverRect.height + 10) {
-                top = buttonRect.height + 5; // place below the badge
+                top = buttonRect.bottom + 5;
             } else if (spaceAbove >= popoverRect.height + 10) {
-                top = -popoverRect.height - 5; // place above the badge
+                top = buttonRect.top - popoverRect.height - 5;
             } else {
-                top = -(popoverRect.height / 2) + buttonRect.height / 2; // center align
+                top = buttonRect.top + buttonRect.height / 2 - popoverRect.height / 2;
             }
 
-            // Horizontal positioning (dynamic left/right with clamping to viewport)
-            const spaceRight = viewportWidth - (buttonRect.left + buttonRect.width);
-            const spaceLeft = buttonRect.left;
-            let left = 0;
+            // Horizontal: prefer aligning anchor's left edge, fall back to anchor's right,
+            // else center on the anchor. Always clamp to a small viewport margin.
+            const spaceRight = viewportWidth - buttonRect.left;
+            const spaceLeft = buttonRect.right;
+            let left: number;
             if (spaceRight >= popoverRect.width + 10) {
-                // Enough room on the right → align left edges
-                left = 0;
+                left = buttonRect.left;
             } else if (spaceLeft >= popoverRect.width + 10) {
-                // Open to the left so the popover fits within the card/viewport
-                left = -popoverRect.width + buttonRect.width;
+                left = buttonRect.right - popoverRect.width;
             } else {
-                // Center relative to the badge
-                left = -(popoverRect.width / 2 - buttonRect.width / 2);
-                // Clamp to viewport so it never overflows
-                const minLeft = 8 - buttonRect.left; // keep 8px from left edge
-                const maxLeft = viewportWidth - popoverRect.width - 8 - buttonRect.left; // 8px from right edge
-                left = Math.min(Math.max(left, minLeft), maxLeft);
+                left = buttonRect.left + buttonRect.width / 2 - popoverRect.width / 2;
             }
+
+            // Final clamp so the popover never escapes the viewport.
+            const minLeft = 8;
+            const maxLeft = viewportWidth - popoverRect.width - 8;
+            left = Math.min(Math.max(left, minLeft), maxLeft);
+            const minTop = 8;
+            const maxTop = viewportHeight - popoverRect.height - 8;
+            top = Math.min(Math.max(top, minTop), maxTop);
 
             const style = popoverRef.current.style;
             style.top = `${top}px`;
             style.left = `${left}px`;
             style.right = "auto";
-            style.position = "absolute";
+            style.position = "fixed";
             style.opacity = "1";
             style.pointerEvents = "auto";
-            style.zIndex = "100000";
+            // Above the audio history modal overlay (z-index 1000) and any
+            // ancestor stacking context created by row-level styles.
+            style.zIndex = "100001";
         };
 
-        // Initial position
         positionPopover();
 
-        // Reposition on resize/scroll to keep within bounds
+        // Reposition on resize and on any scroll (capture phase to catch
+        // scrolls inside the modal's overflow container too).
         window.addEventListener("resize", positionPopover);
         window.addEventListener("scroll", positionPopover, true);
         return () => {
@@ -286,18 +296,21 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
 
     if (!show || validators.length === 0) return null;
 
-    return (
+    // Portaled to document.body so the popover renders outside any ancestor
+    // stacking context. Without this, row-level styles like `opacity: 0.9`
+    // on deleted audio-history entries create competing stacking contexts
+    // that can paint over the popover even though it has a large z-index.
+    return ReactDOM.createPortal(
         <div
             ref={popoverRef}
-            className="audio-validation-popover absolute flex flex-col gap-y-2 rounded-md shadow-md p-2"
+            className="audio-validation-popover fixed flex flex-col gap-y-2 rounded-md shadow-md p-2"
             style={{
-                zIndex: 100000,
+                zIndex: 100001,
                 opacity: show ? "1" : "0",
                 transition: "opacity 0.2s ease-in-out",
                 pointerEvents: show ? "auto" : "none",
                 backgroundColor: "var(--vscode-editor-background)",
                 border: "1px solid var(--vscode-editorWidget-border)",
-                // Ensure the popover fully covers underlying waveform/time text
                 mixBlendMode: "normal",
                 width: "max-content",
                 minWidth: "12rem",
@@ -373,7 +386,8 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
                     );
                 })}
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 
