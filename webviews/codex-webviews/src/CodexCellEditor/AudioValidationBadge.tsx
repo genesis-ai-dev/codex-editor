@@ -141,14 +141,25 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
                 message?.type === "providerUpdatesAudioValidationState" &&
                 message.content?.cellId === popoverCellId &&
                 Array.isArray(message.content?.validatedBy) &&
-                // When this badge targets a specific attachment, only accept updates for that attachment.
-                // When no attachmentId is set (waveform/cell-list), accept any update for the cell.
-                (!attachmentId || !message.content.attachmentId || message.content.attachmentId === attachmentId)
+                // When this badge targets a specific attachment (e.g. an audio
+                // history row), require the broadcast to explicitly target that
+                // attachment. Selection-only broadcasts (e.g. from
+                // `selectAudioAttachment` / `deselectAudioAttachment`) omit
+                // `attachmentId` and ride the cell's currently-selected audio's
+                // validators — accepting them here would leak the selected
+                // audio's validators into every history row's badge as the
+                // user toggles Select on/off, causing apparent validate /
+                // invalidate flicker on unrelated rows.
+                //
+                // When no `attachmentId` is set (waveform / cell-list badge),
+                // accept any update for the cell — those badges follow the
+                // cell-level selection.
+                (!attachmentId || message.content.attachmentId === attachmentId)
             ) {
                 setOverrideValidatedBy(message.content.validatedBy as ValidationEntry[]);
             }
         },
-        [popoverCellId]
+        [popoverCellId, attachmentId]
     );
 
     // Effective validators: for interactive (non-readOnly) badges, prefer the real-time
