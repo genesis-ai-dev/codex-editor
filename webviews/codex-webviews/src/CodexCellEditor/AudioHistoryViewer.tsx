@@ -218,6 +218,39 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                     content: { cellId },
                 });
             }
+            // Patch the corresponding history entry's `validatedBy` in place when a
+            // per-attachment validation update arrives. Without this, the viewer's
+            // `audioHistory` snapshot taken at modal-open time becomes stale the moment
+            // any audio is validated/invalidated, and a per-row badge whose override
+            // gets cleared (e.g. on cell-level selection change) falls back to that
+            // stale list and appears to "lose" the just-added validation.
+            //
+            // Broadcasts without `attachmentId` are intentionally ignored here — they
+            // are periodic selected-audio refreshes (codexCellEditorProvider.ts line
+            // 3370) that don't carry per-row identity, and the cell-level badge path
+            // already handles them via its own override.
+            if (
+                message.type === "providerUpdatesAudioValidationState" &&
+                message.content?.cellId === cellId &&
+                typeof message.content?.attachmentId === "string" &&
+                Array.isArray(message.content?.validatedBy)
+            ) {
+                const targetId = message.content.attachmentId as string;
+                const newValidatedBy = message.content.validatedBy;
+                setAudioHistory((prev) =>
+                    prev.map((entry) =>
+                        entry.attachmentId === targetId
+                            ? {
+                                ...entry,
+                                attachment: {
+                                    ...entry.attachment,
+                                    validatedBy: newValidatedBy,
+                                },
+                            }
+                            : entry
+                    )
+                );
+            }
             if (message.type === "currentUsername") {
                 setUsername(message.content?.username || null);
             }

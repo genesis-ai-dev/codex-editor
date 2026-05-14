@@ -126,12 +126,18 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
         null
     );
 
-    // Clear the override whenever the selection changes — validations are per-attachment,
-    // so a new selection resets us to whatever the parent's cell state says.
+    // Clear the override only when the identity that drives this badge changes:
+    //   - Per-row badge (has its own `attachmentId`): only when its attachment changes
+    //     (essentially never for a mounted row in the history modal). Cell-level
+    //     selection changes must NOT wipe a per-row override — that would let a stale
+    //     `initialValidators` fallback re-surface immediately after a validation.
+    //   - Cell-level badge (no `attachmentId`): reset when the cell's selected audio
+    //     changes, because the badge then represents a different attachment's validators.
     const selectedAudioId = (popoverCell as any)?.metadata?.selectedAudioId ?? "";
+    const overrideResetKey = attachmentId ?? selectedAudioId;
     useEffect(() => {
         setOverrideValidatedBy(null);
-    }, [selectedAudioId, popoverCellId]);
+    }, [overrideResetKey, popoverCellId]);
 
     useMessageHandler(
         `audioValidationBadge-${popoverCellId ?? "unknown"}-${uniqueId.current}`,
@@ -141,25 +147,33 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
                 message?.type === "providerUpdatesAudioValidationState" &&
                 message.content?.cellId === popoverCellId &&
                 Array.isArray(message.content?.validatedBy) &&
-                // When this badge targets a specific attachment (e.g. an audio
-                // history row), require the broadcast to explicitly target that
-                // attachment. Selection-only broadcasts (e.g. from
-                // `selectAudioAttachment` / `deselectAudioAttachment`) omit
-                // `attachmentId` and ride the cell's currently-selected audio's
-                // validators — accepting them here would leak the selected
-                // audio's validators into every history row's badge as the
-                // user toggles Select on/off, causing apparent validate /
-                // invalidate flicker on unrelated rows.
+                // Filter rules:
                 //
-                // When no `attachmentId` is set (waveform / cell-list badge),
-                // accept any update for the cell — those badges follow the
-                // cell-level selection.
-                (!attachmentId || message.content.attachmentId === attachmentId)
+                //   - Per-attachment badge (audio history row): require the
+                //     broadcast to explicitly target *this* attachment. This
+                //     keeps selection-only broadcasts (which omit
+                //     `attachmentId` and carry the newly-selected audio's
+                //     validators) from leaking into other rows as the user
+                //     toggles Select on/off.
+                //
+                //   - Cell-level badge (waveform, no `attachmentId` prop):
+                //     only apply an update whose target attachment is the
+                //     cell's currently-selected audio. Without this, a
+                //     validate-by-row action in the history modal on a
+                //     non-selected attachment would overwrite the waveform
+                //     badge's validators with the wrong attachment's data.
+                //     Selection-only broadcasts (no `attachmentId` in the
+                //     message) still pass through, because their `validatedBy`
+                //     is by definition for the new selection.
+                (attachmentId
+                    ? message.content.attachmentId === attachmentId
+                    : (!message.content.attachmentId ||
+                        message.content.attachmentId === selectedAudioId))
             ) {
                 setOverrideValidatedBy(message.content.validatedBy as ValidationEntry[]);
             }
         },
-        [popoverCellId, attachmentId]
+        [popoverCellId, attachmentId, selectedAudioId]
     );
 
     // Effective validators: for interactive (non-readOnly) badges, prefer the real-time
