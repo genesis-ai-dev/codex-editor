@@ -1900,6 +1900,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         author: user,
                         validatedBy: []
                     });
+                    // updateCellData() above already fired the change event, which can
+                    // synchronously trigger updateWebview() → getText() and repopulate
+                    // the per-cell cache with the mid-mutation state. Re-invalidate now
+                    // so the upcoming save() re-serializes the cell with the unmerge edit.
+                    document.markCellMutated(cellId);
                 }
             } catch (e) {
                 console.warn("Failed to record unmerge edit entry on source cell", e);
@@ -3367,9 +3372,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
 
-            // Mark the document as dirty manually since we bypassed the normal update methods
+            // Mark the document as dirty manually since we bypassed the normal update methods.
+            // Use markCellMutated so the per-cell serialization cache is invalidated too;
+            // direct `_dirtyCellIds.add` would leave the previous-cell cache pointing at
+            // its pre-merge state and the next save() would write stale bytes for it.
             (document as any)._isDirty = true;
-            (document as any)._dirtyCellIds.add(previousCellId);
+            document.markCellMutated(previousCellId);
 
             // 6. Mark current cell as merged by updating its data
             const currentCellData = document.getCellData(currentCellId) || {};
@@ -3392,6 +3400,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     author: currentUser,
                     validatedBy: []
                 });
+                // updateCellData() above already fired the change event, which can
+                // synchronously trigger updateWebview() → getText() and repopulate
+                // the per-cell cache with the mid-mutation state (merged flag set,
+                // but the merge edit not yet pushed). Re-invalidate now so the
+                // upcoming save() re-serializes the cell with the merge edit.
+                document.markCellMutated(currentCellId);
             }
 
             // Save the document
