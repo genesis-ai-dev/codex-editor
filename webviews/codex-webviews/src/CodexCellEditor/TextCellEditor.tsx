@@ -3494,7 +3494,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         <RecorderCircle
                                                             state={recorderState}
                                                             countdown={countdown}
-                                                            countdownTotal={3}
                                                             onClick={
                                                                 isRecording || countdown !== null
                                                                     ? stopRecording

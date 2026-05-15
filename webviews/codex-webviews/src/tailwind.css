@@ -348,20 +348,16 @@
 
     /*
      * Recorder circle animations.  Used by RecorderCircle.tsx for the audio
-     * record button.  Three motion primitives:
-     *   - ring-pulse: outer ring scales + fades, infinite (active recording).
-     *   - breathing: subtle box-shadow halo cycling (idle, signals "press me").
-     *   - glow-breathing: stronger box-shadow halo cycling (recording warmth).
+     * record button.  Two motion primitives:
+     *   - ring-pulse: outer ring scales + fades, infinite. Applied to all
+     *     states (idle, countdown, recording); only the border tint differs.
+     *   - glow-breathing: stronger box-shadow halo cycling on the recording
+     *     button itself (adds warmth while active).
      * Each is layered on its own absolutely-positioned sibling so the button
      * itself stays solid, clickable, and scale-stable.
      */
     --animate-recorder-ring-pulse: recorder-ring-pulse 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
-    --animate-recorder-breathing: recorder-breathing 3s ease-in-out infinite;
     --animate-recorder-glow-breathing: recorder-glow-breathing 2.4s ease-in-out infinite;
-    /* Countdown drain runs once, linear, for the full countdown duration —
-       produces a continuous "sweep-second" motion instead of stepping per
-       digit.  Duration is set inline by RecorderCircle so this stays generic. */
-    --animate-recorder-countdown-drain: recorder-countdown-drain linear forwards;
     /* Each digit lives for ~1s before being replaced by `key`-driven remount.
        This animation gives it a fade-in / hold / fade-out cycle within that
        window so the handover between digits looks like a soft crossfade. */
@@ -400,15 +396,6 @@
         }
     }
 
-    @keyframes recorder-breathing {
-        0%, 100% {
-            box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 35%, transparent);
-        }
-        50% {
-            box-shadow: 0 0 0 10px color-mix(in srgb, var(--primary) 0%, transparent);
-        }
-    }
-
     @keyframes recorder-glow-breathing {
         0%, 100% {
             box-shadow: 0 0 28px 6px color-mix(in srgb, var(--destructive) 35%, transparent);
@@ -416,14 +403,6 @@
         50% {
             box-shadow: 0 0 40px 10px color-mix(in srgb, var(--destructive) 50%, transparent);
         }
-    }
-
-    /* Countdown ring drain.  Pairs with `pathLength="100"` on the SVG circle
-       so dashoffset can sweep 0 → 100 regardless of the actual circumference.
-       Linear timing + single iteration => continuous sweep, not stepped. */
-    @keyframes recorder-countdown-drain {
-        from { stroke-dashoffset: 0; }
-        to { stroke-dashoffset: 100; }
     }
 
     /* Countdown digit lifecycle: fade in 0→200ms, hold 200→800ms, fade out
