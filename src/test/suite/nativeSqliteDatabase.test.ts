@@ -77,19 +77,47 @@ function findNativeBinary(): string | null {
 
     for (const base of bases) {
         for (const variant of variants) {
-            const candidate = realPath.join(
+            const sqliteParent = realPath.join(
                 base,
                 variant,
                 "User",
                 "globalStorage",
                 EXTENSION_ID,
-                "sqlite3-native",
-                BINARY_NAME
+                "sqlite3-native"
             );
+
+            // Current layout: version-subfolder per release (e.g. sqlite3-native/5.1.7/node_sqlite3.node).
+            // Walk every version subdirectory and look for the binary inside.
             try {
-                if (realFs.existsSync(candidate) && realFs.statSync(candidate).size > 500_000) {
-                    console.log(`[NativeSQLite Test] Found binary: ${candidate}`);
-                    return candidate;
+                if (realFs.existsSync(sqliteParent)) {
+                    for (const entry of realFs.readdirSync(sqliteParent, { withFileTypes: true })) {
+                        if (!entry.isDirectory()) {
+                            continue;
+                        }
+                        const candidate = realPath.join(sqliteParent, entry.name, BINARY_NAME);
+                        try {
+                            if (realFs.existsSync(candidate) && realFs.statSync(candidate).size > 500_000) {
+                                console.log(`[NativeSQLite Test] Found binary: ${candidate}`);
+                                return candidate;
+                            }
+                        } catch {
+                            // Skip inaccessible paths
+                        }
+                    }
+                }
+            } catch {
+                // Skip inaccessible paths
+            }
+
+            // Legacy flat layout: sqlite3-native/node_sqlite3.node (pre-versioning).
+            // Kept as a fallback so tests still pass on machines where migration
+            // hasn't run yet (e.g. a freshly-cloned repo before the extension
+            // has been launched in agent mode).
+            const legacyCandidate = realPath.join(sqliteParent, BINARY_NAME);
+            try {
+                if (realFs.existsSync(legacyCandidate) && realFs.statSync(legacyCandidate).size > 500_000) {
+                    console.log(`[NativeSQLite Test] Found legacy binary: ${legacyCandidate}`);
+                    return legacyCandidate;
                 }
             } catch {
                 // Skip inaccessible paths

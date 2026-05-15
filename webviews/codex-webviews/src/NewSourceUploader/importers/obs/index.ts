@@ -11,9 +11,11 @@ import {
     createProgress,
     validateFileExtension,
     addMilestoneCellsToNotebookPair,
+    createCodexCellsFromSource,
 } from '../../utils/workflowHelpers';
 import { processImageData } from '../../utils/imageProcessor';
 import { createObsTextCellMetadata, createObsImageCellMetadata } from './cellMetadata';
+import { getLineStartsAndLines, lineEndExclusive } from '../markdown/markdownSplit';
 import JSZip from 'jszip';
 
 const SUPPORTED_EXTENSIONS = ['md', 'zip'];
@@ -255,24 +257,7 @@ const downloadObsRepository = async (
             // Create individual story notebooks
             const storyName = obsStory.title;
 
-            // Create matching codex cells - same IDs and structure as source
-            const codexCells = storyCells.map(cell => {
-                if (cell.metadata.segmentType === 'image') {
-                    // Images carry over to codex unchanged
-                    return { ...cell };
-                } else {
-                    // Text cells become empty in codex (for translation)
-                    return {
-                        id: cell.id,
-                        content: '',
-                        images: cell.images,
-                        metadata: {
-                        ...cell.metadata,
-                        originalContent: cell.content, // Keep reference to original for context
-                        },
-                    };
-                }
-            });
+            const codexCells = createCodexCellsFromSource(storyCells);
 
             // Create source notebook
             const sourceNotebook: ProcessedNotebook = {
@@ -282,7 +267,7 @@ const downloadObsRepository = async (
                     id: uuidv4(),
                     originalFileName: storyFile.name,
                     sourceFile: storyFile.name,
-                    corpusMarker: 'obs', // Enable round-trip export
+                    corpusMarker: 'obs',
                     importerType: 'obs',
                     createdAt: new Date().toISOString(),
                     importContext: {
@@ -298,8 +283,6 @@ const downloadObsRepository = async (
                     sourceReference: obsStory.sourceReference,
                     fileName: storyFile.name,
                     parentCollection: 'Open Bible Stories',
-
-                    // Store OBS story structure for round-trip export
                     obsStory: JSON.stringify(obsStory),
                 }
             };
@@ -309,28 +292,8 @@ const downloadObsRepository = async (
                 name: storyName,
                 cells: codexCells,
                 metadata: {
+                    ...sourceNotebook.metadata,
                     id: uuidv4(),
-                    originalFileName: storyFile.name,
-                    sourceFile: storyFile.name,
-                    corpusMarker: 'obs', // Enable round-trip export
-                    importerType: 'obs',
-                    createdAt: new Date().toISOString(),
-                    importContext: {
-                        importerType: 'obs',
-                        fileName: storyFile.name,
-                        originalFileName: storyFile.name,
-                        importTimestamp: new Date().toISOString(),
-                    },
-                    storyNumber: obsStory.storyNumber,
-                    storyTitle: obsStory.title,
-                    segmentCount: codexCells.length,
-                    imageCount: codexCells.filter(cell => cell.metadata.segmentType === 'image').length,
-                    sourceReference: obsStory.sourceReference,
-                    fileName: storyFile.name,
-                    parentCollection: 'Open Bible Stories',
-
-                    // Store OBS story structure for round-trip export
-                    obsStory: JSON.stringify(obsStory),
                 }
             };
 
@@ -554,14 +517,7 @@ const parseObsMarkdown = async (
         },
     };
 
-    const codexCells = cells.map(sourceCell => ({
-        id: sourceCell.id,
-        content: sourceCell.images && sourceCell.images.length > 0
-            ? sourceCell.images.map((img: any) => `<img src="${img.src}"${img.alt ? ` alt="${img.alt}"` : ''} />`).join('\n')
-            : '', // Empty for translation, preserve images
-        images: sourceCell.images,
-        metadata: sourceCell.metadata,
-    }));
+    const codexCells = createCodexCellsFromSource(cells);
 
     const codexNotebook = {
         name: baseName,
@@ -795,24 +751,7 @@ const parseObsZip = async (
             // Create individual story notebooks
             const storyName = obsStory.title || `Story ${obsStory.storyNumber}`;
 
-            // Create matching codex cells
-            const codexCells = cells.map(cell => {
-                if (cell.metadata.segmentType === 'image') {
-                    // Images carry over to codex unchanged
-                    return { ...cell };
-                } else {
-                    // Text cells become empty in codex (for translation)
-                    return {
-                        id: cell.id,
-                        content: '',
-                        images: cell.images,
-                        metadata: {
-                        ...cell.metadata,
-                        originalContent: cell.content,
-                        },
-                    };
-                }
-            });
+            const codexCells = createCodexCellsFromSource(cells);
 
             // Create source notebook
             const sourceNotebook: ProcessedNotebook = {
@@ -822,7 +761,7 @@ const parseObsZip = async (
                     id: uuidv4(),
                     originalFileName: markdownFile.name,
                     sourceFile: markdownFile.name,
-                    corpusMarker: 'obs', // Enable round-trip export
+                    corpusMarker: 'obs',
                     importerType: 'obs',
                     createdAt: new Date().toISOString(),
                     storyNumber: obsStory.storyNumber,
@@ -832,8 +771,6 @@ const parseObsZip = async (
                     sourceReference: obsStory.sourceReference,
                     fileName: markdownFile.name,
                     parentCollection: 'Open Bible Stories',
-
-                    // Store OBS story structure for round-trip export
                     obsStory: JSON.stringify(obsStory),
                 }
             };
@@ -843,22 +780,8 @@ const parseObsZip = async (
                 name: storyName,
                 cells: codexCells,
                 metadata: {
+                    ...sourceNotebook.metadata,
                     id: uuidv4(),
-                    originalFileName: markdownFile.name,
-                    sourceFile: markdownFile.name,
-                    corpusMarker: 'obs', // Enable round-trip export
-                    importerType: 'obs',
-                    createdAt: new Date().toISOString(),
-                    storyNumber: obsStory.storyNumber,
-                    storyTitle: obsStory.title,
-                    segmentCount: codexCells.length,
-                    imageCount: codexCells.filter(cell => cell.metadata.segmentType === 'image').length,
-                    sourceReference: obsStory.sourceReference,
-                    fileName: markdownFile.name,
-                    parentCollection: 'Open Bible Stories',
-
-                    // Store OBS story structure for round-trip export
-                    obsStory: JSON.stringify(obsStory),
                 }
             };
 
@@ -914,7 +837,7 @@ const parseObsZip = async (
  * Parses OBS markdown content into structured data
  */
 const parseObsMarkdownContent = (content: string, fileName: string): ObsStory => {
-    const lines = content.split('\n');
+    const { starts, lines: rawLines } = getLineStartsAndLines(content);
     const segments: ObsSegment[] = [];
 
     let title = '';
@@ -922,6 +845,7 @@ const parseObsMarkdownContent = (content: string, fileName: string): ObsStory =>
     let sourceReference = '';
     let currentText = '';
     let currentImages: ObsImage[] = [];
+    let blockStartLine: number | null = null;
 
     // Extract story number from filename (e.g., "01.md" -> 1)
     const fileMatch = fileName.match(/(\d+)\.md$/);
@@ -929,8 +853,8 @@ const parseObsMarkdownContent = (content: string, fileName: string): ObsStory =>
         storyNumber = parseInt(fileMatch[1]);
     }
 
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
+    for (let i = 0; i < rawLines.length; i++) {
+        const line = rawLines[i].trim();
 
         // Extract title (first line starting with #)
         if (line.startsWith('# ') && !title) {
@@ -946,6 +870,9 @@ const parseObsMarkdownContent = (content: string, fileName: string): ObsStory =>
 
         // Extract image - handle various markdown image patterns
         if (line.includes('![') && line.includes('](')) {
+            if (blockStartLine === null) {
+                blockStartLine = i;
+            }
             const imageMatches = line.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g);
             for (const match of imageMatches) {
                 const altText = match[1] || 'OBS Image';
@@ -961,24 +888,31 @@ const parseObsMarkdownContent = (content: string, fileName: string): ObsStory =>
 
         // Regular text content
         if (line && !line.startsWith('#') && !line.startsWith('_')) {
+            if (currentText === '' && blockStartLine === null) {
+                blockStartLine = i;
+            }
             currentText += (currentText ? ' ' : '') + line;
 
             // Check if this is the end of a segment (next line is empty or image)
-            const nextLine = i + 1 < lines.length ? lines[i + 1].trim() : '';
+            const nextLine = i + 1 < rawLines.length ? rawLines[i + 1].trim() : '';
             const isEndOfSegment = !nextLine || nextLine.startsWith('![OBS Image]') || nextLine.startsWith('_');
 
             if (isEndOfSegment && currentText) {
                 // Create segment with accumulated text and images
                 const html = createObsSegmentHtml(currentText, currentImages);
+                const spanStart = blockStartLine !== null ? starts[blockStartLine] : starts[i];
+                const spanEnd = lineEndExclusive(rawLines, starts, i);
                 segments.push({
                     type: 'story',
                     text: currentText,
                     html,
                     images: [...currentImages],
+                    sourceSpan: { start: spanStart, end: spanEnd },
                 });
 
                 currentText = '';
                 currentImages = [];
+                blockStartLine = null;
             }
         }
     }
@@ -1022,6 +956,7 @@ interface ObsSegment {
     text: string;
     html: string;
     images: ObsImage[];
+    sourceSpan?: { start: number; end: number };
 }
 
 interface ObsStory {

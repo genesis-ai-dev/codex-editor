@@ -31,6 +31,8 @@ import { processNewlyImportedFiles } from "../../projectManager/utils/migrationU
 import { migrateLocalizedBooksToMetadata as migrateLocalizedBooks } from "./localizedBooksMigration/localizedBooksMigration";
 import { removeLocalizedBooksJsonIfPresent as removeLocalizedBooksJson } from "./localizedBooksMigration/removeLocalizedBooksJson";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
+import { MetadataManager } from "../../utils/metadataManager";
+import { openCodexDocumentWithSourcePair } from "../../utils/openCodexDocumentWithSourcePair";
 // import { parseRtfWithPandoc as parseRtfNode } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
 
 const execAsync = promisify(exec);
@@ -704,13 +706,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         });
                     }
                 } else if (message.command === "startTranslating") {
-                    // Handle start translating - same as Welcome View's "Open Translation File"
-
+                    // Fallback: focus the navigation view and close the upload panel.
+                    // Used when no specific imported file is available to open.
                     try {
-                        // Focus the navigation view (same as Welcome View's handleOpenTranslationFile)
                         await vscode.commands.executeCommand("codex-editor.navigation.focus");
-
-                        // Close the current webview panel
                         webviewPanel.dispose();
                     } catch (error) {
                         console.error("Error opening navigation:", error);
@@ -718,6 +717,30 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             command: "notification",
                             type: "error",
                             message: error instanceof Error ? error.message : "Failed to open navigation"
+                        });
+                    }
+                } else if (message.command === "openImportedFile") {
+                    // Open the just-imported codex file (with its source pair) in split view,
+                    // then close the upload panel.
+                    try {
+                        const codexUriString = (message as { codexUri?: string }).codexUri;
+                        if (!codexUriString) {
+                            await vscode.commands.executeCommand("codex-editor.navigation.focus");
+                            webviewPanel.dispose();
+                            return;
+                        }
+                        const codexUri = vscode.Uri.file(codexUriString);
+                        await openCodexDocumentWithSourcePair(
+                            codexUri,
+                            vscode.workspace.workspaceFolders?.[0]?.uri
+                        );
+                        webviewPanel.dispose();
+                    } catch (error) {
+                        console.error("Error opening imported file:", error);
+                        webviewPanel.webview.postMessage({
+                            command: "notification",
+                            type: "error",
+                            message: error instanceof Error ? error.message : "Failed to open imported file"
                         });
                     }
                 } else if (message.command === "selectAudioFile") {
@@ -846,10 +869,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         });
                     }
                 } else if (message.command === "systemMessage.save") {
-                    // Save system message to metadata
+                    // Save system message to metadata and mark the AI instructions step
+                    // as completed so future imports skip the SystemMessageStep.
                     try {
-                        const { MetadataManager } = await import("../../utils/metadataManager");
                         await MetadataManager.setChatSystemMessage(message.message);
+                        await MetadataManager.setAIInstructionsCompleted(true);
                         webviewPanel.webview.postMessage({
                             command: "systemMessage.saved",
                         });
@@ -1316,7 +1340,14 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             );
         }
 
-        webviewPanel.webview.postMessage({ command: "importComplete" });
+        const importedCodexUris = createdFiles.map(f => f.codexUri.fsPath);
+        const aiInstructionsCompleted = await MetadataManager.getAIInstructionsCompleted();
+
+        webviewPanel.webview.postMessage({
+            command: "importComplete",
+            importedCodexUris,
+            aiInstructionsCompleted,
+        });
     }
 
     /**
@@ -1617,6 +1648,15 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         webviewPanel.webview.postMessage({ command: "notification", type: "success", message: "Notebooks and attachments created successfully!" });
         const inventory = await this.fetchProjectInventory();
         webviewPanel.webview.postMessage({ command: "projectInventory", inventory });
+
+        const importedCodexUris = createdFiles.map(f => f.codexUri.fsPath);
+        const aiInstructionsCompleted = await MetadataManager.getAIInstructionsCompleted();
+
+        webviewPanel.webview.postMessage({
+            command: "importComplete",
+            importedCodexUris,
+            aiInstructionsCompleted,
+        });
     }
 
     /**

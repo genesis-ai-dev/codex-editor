@@ -4,7 +4,8 @@ import { resolve } from 'path';
 export default defineConfig({
     resolve: {
         alias: {
-            '@sharedUtils': resolve(__dirname, '../../sharedUtils/index.ts'),
+            // Directory (not index.ts) so `@sharedUtils/exportOptionsEligibility` resolves like Vite
+            '@sharedUtils': resolve(__dirname, '../../sharedUtils'),
             'types': resolve(__dirname, '../../types'),
         },
     },

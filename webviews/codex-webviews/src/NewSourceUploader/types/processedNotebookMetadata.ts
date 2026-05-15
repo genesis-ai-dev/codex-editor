@@ -43,6 +43,9 @@ export type MarkdownFeatures = {
 
 export interface MarkdownNotebookMetadata extends ProcessedNotebookMetadataBase {
     importerType: "markdown";
+    /** Round-trip: stored original bytes are UTF-8 of post-footnote processed text (aligns with cell sourceSpan). */
+    markdownRoundTripSource?: "processed-utf8";
+    corpusMarker?: "markdown";
     elementCount?: number;
     headingCount?: number;
     listItemCount?: number;

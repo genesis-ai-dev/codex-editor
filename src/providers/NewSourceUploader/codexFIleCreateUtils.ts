@@ -144,7 +144,7 @@ function getUniqueDisplayName(baseName: string, existingNames: string[]): string
     // Pattern matches: "baseName (N)" where N is a number
     const escapedBaseName = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const suffixPattern = new RegExp(`^${escapedBaseName} \\((\\d+)\\)$`);
-    
+
     let maxNumber = 0;
     for (const name of existingNames) {
         const match = name.match(suffixPattern);
@@ -206,21 +206,21 @@ export async function createNoteBookPair({
         // This allows users to import changed source files multiple times and merge translations later
         let notebookName = sourceNotebook.name;
         let uniqueId: string | undefined;
-        
+
         if (!isBiblical) {
             // Use the metadata id (UUID) that was generated during import
             uniqueId = sourceNotebook.metadata?.id;
-            
+
             if (!uniqueId) {
                 // Fallback: generate a short unique id if metadata.id is missing
                 uniqueId = Math.random().toString(36).substring(2, 10);
                 console.warn(`[CODEX FILE CREATE] No metadata.id found, generated fallback id: "${uniqueId}"`);
             }
-            
+
             notebookName = `${sourceNotebook.name}-(${uniqueId})`;
-            
+
             console.log(`[CODEX FILE CREATE] Non-biblical import: adding id "${uniqueId}" to filename`);
-            
+
             // IMPORTANT: Do NOT modify originalFileName here.
             // originalFileName must point to the actual file stored in attachments/files/originals/
             // (which may be deduplicated). The notebook filename uses UUIDs for uniqueness,
@@ -230,15 +230,15 @@ export async function createNoteBookPair({
             // If a file with the same display name already exists, add a number suffix
             const baseDisplayName = sourceNotebook.metadata?.fileDisplayName || sourceNotebook.name;
             const uniqueDisplayName = getUniqueDisplayName(baseDisplayName, existingDisplayNames);
-            
+
             if (uniqueDisplayName !== baseDisplayName) {
                 console.log(`[CODEX FILE CREATE] Display name "${baseDisplayName}" already exists, using "${uniqueDisplayName}"`);
             }
-            
+
             // Update display name in metadata
             sourceNotebook.metadata.fileDisplayName = uniqueDisplayName;
             codexNotebook.metadata.fileDisplayName = uniqueDisplayName;
-            
+
             // Add this display name to existing names for subsequent files in the same batch
             existingDisplayNames.push(uniqueDisplayName);
         }

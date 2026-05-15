@@ -4,6 +4,8 @@
  * Similar approach to DOCX/RTF exporters
  */
 
+import { htmlTranslationToMarkdownForRoundTrip } from "../../utils/htmlToMarkdownRoundTrip";
+
 /**
  * Type definitions for OBS content
  */
@@ -18,6 +20,8 @@ interface ObsSegment {
     text: string;
     html: string;
     images: ObsImage[];
+    /** UTF-16 span in the original OBS markdown file for patch-only export. */
+    sourceSpan?: { start: number; end: number };
 }
 
 interface ObsStory {
@@ -51,7 +55,8 @@ export class ObsExportError extends Error {
 export async function exportObsWithTranslations(
     codexCells: Array<{
         kind: number;
-        value: string;
+        value?: string;
+        content?: string;
         metadata: any;
     }>,
     obsStory: ObsStory | string,
@@ -76,7 +81,7 @@ export async function exportObsWithTranslations(
         console.log(`[OBS Exporter] Original segments: ${story.segments.length}`);
 
         // Collect translations from cells, organized by segment
-        const translationMap = collectTranslations(codexCells);
+        const translationMap = collectObsTranslationsFromCells(codexCells);
         console.log(`[OBS Exporter] Collected ${translationMap.size} translations`);
 
         // Reconstruct markdown
@@ -110,8 +115,8 @@ export async function exportObsWithTranslations(
 /**
  * Collect translations from Codex cells organized by segment index
  */
-function collectTranslations(
-    codexCells: Array<{ kind: number; value: string; metadata: any; }>
+export function collectObsTranslationsFromCells(
+    codexCells: Array<{ kind: number; value?: string; content?: string; metadata: any; }>
 ): Map<number, string> {
     const translations = new Map<number, string>();
 
@@ -135,8 +140,8 @@ function collectTranslations(
             continue;
         }
 
-        // Get translated content (strip HTML tags)
-        const translated = removeHtmlTags(cell.value).trim();
+        const htmlSource = cell.value ?? cell.content ?? "";
+        const translated = htmlTranslationToMarkdownForRoundTrip(htmlSource);
         if (!translated) {
             console.log(`[OBS Exporter] Skipping cell ${i} - no translated content`);
             continue;
@@ -160,17 +165,46 @@ function collectTranslations(
 }
 
 /**
- * Remove HTML tags from content
+ * Patch the original OBS markdown using segment `sourceSpan` ranges (new imports).
+ * Translated HTML is converted to Markdown, then spliced from last span to first.
  */
-function removeHtmlTags(html: string): string {
-    return html
-        .replace(/<[^>]*>/g, '')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .trim();
+export function exportObsWithTranslationsFromOriginal(
+    originalSource: string,
+    story: ObsStory,
+    translationMap: Map<number, string>
+): string {
+    const replacements: { start: number; end: number; text: string }[] = [];
+
+    for (let i = 0; i < story.segments.length; i++) {
+        const seg = story.segments[i];
+        const span = seg.sourceSpan;
+        if (!span || typeof span.start !== "number" || typeof span.end !== "number") {
+            continue;
+        }
+        const translated = translationMap.get(i);
+        if (!translated?.trim()) {
+            continue;
+        }
+        if (span.start < 0 || span.end > originalSource.length || span.start >= span.end) {
+            console.warn(
+                `[OBS Exporter] Skipping invalid sourceSpan for segment ${i}: start=${span.start} end=${span.end}`
+            );
+            continue;
+        }
+        replacements.push({ start: span.start, end: span.end, text: translated });
+    }
+
+    replacements.sort((a, b) => b.start - a.start);
+    let out = originalSource;
+    for (const { start, end, text } of replacements) {
+        out = out.slice(0, start) + text + out.slice(end);
+    }
+    return out;
+}
+
+/** @returns true if any segment has sourceSpan for patch export. */
+export function obsStoryHasSourceSpans(story: ObsStory): boolean {
+    return story.segments.some((s) => s.sourceSpan != null);
 }
 
 /**
@@ -267,7 +301,7 @@ export function validateMarkdown(markdown: string): {
  * This is useful if the obsStory metadata is not available
  */
 export function extractObsStoryFromCells(
-    cells: Array<{ kind: number; value: string; metadata: any; }>
+    cells: Array<{ kind: number; value?: string; content?: string; metadata: any; }>
 ): ObsStory {
     const segments: ObsSegment[] = [];
     let title = 'Untitled Story';
@@ -290,7 +324,8 @@ export function extractObsStoryFromCells(
         const segment = segmentMap.get(segmentIndex)!;
 
         if (meta?.segmentType === 'text') {
-            segment.text = removeHtmlTags(cell.value);
+            const htmlSource = cell.value ?? cell.content ?? "";
+            segment.text = htmlTranslationToMarkdownForRoundTrip(htmlSource);
         } else if (meta?.segmentType === 'image') {
             // Extract image info from metadata or HTML
             const imgSrc = meta?.originalImageSrc || meta?.imageUrl || '';

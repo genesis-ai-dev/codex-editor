@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { basename } from "path";
 import * as grammar from "usfm-grammar";
 import { CodexCellTypes } from "../../types/enums";
-import { readCodexNotebookFromUri } from "./exportHandlerUtils";
+import { readCodexNotebookFromUri, isContentCellType } from "./exportHandlerUtils";
 import type { ExportOptions } from "./exportHandler";
 
 /** Verse ref regex: "1TH 1:1", "GEN 1:1", etc. */
@@ -254,7 +254,7 @@ export async function exportCodexContentAsUsfm(
                         const textCells = codexNotebook.cells.filter(
                             (cell) =>
                                 (cell.kind === 2 || cell.kind === 1) &&
-                                cell.metadata?.type === CodexCellTypes.TEXT
+                                isContentCellType(cell.metadata?.type)
                         );
 
                         if (textCells.length === 0) {
@@ -334,7 +334,7 @@ export async function exportCodexContentAsUsfm(
                                         chapterNum;
                                 }
                             } else if (
-                                cellMetadata.type === CodexCellTypes.TEXT
+                                isContentCellType(cellMetadata.type)
                             ) {
                                 const verseRef = getVerseRefForCell(cell);
                                 if (verseRef) {
@@ -403,7 +403,7 @@ export async function exportCodexContentAsUsfm(
                                     chapterContent += `\\p ${cellContent}\n`;
                                 }
                             } else if (
-                                cellMetadata.type === CodexCellTypes.TEXT
+                                isContentCellType(cellMetadata.type)
                             ) {
                                 const verseRef = getVerseRefForCell(cell);
                                 if (verseRef) {

@@ -10,6 +10,7 @@ import {
     createProcessedCell,
     validateFileExtension,
     addMilestoneCellsToNotebookPair,
+    createCodexCellsFromSource,
 } from '../../utils/workflowHelpers';
 import { XMLParser } from 'fast-xml-parser';
 import { CodexCellTypes } from 'types/enums';
@@ -305,18 +306,17 @@ export const parseFile = async (
 
         onProgress?.(createProgress('Creating Notebooks', 'Creating notebooks...', 80));
 
-        // Create codex cells (empty for translation or with target text)
-        const codexCells = cells.map(sourceCell => {
-            let codexContent = '';
-
+        const codexCells = createCodexCellsFromSource(cells).map((codexCell, i) => {
+            const sourceCell = cells[i];
             if (extractTarget && sourceCell.metadata?.targetText) {
-                // Create HTML structure for target text
                 const unitId = sourceCell.metadata?.unitId || 'unknown';
                 const targetLanguage = sourceCell.metadata?.targetLanguage || 'target';
-                codexContent = `<p class="translation-paragraph" data-unit-id="${unitId}" data-language="${targetLanguage}">${escapeHtml(sourceCell.metadata.targetText)}</p>`;
+                return {
+                    ...codexCell,
+                    content: `<p class="translation-paragraph" data-unit-id="${unitId}" data-language="${targetLanguage}">${escapeHtml(sourceCell.metadata.targetText)}</p>`,
+                };
             }
-
-            return createProcessedCell(sourceCell.id, codexContent);
+            return codexCell;
         });
 
         // Create source notebook

@@ -1,11 +1,12 @@
 import * as vscode from "vscode";
 import { execFile as execFileCb } from "child_process";
 import { promisify } from "util";
-import * as path from "path";
 import * as fs from "fs";
 import { isNativeSqliteReady } from "./nativeSqlite";
 import { isDatabaseReady } from "./sqliteDatabaseFactory";
 import { getAudioToolMode, getGitToolMode, getSqliteToolMode } from "./toolPreferences";
+import { getFfmpegBinaryPath, isFfmpegNativelySupported } from "./ffmpegManager";
+import { isSqliteNativelySupported } from "./sqliteNativeBinaryManager";
 import type { FrontierAPI } from "../../webviews/codex-webviews/src/StartupFlow/types";
 
 const execFile = promisify(execFileCb);
@@ -19,6 +20,17 @@ export interface ToolCheckResult {
     /** True only when the native node_sqlite3 binary is loaded. */
     nativeSqliteAvailable: boolean;
     ffmpeg: boolean;
+    /**
+     * Per-tool flag set to true when the CURRENT OS/arch has no prebuilt
+     * native asset available. On these platforms the "Download and install"
+     * action is a guaranteed no-op, so the UI should render "Not available
+     * on this platform" instead of a download button.
+     */
+    platformUnsupported: {
+        git: boolean;
+        sqlite: boolean;
+        ffmpeg: boolean;
+    };
 }
 
 const REQUIRED_TOOLS_FFMPEG_KEY = "requiredTools.ffmpeg";
@@ -55,7 +67,24 @@ export async function checkTools(
         console.error("[toolsManager] ffmpeg check threw:", e);
     }
 
-    return { git, nativeGitAvailable, sqlite, nativeSqliteAvailable, ffmpeg };
+    // Per-tool "unsupported on this platform" flags.  Treat a missing
+    // Frontier API method as "supported" (optimistic default) so older
+    // auth extensions keep working; the download path itself still
+    // no-ops safely on unsupported platforms.
+    const platformUnsupported = {
+        git: frontierApi?.isGitBinaryNativelySupported?.() === false,
+        sqlite: !isSqliteNativelySupported(),
+        ffmpeg: !isFfmpegNativelySupported(),
+    };
+
+    return {
+        git,
+        nativeGitAvailable,
+        sqlite,
+        nativeSqliteAvailable,
+        ffmpeg,
+        platformUnsupported,
+    };
 }
 
 /**
@@ -100,26 +129,20 @@ export function isAudioToolRequired(
  * Verify that the extension-owned FFmpeg binary is present and executable.
  * Only checks the downloaded binary in extension globalStorage — never
  * falls back to system-installed binaries on the PATH.
+ *
+ * The path is resolved via `getFfmpegBinaryPath` in ffmpegManager, which is
+ * the single source of truth for the versioned binary location.
  */
 async function verifyBinaryAvailable(
     tool: "ffmpeg",
     context: vscode.ExtensionContext,
 ): Promise<boolean> {
-    const downloadedPath = getDownloadedBinaryPath(tool, context);
+    const downloadedPath = getFfmpegBinaryPath(context);
     if (downloadedPath && fs.existsSync(downloadedPath) && (await canExecute(downloadedPath))) {
         return true;
     }
 
     return false;
-}
-
-function getDownloadedBinaryPath(
-    tool: "ffmpeg",
-    context: vscode.ExtensionContext,
-): string {
-    const storagePath = context.globalStorageUri.fsPath;
-    const binaryName = process.platform === "win32" ? `${tool}.exe` : tool;
-    return path.join(storagePath, tool, binaryName);
 }
 
 async function canExecute(binaryPath: string): Promise<boolean> {

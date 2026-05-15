@@ -15,6 +15,7 @@ import {
     createProcessedCell,
     sanitizeFileName,
     addMilestoneCellsToNotebookPair,
+    createCodexCellsFromSource,
 } from "../../utils/workflowHelpers";
 import { extractImagesFromHtml } from "../../utils/imageProcessor";
 import { createNoteCellMetadata } from "./cellMetadata";
@@ -529,15 +530,7 @@ async function processBiblicaIdml(
             },
             codex: {
                 name: baseName,
-                cells: simplifiedNoteCells.map((cell) => ({
-                    id: cell.id,
-                    content: "",
-                    images: cell.images,
-                    metadata: {
-                        ...(cell.metadata as object),
-                        originalContent: cell.content,
-                    },
-                })),
+                cells: createCodexCellsFromSource(simplifiedNoteCells),
                 metadata: {
                     id: uuidv4(),
                     originalFileName,

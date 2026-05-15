@@ -15,6 +15,8 @@ export interface MarkdownCellMetadataParams {
     fileName: string;
     segmentIndex: number;
     originalMarkdown: string;
+    /** UTF-16 offsets into the canonical import string (post-footnote processing). */
+    sourceSpan?: { start: number; end: number };
     elementType: 'heading' | 'list-item' | 'paragraph' | 'code-block' | 'table' | 'other';
     headingLevel?: number;
     headingText?: string;
@@ -197,6 +199,7 @@ export function createMarkdownCellMetadata(params: MarkdownCellMetadataParams): 
             edits: [],
             segmentIndex: params.segmentIndex,
             originalMarkdown: params.originalMarkdown,
+            ...(params.sourceSpan ? { sourceSpan: params.sourceSpan } : {}),
             elementType: params.elementType,
             hasHeading: params.elementType === 'heading',
             headingText: params.headingText,

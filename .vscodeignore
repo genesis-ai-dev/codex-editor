@@ -1,33 +1,29 @@
-# Ignore everything
+# VSIX packaging is deny-by-default. Prefer narrow allowlists; broad negations
+# like !out/**, !**/*.svg, !package*.json, or !node_modules/** can pull in
+# source maps, test installs, lockfiles, or large dependency trees.
 *
 */**
 
-# Allowlist what we need (only extension output, NOT test bundles)
+# Extension output. Keep this narrow: out/*.js is the extension bundle, while
+# out/node_modules/** is only for runtime files explicitly copied by webpack.
 !out/*.js
-!out/*.js.map
 !out/node_modules/**
+
+# Static assets
 !assets/**
+!src/assets/reset.css
+!src/assets/bible_data_with_vref_keys.json.gz
 
-# Exclude test output and source maps from VSIX
-out/test/**
-out/test-runner/**
-out/**/*.map
-.vscode-test/**
-# !servers/**
-
+# Webview bundles
 !webviews/codex-webviews/dist/**
 !webviews/codex-webviews/src/assets/**
 
-!src/assets/reset.css
-# vscode.css was removed in favor of Tailwind CSS
-!src/assets/bible_data_with_vref_keys.json.gz
-!**/*.svg
-!node_modules/@vscode/codicons/dist/**
-!node_modules/vscode-uri
-!node_modules/dugite/build/**
-!node_modules/dugite/package.json
-
+# Documentation
 !CHANGELOG.md
 !LICENSE
-!package*.json
+!package.json
 !README.md
+
+# Global exclusions override earlier includes to keep published VSIX files lean.
+**/*.map
+.vscode-test/**

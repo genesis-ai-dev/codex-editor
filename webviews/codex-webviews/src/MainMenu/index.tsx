@@ -203,18 +203,38 @@ function MainMenu() {
         state.projectState.projectOverview?.validationCountAudio ??
         1;
 
-    // Clear optimistic override once the server has caught up to the local value
+    // Clear optimistic override once the server has caught up to the local value.
+    // A short settlement delay prevents stale state updates (from racing
+    // onDidChangeConfiguration / file-watcher refreshes) from regressing the
+    // display after the correct server value has already cleared the local.
+    const validationSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const validationAudioSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     useEffect(() => {
         const serverCount = state.projectState.projectOverview?.validationCount;
         if (localValidationCount !== null && serverCount === localValidationCount) {
-            setLocalValidationCount(null);
+            validationSettleRef.current = setTimeout(() => {
+                setLocalValidationCount((current) =>
+                    current === serverCount ? null : current
+                );
+            }, 500);
+            return () => {
+                if (validationSettleRef.current) clearTimeout(validationSettleRef.current);
+            };
         }
     }, [state.projectState.projectOverview?.validationCount, localValidationCount]);
 
     useEffect(() => {
         const serverCount = state.projectState.projectOverview?.validationCountAudio;
         if (localValidationCountAudio !== null && serverCount === localValidationCountAudio) {
-            setLocalValidationCountAudio(null);
+            validationAudioSettleRef.current = setTimeout(() => {
+                setLocalValidationCountAudio((current) =>
+                    current === serverCount ? null : current
+                );
+            }, 500);
+            return () => {
+                if (validationAudioSettleRef.current) clearTimeout(validationAudioSettleRef.current);
+            };
         }
     }, [state.projectState.projectOverview?.validationCountAudio, localValidationCountAudio]);
 
@@ -227,6 +247,8 @@ function MainMenu() {
             if (localCountFallbackRef.current) clearTimeout(localCountFallbackRef.current);
             if (localCountAudioFallbackRef.current)
                 clearTimeout(localCountAudioFallbackRef.current);
+            if (validationSettleRef.current) clearTimeout(validationSettleRef.current);
+            if (validationAudioSettleRef.current) clearTimeout(validationAudioSettleRef.current);
         };
     }, []);
 
@@ -247,7 +269,7 @@ function MainMenu() {
                 } catch (error) {
                     console.error("Could not send validation count:", error);
                 }
-            }, 150);
+            }, 1200);
 
             // Safety net: clear optimistic state after 5s in case server never confirms
             localCountFallbackRef.current = setTimeout(() => {
@@ -275,7 +297,7 @@ function MainMenu() {
                 } catch (error) {
                     console.error("Could not send audio validation count:", error);
                 }
-            }, 150);
+            }, 1200);
 
             localCountAudioFallbackRef.current = setTimeout(() => {
                 setLocalValidationCountAudio(null);

@@ -20,7 +20,7 @@ export function getWebviewHtml(
     );
     // Note: vscode.css was removed in favor of Tailwind CSS in individual webviews
     const codiconsUri = webview.asWebviewUri(
-        vscode.Uri.joinPath(context.extensionUri, "node_modules", "@vscode/codicons", "dist", "codicon.css")
+        vscode.Uri.joinPath(context.extensionUri, "out", "node_modules", "@vscode/codicons", "dist", "codicon.css")
     );
     const scriptUri = webview.asWebviewUri(
         vscode.Uri.joinPath(context.extensionUri, "webviews", "codex-webviews", "dist", ...options.scriptPath)

@@ -39,6 +39,8 @@ import {
     updateCachedSubsection as updateCachedSubsectionUtil,
     getPreferredEditorTab as getPreferredEditorTabUtil,
     updatePreferredEditorTab as updatePreferredEditorTabUtil,
+    getPasteAsPlainText as getPasteAsPlainTextUtil,
+    updatePasteAsPlainText as updatePasteAsPlainTextUtil,
 } from "./utils/workspaceStateUtils";
 import { processVideoUrl } from "./utils/videoUtils";
 import {
@@ -559,7 +561,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             enableScripts: true,
             localResourceRoots: [
                 vscode.Uri.joinPath(this.context.extensionUri, "src", "assets"),
-                vscode.Uri.joinPath(this.context.extensionUri, "node_modules", "@vscode", "codicons", "dist"),
+                vscode.Uri.joinPath(this.context.extensionUri, "out", "node_modules", "@vscode", "codicons", "dist"),
                 vscode.Uri.joinPath(this.context.extensionUri, "webviews", "codex-webviews", "dist")
             ]
         };
@@ -1501,6 +1503,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         await updatePreferredEditorTabUtil(this.context.workspaceState, tab);
     }
 
+    public getPasteAsPlainText(): boolean {
+        return getPasteAsPlainTextUtil(this.context.workspaceState);
+    }
+
+    public async updatePasteAsPlainText(enabled: boolean) {
+        await updatePasteAsPlainTextUtil(this.context.workspaceState, enabled);
+    }
+
     private getHtmlForWebview(
         webview: vscode.Webview,
         document: CodexCellDocument,
@@ -1516,6 +1526,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const codiconsUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this.context.extensionUri,
+                "out",
                 "node_modules",
                 "@vscode/codicons",
                 "dist",
@@ -3024,6 +3035,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         author: "anonymous",
                         validatedBy: []
                     });
+                    // updateCellData() above already fired the change event, which can
+                    // synchronously trigger updateWebview() → getText() and repopulate
+                    // the per-cell cache with the mid-mutation state. Re-invalidate now
+                    // so the upcoming save() re-serializes the cell with the unmerge edit.
+                    targetDocument.markCellMutated(cellIdToUnmerge);
                 }
             } catch (e) {
                 console.warn("Failed to append merged=false edit on target during unmerge", e);

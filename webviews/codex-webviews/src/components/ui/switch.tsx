@@ -6,10 +6,11 @@ interface SwitchProps {
     onCheckedChange?: (checked: boolean) => void;
     disabled?: boolean;
     className?: string;
+    id?: string;
 }
 
 const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
-    ({ className, checked, onCheckedChange, disabled, ...props }, ref) => {
+    ({ className, checked, onCheckedChange, disabled, id, ...props }, ref) => {
         return (
             <label
                 className={cn(
@@ -22,6 +23,7 @@ const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
                 )}
             >
                 <input
+                    id={id}
                     type="checkbox"
                     className="sr-only"
                     checked={checked}

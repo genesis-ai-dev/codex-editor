@@ -100,6 +100,5 @@ export const SubtitlesImporterForm: React.FC<ImporterComponentProps> = (props) =
         processFiles={processSubtitleFiles}
         importerProps={props}
         cellAligner={subtitlesImporterPlugin.cellAligner}
-        showEnforceStructure
     />
 );

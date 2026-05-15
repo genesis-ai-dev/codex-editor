@@ -79,3 +79,26 @@ export async function updatePreferredEditorTab(
     const key = `codex-editor-preferred-tab`;
     await workspaceState.update(key, tab);
 }
+
+/**
+ * Gets the paste-as-plain-text preference from workspace state
+ * @param workspaceState The workspace state memento
+ * @returns Whether paste-as-plain-text is enabled (defaults to false)
+ */
+export function getPasteAsPlainText(workspaceState: vscode.Memento): boolean {
+    const key = `codex-editor-paste-as-plain-text`;
+    return workspaceState.get(key, false);
+}
+
+/**
+ * Updates the paste-as-plain-text preference in workspace state
+ * @param workspaceState The workspace state memento
+ * @param enabled Whether to enable paste-as-plain-text
+ */
+export async function updatePasteAsPlainText(
+    workspaceState: vscode.Memento,
+    enabled: boolean
+): Promise<void> {
+    const key = `codex-editor-paste-as-plain-text`;
+    await workspaceState.update(key, enabled);
+}

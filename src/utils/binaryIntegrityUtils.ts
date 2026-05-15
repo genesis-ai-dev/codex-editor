@@ -5,17 +5,13 @@
  * Provides:
  *  - SHA-256 file hashing
  *  - Marker file read/write for storing known-good hashes
- *  - Bounded retry counter backed by VS Code globalState
  */
 
-import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
 
 const HASH_MARKER_FILENAME = "sha256.txt";
-const MAX_BINARY_RETRIES = 3;
-const RETRY_KEY_PREFIX = "binaryRetryCount";
 
 // ---------------------------------------------------------------------------
 // SHA-256 hashing
@@ -87,34 +83,3 @@ export const verifyIntegrity = async (
     }
 };
 
-// ---------------------------------------------------------------------------
-// Bounded retry counter (globalState-backed)
-// ---------------------------------------------------------------------------
-
-export const getRetryCount = (
-    context: vscode.ExtensionContext,
-    tool: string,
-): number =>
-    context.globalState.get<number>(`${RETRY_KEY_PREFIX}.${tool}`) ?? 0;
-
-export const incrementRetryCount = async (
-    context: vscode.ExtensionContext,
-    tool: string,
-): Promise<number> => {
-    const count = getRetryCount(context, tool) + 1;
-    await context.globalState.update(`${RETRY_KEY_PREFIX}.${tool}`, count);
-    return count;
-};
-
-export const resetRetryCount = async (
-    context: vscode.ExtensionContext,
-    tool: string,
-): Promise<void> => {
-    await context.globalState.update(`${RETRY_KEY_PREFIX}.${tool}`, 0);
-};
-
-export const hasExceededRetries = (
-    context: vscode.ExtensionContext,
-    tool: string,
-    max: number = MAX_BINARY_RETRIES,
-): boolean => getRetryCount(context, tool) >= max;

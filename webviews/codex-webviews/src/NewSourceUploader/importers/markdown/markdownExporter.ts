@@ -1,88 +1,81 @@
 /**
- * Generic Markdown round-trip export: rebuilds .md from per-cell originalMarkdown + codex translations.
- * (OBS uses obsExporter + obsStory; do not route generic .md through that path.)
+ * Markdown round-trip export: splice translated UTF-16 spans into the canonical source string.
  */
 
-export interface MarkdownRoundtripCell {
+import { htmlTranslationToMarkdownForRoundTrip } from "../../utils/htmlToMarkdownRoundTrip";
+
+export interface MarkdownExportCell {
     kind: number;
-    value: string;
-    metadata: {
-        type?: string;
+    value?: string;
+    /** Webview / import DTO cells use `content`; persisted codex JSON often uses `value`. */
+    content?: string;
+    metadata?: {
+        id?: string;
         segmentIndex?: number;
-        originalMarkdown?: string;
-        elementType?: string;
-        headingLevel?: number;
-        data?: { originalText?: string };
+        sourceSpan?: { start: number; end: number; };
+        segmentType?: string;
     };
 }
 
-function stripHtmlTags(html: string): string {
-    return html
-        .replace(/<[^>]*>/g, "")
-        .replace(/&nbsp;/g, " ")
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"')
-        .trim();
-}
-
-function isMilestoneCell(meta: MarkdownRoundtripCell["metadata"] | undefined): boolean {
-    if (!meta?.type) return false;
-    return meta.type === "milestone";
+export interface ExportMarkdownWithTranslationsOptions {
+    /** When true, skip splice if translated markdown is empty. */
+    skipEmptyTranslations?: boolean;
 }
 
 /**
- * One exported line/block per markdown segment cell.
+ * Apply translations to `canonicalSource` by replacing each cell's `sourceSpan`
+ * with Markdown converted from translated HTML when the cell has content.
+ * Replacements run from last span to first so indices stay valid.
  */
-function segmentToMarkdownLine(meta: MarkdownRoundtripCell["metadata"], cellValue: string): string {
-    const original =
-        (typeof meta?.originalMarkdown === "string" ? meta.originalMarkdown : "") ||
-        (typeof meta?.data?.originalText === "string" ? meta.data.originalText : "");
-    const translated = stripHtmlTags(cellValue).trim();
+export function exportMarkdownWithTranslations(
+    canonicalSource: string,
+    cells: MarkdownExportCell[],
+    options: ExportMarkdownWithTranslationsOptions = {}
+): string {
+    const skipEmpty = options.skipEmptyTranslations !== false;
 
-    if (!translated) {
-        return original;
-    }
+    type Replacement = { start: number; end: number; text: string; };
+    const replacements: Replacement[] = [];
 
-    const elementType = meta?.elementType;
-
-    if (elementType === "heading") {
-        const m = original.trim().match(/^(#{1,6})\s+/);
-        if (m) {
-            return `${m[1]} ${translated}`;
+    for (const cell of cells) {
+        if (cell.kind !== 2) {
+            continue;
         }
-        const level = typeof meta?.headingLevel === "number" ? Math.min(6, Math.max(1, meta.headingLevel)) : 1;
-        return `${"#".repeat(level)} ${translated}`;
+        const span = cell.metadata?.sourceSpan;
+        if (!span || typeof span.start !== "number" || typeof span.end !== "number") {
+            continue;
+        }
+        if (span.start < 0 || span.end > canonicalSource.length || span.start >= span.end) {
+            console.warn(
+                `[markdownExporter] Skipping invalid sourceSpan start=${span.start} end=${span.end} (source length ${canonicalSource.length})`
+            );
+            continue;
+        }
+
+        const htmlSource = cell.value ?? cell.content ?? "";
+        const translated = htmlTranslationToMarkdownForRoundTrip(htmlSource);
+        if (skipEmpty && !translated) {
+            continue;
+        }
+
+        // Preserve trailing newline from the original span so line breaks between
+        // adjacent segments (e.g. consecutive list items) are not collapsed.
+        const originalEndsWithNewline =
+            span.end <= canonicalSource.length && canonicalSource[span.end - 1] === "\n";
+        const text =
+            originalEndsWithNewline && translated && !translated.endsWith("\n")
+                ? translated + "\n"
+                : translated;
+
+        replacements.push({ start: span.start, end: span.end, text });
     }
 
-    if (elementType === "list-item") {
-        const prefixMatch = original.match(/^(\s*(?:[-*+]|\d+\.)\s)/);
-        const prefix = prefixMatch ? prefixMatch[1] : "";
-        return `${prefix}${translated}`;
+    replacements.sort((a, b) => b.start - a.start);
+
+    let out = canonicalSource;
+    for (const { start, end, text } of replacements) {
+        out = out.slice(0, start) + text + out.slice(end);
     }
 
-    return translated;
-}
-
-/**
- * @param codexCells — active codex cells (milestones skipped); same shape as OBS exporter input
- */
-export function exportMarkdownImporterRoundtrip(codexCells: MarkdownRoundtripCell[]): string {
-    const segments = codexCells.filter((cell) => {
-        if (cell.kind !== 2) return false;
-        const meta = cell.metadata;
-        if (isMilestoneCell(meta)) return false;
-        const om = meta?.originalMarkdown ?? meta?.data?.originalText;
-        return typeof om === "string" && om.length > 0;
-    });
-
-    segments.sort((a, b) => {
-        const ia = a.metadata?.segmentIndex ?? 0;
-        const ib = b.metadata?.segmentIndex ?? 0;
-        return ia - ib;
-    });
-
-    const lines = segments.map((cell) => segmentToMarkdownLine(cell.metadata, cell.value));
-    return lines.join("\n\n");
+    return out;
 }

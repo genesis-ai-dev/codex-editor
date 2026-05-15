@@ -48,6 +48,8 @@ import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 import { openCodexMigrationTool } from "./codexMigrationTool/codexMigrationTool";
 import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/codexCellEditorProvider";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
+import { initializeStateStore } from "./stateStore";
+import { runOnce } from "./utils/oneTimeMigrations";
 import { fileExists } from "./utils/webviewUtils";
 import { checkIfProjectIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
@@ -64,7 +66,7 @@ import { initializeAudioMerger } from "./utils/audioMerger";
 import { initializeAudioExtractor } from "./utils/audioExtractor";
 import { initializeAudioExporter } from "./exportHandler/audioExporter";
 import { checkTools, getUnavailableTools } from "./utils/toolsManager";
-import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteToolMode } from "./utils/toolPreferences";
+import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteToolMode, getAudioToolMode } from "./utils/toolPreferences";
 import { downloadFFmpeg } from "./utils/ffmpegManager";
 import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
@@ -346,6 +348,54 @@ export async function activate(context: vscode.ExtensionContext) {
 
     initToolPreferences(context);
 
+    // Construct the singleton cellId state store (file-backed under
+    // globalStorageUri). Must run before providers register so that any
+    // subsequent initializeStateStore() calls inside providers reuse the
+    // same instance.
+    try {
+        await initializeStateStore(context);
+    } catch (e) {
+        console.error("[Extension] Failed to initialize cellId state store:", e);
+    }
+
+    // One-shot cleanup of orphaned rows inside the project-accelerate.shared-state-store
+    // extension's globalState. Historically codex-editor wrote `sourceCellMap` (full
+    // source-cell content keyed by reference) and `cellId` to that store; the writers
+    // were removed long ago (sourceCellMap in 0.6.1, cellId in the local-store
+    // migration), but the data has been sitting in state.vscdb ever since, triggering
+    // the mainThreadStorage >5 MB warning and bloating activation memory.
+    //
+    // The flag lives in globalStorageUri/migrations.json so the cleanup runs exactly
+    // once per machine (and retries on the next activation if it threw). The ID is
+    // bumped to V2 because V1 only wiped `cellId` (negligible) and missed the real
+    // offender, `sourceCellMap`.
+    try {
+        await runOnce(context, "sharedStateStoreOrphanCleanupV2", async () => {
+            const ext = vscode.extensions.getExtension("project-accelerate.shared-state-store");
+            if (!ext) return;
+            const api = await ext.activate();
+            if (!api || typeof api.updateStoreState !== "function") return;
+            // Setting value to undefined causes the underlying
+            // globalState.update(key, undefined) to delete the key from the row.
+            const orphanKeys = ["cellId", "sourceCellMap"] as const;
+            for (const key of orphanKeys) {
+                try {
+                    api.updateStoreState({ key, value: undefined });
+                } catch (innerErr) {
+                    console.warn(
+                        `[Extension] Failed to wipe '${key}' from shared-state-store:`,
+                        innerErr
+                    );
+                }
+            }
+        });
+    } catch (e) {
+        console.warn(
+            "[Extension] sharedStateStoreOrphanCleanupV2 cleanup failed; will retry on next activation.",
+            e
+        );
+    }
+
     // Save tab layout and close all editors before showing splash screen
     try {
         await saveTabLayout(context);
@@ -583,94 +633,64 @@ export async function activate(context: vscode.ExtensionContext) {
             unavailableTools = getUnavailableTools(toolCheckResult);
         } catch (error) {
             console.error("[Extension] checkTools() threw unexpectedly:", error);
-            toolCheckResult = { git: false, nativeGitAvailable: false, sqlite: false, nativeSqliteAvailable: false, ffmpeg: false };
+            toolCheckResult = {
+                git: false,
+                nativeGitAvailable: false,
+                sqlite: false,
+                nativeSqliteAvailable: false,
+                ffmpeg: false,
+                platformUnsupported: { git: false, sqlite: false, ffmpeg: false },
+            };
             unavailableTools = getUnavailableTools(toolCheckResult);
         }
         stepStart = trackTiming("Checking tool availability", toolCheckStart);
 
-        const ok = (v: boolean) => v ? "ok" : "MISSING";
+        const toolState = (nativeAvailable: boolean, mode: string): string => {
+            const forced = mode === "force-builtin";
+            const builtin = mode === "builtin";
+            if (nativeAvailable && !builtin && !forced) return "native";
+            if (nativeAvailable && forced)             return "available but forced to fallback";
+            if (nativeAvailable && builtin)            return "available but using fallback";
+            if (!nativeAvailable && forced)            return "missing and forced to fallback";
+            /* !nativeAvailable && (auto | builtin) */ return "missing and using fallback";
+        };
         console.info(
-            `[Extension] Tools status — git: ${ok(toolCheckResult.git)}, sqlite: ${ok(toolCheckResult.sqlite)}, ffmpeg: ${ok(toolCheckResult.ffmpeg)}`
+            `[Extension] Tools status — ` +
+            `git: ${toolState(toolCheckResult.nativeGitAvailable, getGitToolMode())}, ` +
+            `sqlite: ${toolState(toolCheckResult.nativeSqliteAvailable, getSqliteToolMode())}, ` +
+            `ffmpeg: ${toolState(toolCheckResult.ffmpeg, getAudioToolMode())}`
         );
 
-        // When offline, non-critical tools (git, audio) being unavailable is
-        // expected and not actionable -- skip the blocking warning panel.
-        const hasCriticalMissing = !toolCheckResult.sqlite;
-        const showWarningPanel =
-            unavailableTools.length > 0 && (networkAvailable || hasCriticalMissing);
-
-        if (unavailableTools.length > 0 && !showWarningPanel) {
-            console.log(
-                "[Extension] Offline -- non-critical tools unavailable (%s), continuing without warning panel",
+        // We used to display a blocking "Missing Tools" webview at this point
+        // whenever any tool failed to download. That startup interruption is
+        // now suppressed for all tools: the extension continues with its
+        // fallback implementations (isomorphic-git for sync, fts5 WASM for
+        // sqlite, wavUtils for audio) and the user can inspect or retry via
+        // the "Tools Status" command in the command palette at any time.
+        if (unavailableTools.length > 0) {
+            console.warn(
+                "[Extension] Unavailable tools after download attempts (continuing with fallbacks):",
                 unavailableTools.join(", ")
             );
         }
 
-        if (showWarningPanel) {
-            console.warn(
-                "[Extension] Unavailable tools after download attempts:",
-                unavailableTools.join(", ")
+        // Critical guard: if sqlite is genuinely broken (neither the native
+        // binary nor the fts5 WASM fallback is ready), the extension cannot
+        // function. Surface a lightweight notification and abort activation
+        // rather than silently producing a broken editor.
+        if (!toolCheckResult.sqlite) {
+            console.error(
+                "[Extension] SQLite is unavailable (both native and fts5 fallback failed) — aborting activation"
             );
-
-            const warningProvider = new MissingToolsWarningProvider(context);
-            context.subscriptions.push(warningProvider);
-
-            // Start showing the warning panel (creates the tab synchronously),
-            // then close the splash. This ensures a visible tab exists at all
-            // times, preventing the WelcomeView from flashing during the gap.
-            const userActionPromise = warningProvider.show(
-                toolCheckResult,
-                async () => {
-                    const retryOnline = await isOnline();
-                    if (!retryOnline) {
-                        console.warn("[Extension] Offline — cannot retry tool downloads");
-                        return checkTools(context, authApi).catch(() => toolCheckResult);
-                    }
-
-                    const current = await checkTools(context, authApi).catch(() => toolCheckResult);
-
-                    if (!current.git) {
-                        try {
-                            await authApi?.retryGitBinaryDownload?.();
-                        } catch (e) {
-                            console.error("[Extension] Git binary retry failed:", e);
-                        }
-                    }
-                    if (!current.sqlite) {
-                        try {
-                            const binaryPath = await ensureSqliteNativeBinary(context);
-                            if (binaryPath) {
-                                initNativeSqlite(binaryPath);
-                            } else {
-                                await initFts5Sqlite(context);
-                            }
-                        } catch {
-                            try {
-                                await initFts5Sqlite(context);
-                            } catch (e) {
-                                console.error("[Extension] SQLite retry failed (both native and fts5):", e);
-                            }
-                        }
-                    }
-                    if (!current.ffmpeg) {
-                        try { await downloadFFmpeg(context); } catch (e) {
-                            console.error("[Extension] FFmpeg retry failed:", e);
-                        }
-                    }
-                    return checkTools(context, authApi).catch(() => current);
+            vscode.window.showErrorMessage(
+                "Codex could not initialize its search backend. Open the Command Palette and run \"Status\" to view tool status and retry the download.",
+                "View Tools Status"
+            ).then((choice) => {
+                if (choice === "View Tools Status") {
+                    vscode.commands.executeCommand("codex-editor.openToolsStatus");
                 }
-            );
-
-            // Now that the warning tab exists, close the splash screen.
-            closeSplashScreen();
-
-            const userAction = await userActionPromise;
-
-            if (userAction === "blocked" && !toolCheckResult.sqlite) {
-                // SQLite is missing and the user closed the panel without
-                // continuing. The extension cannot function without SQLite.
-                return;
-            }
+            });
+            return;
         }
 
         // Check for pending update (swap) downloads (after workspace is ready)

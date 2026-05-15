@@ -21,22 +21,87 @@ export const FILE_TYPE_DISPLAY_NAMES: Record<string, string> = {
     maculabible: "Macula Bible",
     obs: "Bible Stories",
     biblica: "Biblica Study Notes",
-    reach4life: "Reach4Life",
     spreadsheet: "Spreadsheet with Audio data",
-    pdf: "PDF Files",
     paratext: "Paratext Projects",
     unknown: "Other Files",
 };
 
+export interface FileGroupEntry {
+    path: string;
+    name: string;
+    displayName: string;
+    hasTranslations: boolean;
+    hasAudio: boolean;
+}
+
 export interface FileGroup {
     groupKey: string;
     displayName: string;
-    files: Array<{ path: string; name: string; displayName: string }>;
+    files: FileGroupEntry[];
 }
 
 async function readCodexNotebookFromUri(uri: vscode.Uri): Promise<CodexNotebookAsJSONData> {
     const fileData = await vscode.workspace.fs.readFile(uri);
     return JSON.parse(Buffer.from(fileData).toString()) as CodexNotebookAsJSONData;
+}
+
+type CellEntry = CodexNotebookAsJSONData["cells"][number];
+
+function isActiveTextCell(cell: CellEntry): boolean {
+    const meta = cell.metadata as Record<string, unknown> | undefined;
+    if (!meta) {
+        return false;
+    }
+    const cellType = meta.type as string | undefined;
+    if (cellType !== "text") {
+        return false;
+    }
+    const data = meta.data as { merged?: boolean; deleted?: boolean; } | undefined;
+    return !(data?.merged) && !(data?.deleted);
+}
+
+function cellHasNonEmptyValue(cell: CellEntry): boolean {
+    if (!cell.value) {
+        return false;
+    }
+    const stripped = cell.value.replace(/<[^>]*>/g, "").trim();
+    return stripped.length > 0;
+}
+
+function cellHasAudioAttachment(cell: CellEntry): boolean {
+    const attachments = (cell.metadata as Record<string, unknown>)?.attachments as
+        | Record<string, { type?: string; isDeleted?: boolean; isMissing?: boolean; url?: string; }>
+        | undefined;
+    if (!attachments) {
+        return false;
+    }
+    return Object.values(attachments).some(
+        (att) => att.type === "audio" && !att.isDeleted && !att.isMissing && !!att.url
+    );
+}
+
+/** Scan notebook cells to determine whether the file has any text translations or audio. */
+export function analyzeNotebookContent(notebook: CodexNotebookAsJSONData): {
+    hasTranslations: boolean;
+    hasAudio: boolean;
+} {
+    let hasTranslations = false;
+    let hasAudio = false;
+    for (const cell of notebook.cells) {
+        if (!isActiveTextCell(cell)) {
+            continue;
+        }
+        if (!hasTranslations && cellHasNonEmptyValue(cell)) {
+            hasTranslations = true;
+        }
+        if (!hasAudio && cellHasAudioAttachment(cell)) {
+            hasAudio = true;
+        }
+        if (hasTranslations && hasAudio) {
+            break;
+        }
+    }
+    return { hasTranslations, hasAudio };
 }
 
 /**
@@ -168,18 +233,6 @@ function getGroupKeyFromMetadata(metadata: Record<string, unknown>): string {
         return "obs";
     }
 
-    // PDF Files (backward compatibility)
-    if (
-        corpusMarker === "pdf" ||
-        corpusMarker === "pdf-importer" ||
-        corpusMarker === "pdf-sentence" ||
-        importerType === "pdf" ||
-        fileType === "pdf" ||
-        (originalFileName && /\.pdf$/i.test(originalFileName))
-    ) {
-        return "pdf";
-    }
-
     // Spreadsheet with Audio data (CSV, TSV)
     if (
         corpusMarker === "spreadsheet" ||
@@ -203,7 +256,7 @@ function getGroupKeyFromMetadata(metadata: Record<string, unknown>): string {
 export async function groupCodexFilesByImporterType(
     codexUris: vscode.Uri[]
 ): Promise<FileGroup[]> {
-    const groupsMap = new Map<string, Array<{ path: string; name: string; displayName: string }>>();
+    const groupsMap = new Map<string, FileGroupEntry[]>();
 
     for (const uri of codexUris) {
         try {
@@ -215,6 +268,7 @@ export async function groupCodexFilesByImporterType(
                 (typeof metadata?.fileDisplayName === "string" && metadata.fileDisplayName.trim()) ||
                 name.replace(/\.codex$/i, "") ||
                 name;
+            const { hasTranslations, hasAudio } = analyzeNotebookContent(notebook);
 
             if (!groupsMap.has(groupKey)) {
                 groupsMap.set(groupKey, []);
@@ -223,6 +277,8 @@ export async function groupCodexFilesByImporterType(
                 path: uri.fsPath,
                 name,
                 displayName: fileDisplayName,
+                hasTranslations,
+                hasAudio,
             });
         } catch {
             const name = uri.fsPath.split(/[/\\]/).pop() || "";
@@ -233,6 +289,8 @@ export async function groupCodexFilesByImporterType(
                 path: uri.fsPath,
                 name,
                 displayName: name.replace(/\.codex$/i, "") || name,
+                hasTranslations: false,
+                hasAudio: false,
             });
         }
     }
@@ -252,7 +310,6 @@ export async function groupCodexFilesByImporterType(
         biblica: 11,
         reach4life: 12,
         spreadsheet: 13,
-        pdf: 14,
         unknown: 99,
     };
 

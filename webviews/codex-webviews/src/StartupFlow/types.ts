@@ -193,6 +193,12 @@ export interface FrontierAPI {
     isGitBinaryAvailable?: () => boolean;
     /** Returns true when git operations can succeed (native binary OR isomorphic-git fallback). */
     isGitAvailable?: () => boolean;
+    /**
+     * Returns true when the current OS/arch has a prebuilt dugite-native
+     * asset in the release we pin to. When false, any "Download and install"
+     * UI should be hidden — the download can never succeed on this platform.
+     */
+    isGitBinaryNativelySupported?: () => boolean;
     retryGitBinaryDownload?: () => Promise<boolean>;
     /** Delete the downloaded git binary directory so it is re-downloaded on next reload. */
     deleteGitBinary?: () => Promise<boolean>;

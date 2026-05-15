@@ -4,9 +4,8 @@ import {
     AlignedCell,
     CellAligner,
     ImportedContent,
-    defaultCellAligner,
 } from "../../types/plugin";
-import { ImportProgress, ProcessedNotebook, NotebookPair } from "../../types/common";
+import { ImportProgress, NotebookPair } from "../../types/common";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
@@ -67,9 +66,183 @@ import { AlignmentPreview } from "../../components/AlignmentPreview";
 
 // Import the translations.csv file
 import translationsCSV from "./translations.csv?raw";
+import type { CustomNotebookCellData } from "types";
 
 // Use the real parser functions from the eBible Corpus importer
 const { validateFile, parseFile } = ebibleCorpusImporter;
+
+/**
+ * Extracts the primary verse reference string from a cell's metadata.
+ * Checks globalReferences first, then verseReference, then constructs from parts.
+ */
+const getVerseRefKey = (metadata: Record<string, any> | undefined): string | null => {
+    if (!metadata) return null;
+    const ref = metadata.data?.globalReferences?.[0];
+    if (ref) return ref;
+    if (metadata.verseReference) return metadata.verseReference;
+    if (metadata.book && metadata.chapter != null && metadata.verse != null) {
+        const verseStr = metadata.verseEnd
+            ? `${metadata.verse}-${metadata.verseEnd}`
+            : `${metadata.verse}`;
+        return `${metadata.book} ${metadata.chapter}:${verseStr}`;
+    }
+    return null;
+};
+
+/** Parse "BOOK C:V" or "BOOK C:V1-V2" into structured parts. */
+const parseRef = (ref: string): { book: string; chapter: number; vStart: number; vEnd: number } | null => {
+    const m = ref.match(/^(\S+)\s+(\d+):(\d+)(?:-(\d+))?$/);
+    if (!m) return null;
+    const vStart = parseInt(m[3]);
+    return {
+        book: m[1],
+        chapter: parseInt(m[2]),
+        vStart,
+        vEnd: m[4] ? parseInt(m[4]) : vStart,
+    };
+};
+
+/** Build a single-verse ref string like "MRK 1:3". */
+const singleRef = (book: string, chapter: number, verse: number): string =>
+    `${book} ${chapter}:${verse}`;
+
+/**
+ * Cell aligner that matches by verse reference instead of UUID.
+ * Handles cross-range matching: if the target has a range cell (e.g., "1-2")
+ * but the import has individual verses (1, 2), they are concatenated.
+ * The reverse also works: if the target has single verses but the import has
+ * a range, the range content is placed in the first matching verse cell.
+ */
+const verseRefCellAligner: CellAligner = async (
+    targetCells: CustomNotebookCellData[],
+    _sourceCells: CustomNotebookCellData[],
+    importedContent: ImportedContent[]
+): Promise<AlignedCell[]> => {
+    const alignedCells: AlignedCell[] = [];
+
+    // Index imported items by their exact ref AND by individual verse refs
+    const importedByExactRef = new Map<string, ImportedContent>();
+    const importedBySingleRef = new Map<string, ImportedContent>();
+    const usedImported = new Set<string>();
+
+    for (const item of importedContent) {
+        if (!item.content?.trim()) continue;
+        const ref = getVerseRefKey(item.metadata ?? item);
+        if (!ref) continue;
+        importedByExactRef.set(ref, item);
+
+        const parsed = parseRef(ref);
+        if (parsed) {
+            for (let v = parsed.vStart; v <= parsed.vEnd; v++) {
+                importedBySingleRef.set(singleRef(parsed.book, parsed.chapter, v), item);
+            }
+        }
+    }
+
+    let matchCount = 0;
+
+    for (const targetCell of targetCells) {
+        const targetRef = getVerseRefKey(targetCell.metadata);
+
+        // 1) Try exact match first (same ref string)
+        const exactMatch = targetRef ? importedByExactRef.get(targetRef) : undefined;
+        if (exactMatch) {
+            matchCount++;
+            usedImported.add(targetRef!);
+            alignedCells.push({
+                notebookCell: targetCell,
+                importedContent: exactMatch,
+                alignmentMethod: "exact-id",
+                confidence: 1.0,
+            });
+            continue;
+        }
+
+        // 2) Cross-range: target has a range, import has individual verses
+        if (targetRef) {
+            const targetParsed = parseRef(targetRef);
+            if (targetParsed && targetParsed.vEnd > targetParsed.vStart) {
+                const parts: string[] = [];
+                for (let v = targetParsed.vStart; v <= targetParsed.vEnd; v++) {
+                    const key = singleRef(targetParsed.book, targetParsed.chapter, v);
+                    const item = importedByExactRef.get(key);
+                    if (item?.content?.trim()) {
+                        parts.push(item.content.trim());
+                        usedImported.add(key);
+                    }
+                }
+                if (parts.length > 0) {
+                    matchCount++;
+                    const merged: ImportedContent = {
+                        id: targetCell.metadata?.id || "",
+                        content: parts.join(" "),
+                        metadata: targetCell.metadata || {},
+                    };
+                    alignedCells.push({
+                        notebookCell: targetCell,
+                        importedContent: merged,
+                        alignmentMethod: "exact-id",
+                        confidence: 0.9,
+                    });
+                    continue;
+                }
+            }
+
+            // 3) Reverse: target is a single verse, import has a range containing it
+            if (targetParsed && targetParsed.vStart === targetParsed.vEnd) {
+                const rangeItem = importedBySingleRef.get(targetRef);
+                if (rangeItem) {
+                    const rangeRef = getVerseRefKey(rangeItem.metadata ?? rangeItem);
+                    if (rangeRef && !usedImported.has(rangeRef)) {
+                        matchCount++;
+                        usedImported.add(rangeRef);
+                        alignedCells.push({
+                            notebookCell: targetCell,
+                            importedContent: rangeItem,
+                            alignmentMethod: "exact-id",
+                            confidence: 0.8,
+                        });
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // No match — keep existing content (if any)
+        alignedCells.push({
+            notebookCell: targetCell,
+            importedContent: {
+                id: targetCell.metadata?.id || "",
+                content: targetCell.value || "",
+                edits: targetCell.metadata?.edits,
+                cellLabel: targetCell.metadata?.cellLabel,
+                metadata: targetCell.metadata || {},
+            },
+            alignmentMethod: "custom",
+            confidence: 1.0,
+        });
+    }
+
+    console.log(
+        `Verse-ref aligner: ${matchCount} matches out of ${importedContent.length} imported / ${targetCells.length} target cells`
+    );
+
+    return alignedCells;
+};
+
+/**
+ * Finds the notebook from allNotebooks that matches the selected source file name.
+ * E.g., source name "MRK.source" or "MRK" → allNotebooks["MRK"].
+ */
+const findMatchingBookNotebook = (
+    allNotebooks: Record<string, NotebookPair>,
+    sourceName: string
+): NotebookPair | undefined => {
+    const bookCode = sourceName
+        .replace(/\.(source|codex|bible)$/i, "")
+        .toUpperCase();
+    return allNotebooks[bookCode];
+};
 
 export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const {
@@ -188,13 +361,23 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
 
             if (result.success && result.notebookPair) {
                 // If we have multiple notebooks (for different books), handle them
-                const allNotebooks = (result.metadata as any)?.allNotebooks;
+                const allNotebooks = (result.metadata as any)?.allNotebooks as
+                    | Record<string, NotebookPair>
+                    | undefined;
                 let primaryNotebook: NotebookPair;
 
                 if (allNotebooks) {
-                    // Convert all notebooks to array format
-                    const notebookPairs: NotebookPair[] = Object.values(allNotebooks);
-                    primaryNotebook = notebookPairs[0];
+                    // For translation imports, find the book that matches the selected source
+                    if (isTranslationImport && selectedSource) {
+                        const match = findMatchingBookNotebook(
+                            allNotebooks,
+                            selectedSource.name
+                        );
+                        primaryNotebook =
+                            match || (Object.values(allNotebooks)[0] as NotebookPair);
+                    } else {
+                        primaryNotebook = Object.values(allNotebooks)[0] as NotebookPair;
+                    }
 
                     onProgress({
                         stage: "Complete",
@@ -220,15 +403,14 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
                     setIsAligning(true);
 
                     try {
-                        // Convert notebook to imported content
                         const importedContent = notebookToImportedContent(primaryNotebook);
                         setImportedContent(importedContent);
 
-                        // Use default cell aligner for eBible (structured content with verse IDs)
+                        // Use verse-reference aligner (UUIDs differ between downloads)
                         const aligned = await alignContent(
                             importedContent,
                             selectedSource.path,
-                            defaultCellAligner
+                            verseRefCellAligner
                         );
 
                         setAlignedCells(aligned);

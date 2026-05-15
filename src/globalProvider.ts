@@ -102,6 +102,7 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
         const codiconsUri = webviewView.webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this._context.extensionUri,
+                "out",
                 "node_modules",
                 "@vscode/codicons",
                 "dist",

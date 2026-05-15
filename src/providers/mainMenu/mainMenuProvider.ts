@@ -1830,9 +1830,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
         disableSyncTemporarily();
 
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        await config.update(configKey, count, vscode.ConfigurationTarget.Workspace);
-
         let author = "unknown";
         try {
             const authApi = await getAuthApi();
@@ -1844,6 +1841,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
             // Silent fallback
         }
 
+        // Write metadata BEFORE config so that any onDidChangeConfiguration
+        // listener that triggers refreshState reads the already-updated value
+        // from metadata.json, preventing stale intermediate states.
         const result = await MetadataManager.safeUpdateMetadata(
             workspaceFolder,
             (project: Record<string, unknown>) => {
@@ -1871,6 +1871,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
         if (!result.success) {
             console.error("Failed to update metadata:", result.error);
         }
+
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        await config.update(configKey, count, vscode.ConfigurationTarget.Workspace);
 
         await this.store.refreshState();
         await this.updateProjectOverview();
