@@ -24,6 +24,7 @@ import SourceTextDisplay from "./SourceTextDisplay";
 import { AudioHistoryViewer } from "./AudioHistoryViewer";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { getCachedAudioDataUrl, setCachedAudioDataUrl, clearCachedAudio, getCachedAttachmentAudioDataUrl, setCachedAttachmentAudioDataUrl } from "../lib/audioCache";
+import { trimRecordingTail } from "../utils/audioProcessing";
 import { getAudioTabMode, audioRecorderHint } from "./utils/audioViewMode";
 import { RecorderCircle, type RecorderState } from "./components/RecorderCircle";
 import { RecorderWaveform } from "./components/RecorderWaveform";
@@ -52,6 +53,18 @@ import "./TextCellEditor-overrides.css";
 import { Slider } from "../components/ui/slider";
 
 const USE_AUDIO_TAB = true;
+
+/**
+ * Symmetric click-guard windows applied to voice recordings:
+ *   - leading 200ms debounce when starting with a 0s countdown, to ignore the
+ *     audible mouse / trackpad click that triggers recording, and
+ *   - trailing 200ms trimmed from the captured audio on stop, to remove the
+ *     click sound from the user pressing the stop button.
+ * The same value is shown to the user in the recorder UI so they're not
+ * surprised by the trim.
+ */
+const RECORDING_LEAD_DEBOUNCE_MS = 200;
+const RECORDING_TAIL_TRIM_MS = 200;
 
 // Icons from lucide-react (already installed with ShadCN)
 import {
@@ -85,6 +98,7 @@ import {
     Upload,
     Tag,
     AlertTriangle,
+    Scissors,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import CommentsBadge from "./CommentsBadge";
@@ -1308,17 +1322,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
             return;
         }
 
-        // 0s countdown: no visible digit, but still enforce a 250ms click-
-        // debounce so an accidental double-click can't trigger a recording.
-        // The button visually transitions to its recording state during this
+        // 0s countdown: no visible digit, but still enforce a brief click-
+        // debounce so an accidental double-click can't trigger a recording
+        // and the captured audio doesn't start with the click sound. The
+        // button visually transitions to its recording state during this
         // window (via `isStartingRecording`), which doubles as feedback that
-        // the click registered.
-        const ZERO_COUNTDOWN_DEBOUNCE_MS = 250;
+        // the click registered. Mirrors the trailing trim applied on stop.
         setIsStartingRecording(true);
         setRecordingStatus("Starting...");
         window.setTimeout(() => {
             startActualRecording();
-        }, ZERO_COUNTDOWN_DEBOUNCE_MS);
+        }, RECORDING_LEAD_DEBOUNCE_MS);
     };
 
     const stopRecording = () => {
@@ -1529,12 +1543,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 setRecordingElapsedTime(0);
             };
 
-            recorder.onstop = () => {
+            recorder.onstop = async () => {
                 setIsRecording(false);
                 setRecordingStartTime(null);
                 setRecordingElapsedTime(0);
-                // Keep Blob type simple to avoid downstream extension parsing issues
-                const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+
+                // Release the microphone immediately — no further data will
+                // arrive after stop, and holding the tracks open delays the
+                // OS-level recording indicator from turning off.
+                stream.getTracks().forEach((track) => track.stop());
+
+                // Trim a short tail off the recording to remove the click
+                // sound from the user pressing stop. Mirrors the leading
+                // debounce on start; the user is informed of this trim via
+                // a small notice in the recorder UI. If the trim fails
+                // (decoder error, very short clip, etc.) the helper returns
+                // the original blob unchanged.
+                const rawBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+                const blob = await trimRecordingTail(rawBlob, RECORDING_TAIL_TRIM_MS);
+
                 setAudioBlob(blob);
 
                 // Clean up old URL if exists
@@ -1545,9 +1572,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 const url = URL.createObjectURL(blob);
                 setAudioUrl(url);
                 setRecordingStatus("Recording complete");
-
-                // Stop all tracks to release microphone
-                stream.getTracks().forEach((track) => track.stop());
 
                 // Save audio to cell data
                 if (saveAudioToCellRef.current) {
@@ -3568,6 +3592,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 </div>
                                                             </div>
                                                         ) : null}
+                                                        {(isRecording || isStartingRecording) && (
+                                                            <div className="w-full flex justify-end -mt-1">
+                                                                <span
+                                                                    className="text-[10px] italic text-muted-foreground/50 inline-flex items-center gap-1 select-none leading-none"
+                                                                    title={`The last ${RECORDING_TAIL_TRIM_MS} ms is trimmed on stop so the stop-button click doesn't end up in the recording.`}
+                                                                >
+                                                                    <Scissors className="h-2.5 w-2.5" />
+                                                                    {RECORDING_TAIL_TRIM_MS} ms tail auto-trimmed
+                                                                </span>
+                                                            </div>
+                                                        )}
                                                         {hint && (
                                                             <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
                                                                 <AlertTriangle
