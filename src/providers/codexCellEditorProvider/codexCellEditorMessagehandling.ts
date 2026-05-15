@@ -73,6 +73,10 @@ let pendingAutoDownloadValue: boolean | undefined;
 let autoRecordBroadcastTimer: NodeJS.Timeout | undefined;
 let pendingAutoRecordValue: boolean | undefined;
 
+// Debounce container for broadcasting recording-countdown duration updates
+let recordingCountdownBroadcastTimer: NodeJS.Timeout | undefined;
+let pendingRecordingCountdownValue: number | undefined;
+
 
 // Helper to use VS Code FS API
 async function pathExists(filePath: string): Promise<boolean> {
@@ -382,6 +386,48 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }, 150);
         } catch (e) {
             console.warn("Failed to set autoRecordOnMicClick", e);
+        }
+    },
+    setRecordingCountdownSeconds: async ({ event, document, provider }) => {
+        try {
+            const typed = event as any;
+            const raw = typed?.content?.value;
+            const numeric = typeof raw === "number" ? raw : Number(raw);
+            const sanitized =
+                Number.isFinite(numeric) && numeric >= 0
+                    ? Math.min(Math.round(numeric), 3)
+                    : 3;
+            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+            const { setRecordingCountdownSeconds } = await import(
+                "../../utils/localProjectSettings"
+            );
+            await setRecordingCountdownSeconds(sanitized, ws?.uri);
+            pendingRecordingCountdownValue = sanitized;
+            if (recordingCountdownBroadcastTimer) {
+                clearTimeout(recordingCountdownBroadcastTimer);
+            }
+            recordingCountdownBroadcastTimer = setTimeout(() => {
+                try {
+                    const panels = provider.getWebviewPanels();
+                    panels.forEach((panel) => {
+                        provider.postMessageToWebview(panel, {
+                            type: "providerUpdatesNotebookMetadataForWebview",
+                            content: {
+                                recordingCountdownSeconds: pendingRecordingCountdownValue,
+                            },
+                        } as any);
+                    });
+                } catch (broadcastErr) {
+                    console.warn(
+                        "Failed to broadcast recordingCountdownSeconds",
+                        broadcastErr
+                    );
+                } finally {
+                    recordingCountdownBroadcastTimer = undefined;
+                }
+            }, 150);
+        } catch (e) {
+            console.warn("Failed to set recordingCountdownSeconds", e);
         }
     },
     getAsrConfig: async ({ webviewPanel }) => {

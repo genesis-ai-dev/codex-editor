@@ -212,6 +212,13 @@ export const useVSCodeMessageHandler = ({
                             (window as any).__autoRecordOnMicClick = !!message.content.autoRecordOnMicClick;
                             (window as any).__autoRecordOnMicClickInitialized = true;
                         }
+                        if (typeof (message?.content?.recordingCountdownSeconds) === "number") {
+                            (window as any).__recordingCountdownSeconds = Math.max(
+                                0,
+                                Math.min(3, Math.round(message.content.recordingCountdownSeconds))
+                            );
+                            (window as any).__recordingCountdownSecondsInitialized = true;
+                        }
                     } catch { console.error("Error deriving audio attachment availability"); }
                     try { updateNotebookMetadata(message.content); } catch { console.error("Error updating notebook metadata"); }
                     break;

@@ -155,6 +155,8 @@ ChapterNavigationHeaderProps) {
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
     const [autoDownloadAudioOnOpen, setAutoDownloadAudioOnOpenState] = useState<boolean>(false);
     const [autoRecordOnMicClick, setAutoRecordOnMicClickState] = useState<boolean>(false);
+    const [recordingCountdownSeconds, setRecordingCountdownSecondsState] =
+        useState<number>(3);
     const [showMilestoneAccordion, setShowMilestoneAccordion] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const chapterTitleRef = useRef<HTMLDivElement>(null);
@@ -220,6 +222,22 @@ ChapterNavigationHeaderProps) {
             setAutoRecordOnMicClickState(!!metadata.autoRecordOnMicClick);
         }
     }, [metadata?.autoRecordOnMicClick]);
+
+    useEffect(() => {
+        if (typeof metadata?.recordingCountdownSeconds === "number") {
+            const sanitized = Math.max(
+                0,
+                Math.min(3, Math.round(metadata.recordingCountdownSeconds))
+            );
+            setRecordingCountdownSecondsState(sanitized);
+            try {
+                (window as any).__recordingCountdownSeconds = sanitized;
+                (window as any).__recordingCountdownSecondsInitialized = true;
+            } catch {
+                /* ignore */
+            }
+        }
+    }, [metadata?.recordingCountdownSeconds]);
 
     // Display milestone value directly (e.g., "Isaiah 1" or "1")
     const getDisplayTitle = useCallback(() => {
@@ -571,6 +589,30 @@ ChapterNavigationHeaderProps) {
                                 (window as any).__autoRecordOnMicClick = !!val;
                                 (window as any).__autoRecordOnMicClickInitialized = true;
                             } catch { /* ignore */ }
+                        }}
+                        recordingCountdownSeconds={recordingCountdownSeconds}
+                        onCycleRecordingCountdown={() => {
+                            const cycle = [0, 1, 2, 3];
+                            const idx = cycle.indexOf(recordingCountdownSeconds);
+                            const next = cycle[(idx + 1) % cycle.length] ?? 3;
+                            setRecordingCountdownSecondsState(next);
+                            try {
+                                vscode.postMessage({
+                                    command: "setRecordingCountdownSeconds",
+                                    content: { value: next },
+                                });
+                            } catch (error) {
+                                console.error(
+                                    "Error setting recording countdown seconds",
+                                    error
+                                );
+                            }
+                            try {
+                                (window as any).__recordingCountdownSeconds = next;
+                                (window as any).__recordingCountdownSecondsInitialized = true;
+                            } catch {
+                                /* ignore */
+                            }
                         }}
                     />
                 </div>
@@ -955,6 +997,56 @@ ChapterNavigationHeaderProps) {
                                 }}
                             >
                                 {autoRecordOnMicClick ? "On" : "Off"}
+                            </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onSelect={(e) => {
+                                // Keep the menu open so the user can iterate
+                                // through values without having to re-open the
+                                // menu after each click.
+                                e.preventDefault();
+                                const cycle = [0, 1, 2, 3];
+                                const idx = cycle.indexOf(recordingCountdownSeconds);
+                                const next = cycle[(idx + 1) % cycle.length] ?? 3;
+                                setRecordingCountdownSecondsState(next);
+                                try {
+                                    vscode.postMessage({
+                                        command: "setRecordingCountdownSeconds",
+                                        content: { value: next },
+                                    });
+                                } catch (error) {
+                                    console.error(
+                                        "Error setting recording countdown seconds",
+                                        error
+                                    );
+                                }
+                                try {
+                                    (window as any).__recordingCountdownSeconds = next;
+                                    (window as any).__recordingCountdownSecondsInitialized = true;
+                                } catch {
+                                    /* ignore */
+                                }
+                            }}
+                            className="cursor-pointer"
+                        >
+                            <i className="codicon codicon-clock mr-2 h-4 w-4" />
+                            <span className="flex-1">Recording countdown</span>
+                            <span
+                                className="text-xs px-2 py-0.5 rounded-full"
+                                style={{
+                                    backgroundColor:
+                                        recordingCountdownSeconds > 0
+                                            ? "var(--vscode-charts-blue)"
+                                            : "var(--vscode-editorHoverWidget-border)",
+                                    color:
+                                        recordingCountdownSeconds > 0
+                                            ? "var(--vscode-editor-background)"
+                                            : "var(--vscode-foreground)",
+                                }}
+                            >
+                                {recordingCountdownSeconds === 0
+                                    ? "Off"
+                                    : `${recordingCountdownSeconds}s`}
                             </span>
                         </DropdownMenuItem>
                         <DropdownMenuItem

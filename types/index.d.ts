@@ -788,6 +788,11 @@ export interface CustomNotebookMetadata {
     autoDownloadAudioOnOpen?: boolean;
     /** When true, clicking the microphone icon in the cell list auto-starts recording */
     autoRecordOnMicClick?: boolean;
+    /**
+     * Number of seconds to count down before recording begins. 0 disables
+     * the visible countdown but a 250ms click-debounce is still enforced.
+     */
+    recordingCountdownSeconds?: number;
     /** When true, backtranslations will be displayed inline below cells */
     showInlineBacktranslations?: boolean;
     fileDisplayName?: string;

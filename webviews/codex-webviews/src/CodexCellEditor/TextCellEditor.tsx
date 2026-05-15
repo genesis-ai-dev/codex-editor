@@ -1287,13 +1287,38 @@ const CellEditor: React.FC<CellEditorProps> = ({
             return;
         }
 
-        // If already recording or countdown active, do nothing (stopRecording handles stopping)
-        if (isRecording || countdown !== null) {
+        // If already recording, counting down, or in the warmup window, do
+        // nothing. `isStartingRecording` covers both the user-configured 0s
+        // debounce path and the async getUserMedia warmup.
+        if (isRecording || countdown !== null || isStartingRecording) {
             return;
         }
 
-        setCountdown(3);
-        setRecordingStatus("Starting in 3...");
+        // Read configured countdown duration (set by the chapter header /
+        // mobile menu and persisted in project settings). Default to 3.
+        const rawSeconds = (window as any).__recordingCountdownSeconds;
+        const configuredSeconds =
+            typeof rawSeconds === "number" && Number.isFinite(rawSeconds) && rawSeconds >= 0
+                ? Math.min(Math.round(rawSeconds), 3)
+                : 3;
+
+        if (configuredSeconds >= 1) {
+            setCountdown(configuredSeconds);
+            setRecordingStatus(`Starting in ${configuredSeconds}...`);
+            return;
+        }
+
+        // 0s countdown: no visible digit, but still enforce a 250ms click-
+        // debounce so an accidental double-click can't trigger a recording.
+        // The button visually transitions to its recording state during this
+        // window (via `isStartingRecording`), which doubles as feedback that
+        // the click registered.
+        const ZERO_COUNTDOWN_DEBOUNCE_MS = 250;
+        setIsStartingRecording(true);
+        setRecordingStatus("Starting...");
+        window.setTimeout(() => {
+            startActualRecording();
+        }, ZERO_COUNTDOWN_DEBOUNCE_MS);
     };
 
     const stopRecording = () => {
