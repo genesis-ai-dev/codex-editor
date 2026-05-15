@@ -3368,7 +3368,6 @@ export const migration_recoverMissingMergedChildren = async (): Promise<void> =>
             `Found ${totalParentsToRecover} parent verse cell(s) across ${affectedReports.length} file(s) with missing merged children. Apply recovery?`,
             { modal: true, detail },
             "Apply",
-            "Cancel"
         );
 
         if (choice !== "Apply") {
