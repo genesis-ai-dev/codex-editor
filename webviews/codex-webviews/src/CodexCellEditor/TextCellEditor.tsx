@@ -489,6 +489,65 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }, 120);
     }, []);
 
+    // Conditionally scrolls only when part of the editor is hidden. Used when
+    // opening a cell so we don't "jump" the page if the editor already fits in
+    // the viewport. If both top and bottom are off-screen (editor taller than
+    // viewport), align the top so the user can see what they're editing.
+    const ensureEditorVisible = useCallback(() => {
+        const topEl = cellEditorRef.current;
+        if (!topEl) return;
+        const bottomEl = cellEditorBottomRef.current;
+
+        if (scrollTimeoutRef.current) {
+            clearTimeout(scrollTimeoutRef.current);
+            scrollTimeoutRef.current = null;
+        }
+        if (scrollRafRef.current) {
+            cancelAnimationFrame(scrollRafRef.current);
+            scrollRafRef.current = null;
+        }
+
+        scrollTimeoutRef.current = window.setTimeout(() => {
+            scrollRafRef.current = requestAnimationFrame(() => {
+                const padding = 16;
+                const scrollContainer = topEl.closest(".scrollable-content") as HTMLElement | null;
+                const containerRect = scrollContainer?.getBoundingClientRect();
+                const visibleTop = (containerRect?.top ?? 0) + padding;
+                const visibleBottom = (containerRect?.bottom ?? window.innerHeight) - padding;
+
+                const topRect = topEl.getBoundingClientRect();
+                const bottomRect = bottomEl?.getBoundingClientRect() ?? topRect;
+
+                const topHidden = topRect.top < visibleTop;
+                const bottomHidden = bottomRect.bottom > visibleBottom;
+
+                let deltaY = 0;
+                if (topHidden) {
+                    // Top off-screen (cell came from above viewport, or editor
+                    // is taller than viewport) — prioritize showing the top.
+                    deltaY = topRect.top - visibleTop;
+                } else if (bottomHidden) {
+                    // Top is fine; reveal the bottom but don't scroll so far
+                    // that the top disappears.
+                    const needed = bottomRect.bottom - visibleBottom;
+                    const maxWithoutHidingTop = topRect.top - visibleTop;
+                    deltaY = Math.min(needed, Math.max(0, maxWithoutHidingTop));
+                }
+
+                if (Math.abs(deltaY) > 1) {
+                    if (scrollContainer) {
+                        scrollContainer.scrollBy({ top: deltaY, behavior: "smooth" });
+                    } else {
+                        window.scrollBy({ top: deltaY, behavior: "smooth" });
+                    }
+                }
+
+                scrollRafRef.current = null;
+            });
+            scrollTimeoutRef.current = null;
+        }, 120);
+    }, []);
+
     // Cleanup any pending timers/frames on unmount
     useEffect(() => {
         return () => {
@@ -1014,14 +1073,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
             // Update the editor content
             setEditorContent(text);
 
-            // Ensure the editor block scrolls fully into view when opened programmatically
-            requestAnimationFrame(() => {
-                if (cellEditorRef.current) {
-                    cellEditorRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-                }
-            });
+            // Only scroll if part of the editor will be off-screen. The new
+            // cell's editor will remount, but reading the ref now still tells
+            // us whether the click landed in a position that needs scrolling.
+            ensureEditorVisible();
         },
-        [unsavedChanges, handleSaveHtml, openCellById, setContentBeingUpdated, setEditorContent]
+        [unsavedChanges, handleSaveHtml, openCellById, setContentBeingUpdated, setEditorContent, ensureEditorVisible]
     );
 
     useMessageHandler(
@@ -1166,12 +1223,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 }
 
                 if (preferred === "audio") {
-                    setTimeout(centerEditor, 50);
-                    setTimeout(centerEditor, 250);
+                    // Two delayed calls to settle: 50ms catches the initial
+                    // audio-tab layout shift, 250ms catches the waveform when
+                    // it renders. ensureEditorVisible is conditional, so it
+                    // no-ops if the editor is already fully visible (avoids
+                    // jumping a cell that was opened in-place).
+                    setTimeout(ensureEditorVisible, 50);
+                    setTimeout(ensureEditorVisible, 250);
                 }
             }
         },
-        [cellMarkers, centerEditor]
+        [cellMarkers, ensureEditorVisible]
     );
 
     useMessageHandler(
@@ -1911,10 +1973,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab, audioAttachments, cellMarkers[0], hasAudioHistory]);
 
-    // When switching to a new cell, ensure the editor is fully visible
+    // When switching to a new cell, ensure the editor is visible — but only
+    // scroll if part of it is actually hidden. If the cell the user clicked
+    // already fits in the viewport (its top and bottom are both on-screen),
+    // we leave the scroll position alone to avoid an unnecessary jump.
     useEffect(() => {
-        centerEditor();
-    }, [cellMarkers, centerEditor]);
+        ensureEditorVisible();
+    }, [cellMarkers, ensureEditorVisible]);
 
     // If the provider toggles auto-download while this cell is open, fetch immediately
     useMessageHandler("providerUpdatesNotebookMetadataForWebview", (event: MessageEvent) => {

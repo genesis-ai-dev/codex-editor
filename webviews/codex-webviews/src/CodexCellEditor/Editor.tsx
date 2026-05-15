@@ -849,7 +849,16 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     // Set cursor to the end of the text
                     const textLength = quill.getLength();
                     quill.setSelection(textLength - 1, 0); // -1 because Quill includes a trailing newline
-                    quill.focus(); // Ensure editor has focus
+                    // Focus without triggering the browser's "scroll focused element into view"
+                    // behavior. Quill's own `quill.focus()` calls .focus() with no options, which
+                    // causes the browser to recenter the contenteditable in its scroll container
+                    // ~100ms after mount — making the page "jump" when a cell that was already
+                    // visible is opened. preventScroll keeps the scroll position stable.
+                    if (quill.root && typeof (quill.root as HTMLElement).focus === "function") {
+                        (quill.root as HTMLElement).focus({ preventScroll: true });
+                    } else {
+                        quill.focus();
+                    }
 
                     // Renumber footnotes to ensure proper chronological order on load
                     renumberFootnotes();
