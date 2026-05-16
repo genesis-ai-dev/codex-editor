@@ -1724,4 +1724,207 @@ suite("Milestone Subdivisions Test Suite", () => {
             );
         });
     });
+
+    // ---------------------------------------------------------------------------
+    // Milestone structural mirror: promote / demote / remove must mirror the
+    // structural change onto the paired target document. Regression target:
+    // the pre-fix code compared the source's post-mutation root ids against
+    // the (still unmutated) target inside `commitMergeMilestoneIntoPrevious`,
+    // so the divergence guard fired on every merge and the target silently
+    // stayed in its pre-edit state.
+    // ---------------------------------------------------------------------------
+
+    suite("Milestone structural mirror (source -> target)", () => {
+        let pairedTempUri: vscode.Uri | undefined;
+
+        teardown(async () => {
+            if (pairedTempUri) {
+                await deleteIfExists(pairedTempUri);
+                pairedTempUri = undefined;
+            }
+        });
+
+        function buildTwoMilestoneCells() {
+            const cells: any[] = [
+                {
+                    kind: 2,
+                    languageId: "scripture",
+                    value: "Luke 1",
+                    metadata: { type: CodexCellTypes.MILESTONE, id: "m1" },
+                },
+            ];
+            for (let i = 1; i <= 5; i++) {
+                cells.push({
+                    kind: 2,
+                    languageId: "scripture",
+                    value: `verse ${i}`,
+                    metadata: { type: CodexCellTypes.TEXT, id: `v${i}` },
+                });
+            }
+            cells.push({
+                kind: 2,
+                languageId: "scripture",
+                value: "Luke 2",
+                metadata: { type: CodexCellTypes.MILESTONE, id: "m2" },
+            });
+            for (let i = 6; i <= 10; i++) {
+                cells.push({
+                    kind: 2,
+                    languageId: "scripture",
+                    value: `verse ${i}`,
+                    metadata: { type: CodexCellTypes.TEXT, id: `v${i}` },
+                });
+            }
+            return cells;
+        }
+
+        async function createPairedTargetDocument(cells: any[]): Promise<{
+            uri: vscode.Uri;
+            document: CodexCellDocument;
+        }> {
+            const targetUri = await createTempCodexFile(
+                `test-target-${Date.now()}-${Math.random().toString(36).slice(2)}.codex`,
+                { cells, metadata: {} }
+            );
+            pairedTempUri = targetUri;
+            const targetDocument = await provider.openCustomDocument(
+                targetUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            return { uri: targetUri, document: targetDocument };
+        }
+
+        function stampSourceUri(document: CodexCellDocument) {
+            (document as any).uri = vscode.Uri.parse("file:///test.source");
+        }
+
+        function stubProviderForStructuralMirror(
+            p: CodexCellEditorProvider,
+            targetDoc: CodexCellDocument,
+            targetUri: vscode.Uri
+        ) {
+            sinon.stub(p, "saveCustomDocument").resolves();
+            sinon.stub(p, "refreshWebview").resolves();
+            sinon.stub(p, "getWebviewPanelForUri").returns(undefined);
+            (p as any).currentMilestoneSubsectionMap = new Map();
+            sinon.stub(CodexCellDocument.prototype as any, "refreshAuthor").resolves();
+            sinon.stub(
+                CodexCellDocument.prototype as any,
+                "updateCellMilestoneIndices"
+            ).resolves();
+            sinon.stub(p, "getPairedNotebookUri").returns(targetUri);
+            sinon.stub(p, "getOrOpenDocumentForUri").resolves(targetDoc);
+        }
+
+        async function invokeHandler(
+            handlerName: string,
+            { document, content }: { document: CodexCellDocument; content: any; }
+        ): Promise<void> {
+            const handler = __testOnlyMessageHandlers[handlerName];
+            assert.ok(handler, `${handlerName} handler must be registered`);
+            await handler({
+                event: { command: handlerName, content } as any,
+                document,
+                webviewPanel: {} as any,
+                provider,
+                updateWebview: () => { /* no-op */ },
+            });
+        }
+
+        test("removeMilestone mirrors the structural delete onto the target", async () => {
+            const sourceDoc = await createDocumentWithCells(buildTwoMilestoneCells());
+            stampSourceUri(sourceDoc);
+            const { uri: targetUri, document: targetDoc } = await createPairedTargetDocument(
+                buildTwoMilestoneCells()
+            );
+            stubProviderForStructuralMirror(provider, targetDoc, targetUri);
+
+            const targetBefore = targetDoc.buildMilestoneIndex(50);
+            assert.strictEqual(
+                targetBefore.milestones.length,
+                2,
+                "Target should start with two milestones"
+            );
+
+            await invokeHandler("removeMilestone", {
+                document: sourceDoc,
+                content: { milestoneIndex: 1 },
+            });
+
+            const sourceAfter = sourceDoc.buildMilestoneIndex(50);
+            assert.strictEqual(sourceAfter.milestones.length, 1, "Source should be merged");
+
+            // Regression: pre-fix the merge silently skipped the mirror because
+            // the divergence check compared the source's POST-mutation roots
+            // (v1..v10) against the target's pre-mutation roots (v1..v5), so
+            // the rootsMatchPrev check always failed.
+            const targetAfter = targetDoc.buildMilestoneIndex(50);
+            assert.strictEqual(
+                targetAfter.milestones.length,
+                1,
+                "Target should mirror the structural delete and end up with one milestone"
+            );
+        });
+
+        test("demoteMilestoneToSubdivision mirrors the merge + boundary onto the target", async () => {
+            const sourceDoc = await createDocumentWithCells(buildTwoMilestoneCells());
+            stampSourceUri(sourceDoc);
+            const { uri: targetUri, document: targetDoc } = await createPairedTargetDocument(
+                buildTwoMilestoneCells()
+            );
+            stubProviderForStructuralMirror(provider, targetDoc, targetUri);
+
+            await invokeHandler("demoteMilestoneToSubdivision", {
+                document: sourceDoc,
+                content: { milestoneIndex: 1 },
+            });
+
+            const targetAfter = targetDoc.buildMilestoneIndex(50);
+            assert.strictEqual(
+                targetAfter.milestones.length,
+                1,
+                "Target should mirror the demote merge"
+            );
+
+            const survivor = targetDoc.getCellByIndex(targetAfter.milestones[0].cellIndex);
+            const data = survivor?.metadata?.data as any;
+            assert.deepStrictEqual(
+                data?.subdivisions,
+                [{ startCellId: "v6" }],
+                "Target's surviving milestone keeps the demoted seam as a subdivision break"
+            );
+            assert.deepStrictEqual(
+                data?.subdivisionNamesFromSource,
+                { v6: "Luke 2" },
+                "Source's demoted label is mirrored into subdivisionNamesFromSource so the target shows it by default"
+            );
+        });
+
+        test("mirror is skipped when the target's milestone cell ID has diverged", async () => {
+            // Pair a source whose milestone IDs are m1/m2 against a target
+            // whose milestone IDs differ. The mirror must NOT touch the
+            // target's milestone structure.
+            const sourceDoc = await createDocumentWithCells(buildTwoMilestoneCells());
+            stampSourceUri(sourceDoc);
+            const targetCells = buildTwoMilestoneCells();
+            targetCells[6].metadata.id = "different-id"; // the second milestone cell
+            const { uri: targetUri, document: targetDoc } = await createPairedTargetDocument(
+                targetCells
+            );
+            stubProviderForStructuralMirror(provider, targetDoc, targetUri);
+
+            await invokeHandler("removeMilestone", {
+                document: sourceDoc,
+                content: { milestoneIndex: 1 },
+            });
+
+            const targetAfter = targetDoc.buildMilestoneIndex(50);
+            assert.strictEqual(
+                targetAfter.milestones.length,
+                2,
+                "Diverged target should be left intact"
+            );
+        });
+    });
 });

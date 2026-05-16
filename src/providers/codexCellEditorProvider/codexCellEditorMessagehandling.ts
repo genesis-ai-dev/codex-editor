@@ -627,6 +627,14 @@ async function commitMergeMilestoneIntoPrevious({
 
     const removedMilestoneCellId = removedCell.metadata.id;
     const removedRootIds = document.getRootContentCellIdsForMilestone(milestoneIndex);
+    // Capture both milestones' root id lists BEFORE we mutate the source so
+    // we can compare them against the (still pre-mutation) target inside
+    // the mirror block. The merge expands the previous milestone's root
+    // set to include the removed one's roots, so reading the source's
+    // roots POST-mutation would never match the still-unmutated target
+    // and the structural mirror would silently skip.
+    const previousRootIdsBefore =
+        document.getRootContentCellIdsForMilestone(milestoneIndex - 1);
     const boundaryAnchorCellId = removedRootIds[0];
     const removedLabel = (removedCell.value as string | undefined) ?? "";
     const removedData = readMilestoneSubdivisionData(removedCell);
@@ -695,21 +703,24 @@ async function commitMergeMilestoneIntoPrevious({
             // backed by cells with matching IDs. We compare BOTH milestones'
             // root cell ID lists so a previously-divergent pair (e.g. user
             // mutated the target file independently) doesn't end up with a
-            // missing milestone on one side after the merge.
+            // missing milestone on one side after the merge. We use the
+            // source's PRE-mutation root ids captured above; reading the
+            // source's roots NOW would include the merge expansion and
+            // never match the still-unmutated target.
             const removedCellId = targetRemoved
                 ? targetDocument.getCellByIndex(targetRemoved.cellIndex)?.metadata?.id
                 : undefined;
             const removedIdMatches = removedCellId === removedMilestoneCellId;
-            const rootsMatchPrev = sourceAndTargetMilestoneRootsMatch(
-                document,
-                targetDocument,
-                milestoneIndex - 1
-            );
-            const rootsMatchRemoved = sourceAndTargetMilestoneRootsMatch(
-                document,
-                targetDocument,
-                milestoneIndex
-            );
+            const targetPreviousRootIds =
+                targetDocument.getRootContentCellIdsForMilestone(milestoneIndex - 1);
+            const targetRemovedRootIds =
+                targetDocument.getRootContentCellIdsForMilestone(milestoneIndex);
+            const rootsMatchPrev =
+                previousRootIdsBefore.length === targetPreviousRootIds.length &&
+                previousRootIdsBefore.every((id, i) => id === targetPreviousRootIds[i]);
+            const rootsMatchRemoved =
+                removedRootIds.length === targetRemovedRootIds.length &&
+                removedRootIds.every((id, i) => id === targetRemovedRootIds[i]);
 
             if (!targetRemoved || !targetPrevious || !removedIdMatches || !rootsMatchPrev || !rootsMatchRemoved) {
                 console.warn(`${logPrefix} Source/target diverge; skipping structural mirror.`, {
