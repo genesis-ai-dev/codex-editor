@@ -524,6 +524,33 @@ function partitionSubdivisionNames(
 }
 
 /**
+ * When a milestone is removed (merge / demote), merges the surviving and
+ * removed milestones' `subdivisionNames` maps onto the survivor the same way
+ * as the source-side `mergedSourceNames` block: non-`__start__` keys keep
+ * their cell-id keys; the removed milestone's implicit start re-keys onto the
+ * seam anchor when `preserveBoundary`, else dropped.
+ */
+function mergeSubdivisionNameMapsForSurvivorAfterRemovedMilestone(
+    previousNames: { [k: string]: string },
+    removedNames: { [k: string]: string },
+    boundaryAnchorCellId: string | undefined,
+    preserveBoundary: boolean
+): { [k: string]: string } {
+    const merged: { [k: string]: string } = { ...previousNames };
+    for (const [key, value] of Object.entries(removedNames)) {
+        if (typeof value !== "string" || value.length === 0) continue;
+        if (key === FIRST_SUBDIVISION_KEY) {
+            if (preserveBoundary && boundaryAnchorCellId) {
+                merged[boundaryAnchorCellId] = value;
+            }
+            continue;
+        }
+        merged[key] = value;
+    }
+    return merged;
+}
+
+/**
  * Validates that the source and target documents agree on which root content
  * cells belong to a given milestone index. Used as a pre-flight before any
  * structural milestone edit so we never insert / soft-delete a target cell
@@ -653,23 +680,12 @@ async function commitMergeMilestoneIntoPrevious({
     // travels with the cells). All other named entries keep their cell-ID
     // keys verbatim — they still resolve to the same root cells, just inside
     // a wider milestone range now.
-    const mergedSourceNames: { [k: string]: string; } = { ...previousData.subdivisionNames };
-    for (const [key, value] of Object.entries(removedData.subdivisionNames)) {
-        if (typeof value !== "string" || value.length === 0) continue;
-        if (key === FIRST_SUBDIVISION_KEY) {
-            if (preserveBoundary && boundaryAnchorCellId) {
-                // Demote: the removed milestone's __start__ name becomes the
-                // boundary placement's name (overriding any inline name we
-                // already stamped from `removedLabel`, since explicit
-                // subdivision names are more specific than the milestone
-                // label). For pure remove, drop it (no boundary placement
-                // exists to attach the name to).
-                mergedSourceNames[boundaryAnchorCellId] = value;
-            }
-            continue;
-        }
-        mergedSourceNames[key] = value;
-    }
+    const mergedSourceNames = mergeSubdivisionNameMapsForSurvivorAfterRemovedMilestone(
+        previousData.subdivisionNames,
+        removedData.subdivisionNames,
+        boundaryAnchorCellId,
+        preserveBoundary
+    );
 
     const cancellationToken = new vscode.CancellationTokenSource().token;
 
@@ -733,16 +749,28 @@ async function commitMergeMilestoneIntoPrevious({
                 const targetPreviousCell = targetDocument.getCellByIndex(
                     targetPrevious.cellIndex
                 );
-                if (targetPreviousCell?.metadata?.id) {
+                const targetRemovedCell = targetDocument.getCellByIndex(
+                    targetRemoved.cellIndex
+                );
+                if (targetPreviousCell?.metadata?.id && targetRemovedCell) {
+                    const targetPreviousData = readMilestoneSubdivisionData(targetPreviousCell);
+                    const targetRemovedData = readMilestoneSubdivisionData(targetRemovedCell);
+                    const mergedTargetLocalNames =
+                        mergeSubdivisionNameMapsForSurvivorAfterRemovedMilestone(
+                            targetPreviousData.subdivisionNames,
+                            targetRemovedData.subdivisionNames,
+                            boundaryAnchorCellId,
+                            preserveBoundary
+                        );
                     await targetDocument.refreshAuthor();
                     targetDocument.softDeleteCell(removedMilestoneCellId);
-                    // Mirror the source's localized label/name map into the
-                    // target's `subdivisionNamesFromSource` so the translator
-                    // sees the merged section labels by default. The target's
-                    // own `subdivisionNames` is left alone — translators are
-                    // free to keep / override their per-side labels.
+                    // Mirror source defaults into `subdivisionNamesFromSource`;
+                    // fold the translator's own `subdivisionNames` from both
+                    // milestones so names they set on the removed side travel
+                    // onto the survivor (same semantics as the source merge).
                     targetDocument.updateCellData(targetPreviousCell.metadata.id, {
                         subdivisions: merged.placements,
+                        subdivisionNames: mergedTargetLocalNames,
                         subdivisionNamesFromSource: mergedSourceNames,
                     });
                     mirroredTargetDocument = targetDocument;
@@ -1038,6 +1066,20 @@ async function commitSplitMilestoneAtAnchor({
                     });
                 } else if (targetOriginalCell?.metadata?.id) {
                     const targetData = readMilestoneSubdivisionData(targetOriginalCell);
+                    // Target-only label at the promoted seam: prefer it for the
+                    // new milestone's cell.value so a translator-named break is
+                    // not replaced by the source-only placeholder (e.g. "New
+                    // milestone") when the source had no name at this anchor.
+                    const rawTargetBoundaryLocal =
+                        targetData.subdivisionNames[boundaryCellId];
+                    const targetLocalBoundaryLabel =
+                        typeof rawTargetBoundaryLocal === "string" &&
+                        rawTargetBoundaryLocal.trim().length > 0
+                            ? rawTargetBoundaryLocal.trim()
+                            : undefined;
+                    const targetValueOverride =
+                        targetLocalBoundaryLabel ?? valueOverride;
+
                     const targetNamePartition = partitionSubdivisionNames(
                         targetData.subdivisionNames,
                         keepKeys,
@@ -1072,7 +1114,7 @@ async function commitSplitMilestoneAtAnchor({
                     targetDocument.insertMilestoneCell({
                         newCellId: insertedMilestoneCellId,
                         referenceCellId: boundaryCellId,
-                        valueOverride,
+                        valueOverride: targetValueOverride,
                         initialData: targetInitialData,
                     });
                     // Update the original target milestone with the BEFORE

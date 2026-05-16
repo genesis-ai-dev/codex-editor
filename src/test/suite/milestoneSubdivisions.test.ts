@@ -1901,6 +1901,89 @@ suite("Milestone Subdivisions Test Suite", () => {
             );
         });
 
+        test("demote folds target translator subdivisionNames from the removed milestone onto the survivor", async () => {
+            const sourceCells = buildTwoMilestoneCells();
+            const targetCells = buildTwoMilestoneCells();
+            targetCells[6].metadata.data = {
+                ...(targetCells[6].metadata.data ?? {}),
+                subdivisionNames: { v8: "Tail EN" },
+            };
+
+            const sourceDoc = await createDocumentWithCells(sourceCells);
+            stampSourceUri(sourceDoc);
+            const { uri: targetUri, document: targetDoc } = await createPairedTargetDocument(targetCells);
+            stubProviderForStructuralMirror(provider, targetDoc, targetUri);
+
+            await invokeHandler("demoteMilestoneToSubdivision", {
+                document: sourceDoc,
+                content: { milestoneIndex: 1 },
+            });
+
+            const targetAfter = targetDoc.buildMilestoneIndex(50);
+            const survivor = targetDoc.getCellByIndex(targetAfter.milestones[0].cellIndex);
+            const data = survivor?.metadata?.data as any;
+            assert.strictEqual(
+                data?.subdivisionNames?.v8,
+                "Tail EN",
+                "Target local names on the removed milestone must move onto the surviving milestone"
+            );
+        });
+
+        test("promote keeps the target milestone label when the translator named the seam locally", async () => {
+            function buildOneMilestoneWithBreakAtV6() {
+                const cells: any[] = [
+                    {
+                        kind: 2,
+                        languageId: "scripture",
+                        value: "Luke 1",
+                        metadata: {
+                            type: CodexCellTypes.MILESTONE,
+                            id: "m1",
+                            data: {
+                                subdivisions: [{ startCellId: "v6" }],
+                            },
+                        },
+                    },
+                ];
+                for (let i = 1; i <= 10; i++) {
+                    cells.push({
+                        kind: 2,
+                        languageId: "scripture",
+                        value: `verse ${i}`,
+                        metadata: { type: CodexCellTypes.TEXT, id: `v${i}` },
+                    });
+                }
+                return cells;
+            }
+
+            const sourceCells = buildOneMilestoneWithBreakAtV6();
+            const targetCells = buildOneMilestoneWithBreakAtV6();
+            targetCells[0].metadata.data = {
+                ...targetCells[0].metadata.data,
+                subdivisionNames: { v6: "Translator section" },
+            };
+
+            const sourceDoc = await createDocumentWithCells(sourceCells);
+            stampSourceUri(sourceDoc);
+            const { uri: targetUri, document: targetDoc } = await createPairedTargetDocument(targetCells);
+            stubProviderForStructuralMirror(provider, targetDoc, targetUri);
+
+            await invokeHandler("promoteSubdivisionToMilestone", {
+                document: sourceDoc,
+                content: { milestoneIndex: 0, subdivisionKey: "v6" },
+            });
+
+            const targetAfter = targetDoc.buildMilestoneIndex(50);
+            assert.strictEqual(targetAfter.milestones.length, 2, "Target should have split mirroring source");
+
+            const newMs = targetDoc.getCellByIndex(targetAfter.milestones[1].cellIndex);
+            assert.strictEqual(
+                newMs?.value,
+                "Translator section",
+                "Target-only name at the promoted seam should win for the new milestone label"
+            );
+        });
+
         test("mirror is skipped when the target's milestone cell ID has diverged", async () => {
             // Pair a source whose milestone IDs are m1/m2 against a target
             // whose milestone IDs differ. The mirror must NOT touch the
