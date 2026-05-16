@@ -947,6 +947,70 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             expect(renameCalls).toHaveLength(0);
         });
 
+        // Regression: the accordion used to call `accordionRef.current.focus()`
+        // inside the same effect that registered ESC + click-outside listeners,
+        // with the parent-supplied `onClose` in its deps. Every parent re-render
+        // produced a new inline `onClose` arrow, which churned the deps and
+        // re-stole focus from any open inline rename input — making it impossible
+        // to keep typing in the subdivision rename textbox. This test guards
+        // against that by changing `onClose` between renders and asserting the
+        // subdivision rename input retains focus.
+        it("retains subdivision-rename input focus across parent re-renders that change onClose", async () => {
+            mockGetSubsectionsForMilestone = vi.fn((milestoneIdx: number) => [
+                createSubsectionWithKey(`s-${milestoneIdx}-0`, "1-5", "v1", "Opening"),
+            ]);
+            const milestoneIndex = createMockMilestoneIndex([{ value: "Luke 1", index: 0 }]);
+            const renderArgs = {
+                milestoneIndex,
+                getSubsectionsForMilestone: mockGetSubsectionsForMilestone,
+            } as Partial<React.ComponentProps<typeof MilestoneAccordion>>;
+            // Use a stable wrapper so we can rerender with a new `onClose`
+            // identity (mirroring the inline-arrow pattern parents originally
+            // used) without unmounting the component under test.
+            const { rerender } = renderMilestoneAccordion({
+                ...renderArgs,
+                onClose: vi.fn(),
+            });
+
+            const renameBtn = await screen.findByLabelText("Rename Milestone Subdivision");
+            await act(async () => {
+                fireEvent.click(renameBtn);
+            });
+
+            const input = screen.getByDisplayValue("Opening") as HTMLInputElement;
+            // Simulate a user click into the input (jsdom auto-focuses on .focus()).
+            await act(async () => {
+                input.focus();
+            });
+            expect(document.activeElement).toBe(input);
+
+            // Force a re-render with a fresh `onClose` reference, mimicking a
+            // parent re-render that passes a new inline arrow. The focus
+            // useEffect must NOT yank focus back to the accordion wrapper.
+            await act(async () => {
+                rerender(
+                    <MilestoneAccordion
+                        isOpen={true}
+                        onClose={vi.fn()}
+                        milestoneIndex={milestoneIndex}
+                        currentMilestoneIndex={0}
+                        currentSubsectionIndex={0}
+                        getSubsectionsForMilestone={mockGetSubsectionsForMilestone}
+                        requestCellsForMilestone={mockRequestCellsForMilestone}
+                        unsavedChanges={false}
+                        isSourceText={false}
+                        anchorRef={mockAnchorRef}
+                        calculateSubsectionProgress={mockCalculateSubsectionProgress}
+                        requestSubsectionProgress={mockRequestSubsectionProgress}
+                        vscode={mockVscode}
+                        initialSettingsMode={true}
+                    />
+                );
+            });
+
+            expect(document.activeElement).toBe(input);
+        });
+
         it("cancel button leaves the existing name untouched", async () => {
             mockGetSubsectionsForMilestone = vi.fn((milestoneIdx: number) => [
                 createSubsectionWithKey(`s-${milestoneIdx}-0`, "1-5", "v1", "Opening"),

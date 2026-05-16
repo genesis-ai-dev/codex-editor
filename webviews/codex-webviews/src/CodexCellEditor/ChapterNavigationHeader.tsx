@@ -168,6 +168,12 @@ ChapterNavigationHeaderProps) {
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
     const [autoDownloadAudioOnOpen, setAutoDownloadAudioOnOpenState] = useState<boolean>(false);
     const [showMilestoneAccordion, setShowMilestoneAccordion] = useState(false);
+    // Stable callback so MilestoneAccordion's effect deps don't churn on every
+    // render of this header — keeps inline-rename focus from being stolen when
+    // we re-attach ESC / click-outside listeners.
+    const closeMilestoneAccordion = useCallback(() => {
+        setShowMilestoneAccordion(false);
+    }, []);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const chapterTitleRef = useRef<HTMLDivElement>(null);
     const headerContainerRef = useRef<HTMLDivElement>(null);
@@ -1078,7 +1084,7 @@ ChapterNavigationHeaderProps) {
 
             <MilestoneAccordion
                 isOpen={showMilestoneAccordion}
-                onClose={() => setShowMilestoneAccordion(false)}
+                onClose={closeMilestoneAccordion}
                 milestoneIndex={milestoneIndex}
                 currentMilestoneIndex={currentMilestoneIndex}
                 currentSubsectionIndex={currentSubsectionIndex}

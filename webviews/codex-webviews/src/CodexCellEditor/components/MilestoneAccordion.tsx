@@ -570,40 +570,50 @@ export function MilestoneAccordion({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
 
-    // Focus trap and ESC key handling
+    // Auto-focus the accordion wrapper ONCE on each open transition. Splitting
+    // this out from the ESC / click-outside listeners is critical: when those
+    // listeners' deps (notably `onClose`, often an unstable inline arrow from
+    // the parent) churn, the combined effect re-fires and steals focus from
+    // any in-progress inline rename input (subdivision pencil edits especially
+    // — the milestone rename input lives inside an AccordionTrigger that has
+    // its own focus management so it's less affected).
+    const wasOpenRef = useRef(false);
     useEffect(() => {
-        if (isOpen && accordionRef.current) {
-            // Auto-focus the accordion when opened
+        if (isOpen && !wasOpenRef.current && accordionRef.current) {
             accordionRef.current.focus();
-
-            // Handle ESC key press
-            const handleKeyDown = (e: KeyboardEvent) => {
-                if (e.key === "Escape") {
-                    onClose();
-                }
-            };
-
-            document.addEventListener("keydown", handleKeyDown);
-
-            // Close when clicking outside
-            const handleClickOutside = (e: MouseEvent) => {
-                if (
-                    accordionRef.current &&
-                    !accordionRef.current.contains(e.target as Node) &&
-                    anchorRef.current &&
-                    !anchorRef.current.contains(e.target as Node)
-                ) {
-                    onClose();
-                }
-            };
-
-            document.addEventListener("mousedown", handleClickOutside);
-
-            return () => {
-                document.removeEventListener("keydown", handleKeyDown);
-                document.removeEventListener("mousedown", handleClickOutside);
-            };
         }
+        wasOpenRef.current = isOpen;
+    }, [isOpen]);
+
+    // ESC + click-outside listeners. These re-attach when `onClose` changes
+    // reference (cheap), but never touch focus, so inline renames stay sticky.
+    useEffect(() => {
+        if (!isOpen) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                onClose();
+            }
+        };
+
+        document.addEventListener("keydown", handleKeyDown);
+
+        const handleClickOutside = (e: MouseEvent) => {
+            if (
+                accordionRef.current &&
+                !accordionRef.current.contains(e.target as Node) &&
+                anchorRef.current &&
+                !anchorRef.current.contains(e.target as Node)
+            ) {
+                onClose();
+            }
+        };
+
+        document.addEventListener("mousedown", handleClickOutside);
+
+        return () => {
+            document.removeEventListener("keydown", handleKeyDown);
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
     }, [isOpen, onClose, anchorRef]);
 
     // Sync expanded milestone state when accordion opens
