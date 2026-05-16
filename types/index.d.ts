@@ -2072,6 +2072,17 @@ type EditorReceiveMessages =
          * restructures the document, not just relabels regions.
          */
         enableMilestonePlacementEditing?: boolean;
+        /**
+         * When true, this payload is a server-initiated push (e.g. after a
+         * structural milestone edit on the source or a mirror from another
+         * webview) and must be applied even when the webview's tracked
+         * position no longer matches `currentMilestoneIndex` /
+         * `currentSubsectionIndex`. The webview should also realign its refs
+         * to the message's position. Without this flag the webview's stale
+         * guard would reject the message and leave the accordion frozen on
+         * the pre-edit structure.
+         */
+        force?: boolean;
     }
     | {
         type: "providerSendsCellPage";
@@ -2272,6 +2283,13 @@ type EditorReceiveMessages =
         /** Optional position from provider; webview uses this when present to avoid reverting during navigation. */
         milestoneIndex?: number;
         subsectionIndex?: number;
+        /**
+         * When true, this refresh follows a server-initiated structural
+         * change that shifted the cursor. The webview must request cells at
+         * the message's `milestoneIndex` / `subsectionIndex` instead of its
+         * own (now-stale) refs.
+         */
+        force?: boolean;
     }
     | { type: "asrConfig"; content: { endpoint: string; authToken?: string; }; }
     | { type: "startBatchTranscription"; content: { count: number; }; }

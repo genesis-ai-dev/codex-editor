@@ -178,6 +178,11 @@ export async function sendMilestoneRefreshToWebview(
             "enableMilestonePlacementEditing",
             false
         );
+        // `force: true` marks these as server-initiated structural updates
+        // so the webview applies them even when its tracked position has
+        // shifted (e.g. after demote moves the cursor to milestone N-1).
+        // Without the flag the webview's stale guard rejects the message and
+        // leaves the accordion frozen on the pre-edit structure.
         safePostMessageToPanel(webviewPanel, {
             type: "providerSendsInitialContentPaginated",
             rev,
@@ -192,6 +197,7 @@ export async function sendMilestoneRefreshToWebview(
             validationCountAudio: validationCountAudio,
             useSubdivisionNumberLabels,
             enableMilestonePlacementEditing,
+            force: true,
         });
 
         safePostMessageToPanel(webviewPanel, {
@@ -199,6 +205,7 @@ export async function sendMilestoneRefreshToWebview(
             rev,
             milestoneIndex: currentPosition.milestoneIndex,
             subsectionIndex: currentPosition.subsectionIndex,
+            force: true,
         });
         debug(`[sendMilestoneRefreshToWebview] Sent updated milestone index and refreshCurrentPage for milestone ${currentPosition.milestoneIndex}, subsection ${currentPosition.subsectionIndex}`);
     } else {
