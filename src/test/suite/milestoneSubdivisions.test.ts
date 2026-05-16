@@ -1891,13 +1891,13 @@ suite("Milestone Subdivisions Test Suite", () => {
             const data = survivor?.metadata?.data as any;
             assert.deepStrictEqual(
                 data?.subdivisions,
-                [{ startCellId: "v6" }],
-                "Target's surviving milestone keeps the demoted seam as a subdivision break"
+                [{ startCellId: "v6", name: "Luke 2" }],
+                "Target's surviving milestone keeps the demoted seam as a subdivision break with the mirrored label"
             );
             assert.deepStrictEqual(
-                data?.subdivisionNamesFromSource,
-                { v6: "Luke 2" },
-                "Source's demoted label is mirrored into subdivisionNamesFromSource so the target shows it by default"
+                data?.subdivisionNamesFromSource ?? {},
+                {},
+                "Preserved demoted label is stored on subdivisions[].name, not duplicated in subdivisionNamesFromSource"
             );
         });
 
