@@ -140,7 +140,6 @@ function selectNonOverlappingChunks(chunks: ChunkAccumulator[], maxChunks: numbe
             text: chunk.text,
             startOffset: chunk.startOffset,
             endOffset: chunk.endOffset,
-            tokenCount: chunk.tokenCount,
             occurrences: chunk.occurrences,
         }));
 }

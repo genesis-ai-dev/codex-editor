@@ -351,7 +351,6 @@ export interface SimilarWordingChunk {
     text: string;
     startOffset: number;
     endOffset: number;
-    tokenCount: number;
     occurrences: SimilarWordingOccurrence[];
 }
 

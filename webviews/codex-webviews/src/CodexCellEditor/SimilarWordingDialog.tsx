@@ -166,9 +166,6 @@ export function SimilarWordingDialog({
                                                     {chunk.text}
                                                 </div>
                                                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                                    <Badge variant="outline">
-                                                        {chunk.tokenCount} words
-                                                    </Badge>
                                                     <span>
                                                         {chunk.occurrences.length} matching cell
                                                         {chunk.occurrences.length === 1 ? "" : "s"}
