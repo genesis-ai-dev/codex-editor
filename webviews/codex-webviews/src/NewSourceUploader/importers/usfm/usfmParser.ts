@@ -5,8 +5,8 @@
  * Skips empty paragraphs during import
  */
 
-import { ProcessedCell } from '../../../types/common';
-import { createProcessedCell } from '../../../utils/workflowHelpers';
+import { ProcessedCell } from '../../types/common';
+import { createProcessedCell } from '../../utils/workflowHelpers';
 import { convertUsfmInlineMarkersToHtml } from './usfmInlineMapper';
 import { createVerseCellMetadata, createParatextCellMetadata } from './cellMetadata';
 

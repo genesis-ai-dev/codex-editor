@@ -1,7 +1,6 @@
 /**
  * Standalone USFM Inline Marker Converter
  * Converts USFM inline markers to HTML and back
- * Copied from common/usfmHtmlMapper.ts to be standalone
  */
 
 const isAlphaNum = (ch: string) => /[A-Za-z0-9]/.test(ch);
@@ -572,4 +571,3 @@ export const htmlInlineToUsfm = (html: string): string => {
 
     return result.trim();
 };
-

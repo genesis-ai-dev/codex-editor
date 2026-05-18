@@ -1,3 +1,10 @@
+/**
+ * USFM Importer with round-trip export support
+ * Preserves original file structure and saves to attachments/originals
+ * Standalone implementation - doesn't rely on common/usfmUtils.ts
+ */
+
+import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterPlugin,
     FileValidationResult,
@@ -9,12 +16,9 @@ import {
     validateFileExtension,
     addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
-import {
-    validateUsfmContent,
-    processUsfmContent,
-    createNotebookPair,
-} from '../common/usfmUtils';
-import './types'; // Import type declarations
+import { parseUsfmFile } from './usfmParser';
+import { ProcessedNotebook, NotebookPair } from '../../types/common';
+import { getCorpusMarkerForBook } from '../../utils/corpusUtils';
 
 const SUPPORTED_EXTENSIONS = ['usfm', 'sfm', 'SFM', 'USFM'];
 const SUPPORTED_MIME_TYPES = ['text/plain', 'application/octet-stream'];
@@ -39,9 +43,13 @@ export const validateFile = async (file: File): Promise<FileValidationResult> =>
     // Basic content validation
     try {
         const content = await file.text();
-        const validation = validateUsfmContent(content, file.name);
-        errors.push(...validation.errors);
-        warnings.push(...validation.warnings);
+        // Basic USFM validation
+        if (!content.includes('\\')) {
+            errors.push('File does not appear to contain USFM markers');
+        }
+        if (!content.match(/\\id\s+/i)) {
+            warnings.push('No \\id marker found - some USFM files may not include this');
+        }
     } catch (error) {
         errors.push('Could not read file content');
     }
@@ -59,41 +67,95 @@ export const validateFile = async (file: File): Promise<FileValidationResult> =>
 };
 
 /**
- * Parses a USFM file into notebook cells
+ * Parses a USFM file into notebook cells with round-trip support
+ * @param file - The USFM file to parse
+ * @param onProgress - Optional progress callback
+ * @param versesOnly - If true, only parse verses (skip headers, sections, etc.) - used for target imports
  */
-export const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<ImportResult> => {
+export const parseFile = async (
+    file: File,
+    onProgress?: ProgressCallback,
+    versesOnly: boolean = false
+): Promise<ImportResult> => {
     try {
         onProgress?.(createProgress('Reading File', 'Reading USFM file...', 10));
 
-        const content = await file.text();
-        console.log("Ryder", {content});
+        // Read original file as ArrayBuffer for saving to attachments
+        const arrayBuffer = await file.arrayBuffer();
 
-        onProgress?.(createProgress('Parsing USFM', 'Parsing USFM content...', 30));
+        onProgress?.(createProgress('Parsing USFM', versesOnly ? 'Parsing USFM verses only...' : 'Parsing USFM content...', 30));
 
-        // Process the USFM content using shared utilities
-        const processedBook = await processUsfmContent(content, file.name);
+        // Parse USFM file with structure preservation
+        // If versesOnly is true, only parse verses (for target imports)
+        const parsedDocument = await parseUsfmFile(file, versesOnly);
 
         onProgress?.(createProgress('Creating Notebooks', 'Converting to notebook pairs...', 80));
 
-        // Create notebook pair using shared utility
+        // Create notebook pair with proper metadata
         const baseName = file.name.replace(/\.[^/.]+$/, '');
-        const notebookPair = createNotebookPair(baseName, processedBook.cells, 'usfm', {
-            bookCode: processedBook.bookCode,
-            bookName: processedBook.bookName,
-            totalVerses: processedBook.verseCount,
-            totalParatext: processedBook.paratextCount,
-            chapters: processedBook.chapters,
-            originalFileName: file.name,
-            importContext: {
-                importerType: 'usfm',
-                fileName: file.name,
+
+        const sourceNotebook: ProcessedNotebook = {
+            name: baseName,
+            cells: parsedDocument.cells,
+            metadata: {
+                id: uuidv4(),
                 originalFileName: file.name,
-                fileSize: file.size,
-                importTimestamp: new Date().toISOString(),
+                sourceFile: file.name,
+                // Store original file data as ArrayBuffer for saving to attachments/originals
+                originalFileData: arrayBuffer,
+                importerType: 'usfm-experimental',
+                fileType: 'usfm',
+                corpusMarker: getCorpusMarkerForBook(baseName) || 'usfm',
+                createdAt: new Date().toISOString(),
+                importContext: {
+                    importerType: 'usfm-experimental',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    fileSize: file.size,
+                    importTimestamp: new Date().toISOString(),
+                },
+                bookCode: parsedDocument.bookCode,
+                bookName: parsedDocument.bookName,
+                totalVerses: parsedDocument.verseCount,
+                totalParatext: parsedDocument.paratextCount,
+                chapters: parsedDocument.chapters,
+                footnoteCount: parsedDocument.footnoteCount,
+                // Store structure metadata for export
+                structureMetadata: {
+                    originalUsfmContent: parsedDocument.originalUsfmContent,
+                    lineMappings: parsedDocument.lineMappings, // Store line mappings for round-trip
+                },
             },
+        };
+
+        // Create codex notebook (empty cells for translation)
+        const codexCells = parsedDocument.cells.map(sourceCell => {
+            const isStyleCell = sourceCell.metadata?.type === 'style';
+            return {
+                id: sourceCell.id,
+                content: isStyleCell ? sourceCell.content : '', // Keep style cells, empty others
+                images: sourceCell.images,
+                metadata: sourceCell.metadata,
+            };
         });
 
-        // Add milestone cells to the notebook pair
+        const codexNotebook: ProcessedNotebook = {
+            name: baseName,
+            cells: codexCells,
+            metadata: {
+                ...sourceNotebook.metadata,
+                id: uuidv4(),
+                // Don't duplicate original file data in codex metadata
+                originalFileData: undefined,
+            },
+        };
+
+        const notebookPair: NotebookPair = {
+            source: sourceNotebook,
+            codex: codexNotebook,
+        };
+
+        // Add milestone cells to notebook pair
         const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
 
         onProgress?.(createProgress('Complete', 'USFM processing complete', 100));
@@ -102,13 +164,13 @@ export const parseFile = async (file: File, onProgress?: ProgressCallback): Prom
             success: true,
             notebookPair: notebookPairWithMilestones,
             metadata: {
-                bookCode: processedBook.bookCode,
-                bookName: processedBook.bookName,
-                segmentCount: processedBook.cells.length,
-                verseCount: processedBook.verseCount,
-                paratextCount: processedBook.paratextCount,
-                chapters: processedBook.chapters,
-                footnoteCount: processedBook.footnoteCount,
+                bookCode: parsedDocument.bookCode,
+                bookName: parsedDocument.bookName,
+                segmentCount: parsedDocument.cells.length,
+                verseCount: parsedDocument.verseCount,
+                paratextCount: parsedDocument.paratextCount,
+                chapters: parsedDocument.chapters,
+                footnoteCount: parsedDocument.footnoteCount,
             },
         };
 
@@ -122,11 +184,22 @@ export const parseFile = async (file: File, onProgress?: ProgressCallback): Prom
     }
 };
 
-export const usfmImporter: ImporterPlugin = {
+export const usfmExperimentalImporter: ImporterPlugin = {
     name: 'USFM Importer',
     supportedExtensions: SUPPORTED_EXTENSIONS,
     supportedMimeTypes: SUPPORTED_MIME_TYPES,
-    description: 'Import Unified Standard Format Marker (USFM) biblical text files',
+    description: 'Import Unified Standard Format Marker (USFM) biblical text files with round-trip export support. Headers are included in chapter 1.',
     validateFile,
     parseFile,
-}; 
+    exportFile: async (originalUsfmContent: string, codexCells: Array<{ kind: number; value: string; metadata: any; }>, metadata?: any) => {
+        const { exportUsfmRoundtrip } = await import('./usfmExporter');
+        const structureMetadata = metadata?.structureMetadata;
+        const lineMappings = structureMetadata?.lineMappings;
+        if (lineMappings) {
+            return exportUsfmRoundtrip(originalUsfmContent, lineMappings, codexCells);
+        } else {
+            // Fallback for old imports without lineMappings
+            return exportUsfmRoundtrip(originalUsfmContent, codexCells);
+        }
+    },
+};

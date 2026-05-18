@@ -80,9 +80,19 @@ vi.mock("quill", () => {
                 ]),
             getIndex: vi.fn().mockReturnValue(0),
             getSemanticHTML: vi.fn().mockReturnValue(""),
-            getModule: vi
-                .fn()
-                .mockReturnValue({ destroy: vi.fn(), dispose: vi.fn() }),
+            getModule: vi.fn().mockImplementation((name: string) => {
+                if (name === "clipboard") {
+                    return {
+                        addMatcher: vi.fn(),
+                        convert: vi.fn(({ html, text }: { html?: string; text?: string }) => {
+                            const insert =
+                                (text?.length ? text : html?.replace(/<[^>]*>/gim, "")) || "\n";
+                            return { ops: [{ insert }] };
+                        }),
+                    };
+                }
+                return { destroy: vi.fn(), dispose: vi.fn() };
+            }),
             focus: vi.fn(),
             on: vi.fn(),
             off: vi.fn(),
@@ -235,12 +245,13 @@ describe("Editor paste-as-plain-text", () => {
         const Quill = (await import("quill")).default;
         const quillInstance = (Quill as any).mock.results[0].value;
 
-        expect(quillInstance.insertText).toHaveBeenCalledWith(
-            0,
-            "pasted plain",
-            {},
-            "user"
-        );
+        const pasted = "pasted plain";
+        const insertCalls = quillInstance.insertText.mock.calls;
+        expect(insertCalls.length).toBe(pasted.length);
+        const start = insertCalls[0][0] as number;
+        for (let i = 0; i < pasted.length; i++) {
+            expect(insertCalls[i]).toEqual([start + i, pasted[i], {}, "user"]);
+        }
     });
 
     it("replaces selected text when there is a selection during plain-text paste", async () => {
@@ -271,12 +282,12 @@ describe("Editor paste-as-plain-text", () => {
             5,
             "user"
         );
-        expect(quillInstance.insertText).toHaveBeenCalledWith(
-            6,
-            "universe",
-            {},
-            "user"
-        );
+        const pasted = "universe";
+        const insertCalls = quillInstance.insertText.mock.calls;
+        expect(insertCalls.length).toBe(pasted.length);
+        for (let i = 0; i < pasted.length; i++) {
+            expect(insertCalls[i]).toEqual([6 + i, pasted[i], {}, "user"]);
+        }
         expect(quillInstance.setSelection).toHaveBeenCalledWith(
             14,
             0,

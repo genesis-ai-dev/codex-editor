@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { LanguageProjectStatus } from "codex-types";
+import { LanguageMetadata, LanguageProjectStatus } from "codex-types";
 
 import {
     promptForTargetLanguage,
@@ -43,6 +43,72 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                 console.error(error);
             }
         };
+    };
+
+    const getCurrentAuthor = async (): Promise<string> => {
+        try {
+            const authApi = await getAuthApi();
+            const userInfo = await authApi?.getUserInfo();
+            return userInfo?.username ?? "unknown";
+        } catch {
+            return "unknown";
+        }
+    };
+
+    const updateProjectLanguageMetadata = async (
+        language: LanguageMetadata,
+        projectStatus: LanguageProjectStatus
+    ): Promise<boolean> => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+            return false;
+        }
+
+        const author = await getCurrentAuthor();
+        const languageForMetadata: LanguageMetadata = {
+            ...language,
+            projectStatus,
+        };
+
+        const result = await MetadataManager.safeUpdateMetadata<{
+            languages?: LanguageMetadata[];
+            edits?: unknown[];
+        }>(
+            workspaceFolder,
+            (project) => {
+                const originalLanguages = project.languages ?? [];
+                const languages = [...originalLanguages];
+                const existingIndex = languages.findIndex(
+                    (item) => item.projectStatus === projectStatus
+                );
+
+                if (existingIndex >= 0) {
+                    languages[existingIndex] = languageForMetadata;
+                } else {
+                    languages.push(languageForMetadata);
+                }
+
+                project.languages = languages;
+
+                if (JSON.stringify(originalLanguages) !== JSON.stringify(languages)) {
+                    addProjectMetadataEdit(project, EditMapUtils.languages(), languages, author);
+                }
+
+                return project;
+            },
+            { author }
+        );
+
+        if (!result.success) {
+            console.error("Failed to update project language metadata:", result.error);
+            vscode.window.showErrorMessage(
+                "Failed to update project language. Please try again."
+            );
+            return false;
+        }
+
+        return true;
     };
 
     // Redirects the user to the walkthrough if they are not in the walkthrough
@@ -296,36 +362,21 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                 vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
                 return;
             }
-            const config = vscode.workspace.getConfiguration();
-            const existingTargetLanguage = config.get("targetLanguage") as any;
-            console.log("existingTargetLanguage", existingTargetLanguage);
-            if (existingTargetLanguage) {
-                const overwrite = await vscode.window.showWarningMessage(
-                    `The target language is already set to ${existingTargetLanguage.refName}. Do you want to overwrite it?`,
-                    "Yes",
-                    "No"
+            const projectDetails = await promptForTargetLanguage();
+            const targetLanguage = projectDetails?.targetLanguage;
+            if (targetLanguage) {
+                disableSyncTemporarily();
+                const metadataUpdated = await updateProjectLanguageMetadata(
+                    targetLanguage,
+                    LanguageProjectStatus.TARGET
                 );
-                if (overwrite === "Yes") {
-                    const projectDetails = await promptForTargetLanguage();
-                    const targetLanguage = projectDetails?.targetLanguage;
-                    if (targetLanguage) {
-                        await updateProjectSettings(projectDetails);
-                        vscode.window.showInformationMessage(
-                            `Target language updated to ${targetLanguage.refName}.`
-                        );
-                    }
-                } else {
-                    vscode.window.showInformationMessage("Target language update cancelled.");
+                if (!metadataUpdated) {
+                    return;
                 }
-            } else {
-                const projectDetails = await promptForTargetLanguage();
-                const targetLanguage = projectDetails?.targetLanguage;
-                if (targetLanguage) {
-                    await updateProjectSettings(projectDetails);
-                    vscode.window.showInformationMessage(
-                        `Target language set to ${targetLanguage.refName}.`
-                    );
-                }
+                await updateProjectSettings(projectDetails);
+                vscode.window.showInformationMessage(
+                    `Target language set to ${targetLanguage.refName}.`
+                );
             }
         })
     );
@@ -343,6 +394,14 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                 const sourceLanguage = projectDetails?.sourceLanguage;
                 console.log("sourceLanguage", sourceLanguage);
                 if (sourceLanguage) {
+                    disableSyncTemporarily();
+                    const metadataUpdated = await updateProjectLanguageMetadata(
+                        sourceLanguage,
+                        LanguageProjectStatus.SOURCE
+                    );
+                    if (!metadataUpdated) {
+                        return;
+                    }
                     await updateProjectSettings(projectDetails);
                     vscode.window.showInformationMessage(
                         `Source language set to ${sourceLanguage.refName}.`

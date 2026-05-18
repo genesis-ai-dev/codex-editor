@@ -77,9 +77,21 @@ vi.mock("quill", () => {
         getFormat: vi.fn(),
         removeFormat: vi.fn(),
         setSelection: vi.fn(),
-        getModule: vi.fn().mockReturnValue({
-            destroy: vi.fn(),
-            dispose: vi.fn(),
+        getModule: vi.fn().mockImplementation((name: string) => {
+            if (name === "clipboard") {
+                return {
+                    addMatcher: vi.fn(),
+                    convert: vi.fn(({ html, text }: { html?: string; text?: string }) => {
+                        const insert =
+                            (text?.length ? text : html?.replace(/<[^>]*>/gim, "")) || "\n";
+                        return { ops: [{ insert }] };
+                    }),
+                };
+            }
+            return {
+                destroy: vi.fn(),
+                dispose: vi.fn(),
+            };
         }),
         focus: vi.fn(),
         on: vi.fn(),

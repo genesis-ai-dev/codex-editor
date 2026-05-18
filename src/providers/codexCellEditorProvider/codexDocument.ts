@@ -26,6 +26,7 @@ import { getSQLiteIndexManager, isDBShuttingDown } from "../../activationHelpers
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
 import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./utils/cellUtils";
 import { formatJsonForNotebookFile, normalizeNotebookFileText } from "../../utils/notebookFileFormattingUtils";
+import { serializeNotebookWithCellCache } from "./utils/cachedNotebookSerializer";
 import { atomicWriteUriText, readExistingFileOrThrow } from "../../utils/notebookSafeSaveUtils";
 
 // Define debug function locally
@@ -69,6 +70,24 @@ export class CodexCellDocument implements vscode.CustomDocument {
     // Track cell IDs that have been modified since last save to avoid re-indexing ALL cells.
     // Only cells in this set will be synced to the database on save.
     private _dirtyCellIds: Set<string> = new Set();
+
+    // Per-cell serialized JSON cache, keyed by cell.metadata.id. Avoids
+    // re-stringifying every cell on every save when only a handful changed.
+    // Invalidated by markCellMutated(); cleared on revert.
+    private _serializedCellCache: Map<string, string> = new Map();
+
+    // Last text we successfully wrote to disk. When the on-disk content still
+    // matches this value at the start of the next save, no concurrent writer
+    // has touched the file and we can skip the merge step entirely.
+    // Reset to null after a merge-write since _documentData no longer fully
+    // reflects what landed on disk.
+    private _lastWrittenContent: string | null = null;
+
+    // Save coalescing: a single in-flight save chain handles concurrent
+    // saveCustomDocument() callers, with at most one extra save queued behind
+    // the in-flight one to capture changes that arrived during the save.
+    private _saveChainPromise: Promise<void> | null = null;
+    private _pendingSaveRequested: boolean = false;
 
     // Pending index operations that failed because the index manager was unavailable.
     // These are replayed when the index manager becomes available again, ensuring
@@ -117,6 +136,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
         try {
             this._documentData = JSON.parse(initialContent);
             this._edits = [];
+            // Seed the "last written" content with the on-disk text we just
+            // loaded. As long as no concurrent writer touches the file, the
+            // first save can short-circuit the merge step (existing.content
+            // will byte-equal this snapshot).
+            this._lastWrittenContent = initialContent;
             debug(
                 "Constructed CodexCellDocument from json document, cells count: ",
                 this._documentData.cells.length
@@ -364,7 +388,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // This avoids side effects (e.g., merge logic using edit history) from updating the stored value.
             // If the UI needs to reflect the preview, it should use a separate webview-only channel.
             this._isDirty = true;
-            this._dirtyCellIds.add(cellId);
+            this.markCellMutated(cellId);
             // Notify both VS Code and the webview that edits changed, so the provider can mark dirty and VS Code can autosave
             this._onDidChangeForVsCodeAndWebview.fire({
                 edits: [{ cellId, newContent, editType }],
@@ -481,7 +505,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, newContent, editType }],
         });
@@ -571,6 +595,28 @@ export class CodexCellDocument implements vscode.CustomDocument {
      */
     private invalidateIndexCaches(): void {
         this._cachedFileId = null;
+    }
+
+    /**
+     * Record that a cell has been mutated. Adds the cell to the dirty set
+     * (so it will be re-synced to the SQLite index on the next save) and
+     * invalidates its cached serialization (so the next save re-stringifies
+     * it instead of using the stale cached JSON).
+     *
+     * This is the centralized replacement for `this._dirtyCellIds.add(cellId)`;
+     * always prefer this helper over touching `_dirtyCellIds` directly so that
+     * the serialization cache stays consistent with the in-memory state.
+     *
+     * Public so callers that perform direct cell mutations (bypassing the
+     * normal update methods — e.g. the cell-merge handler in
+     * `codexCellEditorMessagehandling.ts`) can mark their writes. Skipping
+     * this call after a direct mutation will leak stale serializations into
+     * the next `save()` / `getText()` and silently drop the mutation from
+     * what's written to disk.
+     */
+    public markCellMutated(cellId: string): void {
+        this._dirtyCellIds.add(cellId);
+        this._serializedCellCache.delete(cellId);
     }
 
     /**
@@ -782,15 +828,85 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return { ...this._documentData, metadata };
     }
 
+    /**
+     * Produce the canonical on-disk text for this document, using the
+     * per-cell serialization cache to avoid re-stringifying unchanged cells.
+     *
+     * Output is byte-identical to
+     * `formatJsonForNotebookFile(this.getDocumentDataForSerialization())`.
+     */
+    private serializeForDisk(): string {
+        return serializeNotebookWithCellCache(
+            this.getDocumentDataForSerialization(),
+            this._serializedCellCache
+        );
+    }
+
+    /**
+     * Public save entry point. Coalesces concurrent callers so at most one
+     * save is in flight at a time, with a single coalesced follow-up save if
+     * any new caller arrives while a save is running. This prevents redundant
+     * work when, for example, a webview save lands while a sync-triggered
+     * save is already partway through serialization.
+     */
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
-        const ourContent = formatJsonForNotebookFile(this.getDocumentDataForSerialization());
+        if (this._saveChainPromise) {
+            // A save is already running. Mark a follow-up so the running
+            // chain will do one more save after it completes, capturing any
+            // mutations that arrived while the current save was in-flight.
+            this._pendingSaveRequested = true;
+            return this._saveChainPromise;
+        }
+
+        this._saveChainPromise = this._runSaveChain(cancellation);
+        try {
+            await this._saveChainPromise;
+        } finally {
+            this._saveChainPromise = null;
+        }
+    }
+
+    /**
+     * Drive a save loop that runs the actual save once, then keeps running
+     * additional saves as long as new mutations arrive (signalled by
+     * `_pendingSaveRequested`). The loop terminates when no new save was
+     * requested during the previous iteration.
+     */
+    private async _runSaveChain(cancellation: vscode.CancellationToken): Promise<void> {
+        do {
+            this._pendingSaveRequested = false;
+            await this._doSave(cancellation);
+        } while (this._pendingSaveRequested);
+    }
+
+    /**
+     * The actual save logic. Do NOT call directly — go through `save()` so
+     * coalescing is honoured.
+     */
+    private async _doSave(cancellation: vscode.CancellationToken): Promise<void> {
+        const ourContent = this.serializeForDisk();
 
         // If a file exists but can't be read, we must not overwrite (this can permanently nuke data).
         const existing = await readExistingFileOrThrow(this.uri);
 
+        // Skip-merge fast path: if the on-disk content byte-equals what we
+        // last successfully wrote, no concurrent writer has touched the file
+        // and `ourContent` is a valid superset of the on-disk state. We can
+        // skip `resolveCodexCustomMerge` entirely (which involves parsing
+        // both sides and walking every cell) and go straight to writing.
+        const canSkipMerge =
+            existing.kind === "readable" &&
+            this._lastWrittenContent !== null &&
+            existing.content === this._lastWrittenContent;
+
         if (existing.kind === "missing") {
             // Initial write when file does not yet exist
             await atomicWriteUriText(this.uri, ourContent);
+            this._lastWrittenContent = ourContent;
+        } else if (canSkipMerge) {
+            // Disk reflects our last write; safe to write our state directly.
+            await atomicWriteUriText(this.uri, ourContent);
+            this._lastWrittenContent = ourContent;
         } else {
             const { resolveCodexCustomMerge } = await import("../../projectManager/utils/merge/resolvers");
             const mergedContent = await resolveCodexCustomMerge(ourContent, existing.content);
@@ -815,6 +931,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
             }
 
             await atomicWriteUriText(this.uri, candidate);
+
+            // After a merge, the on-disk content may include "their" edits
+            // that aren't in our `_documentData` — so we cannot use it as
+            // the next-save fast-path baseline (writing `ourContent`
+            // directly would silently drop those edits). Fall back to the
+            // conservative path: null out the baseline so the next save
+            // re-merges. The save after that one (assuming no new
+            // concurrent writer) will re-establish the fast path.
+            this._lastWrittenContent = null;
         }
 
         // Record save timestamp to prevent file watcher from reverting our own save
@@ -833,7 +958,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         cancellation: vscode.CancellationToken,
         backup: boolean = false
     ): Promise<void> {
-        const text = formatJsonForNotebookFile(this.getDocumentDataForSerialization());
+        const text = this.serializeForDisk();
         await atomicWriteUriText(targetResource, text);
 
         // Sync only modified cells for non-backup saves
@@ -856,12 +981,20 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     public async revert(cancellation?: vscode.CancellationToken): Promise<void> {
         const diskContent = await vscode.workspace.fs.readFile(this.uri);
-        this._documentData = JSON.parse(diskContent.toString());
+        const diskText = diskContent.toString();
+        this._documentData = JSON.parse(diskText);
         // Invalidate milestone index cache since document was reverted from disk
         this.invalidateMilestoneIndexCache();
         this._edits = [];
         this._isDirty = false; // Reset dirty flag
         this._dirtyCellIds.clear(); // Discard stale dirty IDs — document is back to saved state
+        // Reset the per-cell serialization cache: every cell object was just
+        // replaced with a fresh parse, so the cached strings keyed by id no
+        // longer match the in-memory references.
+        this._serializedCellCache.clear();
+        // Disk now reflects what we have in memory; the next save can
+        // skip-merge as long as no other writer touches the file in between.
+        this._lastWrittenContent = diskText;
         this._onDidChangeForWebview.fire({
             content: this.getText(),
             edits: [],
@@ -880,7 +1013,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public getText(): string {
-        return formatJsonForNotebookFile(this.getDocumentDataForSerialization());
+        return this.serializeForDisk();
     }
 
     public getCellContent(cellId: string): QuillCellContent | undefined {
@@ -1016,7 +1149,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, timestamps }],
         });
@@ -1091,7 +1224,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         });
 
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, deleted: true }],
         });
@@ -1157,7 +1290,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
-        this._dirtyCellIds.add(newCellId);
+        this.markCellMutated(newCellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ newCellId, referenceCellId, cellType, data }],
         });
@@ -2231,7 +2364,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, newLabel }],
         });
@@ -2311,7 +2444,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, isLocked }],
         });
@@ -2454,7 +2587,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark document as dirty
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
 
         // Notify listeners that the document has changed
         this._onDidChangeForVsCodeAndWebview.fire({
@@ -2564,7 +2697,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark document as dirty
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
 
         // Notify listeners that the document has changed
         this._onDidChangeForVsCodeAndWebview.fire({
@@ -2660,7 +2793,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     edit.validatedBy = finalValidatedBy;
                     changesDetected = true;
                     if (cell.metadata?.id) {
-                        this._dirtyCellIds.add(cell.metadata.id);
+                        this.markCellMutated(cell.metadata.id);
                     }
                 }
             }
@@ -2949,7 +3082,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
 
         // Emit change events
         this._onDidChangeForVsCodeAndWebview.fire({
@@ -3021,7 +3154,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify listeners
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3069,7 +3202,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify both VS Code and webview so the change is persisted
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3199,7 +3332,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify VS Code (so the file is persisted) and the webview
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3250,7 +3383,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify VS Code (so the file is persisted) and the webview
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3288,7 +3421,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify listeners
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3350,7 +3483,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     }
                     hasChanges = true;
                     if (cell.metadata?.id) {
-                        this._dirtyCellIds.add(cell.metadata.id);
+                        this.markCellMutated(cell.metadata.id);
                     }
                 }
             }
@@ -3405,7 +3538,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify listeners
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });

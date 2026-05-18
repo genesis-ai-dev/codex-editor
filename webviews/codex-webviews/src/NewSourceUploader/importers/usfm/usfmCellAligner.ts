@@ -8,7 +8,7 @@
  * order and looks up matching imported content, keeping preface/header cells in place.
  */
 
-import { CellAligner, AlignedCell, ImportedContent } from '../../../types/plugin';
+import { CellAligner, AlignedCell, ImportedContent } from '../../types/plugin';
 import type { CustomNotebookCellData } from 'types';
 
 type MatchResult = {
@@ -191,4 +191,3 @@ export const usfmCellAligner: CellAligner = async (
 
     return alignedCells;
 };
-
