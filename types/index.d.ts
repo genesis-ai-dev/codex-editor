@@ -2244,6 +2244,22 @@ type EditorReceiveMessages =
         type: "providerSendsAudioAttachments";
         // Availability now distinguishes between real local files vs LFS pointer placeholders
         attachments: { [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none"; };
+        /**
+         * Per-cell `selectedAudioId` snapshot, when known by the sender.
+         *
+         * Webviews use this to detect remote selection changes that arrive via sync.
+         * Locally-driven selection paths (`selectAudioAttachment`/`deselectAudioAttachment`)
+         * already fire `audioAttachmentSelected`, which handles cache invalidation; they
+         * don't need to populate this field. The post-sync broadcast (`refreshAudioAttachmentsAfterSync`)
+         * MUST populate this field so webviews can bust their `cellId`-keyed audio caches
+         * when a teammate's selection change arrives.
+         *
+         * Values:
+         *   - `string` — the explicit `selectedAudioId` for that cell
+         *   - `null`   — the cell has no explicit selection
+         *   - key absent — the sender doesn't know / didn't include; webview treats as "no info" (no-op)
+         */
+        selections?: { [cellId: string]: string | null; };
     }
     | {
         type: "providerSendsAudioData";

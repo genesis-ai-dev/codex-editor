@@ -2165,6 +2165,48 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 >;
                 const stateForCell = availability[cellMarkers[0]];
 
+                // Detect remote selection changes carried by sync broadcasts.
+                // Local select/deselect already dispatches `audioAttachmentSelected`,
+                // whose handler (above) does the full cache-bust + reload dance.
+                // When that handler hasn't fired — i.e. a teammate's selection arrived
+                // via sync — we synthesize the same event here so the existing pipeline
+                // also runs in the sync case.  Without this, `audioBlob` would keep
+                // holding the previous attachment's bytes and the early `return` below
+                // (when audioBlob is set) would prevent any reload.
+                const selections = (message as any).selections as
+                    | Record<string, string | null>
+                    | undefined;
+                if (
+                    selections &&
+                    Object.prototype.hasOwnProperty.call(selections, cellMarkers[0])
+                ) {
+                    const incomingSelection = selections[cellMarkers[0]];
+                    if (
+                        incomingSelection !== currentSelectedAudioId &&
+                        // Treat "" and null as equivalent (cleared selection); avoids
+                        // a spurious bust on the first broadcast after `clearAudioSelection`.
+                        !(
+                            (incomingSelection === null || incomingSelection === "") &&
+                            (currentSelectedAudioId === null || currentSelectedAudioId === "")
+                        )
+                    ) {
+                        window.dispatchEvent(
+                            new MessageEvent("message", {
+                                data: {
+                                    type: "audioAttachmentSelected",
+                                    content: {
+                                        cellId: cellMarkers[0],
+                                        audioId: incomingSelection,
+                                        success: true,
+                                        updatedAvailability: stateForCell,
+                                    },
+                                },
+                            })
+                        );
+                        return;
+                    }
+                }
+
                 // The cell has no audio that should be playing in the editor. Clear
                 // in-memory blob/url so getAudioTabMode flips off "waveform" instead
                 // of getting stuck on stale data after a sync/delete/deselect, and

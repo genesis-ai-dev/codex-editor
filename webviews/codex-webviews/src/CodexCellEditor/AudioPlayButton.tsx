@@ -24,6 +24,13 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
         const [isLoading, setIsLoading] = useState(false);
         const pendingPlayRef = useRef(false);
         const audioRef = useRef<HTMLAudioElement | null>(null);
+        // Last `selectedAudioId` we observed for this cell on a broadcast.
+        // `undefined` means "we haven't seen one yet" — used as a sentinel so the
+        // first broadcast just initializes the ref instead of busting the cache.
+        // Subsequent broadcasts whose value differs indicate a remote selection
+        // change (e.g. a teammate's sync), and we must drop the `cellId`-keyed
+        // cache so the next play fetches fresh bytes for the new attachment.
+        const lastKnownSelectedAudioIdRef = useRef<string | null | undefined>(undefined);
 
         useMessageHandler(
             "cellContentDisplay-audioData",
@@ -40,6 +47,33 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                             URL.revokeObjectURL(audioUrl);
                         }
                         setAudioUrl(null);
+                    }
+
+                    // Detect remote selection changes carried by sync broadcasts.
+                    // Local select/deselect already fires `audioAttachmentSelected` with
+                    // its own cache-bust path, so this only kicks in for sync-driven
+                    // changes where no such event is sent.  Without this, the cell-list
+                    // Play button would keep playing the previous attachment after sync.
+                    const selections = (message as any).selections as
+                        | Record<string, string | null>
+                        | undefined;
+                    if (selections && Object.prototype.hasOwnProperty.call(selections, cellId)) {
+                        const incomingSelection = selections[cellId];
+                        const previousSelection = lastKnownSelectedAudioIdRef.current;
+                        lastKnownSelectedAudioIdRef.current = incomingSelection;
+                        if (previousSelection !== undefined && previousSelection !== incomingSelection) {
+                            clearCachedAudio(cellId);
+                            if (audioRef.current) {
+                                audioRef.current.pause();
+                                audioRef.current.src = "";
+                            }
+                            if (audioUrl && audioUrl.startsWith("blob:")) {
+                                URL.revokeObjectURL(audioUrl);
+                            }
+                            setAudioUrl(null);
+                            setIsPlaying(false);
+                            pendingPlayRef.current = false;
+                        }
                     }
                     setIsLoading(false);
                 }

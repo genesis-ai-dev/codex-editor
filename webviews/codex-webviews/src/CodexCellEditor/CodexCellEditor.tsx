@@ -36,6 +36,7 @@ import { getVSCodeAPI } from "../shared/vscodeApi";
 import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import { clearCachedAudio } from "../lib/audioCache";
 import { createCacheHelpers, createProgressCacheHelpers } from "./utils";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import { FloatingSearchBar, SearchMatch } from "./FloatingSearchBar";
@@ -356,6 +357,15 @@ const CodexCellEditor: React.FC = () => {
             | "missing";
     }>({});
 
+    // Webview-level snapshot of the last `selectedAudioId` seen per cell on a
+    // `providerSendsAudioAttachments` broadcast.  Used by the cache-bust handler
+    // below to drop stale entries from the module-scoped `audioDataUrlCache`
+    // even when the affected cell isn't currently rendered (e.g. paginated
+    // off).  Per-cell `AudioPlayButton`/`TextCellEditor` listeners also do
+    // their own local cleanup; this ref closes the gap for cells with no
+    // mounted React component to react to the broadcast.
+    const lastKnownAudioSelectionsRef = useRef<Map<string, string | null>>(new Map());
+
     // Add cells per page configuration
     const [cellsPerPage] = useState<number>((window as any).initialData?.cellsPerPage || 50);
 
@@ -390,6 +400,58 @@ const CodexCellEditor: React.FC = () => {
 
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
+
+    // Webview-level audio cache invalidator.
+    //
+    // The per-cell `AudioPlayButton` and `TextCellEditor` listeners only run
+    // for cells whose React components are currently mounted — i.e. the cells
+    // on the active page plus the open editor cell.  Cells outside the current
+    // paginated page have no listener to receive the broadcast, so if a sync
+    // changes their `selectedAudioId` the module-scoped `audioDataUrlCache`
+    // can keep serving the *previous* attachment's bytes the next time the
+    // user paginates back to that cell.
+    //
+    // This handler closes that gap: it runs for the lifetime of the codex
+    // webview (CodexCellEditor is the always-mounted root), tracks the last
+    // known selection per cell, and clears the `cellId`-keyed audio cache
+    // whenever a broadcast carries a different selection.  Per-cell handlers
+    // continue to manage their own React state and may also call
+    // `clearCachedAudio` for the cell they own; the duplicate work is
+    // harmless because `clearCachedAudio` is an idempotent `Map.delete`.
+    useMessageHandler(
+        "codexCellEditor-audioSelectionCacheBust",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type !== "providerSendsAudioAttachments") return;
+            const selections = (message as any).selections as
+                | Record<string, string | null>
+                | undefined;
+            if (!selections) return;
+
+            const map = lastKnownAudioSelectionsRef.current;
+            for (const [cellId, incoming] of Object.entries(selections)) {
+                const hadPrevious = map.has(cellId);
+                const previous = map.get(cellId);
+                map.set(cellId, incoming);
+                // Sentinel: skip the first-ever broadcast for a cell so we
+                // don't wipe a cache entry that was just hydrated by an
+                // in-flight `requestAudioForCell` response.
+                if (!hadPrevious) continue;
+                if (previous === incoming) continue;
+                // Treat "" and null as equivalent (cleared selection) to
+                // avoid a spurious bust on the first broadcast after a
+                // `clearAudioSelection`.
+                if (
+                    (previous === null || previous === "") &&
+                    (incoming === null || incoming === "")
+                ) {
+                    continue;
+                }
+                clearCachedAudio(cellId);
+            }
+        },
+        []
+    );
 
     // Batch transcription handler
     useMessageHandler(

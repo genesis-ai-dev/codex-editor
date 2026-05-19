@@ -4568,6 +4568,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 if (!ws) continue;
 
                 const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "unselected" | "none"; } = {};
+                // Per-cell `selectedAudioId` snapshot. Included in the broadcast so webviews
+                // can detect remote selection changes (a teammate selected a different audio
+                // for the cell) and bust their `cellId`-keyed caches. Without this, the
+                // local cell-list "Play" button and the editor's playback waveform would
+                // continue using the previous attachment's cached bytes after a sync —
+                // because no `audioAttachmentSelected` event fires for sync-driven changes.
+                const selections: { [cellId: string]: string | null; } = {};
                 // Check audio availability for all cells using getCurrentAttachment()
                 let notebookCells: any[] = [];
                 try {
@@ -4583,6 +4590,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     const history = document.getAttachmentHistory(cellId, "audio");
 
                     const currentAttachment = document.getCurrentAttachment(cellId, "audio");
+                    // Capture the explicit selection (or null) for every cell, even those
+                    // with no current attachment — a `null` value still informs webviews
+                    // that the prior selection was cleared remotely.
+                    selections[cellId] = document.getExplicitAudioSelection(cellId) ?? null;
 
                     if (!currentAttachment) {
                         const hasMissingInHistory = history.some((h: any) => h.attachment?.isMissing && !h.attachment?.isDeleted);
@@ -4624,6 +4635,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     safePostMessageToPanel(webviewPanel, {
                         type: "providerSendsAudioAttachments",
                         attachments: availability,
+                        selections,
                     });
 
                     debug(`Refreshed audio attachments for ${Object.keys(availability).length} cells in ${documentUri}`);
