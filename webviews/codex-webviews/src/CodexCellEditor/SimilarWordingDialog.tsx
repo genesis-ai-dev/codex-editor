@@ -77,7 +77,7 @@ export function SimilarWordingDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-h-[86vh] max-w-[860px] overflow-hidden p-0">
+            <DialogContent className="max-h-[86vh] w-[calc(100%-2rem)] max-w-[860px] overflow-hidden p-0">
                 <DialogHeader className="border-b px-6 pb-4 pt-6">
                     <DialogTitle className="flex items-center gap-2">
                         <AlertCircle className="h-5 w-5 text-amber-500" />
@@ -101,7 +101,8 @@ export function SimilarWordingDialog({
                                 <span className="text-destructive">{error}</span>
                             ) : segments.length > 0 ? (
                                 segments.map((segment, index) => {
-                                    if (!segment.chunk) return <span key={index}>{segment.text}</span>;
+                                    if (!segment.chunk)
+                                        return <span key={index}>{segment.text}</span>;
                                     const isSelected = selectedChunkIndex === segment.chunkIndex;
                                     return (
                                         <button
@@ -198,7 +199,8 @@ export function SimilarWordingDialog({
                                                                     cellLabel: occurrence.cellLabel,
                                                                 })}
                                                             </div>
-                                                            {occurrence.isValidated !== undefined && (
+                                                            {occurrence.isValidated !==
+                                                                undefined && (
                                                                 <Badge
                                                                     variant={
                                                                         occurrence.isValidated
@@ -219,7 +221,9 @@ export function SimilarWordingDialog({
                                                             className="h-8 w-8 shrink-0 p-0"
                                                             title="Pin this cell in Parallel Passages"
                                                             aria-label="Pin this cell in Parallel Passages"
-                                                            onClick={() => onPinCell(occurrence.cellId)}
+                                                            onClick={() =>
+                                                                onPinCell(occurrence.cellId)
+                                                            }
                                                         >
                                                             <Pin className="h-4 w-4" />
                                                         </Button>
