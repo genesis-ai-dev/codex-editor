@@ -160,6 +160,7 @@ interface CellEditorProps {
     vscode?: any;
     isSourceText?: boolean;
     isAuthenticated?: boolean;
+    onInspectSimilarWording?: (cellId: string, targetContent: string) => void;
 }
 
 // Simple ISO-639-1 to ISO-639-3 mapping for common languages; default to 'eng'
@@ -266,6 +267,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     vscode,
     isSourceText,
     isAuthenticated,
+    onInspectSimilarWording,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -903,6 +905,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
     };
     const cellHasContent =
         getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !== "";
+    const inspectableEditorContent =
+        editorContent || contentBeingUpdated.cellContent || cellContent || "";
+    const hasInspectableEditorContent =
+        getCleanedHtml(inspectableEditorContent)
+            .replace(/<[^>]*>/g, " ")
+            .replace(/&nbsp;/g, " ")
+            .replace(/\s+/g, " ")
+            .trim().length > 0;
+    const canInspectSimilarWording =
+        !isSourceText && !!onInspectSimilarWording && hasInspectableEditorContent;
+
+    const handleInspectSimilarWording = () => {
+        if (!canInspectSimilarWording) return;
+        onInspectSimilarWording?.(cellMarkers[0], getCleanedHtml(inspectableEditorContent));
+    };
 
     const handleContentUpdate = (newContent: string) => {
         // Clean suggestion markup before updating content
@@ -2519,6 +2536,30 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 </TooltipContent>
                             </Tooltip>
                         </TooltipProvider>
+                        {!isSourceText && (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            onClick={handleInspectSimilarWording}
+                                            variant="outline"
+                                            size="sm"
+                                            title="See what this translation may be based on"
+                                            disabled={!canInspectSimilarWording}
+                                            className="h-8 gap-1.5 px-2"
+                                        >
+                                            <AlertCircle className="h-4 w-4" />
+                                            <span className="hidden sm:inline">
+                                                Why this translation?
+                                            </span>
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        <p>See matching translations that may have influenced this result</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        )}
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>

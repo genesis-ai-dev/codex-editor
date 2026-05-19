@@ -9,6 +9,7 @@ import {
     EditorReceiveMessages,
     CellIdGlobalState,
     MilestoneIndex,
+    SimilarWordingInspectionResult,
 } from "../../../../types";
 import { CodexCellTypes } from "../../../../types/enums";
 import { ChapterNavigationHeader } from "./ChapterNavigationHeader";
@@ -38,6 +39,7 @@ import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { createCacheHelpers, createProgressCacheHelpers } from "./utils";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import { FloatingSearchBar, SearchMatch } from "./FloatingSearchBar";
+import { SimilarWordingDialog } from "./SimilarWordingDialog";
 
 const DEBUG_ENABLED = false; // todo: turn this on and clean up the functions that are getting called thousands of times, probably once per cell
 
@@ -226,6 +228,16 @@ const CodexCellEditor: React.FC = () => {
         {} as EditorCellContent
     );
     const [currentEditingCellId, setCurrentEditingCellId] = useState<string | null>(null);
+    const [similarWordingState, setSimilarWordingState] = useState<{
+        open: boolean;
+        loading: boolean;
+        requestedCellId?: string;
+        result?: SimilarWordingInspectionResult;
+        error?: string;
+    }>({
+        open: false,
+        loading: false,
+    });
 
     // Add a state for pending validations count
     const [pendingValidationsCount, setPendingValidationsCount] = useState(0);
@@ -613,6 +625,80 @@ const CodexCellEditor: React.FC = () => {
             }
         },
         []
+    );
+
+    useMessageHandler(
+        "codexCellEditor-similarWordingInspection",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type === "similarWordingInspectionResult") {
+                const result = message.content as SimilarWordingInspectionResult;
+                setSimilarWordingState((prev) => {
+                    if (prev.requestedCellId && prev.requestedCellId !== result.cellId) {
+                        return prev;
+                    }
+                    return {
+                        open: true,
+                        loading: false,
+                        requestedCellId: result.cellId,
+                        result,
+                    };
+                });
+            }
+            if (message?.type === "similarWordingInspectionError") {
+                const { cellId, error } = message.content as { cellId: string; error: string; };
+                setSimilarWordingState((prev) => {
+                    if (prev.requestedCellId && prev.requestedCellId !== cellId) {
+                        return prev;
+                    }
+                    return {
+                        open: true,
+                        loading: false,
+                        requestedCellId: cellId,
+                        error,
+                    };
+                });
+            }
+        },
+        []
+    );
+
+    const handleInspectSimilarWording = useCallback(
+        (cellId: string, targetContent: string) => {
+            setSimilarWordingState({
+                open: true,
+                loading: true,
+                requestedCellId: cellId,
+            });
+            vscode.postMessage({
+                command: "requestSimilarWordingInspection",
+                content: { cellId, targetContent },
+            } as EditorPostMessages);
+        },
+        [vscode]
+    );
+
+    const handleSearchSimilarWordingChunk = useCallback(
+        (query: string) => {
+            vscode.postMessage({
+                command: "expandSearchToAllFiles",
+                content: { query },
+            } as EditorPostMessages);
+        },
+        [vscode]
+    );
+
+    const handlePinSimilarWordingCell = useCallback(
+        (cellId: string) => {
+            vscode.postMessage({
+                command: "executeCommand",
+                content: {
+                    command: "parallelPassages.pinCellById",
+                    args: [cellId],
+                },
+            } as EditorPostMessages);
+        },
+        [vscode]
     );
 
     // Request search match counts from extension
@@ -3226,6 +3312,21 @@ const CodexCellEditor: React.FC = () => {
                 isSourceText={isSourceText}
             />
 
+            <SimilarWordingDialog
+                open={similarWordingState.open}
+                loading={similarWordingState.loading}
+                error={similarWordingState.error}
+                result={similarWordingState.result}
+                onOpenChange={(open) =>
+                    setSimilarWordingState((prev) => ({
+                        ...prev,
+                        open,
+                    }))
+                }
+                onSearchChunk={handleSearchSimilarWordingChunk}
+                onPinCell={handlePinSimilarWordingCell}
+            />
+
             <div className="codex-cell-editor">
                 <div
                     className="static-header bg-background shadow-md"
@@ -3413,6 +3514,7 @@ const CodexCellEditor: React.FC = () => {
                             currentMilestoneIndex={currentMilestoneIndex}
                             currentSubsectionIndex={currentSubsectionIndex}
                             cellsPerPage={cellsPerPage}
+                            onInspectSimilarWording={handleInspectSimilarWording}
                         />
                     </div>
                 </div>
