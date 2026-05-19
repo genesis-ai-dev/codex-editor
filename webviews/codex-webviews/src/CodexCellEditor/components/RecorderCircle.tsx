@@ -6,13 +6,16 @@ import { cn } from "../../lib/utils";
 /**
  * Audio recorder button.  Three visual states sharing one button:
  *   - idle: theme primary, mic icon, expanding ring-pulse halo
- *   - countdown: green tint, big digit, expanding ring-pulse halo
+ *   - countdown: green tint, big animated digit (no halo)
  *   - recording: theme destructive, square stop icon, expanding ring-pulse halo
  *
- * All three states share the same outward "pulse" halo for visual consistency;
- * only the colour tint changes per state.  The live mic-level visualization
- * is intentionally NOT in this component — it lives in `RecorderWaveform.tsx`
- * as a single-canvas scrolling waveform rendered below the button.
+ * Idle and recording share the same outward "pulse" halo as an attention cue.
+ * Countdown deliberately omits the halo: the per-digit scale/fade already
+ * draws the eye each second, and stacking a continuous halo on top of it
+ * reads as visual noise during the "preparing" beat.  The live mic-level
+ * visualization is intentionally NOT in this component — it lives in
+ * `RecorderWaveform.tsx` as a single-canvas scrolling waveform rendered
+ * below the button.
  *
  * Geometry:
  *   - Outer container is 128x128 so the ring-pulse halo can scale past the
@@ -49,26 +52,25 @@ export const RecorderCircle: React.FC<RecorderCircleProps> = ({
             className="relative inline-flex items-center justify-center"
             style={{ width: CONTAINER_DIAMETER, height: CONTAINER_DIAMETER }}
         >
-            {/* Ring-pulse halo shared by all three states.  Single animation;
-                only the border tint changes per state.  The parent's
-                overflow-visible lets the halo expand past the button edge. */}
-            <span
-                aria-hidden="true"
-                className={cn(
-                    "absolute rounded-full border-2 pointer-events-none",
-                    "animate-[var(--animate-recorder-ring-pulse)]",
-                    isIdle && "border-primary/60",
-                    // Countdown intentionally uses an emerald tint rather than a
-                    // ShadCN token: ShadCN has no semantic "preparing/go" colour
-                    // and the green is a UI convention, not a brand colour.
-                    isCountdown && "border-emerald-500/60",
-                    isRecording && "border-destructive/60"
-                )}
-                style={{
-                    width: BUTTON_DIAMETER,
-                    height: BUTTON_DIAMETER,
-                }}
-            />
+            {/* Ring-pulse halo for idle ("mic ready") and recording.  Skipped
+                during countdown so the per-digit animation isn't competing with
+                a continuous expanding ring.  The parent's overflow-visible lets
+                the halo expand past the button edge. */}
+            {!isCountdown && (
+                <span
+                    aria-hidden="true"
+                    className={cn(
+                        "absolute rounded-full border-2 pointer-events-none",
+                        "animate-[var(--animate-recorder-ring-pulse)]",
+                        isIdle && "border-primary/60",
+                        isRecording && "border-destructive/60"
+                    )}
+                    style={{
+                        width: BUTTON_DIAMETER,
+                        height: BUTTON_DIAMETER,
+                    }}
+                />
+            )}
 
             {/* The button itself.  Stays scale-stable; only the halo moves. */}
             <Button
