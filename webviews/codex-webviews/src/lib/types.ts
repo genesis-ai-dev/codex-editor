@@ -62,6 +62,26 @@ export interface Subsection {
     label: string;
     startIndex: number;
     endIndex: number;
+    /**
+     * User-assigned name for this subdivision, when present. The navigation
+     * header and milestone accordion prefer `name` over `label` for display;
+     * callers that always want a numeric range should continue to read
+     * `label`.
+     */
+    name?: string;
+    /**
+     * Stable key for this subdivision (typically `startCellId`, or a reserved
+     * key for the implicit first subdivision). Used when persisting
+     * name/placement edits back to the provider.
+     */
+    key?: string;
+    /**
+     * ID of the root content cell that anchors this subdivision's start.
+     * Undefined when the subdivision wraps an empty milestone.
+     */
+    startCellId?: string;
+    /** Whether the subdivision boundary was user-authored or auto-calculated. */
+    source?: "auto" | "custom";
 }
 
 export type FileStatus = "dirty" | "syncing" | "synced" | "none";
