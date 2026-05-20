@@ -4,8 +4,11 @@ import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import { Timestamps } from "../../../../types";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { type AudioControllerEvent, globalAudioController } from "../lib/audioController";
-import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../lib/audioCache";
+import { getCachedAudioDataUrl, setCachedAudioDataUrl, setCachedAttachmentAudioDataUrl, clearCachedAudio } from "../lib/audioCache";
 import type { EditorPostMessages } from "../../../../types";
+import { getCellListIcon, type AudioAvailability } from "./utils/audioViewMode";
+
+type AudioState = AudioAvailability;
 
 /**
  * Waits for a video element to be ready for playback.
@@ -148,6 +151,13 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
         const [isLoading, setIsLoading] = useState(false);
         const pendingPlayRef = useRef(false);
         const audioRef = useRef<HTMLAudioElement | null>(null);
+        // Last `selectedAudioId` we observed for this cell on a broadcast.
+        // `undefined` means "we haven't seen one yet" — used as a sentinel so the
+        // first broadcast just initializes the ref instead of busting the cache.
+        // Subsequent broadcasts whose value differs indicate a remote selection
+        // change (e.g. a teammate's sync), and we must drop the `cellId`-keyed
+        // cache so the next play fetches fresh bytes for the new attachment.
+        const lastKnownSelectedAudioIdRef = useRef<string | null | undefined>(undefined);
         const previousVideoMuteStateRef = useRef<boolean | null>(null);
         const videoElementRef = useRef<HTMLVideoElement | null>(null);
 
@@ -178,13 +188,43 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                 const message = event.data;
 
                 if (message.type === "providerSendsAudioAttachments") {
-                    const { clearCachedAudio } = await import("../lib/audioCache");
-                    clearCachedAudio(cellId);
+                    const incoming = message.attachments as Record<string, string> | undefined;
+                    const newState = incoming?.[cellId];
+                    if (newState === "deletedOnly" || newState === "none" || newState === "missing" || newState === "available-pointer") {
+                        clearCachedAudio(cellId);
 
-                    if (audioUrl && audioUrl.startsWith("blob:")) {
-                        URL.revokeObjectURL(audioUrl);
+                        if (audioUrl && audioUrl.startsWith("blob:")) {
+                            URL.revokeObjectURL(audioUrl);
+                        }
+                        setAudioUrl(null);
                     }
-                    setAudioUrl(null);
+
+                    // Detect remote selection changes carried by sync broadcasts.
+                    // Local select/deselect already fires `audioAttachmentSelected` with
+                    // its own cache-bust path, so this only kicks in for sync-driven
+                    // changes where no such event is sent.  Without this, the cell-list
+                    // Play button would keep playing the previous attachment after sync.
+                    const selections = (message as any).selections as
+                        | Record<string, string | null>
+                        | undefined;
+                    if (selections && Object.prototype.hasOwnProperty.call(selections, cellId)) {
+                        const incomingSelection = selections[cellId];
+                        const previousSelection = lastKnownSelectedAudioIdRef.current;
+                        lastKnownSelectedAudioIdRef.current = incomingSelection;
+                        if (previousSelection !== undefined && previousSelection !== incomingSelection) {
+                            clearCachedAudio(cellId);
+                            if (audioRef.current) {
+                                audioRef.current.pause();
+                                audioRef.current.src = "";
+                            }
+                            if (audioUrl && audioUrl.startsWith("blob:")) {
+                                URL.revokeObjectURL(audioUrl);
+                            }
+                            setAudioUrl(null);
+                            setIsPlaying(false);
+                            pendingPlayRef.current = false;
+                        }
+                    }
                     setIsLoading(false);
                 }
 
@@ -204,6 +244,9 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                                 const blobUrl = URL.createObjectURL(blob);
                                 try {
                                     setCachedAudioDataUrl(cellId, message.content.audioData);
+                                    if (message.content.audioId) {
+                                        setCachedAttachmentAudioDataUrl(message.content.audioId, message.content.audioData);
+                                    }
                                 } catch {
                                     /* empty */
                                 }
@@ -400,7 +443,8 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                 if (
                     state !== "available" &&
                     state !== "available-local" &&
-                    state !== "available-pointer"
+                    state !== "available-pointer" &&
+                    state !== "available-cached"
                 ) {
                     // Locked cells: don't open editor to record/re-record.
                     // (Playback is handled in available/available-local/available-pointer states.)
@@ -409,14 +453,16 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                         return;
                     }
 
-                    // For missing audio, just open the editor without auto-starting recording
-                    if (state !== "missing" && !isCellLocked) {
+                    if (state === "unselected" && !isCellLocked) {
+                        try {
+                            sessionStorage.setItem(`open-audio-history-${cellId}`, "1");
+                        } catch { /* ignore */ }
+                    } else if ((window as any).__autoRecordOnMicClick && state !== "missing") {
                         try {
                             sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
-                        } catch (e) {
-                            void e;
-                        }
+                        } catch { /* ignore */ }
                     }
+
                     vscode.postMessage({
                         command: "setPreferredEditorTab",
                         content: { tab: "audio" },
@@ -424,6 +470,13 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                     if (onOpenCell) onOpenCell(cellId);
                     return;
                 }
+
+                // Download-only: if the audio is remote (pointer) and not yet cached,
+                // just fetch it in the background without auto-playing.
+                const isDownloadOnly =
+                    state === "available-pointer" &&
+                    !audioUrl &&
+                    !getCachedAudioDataUrl(cellId);
 
                 if (isPlaying) {
                     // Stop current audio
@@ -433,6 +486,13 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                     }
                     setIsPlaying(false);
                     stopVideoPlayback();
+                } else if (isDownloadOnly) {
+                    setIsLoading(true);
+                    pendingPlayRef.current = false;
+                    vscode.postMessage({
+                        command: "requestAudioForCell",
+                        content: { cellId },
+                    } as EditorPostMessages);
                 } else {
                     // If we don't have audio yet, try cached data first; only request if not cached
                     let effectiveUrl: string | null = audioUrl;
@@ -603,56 +663,12 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
             } as any);
         }, [isPlaying, isSourceText, vscode]);
 
-        // Decide icon color/style based on state
-        const { iconClass, color, titleSuffix } = (() => {
-            // If we already have audio bytes (from cache or just streamed), show Play regardless of pointer/local state
-            if (audioUrl || getCachedAudioDataUrl(cellId)) {
-                return {
-                    iconClass: isLoading
-                        ? "codicon-loading codicon-modifier-spin"
-                        : isPlaying
-                        ? "codicon-debug-stop"
-                        : "codicon-play",
-                    color: "var(--vscode-charts-blue)",
-                    titleSuffix: "(available)",
-                } as const;
-            }
-            // Local file present but not yet loaded into memory
-            if (state === "available-local") {
-                return {
-                    iconClass: isLoading
-                        ? "codicon-loading codicon-modifier-spin"
-                        : isPlaying
-                        ? "codicon-debug-stop"
-                        : "codicon-play",
-                    color: "var(--vscode-charts-blue)",
-                    titleSuffix: "(local)",
-                } as const;
-            }
-            // Available remotely/downloadable or pointer-only → show cloud
-            if (state === "available" || state === "available-pointer") {
-                return {
-                    iconClass: isLoading
-                        ? "codicon-loading codicon-modifier-spin"
-                        : "codicon-cloud-download", // cloud behind play
-                    color: "var(--vscode-charts-blue)",
-                    titleSuffix: state === "available-pointer" ? "(pointer)" : "(in cloud)",
-                } as const;
-            }
-            if (state === "missing") {
-                return {
-                    iconClass: "codicon-warning",
-                    color: "var(--vscode-errorForeground)",
-                    titleSuffix: "(missing)",
-                } as const;
-            }
-            // deletedOnly or none => show mic to begin recording
-            return {
-                iconClass: "codicon-mic",
-                color: "var(--vscode-foreground)",
-                titleSuffix: "(record)",
-            } as const;
-        })();
+        const { iconClass, color } = getCellListIcon({
+            state,
+            hasAudioUrl: !!audioUrl || !!getCachedAudioDataUrl(cellId),
+            isLoading,
+            isPlaying,
+        });
 
         return (
             <button
@@ -663,20 +679,21 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                         ? "Audio playback disabled - other type is playing"
                         : isLoading
                         ? "Preparing audio..."
-                        : state === "available" || state === "available-pointer"
-                        ? audioUrl || getCachedAudioDataUrl(cellId)
+                        : state === "available-pointer"
+                          ? audioUrl || getCachedAudioDataUrl(cellId)
                             ? "Play"
                             : "Download"
-                        : state === "available-local"
-                        ? "Play"
-                        : state === "missing"
-                        ? "Missing audio"
-                        : isCellLocked
-                        ? "Cell is locked"
-                        : "Record"
+                          : state === "available-local" || state === "available" || state === "available-cached"
+                            ? "Play"
+                            : state === "missing"
+                              ? "Missing audio"
+                              : isCellLocked
+                                ? "Cell is locked"
+                                : "Record"
                 }
                 disabled={disabled}
                 style={{
+                    position: "relative",
                     background: "none",
                     border: "none",
                     cursor: disabled ? "not-allowed" : "pointer",
@@ -702,7 +719,7 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
             >
                 <i
                     className={`codicon ${iconClass}`}
-                    style={{ fontSize: "16px", position: "relative" }}
+                    style={{ fontSize: "16px" }}
                 />
             </button>
         );

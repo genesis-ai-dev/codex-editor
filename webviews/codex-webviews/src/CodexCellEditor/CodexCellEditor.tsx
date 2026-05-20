@@ -9,6 +9,7 @@ import {
     EditorReceiveMessages,
     CellIdGlobalState,
     MilestoneIndex,
+    SimilarWordingInspectionResult,
 } from "../../../../types";
 import { CodexCellTypes } from "../../../../types/enums";
 import { ChapterNavigationHeader } from "./ChapterNavigationHeader";
@@ -34,9 +35,11 @@ import { getVSCodeAPI } from "../shared/vscodeApi";
 import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import { clearCachedAudio } from "../lib/audioCache";
 import { createCacheHelpers, createProgressCacheHelpers } from "./utils";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import { FloatingSearchBar, SearchMatch } from "./FloatingSearchBar";
+import { SimilarWordingDialog } from "./SimilarWordingDialog";
 
 const DEBUG_ENABLED = false; // todo: turn this on and clean up the functions that are getting called thousands of times, probably once per cell
 
@@ -227,6 +230,16 @@ const CodexCellEditor: React.FC = () => {
         {} as EditorCellContent
     );
     const [currentEditingCellId, setCurrentEditingCellId] = useState<string | null>(null);
+    const [similarWordingState, setSimilarWordingState] = useState<{
+        open: boolean;
+        loading: boolean;
+        requestedCellId?: string;
+        result?: SimilarWordingInspectionResult;
+        error?: string;
+    }>({
+        open: false,
+        loading: false,
+    });
 
     // Add a state for pending validations count
     const [pendingValidationsCount, setPendingValidationsCount] = useState(0);
@@ -338,10 +351,21 @@ const CodexCellEditor: React.FC = () => {
             | "available"
             | "available-local"
             | "available-pointer"
+            | "available-cached"
             | "deletedOnly"
+            | "unselected"
             | "none"
             | "missing";
     }>({});
+
+    // Webview-level snapshot of the last `selectedAudioId` seen per cell on a
+    // `providerSendsAudioAttachments` broadcast.  Used by the cache-bust handler
+    // below to drop stale entries from the module-scoped `audioDataUrlCache`
+    // even when the affected cell isn't currently rendered (e.g. paginated
+    // off).  Per-cell `AudioPlayButton`/`TextCellEditor` listeners also do
+    // their own local cleanup; this ref closes the gap for cells with no
+    // mounted React component to react to the broadcast.
+    const lastKnownAudioSelectionsRef = useRef<Map<string, string | null>>(new Map());
 
     // Add cells per page configuration
     const [cellsPerPage] = useState<number>((window as any).initialData?.cellsPerPage || 50);
@@ -377,6 +401,58 @@ const CodexCellEditor: React.FC = () => {
 
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
+
+    // Webview-level audio cache invalidator.
+    //
+    // The per-cell `AudioPlayButton` and `TextCellEditor` listeners only run
+    // for cells whose React components are currently mounted — i.e. the cells
+    // on the active page plus the open editor cell.  Cells outside the current
+    // paginated page have no listener to receive the broadcast, so if a sync
+    // changes their `selectedAudioId` the module-scoped `audioDataUrlCache`
+    // can keep serving the *previous* attachment's bytes the next time the
+    // user paginates back to that cell.
+    //
+    // This handler closes that gap: it runs for the lifetime of the codex
+    // webview (CodexCellEditor is the always-mounted root), tracks the last
+    // known selection per cell, and clears the `cellId`-keyed audio cache
+    // whenever a broadcast carries a different selection.  Per-cell handlers
+    // continue to manage their own React state and may also call
+    // `clearCachedAudio` for the cell they own; the duplicate work is
+    // harmless because `clearCachedAudio` is an idempotent `Map.delete`.
+    useMessageHandler(
+        "codexCellEditor-audioSelectionCacheBust",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type !== "providerSendsAudioAttachments") return;
+            const selections = (message as any).selections as
+                | Record<string, string | null>
+                | undefined;
+            if (!selections) return;
+
+            const map = lastKnownAudioSelectionsRef.current;
+            for (const [cellId, incoming] of Object.entries(selections)) {
+                const hadPrevious = map.has(cellId);
+                const previous = map.get(cellId);
+                map.set(cellId, incoming);
+                // Sentinel: skip the first-ever broadcast for a cell so we
+                // don't wipe a cache entry that was just hydrated by an
+                // in-flight `requestAudioForCell` response.
+                if (!hadPrevious) continue;
+                if (previous === incoming) continue;
+                // Treat "" and null as equivalent (cleared selection) to
+                // avoid a spurious bust on the first broadcast after a
+                // `clearAudioSelection`.
+                if (
+                    (previous === null || previous === "") &&
+                    (incoming === null || incoming === "")
+                ) {
+                    continue;
+                }
+                clearCachedAudio(cellId);
+            }
+        },
+        []
+    );
 
     // Batch transcription handler
     useMessageHandler(
@@ -612,6 +688,80 @@ const CodexCellEditor: React.FC = () => {
             }
         },
         []
+    );
+
+    useMessageHandler(
+        "codexCellEditor-similarWordingInspection",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type === "similarWordingInspectionResult") {
+                const result = message.content as SimilarWordingInspectionResult;
+                setSimilarWordingState((prev) => {
+                    if (prev.requestedCellId && prev.requestedCellId !== result.cellId) {
+                        return prev;
+                    }
+                    return {
+                        open: true,
+                        loading: false,
+                        requestedCellId: result.cellId,
+                        result,
+                    };
+                });
+            }
+            if (message?.type === "similarWordingInspectionError") {
+                const { cellId, error } = message.content as { cellId: string; error: string; };
+                setSimilarWordingState((prev) => {
+                    if (prev.requestedCellId && prev.requestedCellId !== cellId) {
+                        return prev;
+                    }
+                    return {
+                        open: true,
+                        loading: false,
+                        requestedCellId: cellId,
+                        error,
+                    };
+                });
+            }
+        },
+        []
+    );
+
+    const handleInspectSimilarWording = useCallback(
+        (cellId: string, targetContent: string) => {
+            setSimilarWordingState({
+                open: true,
+                loading: true,
+                requestedCellId: cellId,
+            });
+            vscode.postMessage({
+                command: "requestSimilarWordingInspection",
+                content: { cellId, targetContent },
+            } as EditorPostMessages);
+        },
+        [vscode]
+    );
+
+    const handleSearchSimilarWordingChunk = useCallback(
+        (query: string) => {
+            vscode.postMessage({
+                command: "expandSearchToAllFiles",
+                content: { query },
+            } as EditorPostMessages);
+        },
+        [vscode]
+    );
+
+    const handlePinSimilarWordingCell = useCallback(
+        (cellId: string) => {
+            vscode.postMessage({
+                command: "executeCommand",
+                content: {
+                    command: "parallelPassages.pinCellById",
+                    args: [cellId],
+                },
+            } as EditorPostMessages);
+        },
+        [vscode]
     );
 
     // Request search match counts from extension
@@ -1264,6 +1414,93 @@ const CodexCellEditor: React.FC = () => {
         [milestoneIndex, refreshProgressForMilestone]
     );
 
+    // Per-cell version stamps for audio selection broadcasts. The provider stamps
+    // every audio selection broadcast with `cell.metadata.selectionTimestamp`;
+    // we track the latest applied per cellId and discard stale broadcasts so a
+    // slow/out-of-order message cannot overwrite a fresher selection.
+    const lastAudioSelectionTsRef = useRef<Map<string, number>>(new Map());
+
+    // Keep cell.metadata.selectedAudioId in sync with provider-side selection changes so the
+    // cell list (AudioValidationButton, etc.) recomputes validators against the newly
+    // selected recording. Without this, translationUnits holds stale metadata and the
+    // validator count/users shown in the list reflect the previously selected audio.
+    useMessageHandler(
+        "codexCellEditor-audioSelectionSync",
+        (event: MessageEvent) => {
+            const message = event.data;
+
+            let targetCellId: string | undefined;
+            let nextSelectedAudioId: string | undefined;
+            let incomingTs: number | undefined;
+
+            if (
+                message?.type === "audioAttachmentSelected" &&
+                message.content?.success &&
+                typeof message.content.cellId === "string"
+            ) {
+                targetCellId = message.content.cellId;
+                // audioId is the new explicit selection; null/undefined means deselect
+                nextSelectedAudioId =
+                    typeof message.content.audioId === "string" && message.content.audioId
+                        ? message.content.audioId
+                        : "";
+                if (typeof message.content.selectionTimestamp === "number") {
+                    incomingTs = message.content.selectionTimestamp;
+                }
+            } else if (
+                message?.type === "providerUpdatesAudioValidationState" &&
+                typeof message.content?.cellId === "string" &&
+                typeof message.content?.selectedAudioId === "string"
+            ) {
+                targetCellId = message.content.cellId;
+                nextSelectedAudioId = message.content.selectedAudioId;
+                if (typeof message.content.selectionTimestamp === "number") {
+                    incomingTs = message.content.selectionTimestamp;
+                }
+            }
+
+            if (!targetCellId || nextSelectedAudioId === undefined) return;
+
+            // Discard out-of-order updates. If `selectionTimestamp` is missing
+            // (older provider build), fall through to the apply path so the
+            // contract stays additive.
+            if (typeof incomingTs === "number") {
+                const last = lastAudioSelectionTsRef.current.get(targetCellId) ?? 0;
+                if (incomingTs < last) return;
+                lastAudioSelectionTsRef.current.set(targetCellId, incomingTs);
+            }
+
+            const cellId = targetCellId;
+            const newSelectedId = nextSelectedAudioId;
+            const stampForUnit = typeof incomingTs === "number" ? incomingTs : Date.now();
+
+            const patchUnit = (unit: QuillCellContent): QuillCellContent => {
+                if (unit.cellMarkers?.[0] !== cellId) return unit;
+                const currentSelected = (unit.metadata as any)?.selectedAudioId ?? "";
+                if (currentSelected === newSelectedId) return unit;
+                return {
+                    ...unit,
+                    metadata: {
+                        ...(unit.metadata || {}),
+                        selectedAudioId: newSelectedId,
+                        selectionTimestamp: stampForUnit,
+                    } as typeof unit.metadata,
+                };
+            };
+
+            setTranslationUnits((prev) => prev.map(patchUnit));
+            setAllCellsInCurrentMilestone((prev) => prev.map(patchUnit));
+
+            cellsCacheRef.current.forEach((cells, key) => {
+                cellsCacheRef.current.set(key, cells.map(patchUnit));
+            });
+            milestoneCellsCacheRef.current.forEach((cells, key) => {
+                milestoneCellsCacheRef.current.set(key, cells.map(patchUnit));
+            });
+        },
+        []
+    );
+
     useVSCodeMessageHandler({
         setContent: (
             content: QuillCellContent[],
@@ -1495,7 +1732,7 @@ const CodexCellEditor: React.FC = () => {
             setTextDirection(direction);
         },
         updateNotebookMetadata: (newMetadata) => {
-            setMetadata(newMetadata);
+            setMetadata((prev) => ({ ...prev, ...newMetadata }));
             // Clear temporary font size when metadata updates to ensure new font size takes effect
             setTempFontSize(null);
             // Update text direction when metadata changes (for global text direction updates)
@@ -1530,7 +1767,7 @@ const CodexCellEditor: React.FC = () => {
             }
             setChapterNumber(chapter);
         },
-        setAudioAttachments: setAudioAttachments,
+        setAudioAttachments,
         showABTestVariants: (data) => {
             const { variants, cellId, testId, testName, names, abProbability } = data as any;
             const count = Array.isArray(variants) ? variants.length : 0;
@@ -3166,6 +3403,21 @@ const CodexCellEditor: React.FC = () => {
                 isSourceText={isSourceText}
             />
 
+            <SimilarWordingDialog
+                open={similarWordingState.open}
+                loading={similarWordingState.loading}
+                error={similarWordingState.error}
+                result={similarWordingState.result}
+                onOpenChange={(open) =>
+                    setSimilarWordingState((prev) => ({
+                        ...prev,
+                        open,
+                    }))
+                }
+                onSearchChunk={handleSearchSimilarWordingChunk}
+                onPinCell={handlePinSimilarWordingCell}
+            />
+
             <div className="codex-cell-editor">
                 <div
                     className="static-header bg-background shadow-md"
@@ -3355,6 +3607,7 @@ const CodexCellEditor: React.FC = () => {
                             currentMilestoneIndex={currentMilestoneIndex}
                             currentSubsectionIndex={currentSubsectionIndex}
                             cellsPerPage={cellsPerPage}
+                            onInspectSimilarWording={handleInspectSimilarWording}
                             playerRef={playerRef}
                             shouldShowVideoPlayer={shouldShowVideoPlayer}
                             videoUrl={videoUrl}
