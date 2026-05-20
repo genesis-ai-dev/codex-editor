@@ -11,6 +11,7 @@ import { getCachedLfsBytes, setCachedLfsBytes } from "../utils/mediaCache";
 import { getMediaFilesStrategy } from "../utils/localProjectSettings";
 import type { ExportProgressReporter, ExportMissingReason } from "./exportProgress";
 import { pickAudioAttachment, isExportableCell, type AudioPick, type AudioPickOutcome } from "./audioAttachmentUtils";
+import { formatCellDisplayLabel } from "./cellLabelUtils";
 
 const execAsync = promisify(exec);
 
@@ -97,92 +98,9 @@ function formatChapterVerseSuffix(chapter?: number, verse?: number): string {
     return "";
 }
 
-/**
- * Pulls a short plain-text snippet from a cell's HTML value for use as a
- * human-readable identifier when nothing else is set. Strips tags, decodes
- * common entities, collapses whitespace, and truncates to ~40 chars.
- */
-function extractCellTextSnippet(cell: any): string {
-    const raw = (cell?.value || "").toString();
-    if (!raw) return "";
-    const stripped = raw
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;/g, " ")
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/\s+/g, " ")
-        .trim();
-    if (!stripped) return "";
-    const MAX = 40;
-    return stripped.length <= MAX
-        ? stripped
-        : `${stripped.slice(0, MAX).trimEnd()}\u2026`;
-}
-
-/**
- * Builds a human-friendly label for a cell, suitable for the export progress
- * UI. Returns `null` when the cell has no identifier we can present — those
- * cells are intentionally omitted from missing-audio reporting because a row
- * labelled with an opaque UUID or line number isn't actionable.
- *
- * Resolution rules (matches the `globalReferences` discriminator the user
- * established: present = Bible, absent = anything else):
- *   - Bible cell with a parseable ref: `1TH 3:1`
- *   - Bible cell with chapter only: `1TH 3:<cellLabel>` if cellLabel is set,
- *     else `1TH chapter 3`
- *   - Non-Bible cell with cellLabel: `<source> — <cellLabel>`
- *   - Non-Bible cell with text content: `<source> — "first 40 chars…"`
- *   - Otherwise: `null` (caller skips this cell)
- */
-function formatCellDisplayLabel(
-    cell: any,
-    _cellId: string,
-    bookCode: string
-): string | null {
-    const cellLabel = (cell?.metadata?.cellLabel || "").toString().trim();
-
-    const globalRefs = cell?.metadata?.data?.globalReferences;
-    const refIdRaw = Array.isArray(globalRefs) && globalRefs.length > 0
-        ? String(globalRefs[0] || "").trim()
-        : "";
-
-    if (refIdRaw) {
-        // Bible-style cell. Parse "BOOK chapter:verse" out of the ref.
-        const [refBookRaw, restRaw] = refIdRaw.split(" ");
-        const refBook = (refBookRaw || "").toUpperCase().trim();
-        const [chapterStr, verseStr] = (restRaw || "").split(":");
-        const chapter = chapterStr && Number.isFinite(Number(chapterStr))
-            ? Number(chapterStr)
-            : undefined;
-        const verse = verseStr && Number.isFinite(Number(verseStr))
-            ? Number(verseStr)
-            : undefined;
-
-        const book = refBook || bookCode;
-        if (chapter !== undefined && verse !== undefined) {
-            return `${book} ${chapter}:${verse}`;
-        }
-        if (chapter !== undefined && cellLabel) {
-            return `${book} ${chapter}:${cellLabel}`;
-        }
-        if (chapter !== undefined) {
-            return `${book} chapter ${chapter}`;
-        }
-        // Malformed ref; fall through to non-Bible handling below.
-    }
-
-    if (cellLabel) {
-        return `${bookCode} \u2014 ${cellLabel}`;
-    }
-    const snippet = extractCellTextSnippet(cell);
-    if (snippet) {
-        return `${bookCode} \u2014 \u201c${snippet}\u201d`;
-    }
-    return null;
-}
+// `formatCellDisplayLabel` and `extractCellTextSnippet` were extracted to
+// `./cellLabelUtils.ts` so the export wizard's pre-flight scan can reuse the
+// same identifiers — see that file for the rules and rationale.
 
 function getTargetLanguageCode(): string {
     const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
@@ -826,9 +744,43 @@ export async function exportAudioAttachments(
                     notRecordedCount++;
                 }
 
+                // Snapshot every audio attachment currently flagged
+                // `isMissing=true`. If the resolver succeeds for one of them
+                // below, we'll clear the flag on disk so the next pre-flight
+                // scan and the audio-history "MISSING" badge converge to
+                // reality without waiting for the migration scan to re-run.
+                //
+                // Why per-file: we mutate `notebook` in memory and write the
+                // whole `.codex` back if anything changed; doing this once at
+                // end-of-file (not per attachment) keeps the write count low.
+                const wasMissingBefore = new Map<string, Set<string>>();
+                for (const cell of notebook.cells) {
+                    const cellId: string | undefined = cell?.metadata?.id;
+                    if (!cellId) continue;
+                    const attachments = (cell?.metadata?.attachments ?? {}) as Record<string, any>;
+                    for (const [attId, attVal] of Object.entries(attachments)) {
+                        if (attVal?.type !== "audio") continue;
+                        if (attVal?.isMissing !== true) continue;
+                        let set = wasMissingBefore.get(cellId);
+                        if (!set) {
+                            set = new Set();
+                            wasMissingBefore.set(cellId, set);
+                        }
+                        set.add(attId);
+                    }
+                }
+                // Tracks (cellId -> attachmentIds) whose bytes were successfully
+                // resolved + written during this file's pass. Used after the
+                // inner loop to decide which `isMissing=true` flags to clear.
+                const resolvedCells = new Map<string, Set<string>>();
+
                 // Phase 1: Pre-compute export tasks with unique destination paths
                 type AudioExportTask = {
                     cellId: string;
+                    /** The attachmentId actually picked for this task — used to
+                     * scope the post-export `isMissing` clear so we only touch
+                     * the take that actually resolved. */
+                    attachmentId: string;
                     /**
                      * Human-readable label for the missing-files UI. Null when
                      * the cell has no identifier we can present (see
@@ -893,6 +845,7 @@ export async function exportAudioAttachments(
 
                     tasks.push({
                         cellId,
+                        attachmentId: pick.id,
                         cellLabel,
                         absoluteSrc,
                         destUri,
@@ -1022,6 +975,18 @@ export async function exportAudioAttachments(
             try {
                 await vscode.workspace.fs.writeFile(task.destUri, bytes);
                 copiedCount++;
+                // Record the successful resolution so we can clear a stale
+                // `isMissing=true` on the source attachment after this file
+                // finishes. We never set `isMissing=true` from export, even
+                // on failure — failures here are often transient (network),
+                // and the migration scan is the only authoritative
+                // negative-side writer.
+                let setForCell = resolvedCells.get(task.cellId);
+                if (!setForCell) {
+                    setForCell = new Set();
+                    resolvedCells.set(task.cellId, setForCell);
+                }
+                setForCell.add(task.attachmentId);
             } catch (e) {
                 console.error(`Failed to write audio for ${task.cellId}:`, e);
                 if (task.cellLabel) {
@@ -1033,6 +998,56 @@ export async function exportAudioAttachments(
                     missingCount++;
                 }
             }
+        }
+
+        // Persist `isMissing=false` for any attachments that were flagged
+        // missing before the export but successfully resolved during it.
+        //
+        // Risk: if the user has this `.codex` open in the cell editor, the
+        // editor's in-memory state diverges from disk for `isMissing` (and
+        // `updatedAt` on those attachments). The startup migration writes
+        // the same shape of mutation at startup with no documented issues;
+        // the worst case here is a transient disagreement that the next
+        // editor reload reconciles.
+        try {
+            if (resolvedCells.size > 0 && wasMissingBefore.size > 0) {
+                let didChange = false;
+                for (const [cellId, resolvedAttIds] of resolvedCells) {
+                    const wasSet = wasMissingBefore.get(cellId);
+                    if (!wasSet) continue;
+                    const cell = notebook.cells.find(
+                        (c: any) => c?.metadata?.id === cellId
+                    );
+                    const attachments = cell?.metadata?.attachments as
+                        | Record<string, any>
+                        | undefined;
+                    if (!attachments) continue;
+                    for (const attId of resolvedAttIds) {
+                        if (!wasSet.has(attId)) continue;
+                        const att = attachments[attId];
+                        if (att && att.isMissing === true) {
+                            att.isMissing = false;
+                            att.updatedAt = Date.now();
+                            didChange = true;
+                        }
+                    }
+                }
+                if (didChange) {
+                    const updatedJson = JSON.stringify(notebook, null, 2);
+                    await vscode.workspace.fs.writeFile(
+                        file,
+                        new TextEncoder().encode(updatedJson)
+                    );
+                    debug(`Persisted isMissing=false updates to ${basename(file.fsPath)}`);
+                }
+            }
+        } catch (err) {
+            // Non-fatal: stale flags will be repaired on the next migration
+            // scan / wizard reopen. Don't disrupt the export.
+            console.warn(
+                `[AudioExporter] Failed to persist isMissing updates for ${basename(file.fsPath)}`,
+                err
+            );
         }
     }
 

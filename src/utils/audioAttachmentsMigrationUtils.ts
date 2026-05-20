@@ -426,7 +426,7 @@ export class AudioAttachmentsMigrator {
      * Scans all .codex documents and sets/unsets attachment.isMissing based on pointer existence.
      * If a referenced file is not present in pointers/, sets isMissing=true. If present, sets isMissing=false.
      */
-    private async updateMissingFlagsForCodexDocuments(): Promise<void> {
+    public async updateMissingFlagsForCodexDocuments(): Promise<void> {
         try {
             // Find all codex documents
             const codexPattern = new vscode.RelativePattern(

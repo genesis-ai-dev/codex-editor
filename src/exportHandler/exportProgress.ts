@@ -35,10 +35,15 @@ export function severityForReason(reason: ExportMissingReason): ExportMissingSev
         case "no-text-recorded":
             return "info";
         case "no-audio-selected":
-        case "audio-file-missing":
         case "pointer-corrupt":
         case "source-not-found":
             return "warn";
+        // `audio-file-missing` lives here at Tier 3: the user explicitly
+        // approved this take and the resolver could not fetch the bytes
+        // from anywhere (local file, local pointer, LFS). After PR 2's
+        // stale-flag fixes, this state only fires when the audio is
+        // genuinely unrecoverable — which warrants the red icon.
+        case "audio-file-missing":
         case "download-failed":
         case "transcode-failed":
         case "write-failed":

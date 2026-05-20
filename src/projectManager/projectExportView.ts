@@ -8,6 +8,7 @@ import { groupCodexFilesByImporterType, type FileGroup } from "./utils/exportVie
 import { readCodexNotebookFromUri } from "../exportHandler/exportHandlerUtils";
 import { compareHtmlStructure } from "../../sharedUtils/htmlStructureUtils";
 import { getMediaFilesStrategy } from "../utils/localProjectSettings";
+import { AudioAttachmentsMigrator } from "../utils/audioAttachmentsMigrationUtils";
 
 const LAST_EXPORT_FOLDER_KEY = "projectExport.lastFolder";
 
@@ -116,6 +117,32 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
     );
 
     const codexFiles = await vscode.workspace.findFiles("**/*.codex");
+
+    // Pre-warm `isMissing` flags on attachments before we build Step 1's file
+    // groups. The startup migration already runs this scan, but pointer files
+    // can appear (sync) or disappear (manual delete) during a session — so we
+    // re-scan on demand so the audio-history "MISSING" badge and any other
+    // downstream consumer see ground truth as of right now.
+    //
+    // After PR 2 this no longer affects Step 1's audio stats (those ignore
+    // `isMissing` entirely and rely on the resolver). But other UI surfaces
+    // still read the flag, so a fresh scan keeps everything coherent.
+    //
+    // We deliberately AWAIT this before reading the notebooks so Step 1 sees
+    // the up-to-date `.codex` JSON on disk; the scan only writes when a flag
+    // actually changes, so it's cheap on a healthy project.
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+            const migrator = new AudioAttachmentsMigrator(workspaceFolders[0]);
+            await migrator.updateMissingFlagsForCodexDocuments();
+        }
+    } catch (err) {
+        // Non-fatal: stale flags only affect the audio-history badge, not the
+        // export itself. Don't block the wizard.
+        console.warn("[ExportView] Pre-warm isMissing scan failed; continuing with possibly stale flags", err);
+    }
+
     const fileGroups = await groupCodexFilesByImporterType(codexFiles);
 
     const mediaStrategy = await getMediaFilesStrategy();
@@ -856,6 +883,160 @@ function getWebviewContent(
                     gap: 4px;
                 }
                 .export-extra-messages div { padding: 2px 0; }
+
+                /*
+                 * Clickable Step 1 audio-stat counters. Visually they read as
+                 * regular grey text but on hover they get a subtle underline
+                 * + accent colour so the user can tell they are interactive.
+                 * Severity colour matches the popover header that pops up.
+                 */
+                .file-audio-stats .stat-pill {
+                    display: inline;
+                    cursor: pointer;
+                    padding: 0;
+                    background: none;
+                    border: none;
+                    font: inherit;
+                    color: inherit;
+                    border-radius: 3px;
+                    text-decoration: underline;
+                    text-decoration-color: transparent;
+                    text-decoration-thickness: 1px;
+                    text-underline-offset: 2px;
+                    transition: text-decoration-color 120ms ease, color 120ms ease;
+                }
+                .file-audio-stats .stat-pill:hover,
+                .file-audio-stats .stat-pill:focus-visible {
+                    outline: none;
+                    text-decoration-color: currentColor;
+                }
+                .file-audio-stats .stat-pill.stat-error {
+                    color: var(--vscode-errorForeground, #dc2626);
+                }
+                .file-audio-stats .stat-pill.stat-warn {
+                    color: var(--vscode-charts-yellow, #ca8a04);
+                }
+                .file-audio-stats .stat-pill.stat-info {
+                    color: var(--vscode-descriptionForeground);
+                }
+
+                /*
+                 * Cell list popover. Hand-crafted in plain HTML/CSS so it can
+                 * live inside this non-React webview, but the visual
+                 * vocabulary is borrowed wholesale from ShadCN's
+                 * <PopoverContent>: 1px border, 6px radius, soft shadow,
+                 * 16px padding, dropdown-coloured surface, fade+scale entry
+                 * animation. When/if this wizard is migrated to React the
+                 * styling will port directly to <PopoverContent>.
+                 */
+                .cell-list-popover-backdrop {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 999;
+                    /* Catches outside clicks; the popover itself sits above
+                     * it via a higher z-index. */
+                    background: transparent;
+                    display: none;
+                }
+                .cell-list-popover-backdrop.open { display: block; }
+                .cell-list-popover {
+                    position: fixed;
+                    z-index: 1000;
+                    min-width: 220px;
+                    max-width: min(420px, calc(100vw - 32px));
+                    max-height: min(360px, calc(100vh - 96px));
+                    background-color: var(--vscode-dropdown-background, var(--vscode-editor-background));
+                    color: var(--vscode-dropdown-foreground, var(--vscode-editor-foreground));
+                    border: 1px solid var(--vscode-panel-border, var(--vscode-widget-border, rgba(0,0,0,0.15)));
+                    border-radius: 6px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.08);
+                    display: none;
+                    flex-direction: column;
+                    overflow: hidden;
+                    transform-origin: top left;
+                    opacity: 0;
+                    transform: scale(0.97);
+                    transition: opacity 120ms ease, transform 120ms ease;
+                }
+                .cell-list-popover.open {
+                    display: flex;
+                    opacity: 1;
+                    transform: scale(1);
+                }
+                .cell-list-popover-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 12px 16px 8px 16px;
+                    border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-widget-border, rgba(0,0,0,0.08)));
+                    flex-shrink: 0;
+                }
+                .cell-list-popover-title {
+                    font-size: 0.85em;
+                    font-weight: 600;
+                    flex: 1;
+                    line-height: 1.3;
+                }
+                .cell-list-popover-title.title-error { color: var(--vscode-errorForeground, #dc2626); }
+                .cell-list-popover-title.title-warn { color: var(--vscode-charts-yellow, #ca8a04); }
+                .cell-list-popover-title.title-info { color: var(--vscode-descriptionForeground); }
+                .cell-list-popover-count {
+                    font-size: 0.72em;
+                    font-weight: 500;
+                    color: var(--vscode-descriptionForeground);
+                    background-color: var(--vscode-badge-background, rgba(0,0,0,0.06));
+                    padding: 2px 8px;
+                    border-radius: 10px;
+                    line-height: 1.3;
+                    white-space: nowrap;
+                }
+                .cell-list-popover-close {
+                    width: 22px;
+                    height: 22px;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    border: none;
+                    background: transparent;
+                    color: inherit;
+                    border-radius: 3px;
+                    cursor: pointer;
+                    opacity: 0.7;
+                    font-size: 0.9em;
+                    padding: 0;
+                    flex-shrink: 0;
+                }
+                .cell-list-popover-close:hover { opacity: 1; background-color: var(--vscode-toolbar-hoverBackground, rgba(0,0,0,0.06)); }
+                .cell-list-popover-body {
+                    flex: 1;
+                    overflow-y: auto;
+                    padding: 4px 0;
+                    min-height: 0;
+                }
+                .cell-list-popover-item {
+                    padding: 6px 16px;
+                    font-size: 0.8em;
+                    line-height: 1.4;
+                    color: var(--vscode-foreground);
+                    border-radius: 3px;
+                    word-break: break-word;
+                }
+                .cell-list-popover-item + .cell-list-popover-item {
+                    border-top: 1px solid var(--vscode-panel-border, rgba(0,0,0,0.04));
+                }
+                .cell-list-popover-empty {
+                    padding: 12px 16px;
+                    font-size: 0.8em;
+                    color: var(--vscode-descriptionForeground);
+                    font-style: italic;
+                }
+                .cell-list-popover-footer {
+                    padding: 8px 16px;
+                    font-size: 0.72em;
+                    color: var(--vscode-descriptionForeground);
+                    border-top: 1px solid var(--vscode-panel-border, var(--vscode-widget-border, rgba(0,0,0,0.08)));
+                    flex-shrink: 0;
+                }
             </style>
         </head>
         <body>
@@ -1212,6 +1393,31 @@ function getWebviewContent(
                 </div>
             </div>
 
+            <!-- Cell list popover (Step 1 audio-stat drill-down) -->
+            <div id="cellListPopoverBackdrop" class="cell-list-popover-backdrop" aria-hidden="true"></div>
+            <div
+                id="cellListPopover"
+                class="cell-list-popover"
+                role="dialog"
+                aria-modal="false"
+                aria-labelledby="cellListPopoverTitle"
+            >
+                <div class="cell-list-popover-header">
+                    <span id="cellListPopoverTitle" class="cell-list-popover-title">Affected cells</span>
+                    <span id="cellListPopoverCount" class="cell-list-popover-count">0</span>
+                    <button
+                        type="button"
+                        id="cellListPopoverClose"
+                        class="cell-list-popover-close"
+                        aria-label="Close"
+                    >
+                        <i class="codicon codicon-close"></i>
+                    </button>
+                </div>
+                <div id="cellListPopoverBody" class="cell-list-popover-body"></div>
+                <div id="cellListPopoverFooter" class="cell-list-popover-footer"></div>
+            </div>
+
             <script>
                 const vscode = acquireVsCodeApi();
                 const fileGroups = ${groupsJson};
@@ -1244,6 +1450,197 @@ function getWebviewContent(
                         if (f && f.hasAudio) return true;
                     }
                     return false;
+                }
+
+                /*
+                 * Step 1 audio-stat counter → clickable pill. Cell label
+                 * arrays already live on fileGroups[g].files[f].audioStats —
+                 * we just point the pill at them via data attributes and the
+                 * delegated click handler in setupCellListPopover() looks
+                 * them up at click time. No HTML-embedded JSON, no separate
+                 * payload store.
+                 */
+                function renderStatPill(gIdx, fIdx, bucket, severity, count, label, title) {
+                    return [
+                        '<button type="button"',
+                        ' class="stat-pill stat-' + severity + '"',
+                        ' data-popover-trigger="cellList"',
+                        ' data-group-idx="' + gIdx + '"',
+                        ' data-file-idx="' + fIdx + '"',
+                        ' data-bucket="' + bucket + '"',
+                        ' data-severity="' + severity + '"',
+                        ' data-title="' + escapeHtml(title) + '"',
+                        ' aria-label="' + escapeHtml(title + ' (' + count + ')') + '"',
+                        '>' + count + ' ' + escapeHtml(label) + '</button>'
+                    ].join('');
+                }
+
+                /*
+                 * Cell list popover — opens on click of a stat-pill, shows
+                 * the full list of affected cells with a scrollable body,
+                 * closes on outside click or Escape. Visually matches the
+                 * ShadCN <PopoverContent> used in the React webviews.
+                 */
+                const cellListPopoverState = {
+                    open: false,
+                    lastFocused: null,
+                    bucketKeys: {
+                        selectionMissing: 'selectionMissingCells',
+                        noneSelected: 'noneSelectedCells',
+                        noAudioRecorded: 'noAudioRecordedCells'
+                    }
+                };
+
+                function openCellListPopover(anchorEl, title, severity, cells) {
+                    const root = document.getElementById('cellListPopover');
+                    const backdrop = document.getElementById('cellListPopoverBackdrop');
+                    const titleEl = document.getElementById('cellListPopoverTitle');
+                    const countEl = document.getElementById('cellListPopoverCount');
+                    const bodyEl = document.getElementById('cellListPopoverBody');
+                    const footerEl = document.getElementById('cellListPopoverFooter');
+                    if (!root || !backdrop || !titleEl || !countEl || !bodyEl || !footerEl) return;
+
+                    titleEl.className = 'cell-list-popover-title title-' + severity;
+                    titleEl.textContent = title;
+                    countEl.textContent = String(cells.length);
+                    if (cells.length === 0) {
+                        bodyEl.innerHTML = '<div class="cell-list-popover-empty">No cells in this bucket.</div>';
+                    } else {
+                        bodyEl.innerHTML = cells
+                            .map(label => '<div class="cell-list-popover-item">' + escapeHtml(label) + '</div>')
+                            .join('');
+                    }
+                    footerEl.textContent = cells.length === 1
+                        ? '1 cell'
+                        : cells.length + ' cells';
+
+                    // Show before positioning so getBoundingClientRect is
+                    // accurate. CSS keeps it invisible until the .open class
+                    // toggles opacity.
+                    root.style.display = 'flex';
+                    backdrop.classList.add('open');
+
+                    positionCellListPopover(anchorEl, root);
+
+                    // Defer .open so the transition runs from the initial
+                    // scale(0.97) state.
+                    requestAnimationFrame(() => root.classList.add('open'));
+
+                    cellListPopoverState.open = true;
+                    cellListPopoverState.lastFocused = anchorEl || null;
+                    // Send keyboard focus into the popover so Escape works
+                    // without needing to click first.
+                    const closeBtn = document.getElementById('cellListPopoverClose');
+                    if (closeBtn && typeof closeBtn.focus === 'function') closeBtn.focus();
+                }
+
+                function closeCellListPopover() {
+                    if (!cellListPopoverState.open) return;
+                    const root = document.getElementById('cellListPopover');
+                    const backdrop = document.getElementById('cellListPopoverBackdrop');
+                    if (!root || !backdrop) return;
+                    root.classList.remove('open');
+                    backdrop.classList.remove('open');
+                    // Hide after the transition to keep tab order clean.
+                    setTimeout(() => {
+                        if (!cellListPopoverState.open) root.style.display = 'none';
+                    }, 140);
+                    cellListPopoverState.open = false;
+                    if (cellListPopoverState.lastFocused && typeof cellListPopoverState.lastFocused.focus === 'function') {
+                        try { cellListPopoverState.lastFocused.focus(); } catch { /* noop */ }
+                    }
+                }
+
+                /*
+                 * Position the popover below the anchor by default, flipping
+                 * above when there isn't enough room. Stays inside the
+                 * viewport horizontally. Same heuristics as ValidatorPopover
+                 * in the React webview, simplified for our use case.
+                 */
+                function positionCellListPopover(anchorEl, popoverEl) {
+                    if (!anchorEl || !popoverEl) return;
+                    const anchor = anchorEl.getBoundingClientRect();
+                    const pop = popoverEl.getBoundingClientRect();
+                    const vw = window.innerWidth;
+                    const vh = window.innerHeight;
+                    const margin = 8;
+
+                    let top;
+                    const spaceBelow = vh - anchor.bottom;
+                    const spaceAbove = anchor.top;
+                    if (spaceBelow >= pop.height + margin || spaceBelow >= spaceAbove) {
+                        top = Math.min(anchor.bottom + 6, vh - pop.height - margin);
+                    } else {
+                        top = Math.max(margin, anchor.top - pop.height - 6);
+                    }
+
+                    let left = anchor.left;
+                    if (left + pop.width > vw - margin) {
+                        left = Math.max(margin, vw - pop.width - margin);
+                    }
+                    left = Math.max(margin, left);
+
+                    popoverEl.style.top = top + 'px';
+                    popoverEl.style.left = left + 'px';
+                }
+
+                function setupCellListPopover() {
+                    // Delegated click handler — pills are recreated whenever
+                    // renderFileGroups runs, so attaching to each one would
+                    // leak listeners.
+                    document.addEventListener('click', (event) => {
+                        const target = event.target;
+                        if (!target || !target.closest) return;
+
+                        const trigger = target.closest('[data-popover-trigger="cellList"]');
+                        if (trigger) {
+                            const gIdx = Number(trigger.getAttribute('data-group-idx'));
+                            const fIdx = Number(trigger.getAttribute('data-file-idx'));
+                            const bucket = trigger.getAttribute('data-bucket');
+                            const severity = trigger.getAttribute('data-severity') || 'info';
+                            const title = trigger.getAttribute('data-title') || 'Affected cells';
+                            const group = fileGroups[gIdx];
+                            const file = group && group.files && group.files[fIdx];
+                            const stats = file && file.audioStats;
+                            const key = cellListPopoverState.bucketKeys[bucket];
+                            const cells = (stats && key && Array.isArray(stats[key])) ? stats[key] : [];
+                            openCellListPopover(trigger, title, severity, cells);
+                            event.stopPropagation();
+                            return;
+                        }
+
+                        // Outside click — close. The backdrop catches most of
+                        // these but clicks on un-bubbled UI (e.g. file group
+                        // checkbox labels) need this fallback.
+                        if (cellListPopoverState.open) {
+                            const insidePopover = target.closest && target.closest('#cellListPopover');
+                            if (!insidePopover) closeCellListPopover();
+                        }
+                    });
+
+                    const backdrop = document.getElementById('cellListPopoverBackdrop');
+                    if (backdrop) {
+                        backdrop.addEventListener('click', () => closeCellListPopover());
+                    }
+                    const closeBtn = document.getElementById('cellListPopoverClose');
+                    if (closeBtn) {
+                        closeBtn.addEventListener('click', () => closeCellListPopover());
+                    }
+                    document.addEventListener('keydown', (e) => {
+                        if (e.key === 'Escape' && cellListPopoverState.open) {
+                            closeCellListPopover();
+                            e.stopPropagation();
+                        }
+                    });
+                    window.addEventListener('resize', () => {
+                        if (cellListPopoverState.open) closeCellListPopover();
+                    });
+                    // The Step 1 file list is scrollable — reposition is
+                    // harder than closing, and the user can re-open after
+                    // scrolling. Cheap and predictable.
+                    document.addEventListener('scroll', () => {
+                        if (cellListPopoverState.open) closeCellListPopover();
+                    }, true);
                 }
 
                 function renderFileGroups() {
@@ -1287,16 +1684,41 @@ function getWebviewContent(
                             if (f.audioStats && f.audioStats.eligibleCellCount > 0) {
                                 const parts = [];
                                 if (f.audioStats.audioReadyCount > 0) {
-                                    parts.push(f.audioStats.audioReadyCount + ' with audio');
+                                    // No drill-down for the "ready" bucket — these
+                                    // cells will export fine, nothing actionable.
+                                    parts.push('<span>' + f.audioStats.audioReadyCount + ' with audio</span>');
                                 }
+                                // Severity ordering matches the post-export
+                                // summary: errors first, then warns, then info.
                                 if (f.audioStats.selectionMissingCount > 0) {
-                                    parts.push(f.audioStats.selectionMissingCount + ' with selected audio missing');
+                                    parts.push(renderStatPill(
+                                        gIdx, fIdx,
+                                        'selectionMissing',
+                                        'error',
+                                        f.audioStats.selectionMissingCount,
+                                        'with selected audio missing',
+                                        f.displayName + ' — selected audio is missing'
+                                    ));
                                 }
                                 if (f.audioStats.noneSelectedCount > 0) {
-                                    parts.push(f.audioStats.noneSelectedCount + ' with audio, none selected');
+                                    parts.push(renderStatPill(
+                                        gIdx, fIdx,
+                                        'noneSelected',
+                                        'warn',
+                                        f.audioStats.noneSelectedCount,
+                                        'with audio, none selected',
+                                        f.displayName + ' — audio available, none selected'
+                                    ));
                                 }
                                 if (f.audioStats.noAudioRecordedCount > 0) {
-                                    parts.push(f.audioStats.noAudioRecordedCount + ' without recording');
+                                    parts.push(renderStatPill(
+                                        gIdx, fIdx,
+                                        'noAudioRecorded',
+                                        'info',
+                                        f.audioStats.noAudioRecordedCount,
+                                        'without recording',
+                                        f.displayName + ' — cells with no recorded audio'
+                                    ));
                                 }
                                 if (parts.length > 0) {
                                     audioStatsHtml = '<div class="file-audio-stats">' + parts.join(' \u00b7 ') + '</div>';
@@ -1713,10 +2135,13 @@ function getWebviewContent(
                         case 'no-text-recorded':
                             return 'info';
                         case 'no-audio-selected':
-                        case 'audio-file-missing':
                         case 'pointer-corrupt':
                         case 'source-not-found':
                             return 'warn';
+                        // audio-file-missing is Tier 3 (error): the user
+                        // approved this take and the resolver could not fetch
+                        // it from anywhere — genuinely unrecoverable.
+                        case 'audio-file-missing':
                         case 'download-failed':
                         case 'transcode-failed':
                         case 'write-failed':
@@ -1871,11 +2296,11 @@ function getWebviewContent(
                         const bucket = mf.severity === 'error' ? errorReasons : mf.severity === 'warn' ? warnReasons : infoReasons;
                         bucket[mf.reason] = (bucket[mf.reason] || 0) + 1;
                     }
+                    if (errorReasons['audio-file-missing']) parts.push(errorReasons['audio-file-missing'] + ' cell' + (errorReasons['audio-file-missing'] === 1 ? '' : 's') + ' with selected audio missing');
                     if (errorReasons['download-failed']) parts.push(errorReasons['download-failed'] + ' download failure' + (errorReasons['download-failed'] === 1 ? '' : 's'));
                     if (errorReasons['transcode-failed']) parts.push(errorReasons['transcode-failed'] + ' transcode failure' + (errorReasons['transcode-failed'] === 1 ? '' : 's'));
                     if (errorReasons['write-failed']) parts.push(errorReasons['write-failed'] + ' write failure' + (errorReasons['write-failed'] === 1 ? '' : 's'));
                     if (errorReasons['error']) parts.push(errorReasons['error'] + ' error' + (errorReasons['error'] === 1 ? '' : 's'));
-                    if (warnReasons['audio-file-missing']) parts.push(warnReasons['audio-file-missing'] + ' cell' + (warnReasons['audio-file-missing'] === 1 ? '' : 's') + ' with selected audio missing');
                     if (warnReasons['pointer-corrupt']) parts.push(warnReasons['pointer-corrupt'] + ' unreadable audio file' + (warnReasons['pointer-corrupt'] === 1 ? '' : 's'));
                     if (warnReasons['no-audio-selected']) parts.push(warnReasons['no-audio-selected'] + ' cell' + (warnReasons['no-audio-selected'] === 1 ? '' : 's') + ' with audio, none selected');
                     if (warnReasons['source-not-found']) parts.push(warnReasons['source-not-found'] + ' source file' + (warnReasons['source-not-found'] === 1 ? '' : 's') + ' missing');
@@ -2038,6 +2463,7 @@ function getWebviewContent(
 
                 document.addEventListener('DOMContentLoaded', () => {
                     renderFileGroups();
+                    setupCellListPopover();
                     updateStep1Button();
                     if (exportPath) {
                         const pathEl = document.getElementById('exportPath');
