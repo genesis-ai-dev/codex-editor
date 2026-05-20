@@ -63,7 +63,6 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
         setAudioSrc("");
     }, [audioBlob, audioUrl]);
 
-
     // Decode the audio blob to get its actual duration (best-effort).
     // Only needed when a target duration is supplied so we can render the comparison bar.
     useEffect(() => {
@@ -105,7 +104,6 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
             cancelled = true;
         };
     }, [audioBlob, targetDuration]);
-
 
     return (
         <div className="bg-[var(--vscode-editor-background)] flex flex-col gap-y-3 p-3 sm:p-4 rounded-md shadow w-full relative">
@@ -156,7 +154,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
             </>
 
             {/* Waveform */}
-            <div className="bg-[var(--vscode-editor-background)]">
+            <div>
                 {audioSrc ? (
                     <CustomWaveformCanvas
                         audioUrl={audioSrc}
