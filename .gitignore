@@ -17,4 +17,8 @@ webviews/codex-webviews/vite.config.ts.timestamp-*.mjs
 # .project/
 
 # AI coding agents
-.claude/
+.claude/*
+!.claude/skills/
+
+# Glance memory
+.glance/
