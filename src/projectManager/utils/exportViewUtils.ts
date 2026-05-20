@@ -1,5 +1,10 @@
 import * as vscode from "vscode";
 import { CodexNotebookAsJSONData } from "../../../types";
+import {
+    getCellAudioState,
+    isExportableCell,
+    isLabelableCell,
+} from "../../exportHandler/audioAttachmentUtils";
 
 export {
     EXPORT_OPTIONS_BY_FILE_TYPE,
@@ -26,12 +31,28 @@ export const FILE_TYPE_DISPLAY_NAMES: Record<string, string> = {
     unknown: "Other Files",
 };
 
+export interface NotebookAudioStats {
+    /** Active cells (kind 1|2, not merged/deleted) — the denominator. */
+    eligibleCellCount: number;
+    /** Cells with a take that will actually be exported. */
+    audioReadyCount: number;
+    /** Eligible cells with no usable audio attachment at all. */
+    noAudioRecordedCount: number;
+    /**
+     * selectedAudioId was set on the cell but the referenced take is gone,
+     * so nothing will be exported for this cell (we refuse to substitute an
+     * unapproved take).
+     */
+    selectionLostCount: number;
+}
+
 export interface FileGroupEntry {
     path: string;
     name: string;
     displayName: string;
     hasTranslations: boolean;
     hasAudio: boolean;
+    audioStats?: NotebookAudioStats;
 }
 
 export interface FileGroup {
@@ -102,6 +123,45 @@ export function analyzeNotebookContent(notebook: CodexNotebookAsJSONData): {
         }
     }
     return { hasTranslations, hasAudio };
+}
+
+/**
+ * Full notebook walk that mirrors the predicate used by `audioExporter.ts` so
+ * Step 1 inline counts cannot disagree with what the actual export will do.
+ * Pure notebook-metadata walk: no disk IO, no network.
+ */
+export function analyzeNotebookAudioStats(
+    notebook: CodexNotebookAsJSONData
+): NotebookAudioStats {
+    let eligibleCellCount = 0;
+    let audioReadyCount = 0;
+    let noAudioRecordedCount = 0;
+    let selectionLostCount = 0;
+
+    for (const cell of notebook.cells) {
+        if (!isExportableCell(cell)) continue;
+        eligibleCellCount += 1;
+        const state = getCellAudioState(cell);
+        if (state === "ready") {
+            audioReadyCount += 1;
+            continue;
+        }
+        // Mirror the exporter: cells we can't label aren't surfaced as
+        // missing-audio rows, so they shouldn't inflate the Step 1 counts.
+        if (!isLabelableCell(cell)) continue;
+        if (state === "selection-lost") {
+            selectionLostCount += 1;
+        } else {
+            noAudioRecordedCount += 1;
+        }
+    }
+
+    return {
+        eligibleCellCount,
+        audioReadyCount,
+        noAudioRecordedCount,
+        selectionLostCount,
+    };
 }
 
 /**
@@ -269,6 +329,9 @@ export async function groupCodexFilesByImporterType(
                 name.replace(/\.codex$/i, "") ||
                 name;
             const { hasTranslations, hasAudio } = analyzeNotebookContent(notebook);
+            const audioStats = hasAudio
+                ? analyzeNotebookAudioStats(notebook)
+                : undefined;
 
             if (!groupsMap.has(groupKey)) {
                 groupsMap.set(groupKey, []);
@@ -279,6 +342,7 @@ export async function groupCodexFilesByImporterType(
                 displayName: fileDisplayName,
                 hasTranslations,
                 hasAudio,
+                audioStats,
             });
         } catch {
             const name = uri.fsPath.split(/[/\\]/).pop() || "";

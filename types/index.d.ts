@@ -2371,3 +2371,76 @@ export type MessagesFromMissingToolsWarning =
     | { command: "deleteTool"; tool: "sqlite" | "git" | "ffmpeg" }
     | { command: "forceBuiltinTool"; tool: "sqlite" | "git" | "ffmpeg" }
     | { command: "reloadWindow" };
+
+/**
+ * Project Export view: messages exchanged between the host
+ * (`src/projectManager/projectExportView.ts`) and its webview HTML/JS payload
+ * during the new in-panel "Exporting" experience.
+ */
+export type ExportProgressStage =
+    | "preparing"
+    | "processing"
+    | "downloading"
+    | "writing"
+    | "finalizing";
+
+export type ExportMissingFileReason =
+    // Tier 1 — informational
+    | "no-audio-recorded"
+    | "no-text-recorded"
+    // Tier 2 — soft warning
+    | "no-audio-selected"
+    | "audio-file-missing"
+    | "pointer-corrupt"
+    | "source-not-found"
+    // Tier 3 — hard error
+    | "download-failed"
+    | "transcode-failed"
+    | "write-failed"
+    | "error";
+
+export type ExportMissingFileSeverity = "info" | "warn" | "error";
+
+export interface ExportProgressEventPayload {
+    stage: ExportProgressStage;
+    message?: string;
+    file?: string;
+    current?: number;
+    total?: number;
+    increment?: number;
+}
+
+export interface ExportMissingFilePayload {
+    file: string;
+    reason: ExportMissingFileReason;
+    detail?: string;
+}
+
+export interface ExportSummaryPayload {
+    exportPath: string;
+    filesExported?: number;
+    audioCopied?: number;
+    audioMissing?: number;
+    audioFailed?: number;
+    missingFiles?: ExportMissingFilePayload[];
+    extraMessages?: string[];
+}
+
+export type MessagesToProjectExportView =
+    | { command: "updateExportPath"; path: string; }
+    | { command: "htmlStructureCheckResult"; mismatches: { totalMismatches: number; fileDetails: { file: string; count: number; }[]; }; }
+    | { command: "exportStarted"; }
+    | { command: "exportProgress"; event: ExportProgressEventPayload; }
+    | { command: "exportFileMissing"; file: string; reason: ExportMissingFileReason; detail?: string; }
+    | { command: "exportCompleted"; summary: ExportSummaryPayload; }
+    | { command: "exportError"; message: string; };
+
+export type MessagesFromProjectExportView =
+    | { command: "selectExportPath"; }
+    | { command: "openProjectSettings"; }
+    | { command: "export"; format: string; userSelectedPath: string; filesToExport: string[]; options?: Record<string, unknown>; }
+    | { command: "checkHtmlStructure"; filesToExport: string[]; }
+    | { command: "openExportFolder"; path: string; }
+    | { command: "closeExportView"; }
+    | { command: "cancel"; };
+

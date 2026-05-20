@@ -3,8 +3,6 @@ import { CodexNotebookAsJSONData, QuillCellContent } from "@types";
 import { CodexCellTypes } from "../../types/enums";
 import { removeHtmlTags } from "./subtitleUtils";
 import { ExportOptions } from "./exportHandler";
-import * as vscode from "vscode";
-
 /**
  * Inserts line breaks for dialogue patterns when missing.
  * If there are no existing newlines, convert occurrences of " -" into "\n-" to split lines like:
@@ -102,9 +100,6 @@ ${payload}
         })
         .join("\n");
 
-    if (cues.length === 0) {
-        vscode.window.showInformationMessage("No cues found in the " + filePath);
-    }
     return `WEBVTT
 
 ${cues}`;

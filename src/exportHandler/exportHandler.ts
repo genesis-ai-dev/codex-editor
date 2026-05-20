@@ -34,6 +34,11 @@ import { exportCodexContentAsXliff } from "./xliffExporter";
 import { exportCodexContentAsUsfm } from "./usfmExporter";
 import { exportCodexContentAsHtml } from "./htmlExporter";
 import { analyzeNotebookContent } from "../projectManager/utils/exportViewUtils";
+import {
+    createNoopReporter,
+    type ExportProgressReporter,
+    type ExportMissingFile,
+} from "./exportProgress";
 
 // Debug flag
 const DEBUG = false;
@@ -223,34 +228,32 @@ export interface ExportOptions {
 async function exportCodexContentAsIdmlRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
+    reporter: ExportProgressReporter,
     _options?: ExportOptions
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+        reporter.error("No project folder found. Please open a project first.");
         return;
     }
 
     const exportFolder = vscode.Uri.file(userSelectedPath);
     await vscode.workspace.fs.createDirectory(exportFolder);
 
-    return vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "Exporting IDML Round-trip",
-            cancellable: false,
-        },
-        async (progress) => {
-            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+    // Import exporters
+    const { exportIdmlRoundtrip } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/indesign/idmlExporter");
+    const { exportIdmlRoundtrip: exportBiblicaIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/biblica/biblicaExporter");
+    // const { exportIdmlRoundtrip: exportReach4LifeIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/reach4life/reach4lifeExporter");
 
-            // Import exporters
-            const { exportIdmlRoundtrip } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/indesign/idmlExporter");
-            const { exportIdmlRoundtrip: exportBiblicaIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/biblica/biblicaExporter");
-            // const { exportIdmlRoundtrip: exportReach4LifeIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/reach4life/reach4lifeExporter");
-
-            // For each selected codex file, find its original attachment and create a translated copy in export folder
-            for (const [index, filePath] of filesToExport.entries()) {
-                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+    // For each selected codex file, find its original attachment and create a translated copy in export folder
+    for (const [index, filePath] of filesToExport.entries()) {
+        reporter.report({
+            stage: "writing",
+            message: `Processing ${index + 1}/${filesToExport.length}`,
+            file: basename(filePath),
+            current: index + 1,
+            total: filesToExport.length,
+        });
                 try {
                     const file = vscode.Uri.file(filePath);
                     const fileName = basename(file.fsPath);
@@ -300,7 +303,11 @@ async function exportCodexContentAsIdmlRoundtrip(
                     // Check if the file is a Git LFS pointer and resolve it if so
                     if (isLfsPointerContent(idmlData)) {
                         console.log(`[IDML Export] File "${originalFileUri.fsPath}" is a Git LFS pointer - attempting to resolve...`);
-                        progress.report({ message: `Downloading original IDML from LFS for ${fileName}...` });
+                        reporter.report({
+                            stage: "downloading",
+                            message: `Downloading original IDML from LFS for ${fileName}...`,
+                            file: fileName,
+                        });
                         const projectRoot = workspaceFolders[0].uri.fsPath;
                         const lfsResult = await resolveLfsPointerFile(originalFileUri.fsPath, projectRoot);
                         if (lfsResult.error || !lfsResult.data) {
@@ -353,45 +360,49 @@ async function exportCodexContentAsIdmlRoundtrip(
                     console.log(`[IDML Export] ${exporterType} export completed: ${injectedName}`);
                 } catch (err) {
                     console.error("IDML round-trip export failed:", err);
-                    vscode.window.showErrorMessage(`IDML round-trip export failed: ${err instanceof Error ? err.message : String(err)}`);
+                    reporter.fileMissing(
+                        basename(filePath),
+                        "error",
+                        err instanceof Error ? err.message : String(err)
+                    );
                 }
             }
 
-            vscode.window.showInformationMessage(`IDML round-trip export completed to ${userSelectedPath}`);
-        }
-    );
+    reporter.complete({
+        exportPath: userSelectedPath,
+        filesExported: filesToExport.length,
+        extraMessages: [`IDML round-trip export completed.`],
+    });
 }
 
 // DOCX Round-trip export: Uses experimental DOCX exporter for round-trip functionality
 async function exportCodexContentAsDocxRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
+    reporter: ExportProgressReporter,
     _options?: ExportOptions
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+        reporter.error("No project folder found. Please open a project first.");
         return;
     }
 
     const exportFolder = vscode.Uri.file(userSelectedPath);
     await vscode.workspace.fs.createDirectory(exportFolder);
 
-    return vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "Exporting DOCX Round-trip (Experimental)",
-            cancellable: false,
-        },
-        async (progress) => {
-            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+    // Import experimental DOCX exporter
+    const { exportDocxWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/docx/docxExporter");
 
-            // Import experimental DOCX exporter
-            const { exportDocxWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/docx/docxExporter");
-
-            // For each selected codex file, find its original attachment and create a translated copy in export folder
-            for (const [index, filePath] of filesToExport.entries()) {
-                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+    // For each selected codex file, find its original attachment and create a translated copy in export folder
+    for (const [index, filePath] of filesToExport.entries()) {
+        reporter.report({
+            stage: "writing",
+            message: `Processing ${index + 1}/${filesToExport.length}`,
+            file: basename(filePath),
+            current: index + 1,
+            total: filesToExport.length,
+        });
                 try {
                     const file = vscode.Uri.file(filePath);
                     const fileName = basename(file.fsPath);
@@ -406,7 +417,7 @@ async function exportCodexContentAsDocxRoundtrip(
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
                     if (corpusMarker !== 'docx' && corpusMarker !== 'docx-roundtrip') {
                         console.warn(`[DOCX Export] Skipping ${fileName} - not imported with DOCX importer (corpusMarker: ${corpusMarker})`);
-                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with DOCX importer`);
+                        reporter.fileMissing(fileName, "error", "not imported with DOCX importer");
                         continue;
                     }
 
@@ -423,7 +434,11 @@ async function exportCodexContentAsDocxRoundtrip(
                     // Check if the file is a Git LFS pointer and resolve it
                     if (isLfsPointerContent(docxData)) {
                         console.log(`[DOCX Export] File "${originalFileUri.fsPath}" is a Git LFS pointer - resolving...`);
-                        progress.report({ message: `Downloading original DOCX from LFS for ${fileName}...` });
+                        reporter.report({
+                            stage: "downloading",
+                            message: `Downloading original DOCX from LFS for ${fileName}...`,
+                            file: fileName,
+                        });
                         const projectRoot = workspaceFolders[0].uri.fsPath;
                         const lfsResult = await resolveLfsPointerFile(originalFileUri.fsPath, projectRoot);
                         if (lfsResult.error || !lfsResult.data) {
@@ -451,45 +466,49 @@ async function exportCodexContentAsDocxRoundtrip(
                     console.log(`[DOCX Export] Round-trip export completed: ${exportedName}`);
                 } catch (err) {
                     console.error("DOCX round-trip export failed:", err);
-                    vscode.window.showErrorMessage(`DOCX round-trip export failed: ${err instanceof Error ? err.message : String(err)}`);
+                    reporter.fileMissing(
+                        basename(filePath),
+                        "error",
+                        err instanceof Error ? err.message : String(err)
+                    );
                 }
             }
 
-            vscode.window.showInformationMessage(`DOCX round-trip export completed to ${userSelectedPath}`);
-        }
-    );
+    reporter.complete({
+        exportPath: userSelectedPath,
+        filesExported: filesToExport.length,
+        extraMessages: [`DOCX round-trip export completed.`],
+    });
 }
 
 // PDF Round-trip export: Uses DOCX exporter then converts DOCX→PDF
 async function exportCodexContentAsPdfRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
+    reporter: ExportProgressReporter,
     _options?: ExportOptions
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+        reporter.error("No project folder found. Please open a project first.");
         return;
     }
 
     const exportFolder = vscode.Uri.file(userSelectedPath);
     await vscode.workspace.fs.createDirectory(exportFolder);
 
-    return vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "Exporting PDF Round-trip",
-            cancellable: false,
-        },
-        async (progress) => {
-            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+    // Import DOCX exporter (we'll use it to create DOCX, then convert to PDF)
+    const { exportDocxWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/docx/docxExporter");
 
-            // Import DOCX exporter (we'll use it to create DOCX, then convert to PDF)
-            const { exportDocxWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/docx/docxExporter");
-
-            // For each selected codex file, export as DOCX then convert to PDF
-            for (const [index, filePath] of filesToExport.entries()) {
-                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+    // For each selected codex file, export as DOCX then convert to PDF
+    for (const [index, filePath] of filesToExport.entries()) {
+        reporter.report({
+            stage: "writing",
+            message: `Processing ${index + 1}/${filesToExport.length}`,
+            file: basename(filePath),
+            current: index + 1,
+            total: filesToExport.length,
+        });
                 try {
                     const file = vscode.Uri.file(filePath);
                     const fileName = basename(file.fsPath);
@@ -505,7 +524,7 @@ async function exportCodexContentAsPdfRoundtrip(
                     const isPdfFile = corpusMarker === 'pdf';
                     if (!isPdfFile) {
                         console.warn(`[PDF Export] Skipping ${fileName} - not imported with PDF importer (corpusMarker: ${corpusMarker})`);
-                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with PDF importer`);
+                        reporter.fileMissing(fileName, "error", "not imported with PDF importer");
                         continue;
                     }
 
@@ -533,7 +552,11 @@ async function exportCodexContentAsPdfRoundtrip(
                     // Check if the file is a Git LFS pointer and resolve it
                     if (isLfsPointerContent(docxBytes)) {
                         console.log(`[PDF Export] File "${docxUri.fsPath}" is a Git LFS pointer - resolving...`);
-                        progress.report({ message: `Downloading original DOCX from LFS for ${fileName}...` });
+                        reporter.report({
+                            stage: "downloading",
+                            message: `Downloading original DOCX from LFS for ${fileName}...`,
+                            file: fileName,
+                        });
                         const projectRoot = workspaceFolders[0].uri.fsPath;
                         const lfsResult = await resolveLfsPointerFile(docxUri.fsPath, projectRoot);
                         if (lfsResult.error || !lfsResult.data) {
@@ -549,7 +572,11 @@ async function exportCodexContentAsPdfRoundtrip(
                     const docxData = docxBytes.buffer.slice(docxBytes.byteOffset, docxBytes.byteOffset + docxBytes.byteLength) as ArrayBuffer;
                     console.log(`[PDF Export] Using converted DOCX: ${docxUri.fsPath}`);
 
-                    progress.report({ message: `Exporting DOCX for ${fileName}...`, increment: increment * 0.5 });
+                    reporter.report({
+                        stage: "writing",
+                        message: `Exporting DOCX for ${fileName}...`,
+                        file: fileName,
+                    });
 
                     // Debug: Check cell metadata structure
                     console.log(`[PDF Export] Codex notebook has ${codexNotebook.cells.length} cells`);
@@ -600,7 +627,11 @@ async function exportCodexContentAsPdfRoundtrip(
                     );
                     console.log(`[PDF Export] Saved translated DOCX to: ${translatedDocxUri.fsPath}`);
 
-                    progress.report({ message: `Converting DOCX to PDF for ${fileName}...`, increment: increment * 0.5 });
+                    reporter.report({
+                        stage: "writing",
+                        message: `Converting DOCX to PDF for ${fileName}...`,
+                        file: fileName,
+                    });
 
                     // Step 3: Convert DOCX → PDF using docx2pdf via extension host
                     const pdfData = await convertDocxToPdfViaExtension(translatedDocxUri.fsPath);
@@ -617,13 +648,19 @@ async function exportCodexContentAsPdfRoundtrip(
 
                 } catch (error) {
                     console.error(`[PDF Export] Error exporting ${filePath}:`, error);
-                    vscode.window.showErrorMessage(`Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    reporter.fileMissing(
+                        basename(filePath),
+                        "error",
+                        error instanceof Error ? error.message : "Unknown error"
+                    );
                 }
             }
 
-            vscode.window.showInformationMessage(`PDF round-trip export completed to ${userSelectedPath}`);
-        }
-    );
+    reporter.complete({
+        exportPath: userSelectedPath,
+        filesExported: filesToExport.length,
+        extraMessages: [`PDF round-trip export completed.`],
+    });
 }
 
 /**
@@ -753,36 +790,34 @@ async function convertDocxToPdfViaExtension(docxPath: string): Promise<ArrayBuff
 async function exportCodexContentAsObsRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
+    reporter: ExportProgressReporter,
     _options?: ExportOptions
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+        reporter.error("No project folder found. Please open a project first.");
         return;
     }
 
     const exportFolder = vscode.Uri.file(userSelectedPath);
     await vscode.workspace.fs.createDirectory(exportFolder);
 
-    return vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "Exporting OBS Markdown Round-trip",
-            cancellable: false,
-        },
-        async (progress) => {
-            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+    const {
+        exportObsWithTranslations,
+        collectObsTranslationsFromCells,
+        exportObsWithTranslationsFromOriginal,
+        obsStoryHasSourceSpans,
+    } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/obs/obsExporter");
 
-            const {
-                exportObsWithTranslations,
-                collectObsTranslationsFromCells,
-                exportObsWithTranslationsFromOriginal,
-                obsStoryHasSourceSpans,
-            } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/obs/obsExporter");
-
-            // For each selected codex file, reconstruct the OBS markdown with translations
-            for (const [index, filePath] of filesToExport.entries()) {
-                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+    // For each selected codex file, reconstruct the OBS markdown with translations
+    for (const [index, filePath] of filesToExport.entries()) {
+        reporter.report({
+            stage: "writing",
+            message: `Processing ${index + 1}/${filesToExport.length}`,
+            file: basename(filePath),
+            current: index + 1,
+            total: filesToExport.length,
+        });
                 try {
                     const file = vscode.Uri.file(filePath);
                     const fileName = basename(file.fsPath);
@@ -796,7 +831,7 @@ async function exportCodexContentAsObsRoundtrip(
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
                     if (corpusMarker !== 'obs') {
                         console.warn(`[OBS Export] Skipping ${fileName} - not imported with OBS importer (corpusMarker: ${corpusMarker})`);
-                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with OBS importer`);
+                        reporter.fileMissing(fileName, "error", "not imported with OBS importer");
                         continue;
                     }
 
@@ -857,13 +892,19 @@ async function exportCodexContentAsObsRoundtrip(
 
                 } catch (error) {
                     console.error(`[OBS Export] Error exporting ${filePath}:`, error);
-                    vscode.window.showErrorMessage(`Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    reporter.fileMissing(
+                        basename(filePath),
+                        "error",
+                        error instanceof Error ? error.message : "Unknown error"
+                    );
                 }
             }
 
-            vscode.window.showInformationMessage(`OBS markdown round-trip export completed to ${userSelectedPath}`);
-        }
-    );
+    reporter.complete({
+        exportPath: userSelectedPath,
+        filesExported: filesToExport.length,
+        extraMessages: [`OBS markdown round-trip export completed.`],
+    });
 }
 
 /**
@@ -872,31 +913,30 @@ async function exportCodexContentAsObsRoundtrip(
 async function exportCodexContentAsMarkdownRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
+    reporter: ExportProgressReporter,
     _options?: ExportOptions
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+        reporter.error("No project folder found. Please open a project first.");
         return;
     }
 
     const exportFolder = vscode.Uri.file(userSelectedPath);
     await vscode.workspace.fs.createDirectory(exportFolder);
 
-    return vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "Exporting Markdown Round-trip",
-            cancellable: false,
-        },
-        async (progress) => {
-            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
-            const { exportMarkdownWithTranslations } = await import(
-                "../../webviews/codex-webviews/src/NewSourceUploader/importers/markdown/markdownExporter"
-            );
+    const { exportMarkdownWithTranslations } = await import(
+        "../../webviews/codex-webviews/src/NewSourceUploader/importers/markdown/markdownExporter"
+    );
 
-            for (const [index, filePath] of filesToExport.entries()) {
-                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+    for (const [index, filePath] of filesToExport.entries()) {
+        reporter.report({
+            stage: "writing",
+            message: `Processing ${index + 1}/${filesToExport.length}`,
+            file: basename(filePath),
+            current: index + 1,
+            total: filesToExport.length,
+        });
                 try {
                     const file = vscode.Uri.file(filePath);
                     const fileName = basename(file.fsPath);
@@ -908,7 +948,7 @@ async function exportCodexContentAsMarkdownRoundtrip(
                         console.warn(
                             `[Markdown Export] Skipping ${fileName} - not markdown importer (corpusMarker: ${corpusMarker}, importerType: ${importerType})`
                         );
-                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported as Markdown`);
+                        reporter.fileMissing(fileName, "error", "not imported as Markdown");
                         continue;
                     }
 
@@ -932,15 +972,19 @@ async function exportCodexContentAsMarkdownRoundtrip(
                     console.log(`[Markdown Export] ✓ Exported ${exportedName}`);
                 } catch (error) {
                     console.error(`[Markdown Export] Error exporting ${filePath}:`, error);
-                    vscode.window.showErrorMessage(
-                        `Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : "Unknown error"}`
+                    reporter.fileMissing(
+                        basename(filePath),
+                        "error",
+                        error instanceof Error ? error.message : "Unknown error"
                     );
                 }
             }
 
-            vscode.window.showInformationMessage(`Markdown round-trip export completed to ${userSelectedPath}`);
-        }
-    );
+    reporter.complete({
+        exportPath: userSelectedPath,
+        filesExported: filesToExport.length,
+        extraMessages: [`Markdown round-trip export completed.`],
+    });
 }
 
 /**
@@ -950,31 +994,29 @@ async function exportCodexContentAsMarkdownRoundtrip(
 async function exportCodexContentAsUsfmRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
+    reporter: ExportProgressReporter,
     _options?: ExportOptions
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+        reporter.error("No project folder found. Please open a project first.");
         return;
     }
 
     const exportFolder = vscode.Uri.file(userSelectedPath);
 
-    return vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "Exporting USFM Round-trip",
-            cancellable: false,
-        },
-        async (progress) => {
-            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+    const experimentalExporter = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/usfm/usfmExporter");
+    const exportUsfmRoundtrip = experimentalExporter.exportUsfmRoundtrip;
 
-            const experimentalExporter = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/usfm/usfmExporter");
-            const exportUsfmRoundtrip = experimentalExporter.exportUsfmRoundtrip;
-
-            // For each selected codex file, reconstruct the USFM with translations
-            for (const [index, filePath] of filesToExport.entries()) {
-                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+    // For each selected codex file, reconstruct the USFM with translations
+    for (const [index, filePath] of filesToExport.entries()) {
+        reporter.report({
+            stage: "writing",
+            message: `Processing ${index + 1}/${filesToExport.length}`,
+            file: basename(filePath),
+            current: index + 1,
+            total: filesToExport.length,
+        });
                 try {
                     const file = vscode.Uri.file(filePath);
                     const fileName = basename(file.fsPath);
@@ -1007,7 +1049,7 @@ async function exportCodexContentAsUsfmRoundtrip(
 
                     if (!isUsfmFile) {
                         console.warn(`[USFM Export] Skipping ${fileName} - not imported with USFM importer (importerType: ${importerType}, corpusMarker: ${corpusMarker})`);
-                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with USFM importer`);
+                        reporter.fileMissing(fileName, "error", "not imported with USFM importer");
                         continue;
                     }
 
@@ -1134,13 +1176,19 @@ async function exportCodexContentAsUsfmRoundtrip(
 
                 } catch (error) {
                     console.error(`[USFM Export] Error exporting ${filePath}:`, error);
-                    vscode.window.showErrorMessage(`Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    reporter.fileMissing(
+                        basename(filePath),
+                        "error",
+                        error instanceof Error ? error.message : "Unknown error"
+                    );
                 }
             }
 
-            vscode.window.showInformationMessage(`USFM round-trip export completed to ${userSelectedPath}`);
-        }
-    );
+    reporter.complete({
+        exportPath: userSelectedPath,
+        filesExported: filesToExport.length,
+        extraMessages: [`USFM round-trip export completed.`],
+    });
 }
 
 /**
@@ -1150,32 +1198,30 @@ async function exportCodexContentAsUsfmRoundtrip(
 async function exportCodexContentAsSpreadsheetRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
+    reporter: ExportProgressReporter,
     _options?: ExportOptions
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+        reporter.error("No project folder found. Please open a project first.");
         return;
     }
 
     const exportFolder = vscode.Uri.file(userSelectedPath);
     await vscode.workspace.fs.createDirectory(exportFolder);
 
-    return vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "Exporting Spreadsheet Round-trip",
-            cancellable: false,
-        },
-        async (progress) => {
-            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+    // Import spreadsheet exporter
+    const { exportSpreadsheetWithTranslations, getDelimiterFromMetadata, getSpreadsheetExtension } =
+        await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/bibleSpredSheet/spreadsheetExporter");
 
-            // Import spreadsheet exporter
-            const { exportSpreadsheetWithTranslations, getDelimiterFromMetadata, getSpreadsheetExtension } =
-                await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/bibleSpredSheet/spreadsheetExporter");
-
-            for (const [index, filePath] of filesToExport.entries()) {
-                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+    for (const [index, filePath] of filesToExport.entries()) {
+        reporter.report({
+            stage: "writing",
+            message: `Processing ${index + 1}/${filesToExport.length}`,
+            file: basename(filePath),
+            current: index + 1,
+            total: filesToExport.length,
+        });
                 try {
                     const file = vscode.Uri.file(filePath);
                     const fileName = basename(file.fsPath);
@@ -1203,7 +1249,7 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
 
                     if (!isSpreadsheet) {
                         console.warn(`[Spreadsheet Export] Skipping ${fileName} - not imported with spreadsheet importer (importerType: ${importerType}, corpusMarker: ${corpusMarker})`);
-                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with spreadsheet importer`);
+                        reporter.fileMissing(fileName, "error", "not imported with spreadsheet importer");
                         continue;
                     }
 
@@ -1275,15 +1321,19 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
                     console.log(`[Spreadsheet Export] ✓ Exported ${outputFileName}`);
                 } catch (error) {
                     console.error(`[Spreadsheet Export] Error exporting ${filePath}:`, error);
-                    vscode.window.showErrorMessage(
-                        `Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : 'Unknown error'}`
+                    reporter.fileMissing(
+                        basename(filePath),
+                        "error",
+                        error instanceof Error ? error.message : "Unknown error"
                     );
                 }
             }
 
-            vscode.window.showInformationMessage(`Spreadsheet round-trip export completed to ${userSelectedPath}`);
-        }
-    );
+    reporter.complete({
+        exportPath: userSelectedPath,
+        filesExported: filesToExport.length,
+        extraMessages: [`Spreadsheet round-trip export completed.`],
+    });
 }
 
 /**
@@ -1293,32 +1343,30 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
 async function exportCodexContentAsTmsRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
+    reporter: ExportProgressReporter,
     _options?: ExportOptions
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+        reporter.error("No project folder found. Please open a project first.");
         return;
     }
 
     const exportFolder = vscode.Uri.file(userSelectedPath);
     await vscode.workspace.fs.createDirectory(exportFolder);
 
-    return vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "Exporting TMS Round-trip",
-            cancellable: false,
-        },
-        async (progress) => {
-            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+    // Import TMS exporter
+    const { exportTmsWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/tms/tmsExporter");
 
-            // Import TMS exporter
-            const { exportTmsWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/tms/tmsExporter");
-
-            // For each selected codex file, reconstruct the TMS file with translations
-            for (const [index, filePath] of filesToExport.entries()) {
-                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+    // For each selected codex file, reconstruct the TMS file with translations
+    for (const [index, filePath] of filesToExport.entries()) {
+        reporter.report({
+            stage: "writing",
+            message: `Processing ${index + 1}/${filesToExport.length}`,
+            file: basename(filePath),
+            current: index + 1,
+            total: filesToExport.length,
+        });
                 try {
                     const file = vscode.Uri.file(filePath);
                     const fileName = basename(file.fsPath);
@@ -1338,7 +1386,7 @@ async function exportCodexContentAsTmsRoundtrip(
 
                     if (corpusMarker !== 'tms' && fileFormat !== 'tms-tmx' && fileFormat !== 'tms-xliff') {
                         console.warn(`[TMS Export] Skipping ${fileName} - not imported with TMS importer (corpusMarker: ${corpusMarker}, fileFormat: ${fileFormat})`);
-                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with TMS importer`);
+                        reporter.fileMissing(fileName, "error", "not imported with TMS importer");
                         continue;
                     }
 
@@ -1403,13 +1451,19 @@ async function exportCodexContentAsTmsRoundtrip(
 
                 } catch (error) {
                     console.error(`[TMS Export] Error exporting ${filePath}:`, error);
-                    vscode.window.showErrorMessage(`Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    reporter.fileMissing(
+                        basename(filePath),
+                        "error",
+                        error instanceof Error ? error.message : "Unknown error"
+                    );
                 }
             }
 
-            vscode.window.showInformationMessage(`TMS round-trip export completed to ${userSelectedPath}`);
-        }
-    );
+    reporter.complete({
+        exportPath: userSelectedPath,
+        filesExported: filesToExport.length,
+        extraMessages: [`TMS round-trip export completed.`],
+    });
 }
 
 /**
@@ -1419,26 +1473,20 @@ async function exportCodexContentAsTmsRoundtrip(
 async function exportCodexContentAsRebuild(
     userSelectedPath: string,
     filesToExport: string[],
+    reporter: ExportProgressReporter,
     options?: ExportOptions
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+        reporter.error("No project folder found. Please open a project first.");
         return;
     }
 
-    return vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "Rebuilding Exports",
-            cancellable: false,
-        },
-        async (progress) => {
-            // Group files by their corpusMarker (file type)
-            const filesByType: Record<string, string[]> = {};
-            const unsupportedFiles: Array<{ file: string; marker: string; }> = [];
+    // Group files by their corpusMarker (file type)
+    const filesByType: Record<string, string[]> = {};
+    const unsupportedFiles: Array<{ file: string; marker: string; }> = [];
 
-            progress.report({ message: "Analyzing file types...", increment: 10 });
+    reporter.report({ stage: "preparing", message: "Analyzing file types..." });
 
             // Analyze each file's corpusMarker
             for (const filePath of filesToExport) {
@@ -1546,201 +1594,93 @@ async function exportCodexContentAsRebuild(
                 }
             }
 
-            // Report analysis results
-            const typeCount = Object.keys(filesByType).length;
-            const supportedCount = Object.values(filesByType).reduce((sum, files) => sum + files.length, 0);
+    // Report analysis results
+    const typeCount = Object.keys(filesByType).length;
+    const supportedCount = Object.values(filesByType).reduce((sum, files) => sum + files.length, 0);
 
-            console.log(`[Rebuild Export] Found ${supportedCount} supported files across ${typeCount} types`);
-            console.log(`[Rebuild Export] File groups:`, Object.keys(filesByType).map(type => `${type}: ${filesByType[type].length}`).join(', '));
+    console.log(`[Rebuild Export] Found ${supportedCount} supported files across ${typeCount} types`);
+    console.log(`[Rebuild Export] File groups:`, Object.keys(filesByType).map(type => `${type}: ${filesByType[type].length}`).join(', '));
 
-            // Export each file type group
-            let processedCount = 0;
-            const totalFiles = supportedCount;
+    // Build a "child" reporter that forwards report/fileMissing but swallows complete/error.
+    // This lets each sub-exporter stream progress to the same panel while we accumulate
+    // a single overall summary at the bottom of this orchestrator.
+    const childReporter: ExportProgressReporter = {
+        report: (event) => reporter.report(event),
+        fileMissing: (file, reason, detail) => reporter.fileMissing(file, reason, detail),
+        complete: () => undefined,
+        error: (message) => reporter.fileMissing(message, "error"),
+    };
 
-            // Export DOCX files
-            if (filesByType['docx']?.length > 0) {
-                console.log(`[Rebuild Export] Exporting ${filesByType['docx'].length} DOCX file(s)...`);
-                progress.report({
-                    message: `Exporting ${filesByType['docx'].length} DOCX file(s)...`,
-                    increment: 30
-                });
-                try {
-                    await exportCodexContentAsDocxRoundtrip(userSelectedPath, filesByType['docx'], options);
-                    processedCount += filesByType['docx'].length;
-                } catch (error) {
-                    console.error('[Rebuild Export] DOCX export failed:', error);
-                    vscode.window.showErrorMessage(`DOCX export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                }
-            }
+    let processedCount = 0;
 
-            // Export IDML files
-            if (filesByType['idml']?.length > 0) {
-                console.log(`[Rebuild Export] Exporting ${filesByType['idml'].length} IDML file(s)...`);
-                progress.report({
-                    message: `Exporting ${filesByType['idml'].length} IDML file(s)...`,
-                    increment: 20
-                });
-                try {
-                    await exportCodexContentAsIdmlRoundtrip(userSelectedPath, filesByType['idml'], options);
-                    processedCount += filesByType['idml'].length;
-                } catch (error) {
-                    console.error('[Rebuild Export] IDML export failed:', error);
-                    vscode.window.showErrorMessage(`IDML export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                }
-            }
+    const groups: Array<{
+        key: string;
+        label: string;
+        run: (paths: string[]) => Promise<void>;
+    }> = [
+            { key: "docx", label: "DOCX", run: (paths) => exportCodexContentAsDocxRoundtrip(userSelectedPath, paths, childReporter, options) },
+            { key: "idml", label: "IDML", run: (paths) => exportCodexContentAsIdmlRoundtrip(userSelectedPath, paths, childReporter, options) },
+            { key: "pdf", label: "PDF", run: (paths) => exportCodexContentAsPdfRoundtrip(userSelectedPath, paths, childReporter, options) },
+            { key: "obs", label: "OBS markdown", run: (paths) => exportCodexContentAsObsRoundtrip(userSelectedPath, paths, childReporter, options) },
+            { key: "markdown", label: "Markdown", run: (paths) => exportCodexContentAsMarkdownRoundtrip(userSelectedPath, paths, childReporter, options) },
+            { key: "tms", label: "TMS", run: (paths) => exportCodexContentAsTmsRoundtrip(userSelectedPath, paths, childReporter, options) },
+            { key: "usfm", label: "USFM", run: (paths) => exportCodexContentAsUsfmRoundtrip(userSelectedPath, paths, childReporter, options) },
+            { key: "spreadsheet", label: "Spreadsheet", run: (paths) => exportCodexContentAsSpreadsheetRoundtrip(userSelectedPath, paths, childReporter, options) },
+        ];
 
-            // Export PDF files (uses DOCX exporter + docx2pdf conversion)
-            if (filesByType['pdf']?.length > 0) {
-                console.log(`[Rebuild Export] Exporting ${filesByType['pdf'].length} PDF file(s)...`);
-                progress.report({
-                    message: `Exporting ${filesByType['pdf'].length} PDF file(s)...`,
-                    increment: 20
-                });
-                try {
-                    await exportCodexContentAsPdfRoundtrip(userSelectedPath, filesByType['pdf'], options);
-                    processedCount += filesByType['pdf'].length;
-                } catch (error) {
-                    console.error('[Rebuild Export] PDF export failed:', error);
-                    vscode.window.showErrorMessage(`PDF export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                }
-            }
-
-            // Export RTF files using Pandoc
-            // COMMENTED OUT - RTF importer disabled
-            /* if (filesByType['rtf']?.length > 0) {
-                console.log(`[Rebuild Export] Exporting ${filesByType['rtf'].length} RTF file(s) with Pandoc...`);
-                progress.report({
-                    message: `Exporting ${filesByType['rtf'].length} RTF file(s)...`,
-                    increment: 20
-                });
-                try {
-                    await exportCodexContentAsRtfRoundtrip(userSelectedPath, filesByType['rtf'], options);
-                    processedCount += filesByType['rtf'].length;
-                } catch (error) {
-                    console.error('[Rebuild Export] RTF export failed:', error);
-                    vscode.window.showErrorMessage(`RTF export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                }
-            } */
-
-            // Export OBS files
-            if (filesByType['obs']?.length > 0) {
-                console.log(`[Rebuild Export] Exporting ${filesByType['obs'].length} OBS markdown file(s)...`);
-                progress.report({
-                    message: `Exporting ${filesByType['obs'].length} OBS file(s)...`,
-                    increment: 20
-                });
-                try {
-                    await exportCodexContentAsObsRoundtrip(userSelectedPath, filesByType['obs'], options);
-                    processedCount += filesByType['obs'].length;
-                } catch (error) {
-                    console.error('[Rebuild Export] OBS export failed:', error);
-                    vscode.window.showErrorMessage(`OBS export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                }
-            }
-
-            // Export generic Markdown files
-            if (filesByType['markdown']?.length > 0) {
-                console.log(`[Rebuild Export] Exporting ${filesByType['markdown'].length} Markdown file(s)...`);
-                progress.report({
-                    message: `Exporting ${filesByType['markdown'].length} Markdown file(s)...`,
-                    increment: 20
-                });
-                try {
-                    await exportCodexContentAsMarkdownRoundtrip(userSelectedPath, filesByType['markdown'], options);
-                    processedCount += filesByType['markdown'].length;
-                } catch (error) {
-                    console.error('[Rebuild Export] Markdown export failed:', error);
-                    vscode.window.showErrorMessage(`Markdown export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                }
-            }
-
-            // Export TMS files
-            if (filesByType['tms']?.length > 0) {
-                console.log(`[Rebuild Export] Exporting ${filesByType['tms'].length} TMS file(s)...`);
-                progress.report({
-                    message: `Exporting ${filesByType['tms'].length} TMS file(s)...`,
-                    increment: 20
-                });
-                try {
-                    await exportCodexContentAsTmsRoundtrip(userSelectedPath, filesByType['tms'], options);
-                    processedCount += filesByType['tms'].length;
-                } catch (error) {
-                    console.error('[Rebuild Export] TMS export failed:', error);
-                    vscode.window.showErrorMessage(`TMS export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                }
-            }
-
-            // Export USFM files
-            if (filesByType['usfm']?.length > 0) {
-                console.log(`[Rebuild Export] Exporting ${filesByType['usfm'].length} USFM file(s)...`);
-                progress.report({
-                    message: `Exporting ${filesByType['usfm'].length} USFM file(s)...`,
-                    increment: 20
-                });
-                try {
-                    await exportCodexContentAsUsfmRoundtrip(userSelectedPath, filesByType['usfm'], options);
-                    processedCount += filesByType['usfm'].length;
-                } catch (error) {
-                    console.error('[Rebuild Export] USFM export failed:', error);
-                    vscode.window.showErrorMessage(`USFM export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                }
-            }
-
-            // Export Spreadsheet (CSV/TSV) files
-            if (filesByType['spreadsheet']?.length > 0) {
-                console.log(`[Rebuild Export] Exporting ${filesByType['spreadsheet'].length} Spreadsheet file(s)...`);
-                progress.report({
-                    message: `Exporting ${filesByType['spreadsheet'].length} Spreadsheet file(s)...`,
-                    increment: 20
-                });
-                try {
-                    await exportCodexContentAsSpreadsheetRoundtrip(userSelectedPath, filesByType['spreadsheet'], options);
-                    processedCount += filesByType['spreadsheet'].length;
-                } catch (error) {
-                    console.error('[Rebuild Export] Spreadsheet export failed:', error);
-                    vscode.window.showErrorMessage(`Spreadsheet export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                }
-            }
-
-            progress.report({ message: "Complete", increment: 30 });
-
-            // Show summary
-            const messages: string[] = [];
-            if (processedCount > 0) {
-                messages.push(`✓ Successfully exported ${processedCount} file(s)`);
-            }
-            if (unsupportedFiles.length > 0) {
-                messages.push(`⚠ Skipped ${unsupportedFiles.length} unsupported file(s)`);
-                console.warn('[Rebuild Export] Unsupported files:', unsupportedFiles);
-            }
-
-            if (messages.length > 0) {
-                vscode.window.showInformationMessage(messages.join('\n'));
-            }
-
-            // Show details for unsupported files
-            if (unsupportedFiles.length > 0) {
-                const unsupportedList = unsupportedFiles
-                    .map(f => `  • ${f.file} (type: ${f.marker})`)
-                    .join('\n');
-
-                vscode.window.showWarningMessage(
-                    `The following files were skipped (unsupported or coming soon):\n${unsupportedList}\n\nSupported types: DOCX, IDML, Biblica, Reach4Life, PDF, OBS, Markdown, TMS, USFM, CSV/TSV`,
-                    { modal: false }
-                );
-            }
+    for (const group of groups) {
+        const paths = filesByType[group.key];
+        if (!paths || paths.length === 0) continue;
+        console.log(`[Rebuild Export] Exporting ${paths.length} ${group.label} file(s)...`);
+        reporter.report({
+            stage: "writing",
+            message: `Exporting ${paths.length} ${group.label} file(s)...`,
+        });
+        try {
+            await group.run(paths);
+            processedCount += paths.length;
+        } catch (error) {
+            console.error(`[Rebuild Export] ${group.label} export failed:`, error);
+            reporter.fileMissing(
+                `${group.label} group`,
+                "error",
+                error instanceof Error ? error.message : "Unknown error"
+            );
         }
-    );
+    }
+
+    for (const f of unsupportedFiles) {
+        reporter.fileMissing(f.file, "error", `unsupported type: ${f.marker}`);
+    }
+
+    const messages: string[] = [];
+    if (processedCount > 0) {
+        messages.push(`Successfully exported ${processedCount} file(s).`);
+    }
+    if (unsupportedFiles.length > 0) {
+        messages.push(`Skipped ${unsupportedFiles.length} unsupported file(s).`);
+        console.warn("[Rebuild Export] Unsupported files:", unsupportedFiles);
+    }
+    messages.push("Supported types: DOCX, IDML, Biblica, Reach4Life, PDF, OBS, Markdown, TMS, USFM, CSV/TSV.");
+
+    reporter.complete({
+        exportPath: userSelectedPath,
+        filesExported: processedCount,
+        extraMessages: messages,
+    });
 }
 
 export async function exportCodexContent(
     format: CodexExportFormat,
     userSelectedPath: string,
     filesToExport: string[],
-    options?: ExportOptions
+    options?: ExportOptions,
+    reporter: ExportProgressReporter = createNoopReporter()
 ) {
     const includeAudio = options?.includeAudio === true && format !== CodexExportFormat.AUDIO;
     const isMulti = includeAudio;
+
+    reporter.report({ stage: "preparing", message: "Preparing export..." });
 
     // Always create a wrapper folder
     const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
@@ -1761,80 +1701,147 @@ export async function exportCodexContent(
     const formatPath = isMulti ? path.join(wrapperPath, format) : wrapperPath;
     const audioPath = isMulti ? path.join(wrapperPath, "audio") : wrapperPath;
 
+    // Wrap the reporter so individual sub-exporters can stream events but their
+    // individual `complete`/`error` calls don't double-fire to the webview. We
+    // collect all messages and emit a single final `complete` (or `error`) below.
+    const aggregated: {
+        missingFiles: ExportMissingFile[];
+        extraMessages: string[];
+        errorMessages: string[];
+        audioCopied?: number;
+        audioMissing?: number;
+        audioFailed?: number;
+        filesExported: number;
+    } = {
+        missingFiles: [],
+        extraMessages: [],
+        errorMessages: [],
+        filesExported: 0,
+    };
+
+    const childReporter: ExportProgressReporter = {
+        report: (event) => reporter.report(event),
+        fileMissing: (file, reason, detail) => {
+            aggregated.missingFiles.push({ file, reason, detail });
+            reporter.fileMissing(file, reason, detail);
+        },
+        complete: (summary) => {
+            if (summary.extraMessages) aggregated.extraMessages.push(...summary.extraMessages);
+            if (summary.missingFiles) aggregated.missingFiles.push(...summary.missingFiles);
+            if (typeof summary.audioCopied === "number") {
+                aggregated.audioCopied = (aggregated.audioCopied ?? 0) + summary.audioCopied;
+            }
+            if (typeof summary.audioMissing === "number") {
+                aggregated.audioMissing = (aggregated.audioMissing ?? 0) + summary.audioMissing;
+            }
+            if (typeof summary.audioFailed === "number") {
+                aggregated.audioFailed = (aggregated.audioFailed ?? 0) + summary.audioFailed;
+            }
+            if (typeof summary.filesExported === "number") {
+                aggregated.filesExported += summary.filesExported;
+            }
+        },
+        error: (message) => {
+            aggregated.errorMessages.push(message);
+        },
+    };
+
     const exportPromises: Promise<void>[] = [];
 
     switch (format) {
         case CodexExportFormat.PLAINTEXT:
-            exportPromises.push(exportCodexContentAsPlaintext(formatPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsPlaintext(formatPath, filesToExport, childReporter, options));
             break;
         case CodexExportFormat.USFM:
-            exportPromises.push(exportCodexContentAsUsfm(formatPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsUsfm(formatPath, filesToExport, childReporter, options));
             break;
         case CodexExportFormat.HTML:
-            exportPromises.push(exportCodexContentAsHtml(formatPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsHtml(formatPath, filesToExport, childReporter, options));
             break;
         case CodexExportFormat.AUDIO: {
             const { exportAudioAttachments } = await import("./audioExporter");
-            exportPromises.push(exportAudioAttachments(wrapperPath, filesToExport, { includeTimestamps: options?.includeTimestamps }));
+            exportPromises.push(exportAudioAttachments(wrapperPath, filesToExport, childReporter, { includeTimestamps: options?.includeTimestamps }));
             break;
         }
         case CodexExportFormat.SUBTITLES_VTT_WITH_STYLES:
-            exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, options, true));
+            exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, childReporter, options, true));
             break;
         case CodexExportFormat.SUBTITLES_VTT_WITHOUT_STYLES:
-            exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, options, false));
+            exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, childReporter, options, false));
             break;
         case CodexExportFormat.SUBTITLES_SRT:
-            exportPromises.push(exportCodexContentAsSubtitlesSrt(formatPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsSubtitlesSrt(formatPath, filesToExport, childReporter, options));
             break;
         case CodexExportFormat.XLIFF:
-            exportPromises.push(exportCodexContentAsXliff(formatPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsXliff(formatPath, filesToExport, childReporter, options));
             break;
         case CodexExportFormat.CSV:
-            exportPromises.push(exportCodexContentAsCsv(formatPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsCsv(formatPath, filesToExport, childReporter, options));
             break;
         case CodexExportFormat.TSV:
-            exportPromises.push(exportCodexContentAsTsv(formatPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsTsv(formatPath, filesToExport, childReporter, options));
             break;
         case CodexExportFormat.REBUILD_EXPORT:
-            exportPromises.push(exportCodexContentAsRebuild(formatPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsRebuild(formatPath, filesToExport, childReporter, options));
             break;
         case CodexExportFormat.BACKTRANSLATIONS:
-            exportPromises.push(exportCodexContentAsBacktranslations(formatPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsBacktranslations(formatPath, filesToExport, childReporter, options));
             break;
     }
 
     if (includeAudio) {
         const { exportAudioAttachments } = await import("./audioExporter");
         exportPromises.push(
-            exportAudioAttachments(audioPath, filesToExport, {
-                includeTimestamps: options?.includeTimestamps
+            exportAudioAttachments(audioPath, filesToExport, childReporter, {
+                includeTimestamps: options?.includeTimestamps,
             })
         );
     }
 
     await Promise.all(exportPromises);
 
-    // Write NOTICE.txt in per-file folders that will be empty due to missing content
+    // Write NOTICE.txt in per-file folders that will be empty due to missing content,
+    // and emit fileMissing events for them so the webview sees a complete list.
     const isTextFormat = format !== CodexExportFormat.AUDIO;
     const isAudioExport = includeAudio || format === CodexExportFormat.AUDIO;
     if (isTextFormat || isAudioExport) {
         try {
+            reporter.report({ stage: "finalizing", message: "Generating notices for missing content..." });
             await generateMissingContentNotices(
                 filesToExport,
                 isTextFormat ? formatPath : null,
-                isAudioExport ? audioPath : null
+                isAudioExport ? audioPath : null,
+                childReporter
             );
         } catch (e) {
             debug("Failed to generate NOTICE.txt files:", e);
         }
     }
+
+    if (aggregated.errorMessages.length > 0 && aggregated.filesExported === 0) {
+        reporter.error(aggregated.errorMessages.join("\n"));
+        return;
+    }
+
+    reporter.complete({
+        exportPath: wrapperPath,
+        filesExported: aggregated.filesExported || filesToExport.length,
+        audioCopied: aggregated.audioCopied,
+        audioMissing: aggregated.audioMissing,
+        audioFailed: aggregated.audioFailed,
+        missingFiles: aggregated.missingFiles,
+        extraMessages: [
+            ...aggregated.extraMessages,
+            ...aggregated.errorMessages,
+        ],
+    });
 }
 
 async function generateMissingContentNotices(
     filesToExport: string[],
     textExportPath: string | null,
-    audioExportPath: string | null
+    audioExportPath: string | null,
+    reporter?: ExportProgressReporter
 ): Promise<void> {
     for (const filePath of filesToExport) {
         try {
@@ -1856,6 +1863,7 @@ async function generateMissingContentNotices(
                         "This folder is empty because the source file contained no audio translations.\n"
                     )
                 );
+                reporter?.fileMissing(bookCode, "no-audio-recorded");
             }
 
             if (textExportPath && !hasTranslations) {
@@ -1868,6 +1876,7 @@ async function generateMissingContentNotices(
                         "No text file was generated because the source file contained no text translations.\n"
                     )
                 );
+                reporter?.fileMissing(bookCode, "no-text-recorded");
             }
         } catch (e) {
             debug(`Failed to check content for ${filePath}:`, e);
@@ -1906,80 +1915,74 @@ function firstFrom(map: Map<string, string>, keys: string[]): string {
 export const exportCodexContentAsSubtitlesSrt = async (
     userSelectedPath: string,
     filesToExport: string[],
+    reporter: ExportProgressReporter,
     options?: ExportOptions
 ) => {
     try {
         debug("Starting exportCodexContentAsSubtitlesSrt function");
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+            reporter.error("No project folder found. Please open a project first.");
             return;
         }
 
-        // Filter codex files based on user selection
         const selectedFiles = filesToExport.map((path) => vscode.Uri.file(path));
         debug(`Selected files for export: ${selectedFiles.length}`);
         if (selectedFiles.length === 0) {
-            vscode.window.showInformationMessage("No files selected for export.");
+            reporter.error("No files selected for export.");
             return;
         }
 
-        return vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: "Exporting Codex Content as SRT Subtitles",
-                cancellable: false,
-            },
-            async (progress) => {
-                let totalCells = 0;
-                const increment = 100 / selectedFiles.length;
+        let totalCells = 0;
 
-                // Create export directory if it doesn't exist
-                const exportFolder = vscode.Uri.file(userSelectedPath);
-                await vscode.workspace.fs.createDirectory(exportFolder);
+        const exportFolder = vscode.Uri.file(userSelectedPath);
+        await vscode.workspace.fs.createDirectory(exportFolder);
 
-                for (const [index, file] of selectedFiles.entries()) {
-                    progress.report({
-                        message: `Processing file ${index + 1}/${selectedFiles.length}`,
-                        increment,
-                    });
+        for (const [index, file] of selectedFiles.entries()) {
+            reporter.report({
+                stage: "writing",
+                message: `Processing file ${index + 1}/${selectedFiles.length}`,
+                file: basename(file.fsPath),
+                current: index + 1,
+                total: selectedFiles.length,
+            });
 
-                    debug(`Processing file: ${file.fsPath}`);
+            debug(`Processing file: ${file.fsPath}`);
 
-                    // Read and filter active cells (exclude merged/deleted)
-                    const codexData = await readCodexNotebookFromUri(file);
-                    const cells = getActiveCells(codexData.cells);
+            const codexData = await readCodexNotebookFromUri(file);
+            const cells = getActiveCells(codexData.cells);
 
-                    totalCells += cells.length;
-                    debug(`File has ${cells.length} active cells`);
+            totalCells += cells.length;
+            debug(`File has ${cells.length} active cells`);
 
-                    // Generate SRT content
-                    const srtContent = generateSrtData(cells, false); // Don't include styles for SRT
+            const srtContent = generateSrtData(cells, false);
 
-                    // Write file
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const fileName = basename(file.fsPath).replace(".codex", "") || "unknown";
-                    const exportFileName = `${fileName}_${timestamp}.srt`;
-                    const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+            const fileName = basename(file.fsPath).replace(".codex", "") || "unknown";
+            const exportFileName = `${fileName}_${timestamp}.srt`;
+            const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
 
-                    await vscode.workspace.fs.writeFile(exportFile, Buffer.from(srtContent));
-                    debug(`Export file created: ${exportFile.fsPath}`);
-                }
+            await vscode.workspace.fs.writeFile(exportFile, Buffer.from(srtContent));
+            debug(`Export file created: ${exportFile.fsPath}`);
+        }
 
-                vscode.window.showInformationMessage(
-                    `SRT Export completed: ${totalCells} cells from ${selectedFiles.length} files exported to ${userSelectedPath}`
-                );
-            }
-        );
+        reporter.complete({
+            exportPath: userSelectedPath,
+            filesExported: selectedFiles.length,
+            extraMessages: [
+                `${totalCells} cells from ${selectedFiles.length} file(s) exported.`,
+            ],
+        });
     } catch (error) {
         console.error("SRT Export failed:", error);
-        vscode.window.showErrorMessage(`SRT Export failed: ${error}`);
+        reporter.error(`SRT Export failed: ${error}`);
     }
 };
 
 export const exportCodexContentAsSubtitlesVtt = async (
     userSelectedPath: string,
     filesToExport: string[],
+    reporter: ExportProgressReporter,
     options?: ExportOptions,
     includeStyles: boolean = true
 ) => {
@@ -1987,69 +1990,61 @@ export const exportCodexContentAsSubtitlesVtt = async (
         debug("Starting exportCodexContentAsSubtitlesVtt function");
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+            reporter.error("No project folder found. Please open a project first.");
             return;
         }
 
-        // Filter codex files based on user selection
         const selectedFiles = filesToExport.map((path) => vscode.Uri.file(path));
         debug(`Selected files for export: ${selectedFiles.length}`);
         if (selectedFiles.length === 0) {
-            vscode.window.showInformationMessage("No files selected for export.");
+            reporter.error("No files selected for export.");
             return;
         }
 
-        return vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: "Exporting Codex Content as VTT Subtitles",
-                cancellable: false,
-            },
-            async (progress) => {
-                let totalCells = 0;
-                const increment = 100 / selectedFiles.length;
+        let totalCells = 0;
 
-                // Create export directory if it doesn't exist
-                const exportFolder = vscode.Uri.file(userSelectedPath);
-                await vscode.workspace.fs.createDirectory(exportFolder);
+        const exportFolder = vscode.Uri.file(userSelectedPath);
+        await vscode.workspace.fs.createDirectory(exportFolder);
 
-                for (const [index, file] of selectedFiles.entries()) {
-                    progress.report({
-                        message: `Processing file ${index + 1}/${selectedFiles.length}`,
-                        increment,
-                    });
+        for (const [index, file] of selectedFiles.entries()) {
+            reporter.report({
+                stage: "writing",
+                message: `Processing file ${index + 1}/${selectedFiles.length}`,
+                file: basename(file.fsPath),
+                current: index + 1,
+                total: selectedFiles.length,
+            });
 
-                    debug(`Processing file: ${file.fsPath}`);
+            debug(`Processing file: ${file.fsPath}`);
 
-                    // Read and filter active cells (exclude merged/deleted)
-                    const codexData = await readCodexNotebookFromUri(file);
-                    const cells = getActiveCells(codexData.cells);
+            const codexData = await readCodexNotebookFromUri(file);
+            const cells = getActiveCells(codexData.cells);
 
-                    totalCells += cells.length;
-                    debug(`File has ${cells.length} active cells`);
+            totalCells += cells.length;
+            debug(`File has ${cells.length} active cells`);
 
-                    // Generate VTT content
-                    const vttContent = generateVttData(cells, includeStyles, file.fsPath); // Include styles for VTT
-                    debug({ vttContent, cells, includeStyles });
+            const vttContent = generateVttData(cells, includeStyles, file.fsPath);
+            debug({ vttContent, cells, includeStyles });
 
-                    // Write file
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const fileName = basename(file.fsPath).replace(".codex", "") || "unknown";
-                    const exportFileName = `${fileName}_${timestamp}.vtt`;
-                    const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+            const fileName = basename(file.fsPath).replace(".codex", "") || "unknown";
+            const exportFileName = `${fileName}_${timestamp}.vtt`;
+            const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
 
-                    await vscode.workspace.fs.writeFile(exportFile, Buffer.from(vttContent));
-                    debug(`Export file created: ${exportFile.fsPath}`);
-                }
+            await vscode.workspace.fs.writeFile(exportFile, Buffer.from(vttContent));
+            debug(`Export file created: ${exportFile.fsPath}`);
+        }
 
-                vscode.window.showInformationMessage(
-                    `VTT Export completed: ${totalCells} cells from ${selectedFiles.length} files exported to ${userSelectedPath}`
-                );
-            }
-        );
+        reporter.complete({
+            exportPath: userSelectedPath,
+            filesExported: selectedFiles.length,
+            extraMessages: [
+                `${totalCells} cells from ${selectedFiles.length} file(s) exported.`,
+            ],
+        });
     } catch (error) {
         console.error("VTT Export failed:", error);
-        vscode.window.showErrorMessage(`VTT Export failed: ${error}`);
+        reporter.error(`VTT Export failed: ${error}`);
     }
 };
 
@@ -2139,23 +2134,26 @@ function formatTimestampField(fieldName: string, value: any): string {
 async function exportCodexContentAsCsv(
     userSelectedPath: string,
     filesToExport: string[],
+    reporter: ExportProgressReporter,
     options?: ExportOptions
 ) {
-    await exportCodexContentAsDelimited(userSelectedPath, filesToExport, 'csv', options);
+    await exportCodexContentAsDelimited(userSelectedPath, filesToExport, 'csv', reporter, options);
 }
 
 async function exportCodexContentAsTsv(
     userSelectedPath: string,
     filesToExport: string[],
+    reporter: ExportProgressReporter,
     options?: ExportOptions
 ) {
-    await exportCodexContentAsDelimited(userSelectedPath, filesToExport, 'tsv', options);
+    await exportCodexContentAsDelimited(userSelectedPath, filesToExport, 'tsv', reporter, options);
 }
 
 async function exportCodexContentAsDelimited(
     userSelectedPath: string,
     filesToExport: string[],
     format: 'csv' | 'tsv',
+    reporter: ExportProgressReporter,
     options?: ExportOptions
 ) {
     try {
@@ -2163,15 +2161,14 @@ async function exportCodexContentAsDelimited(
         debug(`Starting exportCodexContentAs${formatName} function`);
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+            reporter.error("No project folder found. Please open a project first.");
             return;
         }
 
-        // Filter codex files based on user selection
         const selectedFiles = filesToExport.map((path) => vscode.Uri.file(path));
         debug(`Selected files for export: ${selectedFiles.length}`);
         if (selectedFiles.length === 0) {
-            vscode.window.showInformationMessage("No files selected for export.");
+            reporter.error("No files selected for export.");
             return;
         }
 
@@ -2179,55 +2176,45 @@ async function exportCodexContentAsDelimited(
         const escapeFunction = format === 'csv' ? escapeCsvValue : escapeTsvValue;
         const fileExtension = format === 'csv' ? 'csv' : 'tsv';
 
-        return vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: `Exporting Codex Content as ${formatName}`,
-                cancellable: false,
-            },
-            async (progress) => {
-                let totalCells = 0;
-                let totalVerses = 0;
-                let skippedFiles = 0;
-                let exportedFiles = 0;
-                const increment = 100 / selectedFiles.length;
+        let totalCells = 0;
+        let totalVerses = 0;
+        let skippedFiles = 0;
+        let exportedFiles = 0;
+        const warnings: string[] = [];
 
-                // Create export directory if it doesn't exist
-                const exportFolder = vscode.Uri.file(userSelectedPath);
-                await vscode.workspace.fs.createDirectory(exportFolder);
+        const exportFolder = vscode.Uri.file(userSelectedPath);
+        await vscode.workspace.fs.createDirectory(exportFolder);
 
-                for (const [index, file] of selectedFiles.entries()) {
-                    progress.report({
-                        message: `Processing file ${index + 1}/${selectedFiles.length}`,
-                        increment,
-                    });
+        for (const [index, file] of selectedFiles.entries()) {
+            reporter.report({
+                stage: "writing",
+                message: `Processing file ${index + 1}/${selectedFiles.length}`,
+                file: basename(file.fsPath),
+                current: index + 1,
+                total: selectedFiles.length,
+            });
 
-                    try {
-                        debug(`Processing file: ${file.fsPath}`);
+            try {
+                debug(`Processing file: ${file.fsPath}`);
 
-                        // Extract book code from filename (e.g., "MAT.codex" -> "MAT")
-                        const currentBookCode = basename(file.fsPath).split(".")[0] || "";
+                const currentBookCode = basename(file.fsPath).split(".")[0] || "";
 
-                        // Get the source file path - look in .project/sourceTexts/
-                        const sourceFileName = `${currentBookCode}.source`;
-                        const sourceFile = vscode.Uri.joinPath(
-                            vscode.Uri.file(workspaceFolders[0].uri.fsPath),
-                            ".project",
-                            "sourceTexts",
-                            sourceFileName
-                        );
+                const sourceFileName = `${currentBookCode}.source`;
+                const sourceFile = vscode.Uri.joinPath(
+                    vscode.Uri.file(workspaceFolders[0].uri.fsPath),
+                    ".project",
+                    "sourceTexts",
+                    sourceFileName
+                );
 
-                        // Read both source and codex files
-                        let sourceData: Uint8Array | null = null;
-                        try {
-                            sourceData = await vscode.workspace.fs.readFile(sourceFile);
-                        } catch (error) {
-                            vscode.window.showWarningMessage(
-                                `Source file not found for ${currentBookCode} at ${sourceFile.fsPath}, skipping...`
-                            );
-                            skippedFiles++;
-                            continue;
-                        }
+                let sourceData: Uint8Array | null = null;
+                try {
+                    sourceData = await vscode.workspace.fs.readFile(sourceFile);
+                } catch (error) {
+                    reporter.fileMissing(`${currentBookCode} (source not found)`, "source-not-found");
+                    skippedFiles++;
+                    continue;
+                }
 
                         const codexData = await vscode.workspace.fs.readFile(file);
 
@@ -2367,39 +2354,46 @@ async function exportCodexContentAsDelimited(
                         const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
                         await vscode.workspace.fs.writeFile(exportFile, Buffer.from(content));
 
-                        exportedFiles++;
-                        debug(`${formatName} file created: ${exportFile.fsPath} with ${verseData.length} verses`);
-                    } catch (error) {
-                        console.error(`Error processing file ${file.fsPath}:`, error);
-                        skippedFiles++;
-                        vscode.window.showErrorMessage(
-                            `Error exporting ${basename(file.fsPath)}: ${error instanceof Error ? error.message : String(error)}`
-                        );
-                    }
-                }
-
-                // Show completion message
-                const skippedMessage = skippedFiles > 0 ? ` (${skippedFiles} files skipped)` : "";
-                vscode.window.showInformationMessage(
-                    `${formatName} Export completed: ${totalVerses} verses from ${exportedFiles} files exported to ${userSelectedPath}${skippedMessage}`
+                exportedFiles++;
+                debug(`${formatName} file created: ${exportFile.fsPath} with ${verseData.length} verses`);
+            } catch (error) {
+                console.error(`Error processing file ${file.fsPath}:`, error);
+                skippedFiles++;
+                reporter.fileMissing(
+                    basename(file.fsPath),
+                    "error",
+                    error instanceof Error ? error.message : String(error)
+                );
+                warnings.push(
+                    `Error exporting ${basename(file.fsPath)}: ${error instanceof Error ? error.message : String(error)}`
                 );
             }
-        );
+        }
+
+        reporter.complete({
+            exportPath: userSelectedPath,
+            filesExported: exportedFiles,
+            extraMessages: [
+                `${totalVerses} verses from ${exportedFiles} file(s) exported${skippedFiles > 0 ? ` (${skippedFiles} file(s) skipped)` : ""}.`,
+                ...warnings,
+            ],
+        });
     } catch (error) {
         console.error(`${format.toUpperCase()} Export failed:`, error);
-        vscode.window.showErrorMessage(`${format.toUpperCase()} Export failed: ${error}`);
+        reporter.error(`${format.toUpperCase()} Export failed: ${error}`);
     }
 }
 
 async function exportCodexContentAsBacktranslations(
     userSelectedPath: string,
     filesToExport: string[],
+    reporter: ExportProgressReporter,
     options?: ExportOptions
 ) {
     try {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+            reporter.error("No project folder found. Please open a project first.");
             return;
         }
 
@@ -2410,103 +2404,109 @@ async function exportCodexContentAsBacktranslations(
             const backtranslationsContent = await vscode.workspace.fs.readFile(backtranslationsUri);
             backtranslationsData = JSON.parse(Buffer.from(backtranslationsContent).toString());
         } catch (error) {
-            vscode.window.showWarningMessage("No backtranslations found.");
+            reporter.error("No backtranslations found.");
             return;
         }
 
         if (Object.keys(backtranslationsData).length === 0) {
-            vscode.window.showInformationMessage("No backtranslations to export.");
+            reporter.error("No backtranslations to export.");
             return;
         }
 
-        return vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: "Exporting Backtranslations",
-                cancellable: false,
-            },
-            async (progress) => {
-                progress.report({ message: "Loading backtranslations..." });
+        reporter.report({ stage: "preparing", message: "Loading backtranslations..." });
 
-                const exportFolder = vscode.Uri.file(userSelectedPath);
-                await vscode.workspace.fs.createDirectory(exportFolder);
+        const exportFolder = vscode.Uri.file(userSelectedPath);
+        await vscode.workspace.fs.createDirectory(exportFolder);
 
-                const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                const fileGroups = new Map<string, Array<{ cellId: string; bt: any; }>>();
-                let skipped = 0;
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const fileGroups = new Map<string, Array<{ cellId: string; bt: any; }>>();
+        let skipped = 0;
 
-                for (const [cellId, bt] of Object.entries(backtranslationsData)) {
-                    if (!bt.filePath) {
-                        skipped++;
-                        continue;
-                    }
-
-                    const filePath = path.isAbsolute(bt.filePath)
-                        ? bt.filePath
-                        : path.join(workspaceFolders[0].uri.fsPath, bt.filePath);
-                    if (!fileGroups.has(filePath)) {
-                        fileGroups.set(filePath, []);
-                    }
-                    fileGroups.get(filePath)!.push({ cellId, bt });
-                }
-
-                let totalExported = 0;
-                let filesWritten = 0;
-
-                for (const [targetPath, entries] of fileGroups) {
-                    try {
-                        const targetUri = vscode.Uri.file(targetPath);
-                        const sourcePath = targetPath.replace(/\.codex$/, ".source");
-                        const sourceUri = vscode.Uri.file(sourcePath);
-
-                        const targetData = await vscode.workspace.fs.readFile(targetUri);
-                        const targetNotebook = JSON.parse(Buffer.from(targetData).toString()) as CodexNotebookAsJSONData;
-
-                        let sourceNotebook: CodexNotebookAsJSONData | null = null;
-                        try {
-                            const sourceData = await vscode.workspace.fs.readFile(sourceUri);
-                            sourceNotebook = JSON.parse(Buffer.from(sourceData).toString()) as CodexNotebookAsJSONData;
-                        } catch (error) {
-                            void error;
-                        }
-
-                        const targetCellsMap = new Map(
-                            targetNotebook.cells
-                                .filter((cell) => (cell.kind === 2 || cell.kind === 1) && (cell as any).metadata?.id)
-                                .map((cell) => [cell.metadata.id, (cell as any).value || ""])
-                        );
-
-                        const sourceCellsMap = new Map(
-                            targetNotebook.cells
-                                .filter((cell) => (cell.kind === 2 || cell.kind === 1) && (cell as any).metadata?.id)
-                                .map((cell) => [cell.metadata.id, (cell.metadata as any)?.data?.originalText || ""])
-                        );
-
-                        let content = "Cell ID,Source Text,Translation,Backtranslation\n";
-                        for (const { cellId, bt } of entries) {
-                            const source = sourceCellsMap.get(cellId) || "";
-                            const target = targetCellsMap.get(cellId) || "";
-                            const backText = (bt && (bt.backtranslation || bt)) || "";
-                            content += `${escapeCsvValue(cellId)},${escapeCsvValue(source)},${escapeCsvValue(target)},${escapeCsvValue(backText)}\n`;
-                            totalExported++;
-                        }
-
-                        const fileName = basename(targetPath, ".codex");
-                        const exportFile = vscode.Uri.joinPath(exportFolder, `${fileName}_backtranslations_${timestamp}.csv`);
-                        await vscode.workspace.fs.writeFile(exportFile, Buffer.from(content));
-                        filesWritten++;
-                    } catch (error) {
-                        console.error(`Error exporting backtranslations for ${targetPath}:`, error);
-                    }
-                }
-
-                const skipMessage = skipped > 0 ? ` (${skipped} skipped - no file path stored)` : "";
-                vscode.window.showInformationMessage(`Exported ${totalExported} backtranslations to ${filesWritten} file(s)${skipMessage}`);
+        for (const [cellId, bt] of Object.entries(backtranslationsData)) {
+            if (!bt.filePath) {
+                skipped++;
+                continue;
             }
-        );
+
+            const filePath = path.isAbsolute(bt.filePath)
+                ? bt.filePath
+                : path.join(workspaceFolders[0].uri.fsPath, bt.filePath);
+            if (!fileGroups.has(filePath)) {
+                fileGroups.set(filePath, []);
+            }
+            fileGroups.get(filePath)!.push({ cellId, bt });
+        }
+
+        let totalExported = 0;
+        let filesWritten = 0;
+
+        for (const [targetPath, entries] of fileGroups) {
+            try {
+                reporter.report({
+                    stage: "writing",
+                    message: `Writing backtranslations for ${basename(targetPath)}`,
+                    file: basename(targetPath),
+                });
+                const targetUri = vscode.Uri.file(targetPath);
+                const sourcePath = targetPath.replace(/\.codex$/, ".source");
+                const sourceUri = vscode.Uri.file(sourcePath);
+
+                const targetData = await vscode.workspace.fs.readFile(targetUri);
+                const targetNotebook = JSON.parse(Buffer.from(targetData).toString()) as CodexNotebookAsJSONData;
+
+                let sourceNotebook: CodexNotebookAsJSONData | null = null;
+                try {
+                    const sourceData = await vscode.workspace.fs.readFile(sourceUri);
+                    sourceNotebook = JSON.parse(Buffer.from(sourceData).toString()) as CodexNotebookAsJSONData;
+                } catch (error) {
+                    void error;
+                }
+
+                const targetCellsMap = new Map(
+                    targetNotebook.cells
+                        .filter((cell) => (cell.kind === 2 || cell.kind === 1) && (cell as any).metadata?.id)
+                        .map((cell) => [cell.metadata.id, (cell as any).value || ""])
+                );
+
+                const sourceCellsMap = new Map(
+                    targetNotebook.cells
+                        .filter((cell) => (cell.kind === 2 || cell.kind === 1) && (cell as any).metadata?.id)
+                        .map((cell) => [cell.metadata.id, (cell.metadata as any)?.data?.originalText || ""])
+                );
+
+                let content = "Cell ID,Source Text,Translation,Backtranslation\n";
+                for (const { cellId, bt } of entries) {
+                    const source = sourceCellsMap.get(cellId) || "";
+                    const target = targetCellsMap.get(cellId) || "";
+                    const backText = (bt && (bt.backtranslation || bt)) || "";
+                    content += `${escapeCsvValue(cellId)},${escapeCsvValue(source)},${escapeCsvValue(target)},${escapeCsvValue(backText)}\n`;
+                    totalExported++;
+                }
+
+                const fileName = basename(targetPath, ".codex");
+                const exportFile = vscode.Uri.joinPath(exportFolder, `${fileName}_backtranslations_${timestamp}.csv`);
+                await vscode.workspace.fs.writeFile(exportFile, Buffer.from(content));
+                filesWritten++;
+            } catch (error) {
+                console.error(`Error exporting backtranslations for ${targetPath}:`, error);
+                reporter.fileMissing(
+                    basename(targetPath),
+                    "error",
+                    error instanceof Error ? error.message : String(error)
+                );
+            }
+        }
+
+        reporter.complete({
+            exportPath: userSelectedPath,
+            filesExported: filesWritten,
+            extraMessages: [
+                `Exported ${totalExported} backtranslation(s) to ${filesWritten} file(s)${skipped > 0 ? ` (${skipped} skipped - no file path stored)` : ""}.`,
+            ],
+        });
     } catch (error) {
         console.error("Backtranslations export failed:", error);
-        vscode.window.showErrorMessage(`Backtranslations export failed: ${error}`);
+        reporter.error(`Backtranslations export failed: ${error}`);
     }
 }
 

@@ -1,4 +1,5 @@
-import { CodexExportFormat } from "../exportHandler/exportHandler";
+import { CodexExportFormat, exportCodexContent } from "../exportHandler/exportHandler";
+import { createWebviewReporter } from "../exportHandler/exportProgress";
 import * as fs from "fs";
 import * as vscode from "vscode";
 import { safePostMessageToPanel } from "../utils/webviewUtils";
@@ -184,21 +185,58 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                         }
                     }
 
-                    await vscode.commands.executeCommand(
-                        `codex-editor-extension.exportCodexContent`,
-                        {
-                            format: message.format as CodexExportFormat,
-                            userSelectedPath: message.userSelectedPath,
-                            filesToExport: message.filesToExport,
-                            options: message.options,
-                        }
+                    // Switch the webview to its in-panel "exporting" screen before kicking off work.
+                    safePostMessageToPanel(
+                        panel,
+                        { command: "exportStarted" },
+                        "ProjectExport"
                     );
-                    panel.dispose();
+
+                    const reporter = createWebviewReporter(panel, "ProjectExport");
+
+                    try {
+                        await exportCodexContent(
+                            message.format as CodexExportFormat,
+                            message.userSelectedPath,
+                            message.filesToExport,
+                            message.options,
+                            reporter
+                        );
+                    } catch (error) {
+                        reporter.error(
+                            error instanceof Error
+                                ? error.message
+                                : "Failed to export project. Please check your configuration."
+                        );
+                    }
+                    // Intentionally do NOT dispose the panel. The webview owns
+                    // the success/error UI and the user clicks Close when ready.
                 } catch (error) {
-                    vscode.window.showErrorMessage(
-                        "Failed to export project. Please check your configuration."
+                    safePostMessageToPanel(
+                        panel,
+                        {
+                            command: "exportError",
+                            message:
+                                error instanceof Error
+                                    ? error.message
+                                    : "Failed to export project. Please check your configuration.",
+                        },
+                        "ProjectExport"
                     );
                 }
+                break;
+            case "openExportFolder": {
+                const target = message.path as string | undefined;
+                if (target && fs.existsSync(target)) {
+                    await vscode.commands.executeCommand(
+                        "revealFileInOS",
+                        vscode.Uri.file(target)
+                    );
+                }
+                break;
+            }
+            case "closeExportView":
+                panel.dispose();
                 break;
             case "checkHtmlStructure": {
                 const mismatchResults = await checkHtmlStructureMismatches(
@@ -362,6 +400,18 @@ function getWebviewContent(
                     word-break: break-word;
                 }
                 .file-item:hover { background-color: var(--vscode-list-hoverBackground); }
+                .file-item-main {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 1px;
+                    min-width: 0;
+                }
+                .file-audio-stats {
+                    font-size: 0.78em;
+                    color: var(--vscode-descriptionForeground);
+                    opacity: 0.85;
+                }
                 .file-item.file-item-disabled { opacity: 0.45; cursor: not-allowed; }
                 .file-item.file-item-disabled:hover { background-color: transparent; }
                 .file-item.file-item-disabled input[type="checkbox"] { pointer-events: none; }
@@ -608,6 +658,204 @@ function getWebviewContent(
                     font-size: 0.9em;
                 }
                 .popup-file-list div { padding: 2px 0; }
+
+                /* Step 4: Exporting screen */
+                .export-progress-card {
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 6px;
+                    padding: 24px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 16px;
+                    background: var(--vscode-editor-background);
+                }
+                .export-progress-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                }
+                .export-progress-icon {
+                    width: 36px;
+                    height: 36px;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: var(--vscode-input-background);
+                    border: 1px solid var(--vscode-input-border);
+                    flex-shrink: 0;
+                    color: var(--vscode-focusBorder);
+                }
+                .export-progress-icon .codicon { font-size: 18px; }
+                .export-progress-icon.success {
+                    background: rgba(34, 197, 94, 0.12);
+                    border-color: rgba(34, 197, 94, 0.4);
+                    color: var(--vscode-charts-green, #16a34a);
+                }
+                .export-progress-icon.warn {
+                    background: rgba(202, 138, 4, 0.12);
+                    border-color: rgba(202, 138, 4, 0.4);
+                    color: var(--vscode-charts-yellow, #ca8a04);
+                }
+                .export-progress-icon.error {
+                    background: rgba(220, 38, 38, 0.12);
+                    border-color: rgba(220, 38, 38, 0.4);
+                    color: var(--vscode-errorForeground, #dc2626);
+                }
+                .export-progress-title { margin: 0; font-size: 1.05em; }
+                .export-progress-subtitle {
+                    font-size: 0.85em;
+                    color: var(--vscode-descriptionForeground);
+                    margin-top: 2px;
+                }
+                .stage-list {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                    padding: 12px;
+                    background: var(--vscode-input-background);
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 4px;
+                }
+                .stage-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    font-size: 0.9em;
+                    color: var(--vscode-descriptionForeground);
+                    transition: color 0.15s ease;
+                }
+                .stage-row .stage-icon {
+                    width: 18px;
+                    height: 18px;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    flex-shrink: 0;
+                }
+                .stage-row .stage-icon .codicon { font-size: 14px; }
+                .stage-row.active { color: var(--vscode-focusBorder); font-weight: 600; }
+                .stage-row.done { color: var(--vscode-charts-green, #16a34a); }
+                .stage-row.pending .stage-icon { opacity: 0.45; }
+                .export-current-file {
+                    font-size: 0.85em;
+                    color: var(--vscode-descriptionForeground);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .export-tier-card {
+                    border: 1px solid var(--vscode-input-border);
+                    background-color: var(--vscode-input-background);
+                    border-radius: 4px;
+                    padding: 12px;
+                    font-size: 0.9em;
+                }
+                .export-tier-card + .export-tier-card { margin-top: 8px; }
+                .export-tier-card summary {
+                    cursor: pointer;
+                    font-weight: 600;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    list-style: none;
+                    color: var(--vscode-descriptionForeground);
+                }
+                .export-tier-card summary::-webkit-details-marker { display: none; }
+                .export-tier-card summary .tier-chevron {
+                    display: inline-flex;
+                    width: 14px;
+                    transition: transform 0.15s ease;
+                }
+                .export-tier-card[open] summary .tier-chevron { transform: rotate(90deg); }
+                .export-tier-card summary .tier-icon { font-size: 14px; }
+                .export-tier-card[open] summary { margin-bottom: 8px; }
+                .export-tier-card ul {
+                    list-style: none;
+                    padding: 0;
+                    margin: 0;
+                    max-height: 260px;
+                    overflow-y: auto;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 2px;
+                }
+                .export-tier-card li {
+                    padding: 3px 4px;
+                    font-size: 0.95em;
+                    display: flex;
+                    flex-wrap: wrap;
+                    align-items: baseline;
+                    gap: 6px;
+                    border-radius: 3px;
+                }
+                .export-tier-card li:hover { background-color: var(--vscode-list-hoverBackground); }
+                .export-tier-card li .tier-row-label { font-weight: 500; }
+                .export-tier-card li .tier-row-reason {
+                    font-size: 0.8em;
+                    padding: 1px 6px;
+                    border-radius: 8px;
+                    background-color: var(--vscode-badge-background);
+                    color: var(--vscode-badge-foreground);
+                    opacity: 0.75;
+                }
+                .export-tier-card li .tier-row-detail {
+                    font-size: 0.8em;
+                    color: var(--vscode-descriptionForeground);
+                    opacity: 0.85;
+                    flex-basis: 100%;
+                    margin-left: 24px;
+                }
+                /* Tier 3: hard error */
+                .export-tier-card.tier-error {
+                    border-color: rgba(220, 38, 38, 0.4);
+                    background-color: rgba(220, 38, 38, 0.08);
+                }
+                .export-tier-card.tier-error summary { color: var(--vscode-errorForeground, #dc2626); }
+                /* Tier 2: soft warning */
+                .export-tier-card.tier-warn {
+                    border-color: rgba(202, 138, 4, 0.35);
+                    background-color: rgba(202, 138, 4, 0.08);
+                }
+                .export-tier-card.tier-warn summary { color: var(--vscode-charts-yellow, #ca8a04); }
+                /* Tier 1: informational */
+                .export-tier-card.tier-info {
+                    border-color: var(--vscode-input-border);
+                    background-color: var(--vscode-input-background);
+                }
+                .export-tier-card.tier-info summary { color: var(--vscode-descriptionForeground); }
+                .export-output-path {
+                    font-size: 0.85em;
+                    color: var(--vscode-descriptionForeground);
+                    background: var(--vscode-input-background);
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 4px;
+                    padding: 8px 12px;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    word-break: break-all;
+                }
+                .export-action-row {
+                    display: flex;
+                    gap: 8px;
+                    justify-content: flex-end;
+                }
+                .export-spinner .codicon-sync {
+                    animation: codicon-spin 1.5s steps(30, end) infinite;
+                }
+                @keyframes codicon-spin {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                }
+                .exporting .bottom-bar { display: none !important; }
+                .export-extra-messages {
+                    font-size: 0.85em;
+                    color: var(--vscode-descriptionForeground);
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                }
+                .export-extra-messages div { padding: 2px 0; }
             </style>
         </head>
         <body>
@@ -805,6 +1053,94 @@ function getWebviewContent(
                         
                     </div>
                 </div>
+
+                <!-- STEP 4: Exporting -->
+                <div id="step4" class="step-panel">
+                    <div class="step-content">
+                        <div class="export-progress-card">
+                            <div class="export-progress-header">
+                                <div class="export-progress-icon export-spinner" id="exportProgressIcon">
+                                    <i class="codicon codicon-sync"></i>
+                                </div>
+                                <div>
+                                    <h3 class="export-progress-title" id="exportProgressTitle">Preparing export...</h3>
+                                    <div class="export-progress-subtitle" id="exportProgressSubtitle">
+                                        This may take a moment. Please keep this view open.
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="stage-list" id="exportStageList">
+                                <div class="stage-row pending" data-stage="preparing">
+                                    <span class="stage-icon"><i class="codicon codicon-circle-large"></i></span>
+                                    <span>Preparing files</span>
+                                </div>
+                                <div class="stage-row pending" data-stage="processing">
+                                    <span class="stage-icon"><i class="codicon codicon-circle-large"></i></span>
+                                    <span>Processing content</span>
+                                </div>
+                                <div class="stage-row pending" data-stage="downloading">
+                                    <span class="stage-icon"><i class="codicon codicon-circle-large"></i></span>
+                                    <span>Downloading media</span>
+                                </div>
+                                <div class="stage-row pending" data-stage="writing">
+                                    <span class="stage-icon"><i class="codicon codicon-circle-large"></i></span>
+                                    <span>Writing output</span>
+                                </div>
+                                <div class="stage-row pending" data-stage="finalizing">
+                                    <span class="stage-icon"><i class="codicon codicon-circle-large"></i></span>
+                                    <span>Finalizing</span>
+                                </div>
+                            </div>
+
+                            <div class="export-current-file" id="exportCurrentFile" style="display:none;"></div>
+
+                            <div id="exportTierContainer">
+                                <details class="export-tier-card tier-error" id="exportTierError" style="display:none;" open>
+                                    <summary>
+                                        <span class="tier-chevron"><i class="codicon codicon-chevron-right"></i></span>
+                                        <i class="codicon codicon-error tier-icon"></i>
+                                        <span id="exportTierErrorSummary">0 errors</span>
+                                    </summary>
+                                    <ul id="exportTierErrorList"></ul>
+                                </details>
+
+                                <details class="export-tier-card tier-warn" id="exportTierWarn" style="display:none;" open>
+                                    <summary>
+                                        <span class="tier-chevron"><i class="codicon codicon-chevron-right"></i></span>
+                                        <i class="codicon codicon-warning tier-icon"></i>
+                                        <span id="exportTierWarnSummary">0 warnings</span>
+                                    </summary>
+                                    <ul id="exportTierWarnList"></ul>
+                                </details>
+
+                                <details class="export-tier-card tier-info" id="exportTierInfo" style="display:none;">
+                                    <summary>
+                                        <span class="tier-chevron"><i class="codicon codicon-chevron-right"></i></span>
+                                        <i class="codicon codicon-info tier-icon"></i>
+                                        <span id="exportTierInfoSummary">0 informational</span>
+                                    </summary>
+                                    <ul id="exportTierInfoList"></ul>
+                                </details>
+                            </div>
+
+                            <div class="export-extra-messages" id="exportExtraMessages" style="display:none;"></div>
+
+                            <div class="export-output-path" id="exportOutputPath" style="display:none;"></div>
+
+                            <div class="export-action-row" id="exportActionRow" style="display:none;">
+                                <button class="secondary" id="exportOpenFolderBtn" onclick="openExportFolder()">
+                                    <i class="codicon codicon-folder-opened"></i>
+                                    Open Export Folder
+                                </button>
+                                <button id="exportCloseBtn" onclick="closeExportView()">
+                                    <i class="codicon codicon-check"></i>
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 </div>
 
                 <div class="bottom-bar">
@@ -947,10 +1283,29 @@ function getWebviewContent(
                             } else if (isTextAudio) {
                                 statusTag = '<span class="file-status-tag text-audio-tag">Text + Audio</span>';
                             }
+                            let audioStatsHtml = '';
+                            if (f.audioStats && f.audioStats.eligibleCellCount > 0) {
+                                const parts = [];
+                                if (f.audioStats.audioReadyCount > 0) {
+                                    parts.push(f.audioStats.audioReadyCount + ' with audio');
+                                }
+                                if (f.audioStats.selectionLostCount > 0) {
+                                    parts.push(f.audioStats.selectionLostCount + ' missing preferred take');
+                                }
+                                if (f.audioStats.noAudioRecordedCount > 0) {
+                                    parts.push(f.audioStats.noAudioRecordedCount + ' without recording');
+                                }
+                                if (parts.length > 0) {
+                                    audioStatsHtml = '<div class="file-audio-stats">' + parts.join(' \u00b7 ') + '</div>';
+                                }
+                            }
                             return \`
                                 <div class="\${itemClass}" data-content-type="\${contentType}">
                                     <input type="checkbox" id="\${id}" value="\${f.path}" data-group-key="\${group.groupKey}" data-content-type="\${contentType}" \${disabledAttr} onchange="onFileCheckboxChange()">
-                                    <label for="\${id}" title="\${tooltip}">\${f.displayName}</label>
+                                    <div class="file-item-main">
+                                        <label for="\${id}" title="\${tooltip}">\${f.displayName}</label>
+                                        \${audioStatsHtml}
+                                    </div>
                                     \${statusTag}
                                 </div>
                             \`;
@@ -1286,6 +1641,342 @@ function getWebviewContent(
                     vscode.postMessage({ command: 'cancel' });
                 }
 
+                // Step 4 (Exporting) state
+                const STAGE_ORDER = ['preparing', 'processing', 'downloading', 'writing', 'finalizing'];
+                const exportState = {
+                    started: false,
+                    finished: false,
+                    succeeded: false,
+                    stageIndex: -1,
+                    missingFiles: [],
+                    extraMessages: [],
+                    outputPath: null,
+                    lastTitle: 'Exporting...',
+                    lastSubtitle: 'This may take a moment. Please keep this view open.',
+                };
+
+                function resetExportProgressView() {
+                    exportState.started = false;
+                    exportState.finished = false;
+                    exportState.succeeded = false;
+                    exportState.stageIndex = -1;
+                    exportState.missingFiles = [];
+                    exportState.extraMessages = [];
+                    exportState.outputPath = null;
+                    exportState.lastTitle = 'Exporting...';
+                    exportState.lastSubtitle = 'This may take a moment. Please keep this view open.';
+
+                    const icon = document.getElementById('exportProgressIcon');
+                    if (icon) {
+                        icon.classList.remove('success', 'error');
+                        icon.classList.add('export-spinner');
+                        icon.innerHTML = '<i class="codicon codicon-sync"></i>';
+                    }
+                    setExportTitle('Preparing export...', 'This may take a moment. Please keep this view open.');
+
+                    document.querySelectorAll('#exportStageList .stage-row').forEach(row => {
+                        row.classList.remove('active', 'done');
+                        row.classList.add('pending');
+                        const stageIcon = row.querySelector('.stage-icon');
+                        if (stageIcon) stageIcon.innerHTML = '<i class="codicon codicon-circle-large"></i>';
+                    });
+
+                    const currentFile = document.getElementById('exportCurrentFile');
+                    if (currentFile) { currentFile.style.display = 'none'; currentFile.textContent = ''; }
+
+                    ['Error', 'Warn', 'Info'].forEach(t => {
+                        const card = document.getElementById('exportTier' + t);
+                        const list = document.getElementById('exportTier' + t + 'List');
+                        const summary = document.getElementById('exportTier' + t + 'Summary');
+                        if (card) card.style.display = 'none';
+                        if (list) list.innerHTML = '';
+                        if (summary) summary.textContent = '0';
+                    });
+
+                    const extras = document.getElementById('exportExtraMessages');
+                    if (extras) { extras.style.display = 'none'; extras.innerHTML = ''; }
+
+                    const outPath = document.getElementById('exportOutputPath');
+                    if (outPath) { outPath.style.display = 'none'; outPath.textContent = ''; }
+
+                    const actionRow = document.getElementById('exportActionRow');
+                    if (actionRow) actionRow.style.display = 'none';
+                }
+
+                // Severity & display-label helpers (mirror src/exportHandler/exportProgress.ts)
+                function severityForReason(reason) {
+                    switch (reason) {
+                        case 'no-audio-recorded':
+                        case 'no-text-recorded':
+                            return 'info';
+                        case 'no-audio-selected':
+                        case 'audio-file-missing':
+                        case 'pointer-corrupt':
+                        case 'source-not-found':
+                            return 'warn';
+                        case 'download-failed':
+                        case 'transcode-failed':
+                        case 'write-failed':
+                        case 'error':
+                        default:
+                            return 'error';
+                    }
+                }
+
+                function reasonChipLabel(reason) {
+                    switch (reason) {
+                        case 'no-audio-recorded': return 'no audio recorded';
+                        case 'no-text-recorded': return 'no text recorded';
+                        case 'no-audio-selected': return 'preferred take missing';
+                        case 'audio-file-missing': return 'reference broken';
+                        case 'pointer-corrupt': return 'pointer corrupt';
+                        case 'source-not-found': return 'source missing';
+                        case 'download-failed': return 'download failed';
+                        case 'transcode-failed': return 'transcode failed';
+                        case 'write-failed': return 'write failed';
+                        default: return 'error';
+                    }
+                }
+
+                function escapeHtml(s) {
+                    return String(s).replace(/[&<>"']/g, c => ({
+                        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+                    })[c]);
+                }
+
+                function setExportTitle(title, subtitle) {
+                    exportState.lastTitle = title;
+                    if (typeof subtitle === 'string') exportState.lastSubtitle = subtitle;
+                    const titleEl = document.getElementById('exportProgressTitle');
+                    const subEl = document.getElementById('exportProgressSubtitle');
+                    if (titleEl) titleEl.textContent = title;
+                    if (subEl) subEl.textContent = exportState.lastSubtitle;
+                }
+
+                function setStageState(stageKey, state) {
+                    const row = document.querySelector('#exportStageList .stage-row[data-stage="' + stageKey + '"]');
+                    if (!row) return;
+                    row.classList.remove('active', 'done', 'pending');
+                    row.classList.add(state);
+                    const icon = row.querySelector('.stage-icon');
+                    if (!icon) return;
+                    if (state === 'done') {
+                        icon.innerHTML = '<i class="codicon codicon-check"></i>';
+                    } else if (state === 'active') {
+                        icon.innerHTML = '<i class="codicon codicon-sync export-spinner-inline"></i>';
+                        // Reuse spin animation
+                        const spinning = icon.querySelector('.codicon-sync');
+                        if (spinning) spinning.style.animation = 'codicon-spin 1.5s steps(30, end) infinite';
+                    } else {
+                        icon.innerHTML = '<i class="codicon codicon-circle-large"></i>';
+                    }
+                }
+
+                function handleExportStage(stageKey, message, file, current, total) {
+                    const idx = STAGE_ORDER.indexOf(stageKey);
+                    if (idx === -1) return;
+                    if (idx > exportState.stageIndex) {
+                        for (let i = 0; i < idx; i++) setStageState(STAGE_ORDER[i], 'done');
+                        setStageState(stageKey, 'active');
+                        exportState.stageIndex = idx;
+                    } else if (idx === exportState.stageIndex) {
+                        setStageState(stageKey, 'active');
+                    }
+
+                    if (message) {
+                        setExportTitle(message, exportState.lastSubtitle);
+                    }
+
+                    const currentFile = document.getElementById('exportCurrentFile');
+                    if (currentFile) {
+                        const parts = [];
+                        if (typeof current === 'number' && typeof total === 'number' && total > 0) {
+                            parts.push('(' + current + '/' + total + ')');
+                        }
+                        if (file) parts.push(file);
+                        if (parts.length > 0) {
+                            currentFile.textContent = parts.join(' ');
+                            currentFile.style.display = 'block';
+                        } else {
+                            currentFile.style.display = 'none';
+                            currentFile.textContent = '';
+                        }
+                    }
+                }
+
+                function appendMissingFile(file, reason, detail) {
+                    if (!file) return;
+                    const severity = severityForReason(reason);
+                    exportState.missingFiles.push({ file: file, reason: reason, detail: detail, severity: severity });
+
+                    const tierSuffix = severity === 'error' ? 'Error' : severity === 'warn' ? 'Warn' : 'Info';
+                    const card = document.getElementById('exportTier' + tierSuffix);
+                    const list = document.getElementById('exportTier' + tierSuffix + 'List');
+                    const summary = document.getElementById('exportTier' + tierSuffix + 'Summary');
+                    if (!card || !list || !summary) return;
+
+                    const li = document.createElement('li');
+                    const labelHtml = '<span class="tier-row-label">' + escapeHtml(file) + '</span>';
+                    const reasonHtml = '<span class="tier-row-reason">' + escapeHtml(reasonChipLabel(reason)) + '</span>';
+                    const detailHtml = detail ? '<span class="tier-row-detail">' + escapeHtml(detail) + '</span>' : '';
+                    li.innerHTML = labelHtml + reasonHtml + detailHtml;
+                    list.appendChild(li);
+                    card.style.display = 'block';
+
+                    const counts = countTierEntries();
+                    summary.textContent = formatTierSummaryText(severity, counts[severity]);
+                }
+
+                function countTierEntries() {
+                    const counts = { info: 0, warn: 0, error: 0 };
+                    for (const mf of exportState.missingFiles) {
+                        counts[mf.severity] = (counts[mf.severity] || 0) + 1;
+                    }
+                    return counts;
+                }
+
+                function formatTierSummaryText(severity, n) {
+                    if (severity === 'error') {
+                        return n + (n === 1 ? ' error reported' : ' errors reported');
+                    }
+                    if (severity === 'warn') {
+                        return n + (n === 1 ? ' cell needs attention' : ' cells need attention');
+                    }
+                    return n + (n === 1 ? ' informational note' : ' informational notes');
+                }
+
+                /**
+                 * Builds the post-export subtitle, ordered by severity. Examples:
+                 *   - clean: "1 file exported • 993 audio files copied"
+                 *   - warn-only: "993 audio exported • 12 cells without recorded audio"
+                 *   - error: "988 audio exported • 5 download failures • 12 broken references"
+                 */
+                function buildSummarySubtitle(summary) {
+                    const counts = countTierEntries();
+                    const parts = [];
+                    if (typeof summary.filesExported === 'number' && (typeof summary.audioCopied !== 'number')) {
+                        parts.push(summary.filesExported + ' file' + (summary.filesExported === 1 ? '' : 's') + ' exported');
+                    }
+                    if (typeof summary.audioCopied === 'number') {
+                        parts.push(summary.audioCopied + ' audio file' + (summary.audioCopied === 1 ? '' : 's') + ' copied');
+                    }
+                    // Tier 3 first
+                    const errorReasons = {};
+                    const warnReasons = {};
+                    const infoReasons = {};
+                    for (const mf of exportState.missingFiles) {
+                        const bucket = mf.severity === 'error' ? errorReasons : mf.severity === 'warn' ? warnReasons : infoReasons;
+                        bucket[mf.reason] = (bucket[mf.reason] || 0) + 1;
+                    }
+                    if (errorReasons['download-failed']) parts.push(errorReasons['download-failed'] + ' download failure' + (errorReasons['download-failed'] === 1 ? '' : 's'));
+                    if (errorReasons['transcode-failed']) parts.push(errorReasons['transcode-failed'] + ' transcode failure' + (errorReasons['transcode-failed'] === 1 ? '' : 's'));
+                    if (errorReasons['write-failed']) parts.push(errorReasons['write-failed'] + ' write failure' + (errorReasons['write-failed'] === 1 ? '' : 's'));
+                    if (errorReasons['error']) parts.push(errorReasons['error'] + ' error' + (errorReasons['error'] === 1 ? '' : 's'));
+                    if (warnReasons['audio-file-missing']) parts.push(warnReasons['audio-file-missing'] + ' broken audio reference' + (warnReasons['audio-file-missing'] === 1 ? '' : 's'));
+                    if (warnReasons['pointer-corrupt']) parts.push(warnReasons['pointer-corrupt'] + ' corrupt pointer' + (warnReasons['pointer-corrupt'] === 1 ? '' : 's'));
+                    if (warnReasons['no-audio-selected']) parts.push(warnReasons['no-audio-selected'] + ' cell' + (warnReasons['no-audio-selected'] === 1 ? '' : 's') + ' missing preferred take');
+                    if (warnReasons['source-not-found']) parts.push(warnReasons['source-not-found'] + ' source file' + (warnReasons['source-not-found'] === 1 ? '' : 's') + ' missing');
+                    if (infoReasons['no-audio-recorded']) parts.push(infoReasons['no-audio-recorded'] + ' cell' + (infoReasons['no-audio-recorded'] === 1 ? '' : 's') + ' without recorded audio');
+                    if (infoReasons['no-text-recorded']) parts.push(infoReasons['no-text-recorded'] + ' book' + (infoReasons['no-text-recorded'] === 1 ? '' : 's') + ' without text');
+                    return parts.join(' \u2022 ');
+                }
+
+                function showExtraMessages(messages) {
+                    if (!messages || messages.length === 0) return;
+                    exportState.extraMessages.push(...messages);
+                    const extras = document.getElementById('exportExtraMessages');
+                    if (!extras) return;
+                    extras.innerHTML = exportState.extraMessages
+                        .map(m => '<div>' + String(m).replace(/</g, '&lt;') + '</div>')
+                        .join('');
+                    extras.style.display = 'block';
+                }
+
+                function showOutputPath(path) {
+                    if (!path) return;
+                    exportState.outputPath = path;
+                    const el = document.getElementById('exportOutputPath');
+                    if (!el) return;
+                    el.textContent = path;
+                    el.style.display = 'block';
+                }
+
+                function showExportFinished(success, summaryText) {
+                    exportState.finished = true;
+                    exportState.succeeded = success;
+
+                    document.querySelectorAll('#exportStageList .stage-row').forEach(row => {
+                        if (success) {
+                            setStageState(row.dataset.stage, 'done');
+                        } else if (row.classList.contains('active')) {
+                            row.classList.remove('active');
+                            row.classList.add('pending');
+                        }
+                    });
+
+                    const counts = countTierEntries();
+                    const icon = document.getElementById('exportProgressIcon');
+                    if (icon) {
+                        icon.classList.remove('export-spinner', 'success', 'error', 'warn');
+                        if (!success) {
+                            icon.classList.add('error');
+                            icon.innerHTML = '<i class="codicon codicon-error"></i>';
+                        } else if (counts.error > 0) {
+                            icon.classList.add('error');
+                            icon.innerHTML = '<i class="codicon codicon-error"></i>';
+                        } else if (counts.warn > 0) {
+                            icon.classList.add('warn');
+                            icon.innerHTML = '<i class="codicon codicon-warning"></i>';
+                        } else {
+                            icon.classList.add('success');
+                            icon.innerHTML = '<i class="codicon codicon-check"></i>';
+                        }
+                    }
+
+                    let title;
+                    if (!success) {
+                        title = 'Export failed';
+                    } else if (counts.error > 0) {
+                        title = 'Export complete with errors';
+                    } else if (counts.warn > 0) {
+                        title = 'Export complete';
+                    } else {
+                        title = 'Export complete';
+                    }
+                    setExportTitle(title, summaryText || (success
+                        ? 'Your project has been exported successfully.'
+                        : 'Something went wrong during the export.'));
+
+                    const currentFile = document.getElementById('exportCurrentFile');
+                    if (currentFile) { currentFile.style.display = 'none'; currentFile.textContent = ''; }
+
+                    const actionRow = document.getElementById('exportActionRow');
+                    const openBtn = document.getElementById('exportOpenFolderBtn');
+                    if (actionRow) actionRow.style.display = 'flex';
+                    if (openBtn) openBtn.style.display = (success && exportState.outputPath) ? 'flex' : 'none';
+                }
+
+                function enterExportingView() {
+                    resetExportProgressView();
+                    exportState.started = true;
+                    document.body.classList.add('exporting');
+                    document.querySelectorAll('.step-panel').forEach(p => p.classList.remove('active'));
+                    const step4 = document.getElementById('step4');
+                    if (step4) step4.classList.add('active');
+                    currentStep = 4;
+                    setStageState('preparing', 'active');
+                    exportState.stageIndex = 0;
+                }
+
+                function openExportFolder() {
+                    if (!exportState.outputPath) return;
+                    vscode.postMessage({ command: 'openExportFolder', path: exportState.outputPath });
+                }
+
+                function closeExportView() {
+                    vscode.postMessage({ command: 'closeExportView' });
+                }
+
                 window.addEventListener('message', event => {
                     const message = event.data;
                     if (message.command === 'updateExportPath') {
@@ -1293,11 +1984,52 @@ function getWebviewContent(
                         const el = document.getElementById('exportPath');
                         if (el) el.textContent = message.path;
                         updateExportButton();
+                        return;
                     }
                     if (message.command === 'htmlStructureCheckResult') {
                         if (message.mismatches && message.mismatches.totalMismatches > 0) {
                             showHtmlMismatchPopup(message.mismatches);
                         }
+                        return;
+                    }
+                    if (message.command === 'exportStarted') {
+                        enterExportingView();
+                        return;
+                    }
+                    if (message.command === 'exportProgress') {
+                        const event = message.event || {};
+                        if (event.stage) {
+                            handleExportStage(event.stage, event.message, event.file, event.current, event.total);
+                        } else if (event.message) {
+                            setExportTitle(event.message, exportState.lastSubtitle);
+                        }
+                        return;
+                    }
+                    if (message.command === 'exportFileMissing') {
+                        appendMissingFile(message.file, message.reason, message.detail);
+                        return;
+                    }
+                    if (message.command === 'exportCompleted') {
+                        const summary = message.summary || {};
+                        if (summary.exportPath) showOutputPath(summary.exportPath);
+                        if (summary.missingFiles && summary.missingFiles.length > 0) {
+                            for (const mf of summary.missingFiles) {
+                                // Avoid duplicating entries the streaming events already added
+                                if (!exportState.missingFiles.some(existing => existing.file === mf.file && existing.reason === mf.reason)) {
+                                    appendMissingFile(mf.file, mf.reason, mf.detail);
+                                }
+                            }
+                        }
+                        if (summary.extraMessages && summary.extraMessages.length > 0) {
+                            showExtraMessages(summary.extraMessages);
+                        }
+                        const subtitle = buildSummarySubtitle(summary);
+                        showExportFinished(true, subtitle);
+                        return;
+                    }
+                    if (message.command === 'exportError') {
+                        showExportFinished(false, message.message || 'Export failed.');
+                        return;
                     }
                 });
 
@@ -1466,6 +2198,10 @@ function getWebviewContent(
                         options.includeAudio = true;
                         options.includeTimestamps = selectedAudioMode === 'audio-timestamps';
                     }
+                    // Optimistically switch UI to the in-panel exporting screen so
+                    // the user does not see Cancel / Back / Export anymore. The host
+                    // also broadcasts exportStarted, which is idempotent.
+                    enterExportingView();
                     vscode.postMessage({
                         command: 'export',
                         format: formatToSend,

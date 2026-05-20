@@ -9,6 +9,8 @@ import { getFFmpegPath } from "../utils/ffmpegManager";
 import { isLfsPointerContent, parsePointerContent } from "../utils/lfsHelpers";
 import { getCachedLfsBytes, setCachedLfsBytes } from "../utils/mediaCache";
 import { getMediaFilesStrategy } from "../utils/localProjectSettings";
+import type { ExportProgressReporter, ExportMissingReason } from "./exportProgress";
+import { pickAudioAttachment, isExportableCell, type AudioPick, type AudioPickOutcome } from "./audioAttachmentUtils";
 
 const execAsync = promisify(exec);
 
@@ -93,6 +95,93 @@ function formatChapterVerseSuffix(chapter?: number, verse?: number): string {
         return `C${chapter}`;
     }
     return "";
+}
+
+/**
+ * Pulls a short plain-text snippet from a cell's HTML value for use as a
+ * human-readable identifier when nothing else is set. Strips tags, decodes
+ * common entities, collapses whitespace, and truncates to ~40 chars.
+ */
+function extractCellTextSnippet(cell: any): string {
+    const raw = (cell?.value || "").toString();
+    if (!raw) return "";
+    const stripped = raw
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/\s+/g, " ")
+        .trim();
+    if (!stripped) return "";
+    const MAX = 40;
+    return stripped.length <= MAX
+        ? stripped
+        : `${stripped.slice(0, MAX).trimEnd()}\u2026`;
+}
+
+/**
+ * Builds a human-friendly label for a cell, suitable for the export progress
+ * UI. Returns `null` when the cell has no identifier we can present — those
+ * cells are intentionally omitted from missing-audio reporting because a row
+ * labelled with an opaque UUID or line number isn't actionable.
+ *
+ * Resolution rules (matches the `globalReferences` discriminator the user
+ * established: present = Bible, absent = anything else):
+ *   - Bible cell with a parseable ref: `1TH 3:1`
+ *   - Bible cell with chapter only: `1TH 3:<cellLabel>` if cellLabel is set,
+ *     else `1TH chapter 3`
+ *   - Non-Bible cell with cellLabel: `<source> — <cellLabel>`
+ *   - Non-Bible cell with text content: `<source> — "first 40 chars…"`
+ *   - Otherwise: `null` (caller skips this cell)
+ */
+function formatCellDisplayLabel(
+    cell: any,
+    _cellId: string,
+    bookCode: string
+): string | null {
+    const cellLabel = (cell?.metadata?.cellLabel || "").toString().trim();
+
+    const globalRefs = cell?.metadata?.data?.globalReferences;
+    const refIdRaw = Array.isArray(globalRefs) && globalRefs.length > 0
+        ? String(globalRefs[0] || "").trim()
+        : "";
+
+    if (refIdRaw) {
+        // Bible-style cell. Parse "BOOK chapter:verse" out of the ref.
+        const [refBookRaw, restRaw] = refIdRaw.split(" ");
+        const refBook = (refBookRaw || "").toUpperCase().trim();
+        const [chapterStr, verseStr] = (restRaw || "").split(":");
+        const chapter = chapterStr && Number.isFinite(Number(chapterStr))
+            ? Number(chapterStr)
+            : undefined;
+        const verse = verseStr && Number.isFinite(Number(verseStr))
+            ? Number(verseStr)
+            : undefined;
+
+        const book = refBook || bookCode;
+        if (chapter !== undefined && verse !== undefined) {
+            return `${book} ${chapter}:${verse}`;
+        }
+        if (chapter !== undefined && cellLabel) {
+            return `${book} ${chapter}:${cellLabel}`;
+        }
+        if (chapter !== undefined) {
+            return `${book} chapter ${chapter}`;
+        }
+        // Malformed ref; fall through to non-Bible handling below.
+    }
+
+    if (cellLabel) {
+        return `${bookCode} \u2014 ${cellLabel}`;
+    }
+    const snippet = extractCellTextSnippet(cell);
+    if (snippet) {
+        return `${bookCode} \u2014 \u201c${snippet}\u201d`;
+    }
+    return null;
 }
 
 function getTargetLanguageCode(): string {
@@ -504,36 +593,8 @@ async function readNotebook(uri: vscode.Uri): Promise<CodexNotebookAsJSONData> {
     return JSON.parse(Buffer.from(bytes).toString());
 }
 
-function isActiveCell(cell: any): boolean {
-    const data = cell?.metadata?.data;
-    const isMerged = !!(data && data.merged);
-    const isDeleted = !!(data && data.deleted);
-    return !isMerged && !isDeleted;
-}
-
-function pickAudioAttachmentForCell(cell: any): { id: string; url: string; start?: number; end?: number; } | null {
-    const attachments = cell?.metadata?.attachments || {};
-    if (!attachments || typeof attachments !== "object") return null;
-    const selectedId: string | undefined = cell?.metadata?.selectedAudioId;
-
-    const candidates: Array<{ id: string; url: string; updatedAt?: number; start?: number; end?: number; isDeleted?: boolean; isMissing?: boolean; }>
-        = [];
-    for (const [attId, attVal] of Object.entries<any>(attachments)) {
-        if (!attVal || typeof attVal !== "object") continue;
-        if (attVal.type !== "audio") continue;
-        if (attVal.isDeleted) continue;
-        if (attVal.isMissing) continue;
-        if (!attVal.url || typeof attVal.url !== "string") continue;
-        candidates.push({ id: attId, url: attVal.url, updatedAt: attVal.updatedAt, start: attVal.startTime, end: attVal.endTime });
-    }
-    if (candidates.length === 0) return null;
-    if (selectedId) {
-        const selected = candidates.find(c => c.id === selectedId);
-        if (selected) return selected;
-    }
-    // fallback to most recently updated
-    candidates.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    return candidates[0];
+function pickAudioAttachmentForCell(cell: any): AudioPickOutcome {
+    return pickAudioAttachment(cell);
 }
 
 async function pathExists(uri: vscode.Uri): Promise<boolean> {
@@ -618,11 +679,12 @@ async function resolveAudioBytes(
 export async function exportAudioAttachments(
     userSelectedPath: string,
     filesToExport: string[],
+    reporter: ExportProgressReporter,
     options?: ExportAudioOptions
 ): Promise<void> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
-        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+        reporter.error("No project folder found. Please open a project first.");
         return;
     }
     const workspaceFolder = workspaceFolders[0];
@@ -634,7 +696,7 @@ export async function exportAudioAttachments(
     const selectedFiles = filesToExport.map((p) => vscode.Uri.file(p));
     debug(`Files to export: ${filesToExport.length}`, filesToExport);
     if (selectedFiles.length === 0) {
-        vscode.window.showInformationMessage("No files selected for export.");
+        reporter.error("No files selected for export.");
         return;
     }
 
@@ -650,7 +712,7 @@ export async function exportAudioAttachments(
             const { ensureAllVersionGatesForMedia } = await import("../utils/versionGate");
             const allowed = await ensureAllVersionGatesForMedia(true);
             if (!allowed) {
-                vscode.window.showErrorMessage(
+                reporter.error(
                     "Audio export requires a compatible version of Frontier. Please update and try again."
                 );
                 return;
@@ -670,7 +732,7 @@ export async function exportAudioAttachments(
         }
 
         if (!frontierApi) {
-            vscode.window.showErrorMessage(
+            reporter.error(
                 "Cannot export audio in streaming mode: Frontier authentication is not available. " +
                 "Please ensure you are online and signed in, or switch to Auto Download mode first."
             );
@@ -678,22 +740,20 @@ export async function exportAudioAttachments(
         }
     }
 
-    return vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "Exporting Audio Attachments",
-            cancellable: false,
-        },
-        async (progress) => {
-            let copiedCount = 0;
-            let missingCount = 0;
-            let streamFailCount = 0;
+    let copiedCount = 0;
+    let missingCount = 0;
+    let streamFailCount = 0;
+    let notRecordedCount = 0;
+    let selectionLostCount = 0;
 
-            for (const [index, file] of selectedFiles.entries()) {
-                progress.report({
-                    message: `Processing ${basename(file.fsPath)} (${index + 1}/${selectedFiles.length})`,
-                    increment: 100 / selectedFiles.length,
-                });
+    for (const [index, file] of selectedFiles.entries()) {
+        reporter.report({
+            stage: "processing",
+            message: `Processing ${basename(file.fsPath)} (${index + 1}/${selectedFiles.length})`,
+            file: basename(file.fsPath),
+            current: index + 1,
+            total: selectedFiles.length,
+        });
 
                 const bookCode = basename(file.fsPath).split(".")[0] || "BOOK";
                 const bookFolder = vscode.Uri.joinPath(exportDir, sanitizeFileComponent(bookCode));
@@ -715,21 +775,54 @@ export async function exportAudioAttachments(
                 // Build milestone folder mapping: cellId -> milestone folder name
                 const cellMilestoneFolder = buildCellMilestoneMap(notebook.cells);
 
-                // Count audio cells for per-book progress
-                const audioCells: Array<{ cell: any; cellId: string; pick: NonNullable<ReturnType<typeof pickAudioAttachmentForCell>> }> = [];
+                // Count audio cells for per-book progress. Paratext and
+                // milestone cells (e.g. chapter headers, intros) are not
+                // recording targets, so they're filtered out by
+                // `isExportableCell` — they would otherwise show up under
+                // "no audio recorded" purely as noise.
+                const audioCells: Array<{ cell: any; cellId: string; pick: AudioPick }> = [];
                 for (const cell of notebook.cells) {
-                    if (cell.kind !== 2 && cell.kind !== 1) continue;
-                    if (!isActiveCell(cell)) continue;
+                    if (!isExportableCell(cell)) continue;
                     const cellId: string | undefined = cell?.metadata?.id;
                     if (!cellId) continue;
-                    const pick = pickAudioAttachmentForCell(cell);
-                    if (!pick) continue;
-                    audioCells.push({ cell, cellId, pick });
+                    const outcome = pickAudioAttachmentForCell(cell);
+                    if (outcome.state === "ready" && outcome.pick) {
+                        audioCells.push({ cell, cellId, pick: outcome.pick });
+                        continue;
+                    }
+                    const label = formatCellDisplayLabel(cell, cellId, bookCode);
+                    if (!label) {
+                        // No identifier we can present to the user — omit
+                        // entirely rather than reporting a row they can't act on.
+                        continue;
+                    }
+                    if (outcome.state === "selection-lost") {
+                        // The user explicitly chose a take but it's no longer
+                        // available. We refuse to export a different take they
+                        // never approved — surface so they can pick a new one.
+                        reporter.fileMissing(
+                            label,
+                            "no-audio-selected",
+                            "The previously-selected take is no longer available. Re-open this cell to choose a take before exporting."
+                        );
+                        selectionLostCount++;
+                        continue;
+                    }
+                    // No usable attachment at all — Tier 1 informational.
+                    reporter.fileMissing(label, "no-audio-recorded");
+                    notRecordedCount++;
                 }
 
                 // Phase 1: Pre-compute export tasks with unique destination paths
                 type AudioExportTask = {
                     cellId: string;
+                    /**
+                     * Human-readable label for the missing-files UI. Null when
+                     * the cell has no identifier we can present (see
+                     * `formatCellDisplayLabel`); in that case the audio is still
+                     * exported but per-cell failure rows are suppressed.
+                     */
+                    cellLabel: string | null;
                     absoluteSrc: vscode.Uri;
                     destUri: vscode.Uri;
                     targetFolder: vscode.Uri;
@@ -783,8 +876,11 @@ export async function exportAudioAttachments(
                     }
                     assignedPaths.add(destUri.fsPath);
 
+                    const cellLabel = formatCellDisplayLabel(cell, cellId, bookCode);
+
                     tasks.push({
                         cellId,
+                        cellLabel,
                         absoluteSrc,
                         destUri,
                         targetFolder,
@@ -807,99 +903,157 @@ export async function exportAudioAttachments(
                     | { data: Uint8Array; error?: undefined }
                     | { data?: undefined; error: string };
 
-                const downloadResults = await runWithConcurrencyPool<typeof tasks[number], DownloadResult>(
-                    tasks,
-                    EXPORT_CONCURRENCY,
-                    async (task) => {
-                        debug(`Cell ${task.cellId}: downloading ${task.absoluteSrc.fsPath}`);
-                        const resolved = await resolveAudioBytes(
-                            task.absoluteSrc, workspaceFolder.uri, frontierApi
-                        );
-                        if (resolved.error || !resolved.data) {
-                            return { error: resolved.error ?? "No data returned" };
-                        }
-                        return { data: resolved.data };
-                    },
-                    (completed, total) => {
-                        progress.report({
-                            message: `${basename(file.fsPath)}: downloading audio (${completed}/${total})`,
-                        });
-                    }
+        const downloadResults = await runWithConcurrencyPool<typeof tasks[number], DownloadResult>(
+            tasks,
+            EXPORT_CONCURRENCY,
+            async (task) => {
+                debug(`Cell ${task.cellId}: downloading ${task.absoluteSrc.fsPath}`);
+                const resolved = await resolveAudioBytes(
+                    task.absoluteSrc, workspaceFolder.uri, frontierApi
                 );
+                if (resolved.error || !resolved.data) {
+                    return { error: resolved.error ?? "No data returned" };
+                }
+                return { data: resolved.data };
+            },
+            (completed, total) => {
+                reporter.report({
+                    stage: "downloading",
+                    message: `${basename(file.fsPath)}: downloading audio (${completed}/${total})`,
+                    file: basename(file.fsPath),
+                    current: completed,
+                    total,
+                });
+            }
+        );
 
-                // Phase 2b: Convert and write each file (CPU/disk-bound, sequential
-                // to avoid FFmpeg contention and show per-file progress).
-                for (let ti = 0; ti < tasks.length; ti++) {
-                    const task = tasks[ti];
-                    const dlResult = downloadResults[ti];
+        // Phase 2b: Convert and write each file (CPU/disk-bound, sequential
+        // to avoid FFmpeg contention and show per-file progress).
+        for (let ti = 0; ti < tasks.length; ti++) {
+            const task = tasks[ti];
+            const dlResult = downloadResults[ti];
 
-                    progress.report({
-                        message: `${basename(file.fsPath)}: writing audio (${ti + 1}/${tasks.length})`,
-                    });
+            reporter.report({
+                stage: "writing",
+                message: `${basename(file.fsPath)}: writing audio (${ti + 1}/${tasks.length})`,
+                file: basename(file.fsPath),
+                current: ti + 1,
+                total: tasks.length,
+            });
 
-                    if (dlResult.status === "rejected") {
-                        console.error("Failed to download audio:", dlResult.reason);
-                        missingCount++;
-                        continue;
+            if (dlResult.status === "rejected") {
+                console.error("Failed to download audio:", dlResult.reason);
+                if (task.cellLabel) {
+                    reporter.fileMissing(
+                        task.cellLabel,
+                        "download-failed",
+                        dlResult.reason ? String(dlResult.reason) : undefined
+                    );
+                    streamFailCount++;
+                    missingCount++;
+                }
+                continue;
+            }
+
+            const resolved = dlResult.value;
+            if (resolved.error || !resolved.data) {
+                debug(`Cell ${task.cellId}: ${resolved.error ?? "No data returned"}`);
+                const err = resolved.error ?? "No data returned";
+                const isStreamFailure =
+                    err.includes("Frontier") || err.includes("stream");
+                const isPointerCorrupt = err.includes("Invalid LFS pointer");
+                if (task.cellLabel) {
+                    if (isStreamFailure) streamFailCount++;
+                    const reason: ExportMissingReason = isStreamFailure
+                        ? "download-failed"
+                        : isPointerCorrupt
+                            ? "pointer-corrupt"
+                            : "audio-file-missing";
+                    reporter.fileMissing(task.cellLabel, reason, err);
+                    missingCount++;
+                }
+                continue;
+            }
+
+            let bytes: Uint8Array = resolved.data;
+
+            if (includeTimestamps) {
+                try {
+                    const prepared = await prepareAudioForExport(
+                        bytes, task.originalExt, task.start, task.end, task.cellId
+                    );
+                    bytes = prepared.bytes;
+
+                    const predicted = predictOutputExt(task.originalExt, true);
+                    if (prepared.ext !== predicted) {
+                        const correctedName = basename(task.destUri.fsPath)
+                            .replace(new RegExp(`\\${predicted.replace(".", "\\.")}$`), prepared.ext);
+                        task.destUri = vscode.Uri.joinPath(
+                            task.targetFolder, correctedName
+                        );
                     }
-
-                    const resolved = dlResult.value;
-                    if (resolved.error || !resolved.data) {
-                        debug(`Cell ${task.cellId}: ${resolved.error ?? "No data returned"}`);
-                        if (resolved.error?.includes("Frontier") || resolved.error?.includes("stream")) {
-                            streamFailCount++;
-                        }
-                        missingCount++;
-                        continue;
-                    }
-
-                    try {
-                        let bytes: Uint8Array = resolved.data;
-
-                        if (includeTimestamps) {
-                            const prepared = await prepareAudioForExport(
-                                bytes, task.originalExt, task.start, task.end, task.cellId
-                            );
-                            bytes = prepared.bytes;
-
-                            const predicted = predictOutputExt(task.originalExt, true);
-                            if (prepared.ext !== predicted) {
-                                const correctedName = basename(task.destUri.fsPath)
-                                    .replace(new RegExp(`\\${predicted.replace(".", "\\.")}$`), prepared.ext);
-                                task.destUri = vscode.Uri.joinPath(
-                                    task.targetFolder, correctedName
-                                );
-                            }
-                        }
-
-                        await vscode.workspace.fs.writeFile(task.destUri, bytes);
-                        copiedCount++;
-                    } catch (e) {
-                        console.error(`Failed to export audio for ${task.cellId}:`, e);
+                } catch (e) {
+                    console.error(`Failed to transcode audio for ${task.cellId}:`, e);
+                    if (task.cellLabel) {
+                        reporter.fileMissing(
+                            task.cellLabel,
+                            "transcode-failed",
+                            e instanceof Error ? e.message : String(e)
+                        );
                         missingCount++;
                     }
+                    continue;
                 }
             }
 
-            debug(`Export summary: ${copiedCount} files copied, ${missingCount} skipped, ${streamFailCount} stream failures`);
-
-            if (streamFailCount > 0 && copiedCount === 0) {
-                vscode.window.showErrorMessage(
-                    `Audio export failed: could not download any audio files from the server. ` +
-                    `Please check your network connection and try again.`
-                );
-            } else {
-                const streamNote = streamFailCount > 0
-                    ? `, ${streamFailCount} failed to download`
-                    : "";
-                vscode.window.showInformationMessage(
-                    `Audio export completed: ${copiedCount} files exported` +
-                    `${missingCount ? `, ${missingCount} skipped` : ""}` +
-                    `${streamNote}. Output: ${exportDir.fsPath}`
-                );
+            try {
+                await vscode.workspace.fs.writeFile(task.destUri, bytes);
+                copiedCount++;
+            } catch (e) {
+                console.error(`Failed to write audio for ${task.cellId}:`, e);
+                if (task.cellLabel) {
+                    reporter.fileMissing(
+                        task.cellLabel,
+                        "write-failed",
+                        e instanceof Error ? e.message : String(e)
+                    );
+                    missingCount++;
+                }
             }
         }
+    }
+
+    debug(
+        `Export summary: ${copiedCount} files copied, ${missingCount} skipped, ` +
+        `${streamFailCount} stream failures, ${notRecordedCount} cells without recorded audio, ` +
+        `${selectionLostCount} cells with broken selection`
     );
+
+    if (streamFailCount > 0 && copiedCount === 0) {
+        reporter.error(
+            "Audio export failed: could not download any audio files from the server. " +
+            "Please check your network connection and try again."
+        );
+        return;
+    }
+
+    const summaryParts: string[] = [];
+    summaryParts.push(`${copiedCount} audio file(s) exported`);
+    if (streamFailCount > 0) summaryParts.push(`${streamFailCount} failed to download`);
+    if (missingCount - streamFailCount > 0) {
+        summaryParts.push(`${missingCount - streamFailCount} could not be resolved`);
+    }
+    if (notRecordedCount > 0) summaryParts.push(`${notRecordedCount} cells without recorded audio`);
+    if (selectionLostCount > 0) summaryParts.push(`${selectionLostCount} cells with broken selection`);
+
+    reporter.complete({
+        exportPath: exportDir.fsPath,
+        filesExported: selectedFiles.length,
+        audioCopied: copiedCount,
+        audioMissing: missingCount,
+        audioFailed: streamFailCount,
+        extraMessages: [summaryParts.join(", ") + "."],
+    });
 }
 
 
