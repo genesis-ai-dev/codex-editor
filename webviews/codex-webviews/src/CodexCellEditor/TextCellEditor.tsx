@@ -4887,8 +4887,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 )}
 
                                             {/* Previous audio slider - read-only */}
-                                            {audioBlob &&
-                                                audioDuration &&
+                                            {isSubtitlesType &&
                                                 prevAudioTimestamps &&
                                                 typeof prevAudioTimestamps.startTime === "number" &&
                                                 typeof prevAudioTimestamps.endTime === "number" &&
@@ -5070,8 +5069,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 )}
 
                                             {/* Next audio slider - read-only */}
-                                            {audioBlob &&
-                                                audioDuration &&
+                                            {isSubtitlesType &&
                                                 nextAudioTimestamps &&
                                                 typeof nextAudioTimestamps.startTime === "number" &&
                                                 typeof nextAudioTimestamps.endTime === "number" &&
