@@ -678,13 +678,34 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 retryDuration();
             }
         };
-        const handleEnded = () => setIsPlaying(false);
+        const handleEnded = () => {
+            setIsPlaying(false);
+            // Snap the playhead to the end of the track. The rAF-driven
+            // `currentTime` sync in the animation loop is throttled to
+            // ~100 ms deltas and stops once `isPlaying` flips to false,
+            // so without this snap the cursor can settle anywhere from a
+            // few ms up to ~250 ms short of `duration` — visible as a
+            // stripe of "unplayed" bars at the very end of the waveform.
+            if (isFinite(duration) && duration > 0) {
+                setCurrentTime(duration);
+            }
+        };
         const handlePlay = () => {
             setIsPlaying(true);
             setIsLoading(false);
             setError(null);
         };
-        const handlePause = () => setIsPlaying(false);
+        const handlePause = () => {
+            setIsPlaying(false);
+            // Mirror `handleEnded`: take a terminal sync to the audio's
+            // real position so the paused playhead matches what the user
+            // is about to hear when they resume, instead of trailing the
+            // last throttled animate-loop tick.
+            const audioCurrentTime = audio.currentTime;
+            if (isFinite(audioCurrentTime) && audioCurrentTime >= 0) {
+                setCurrentTime(audioCurrentTime);
+            }
+        };
         const handleError = () => {
             // Ignore spurious errors before we intentionally set a src
             if (!hasSetSrcRef.current) {
