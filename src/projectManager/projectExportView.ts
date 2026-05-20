@@ -1289,8 +1289,11 @@ function getWebviewContent(
                                 if (f.audioStats.audioReadyCount > 0) {
                                     parts.push(f.audioStats.audioReadyCount + ' with audio');
                                 }
-                                if (f.audioStats.selectionLostCount > 0) {
-                                    parts.push(f.audioStats.selectionLostCount + ' missing preferred take');
+                                if (f.audioStats.selectionMissingCount > 0) {
+                                    parts.push(f.audioStats.selectionMissingCount + ' with selected audio missing');
+                                }
+                                if (f.audioStats.noneSelectedCount > 0) {
+                                    parts.push(f.audioStats.noneSelectedCount + ' with audio, none selected');
                                 }
                                 if (f.audioStats.noAudioRecordedCount > 0) {
                                     parts.push(f.audioStats.noAudioRecordedCount + ' without recording');
@@ -1727,9 +1730,9 @@ function getWebviewContent(
                     switch (reason) {
                         case 'no-audio-recorded': return 'no audio recorded';
                         case 'no-text-recorded': return 'no text recorded';
-                        case 'no-audio-selected': return 'preferred take missing';
-                        case 'audio-file-missing': return 'reference broken';
-                        case 'pointer-corrupt': return 'pointer corrupt';
+                        case 'no-audio-selected': return 'audio available, none selected';
+                        case 'audio-file-missing': return 'selected audio is missing';
+                        case 'pointer-corrupt': return 'audio file unreadable';
                         case 'source-not-found': return 'source missing';
                         case 'download-failed': return 'download failed';
                         case 'transcode-failed': return 'transcode failed';
@@ -1849,7 +1852,7 @@ function getWebviewContent(
                  * Builds the post-export subtitle, ordered by severity. Examples:
                  *   - clean: "1 file exported • 993 audio files copied"
                  *   - warn-only: "993 audio exported • 12 cells without recorded audio"
-                 *   - error: "988 audio exported • 5 download failures • 12 broken references"
+                 *   - error: "988 audio exported • 5 download failures • 12 cells with selected audio missing"
                  */
                 function buildSummarySubtitle(summary) {
                     const counts = countTierEntries();
@@ -1872,9 +1875,9 @@ function getWebviewContent(
                     if (errorReasons['transcode-failed']) parts.push(errorReasons['transcode-failed'] + ' transcode failure' + (errorReasons['transcode-failed'] === 1 ? '' : 's'));
                     if (errorReasons['write-failed']) parts.push(errorReasons['write-failed'] + ' write failure' + (errorReasons['write-failed'] === 1 ? '' : 's'));
                     if (errorReasons['error']) parts.push(errorReasons['error'] + ' error' + (errorReasons['error'] === 1 ? '' : 's'));
-                    if (warnReasons['audio-file-missing']) parts.push(warnReasons['audio-file-missing'] + ' broken audio reference' + (warnReasons['audio-file-missing'] === 1 ? '' : 's'));
-                    if (warnReasons['pointer-corrupt']) parts.push(warnReasons['pointer-corrupt'] + ' corrupt pointer' + (warnReasons['pointer-corrupt'] === 1 ? '' : 's'));
-                    if (warnReasons['no-audio-selected']) parts.push(warnReasons['no-audio-selected'] + ' cell' + (warnReasons['no-audio-selected'] === 1 ? '' : 's') + ' missing preferred take');
+                    if (warnReasons['audio-file-missing']) parts.push(warnReasons['audio-file-missing'] + ' cell' + (warnReasons['audio-file-missing'] === 1 ? '' : 's') + ' with selected audio missing');
+                    if (warnReasons['pointer-corrupt']) parts.push(warnReasons['pointer-corrupt'] + ' unreadable audio file' + (warnReasons['pointer-corrupt'] === 1 ? '' : 's'));
+                    if (warnReasons['no-audio-selected']) parts.push(warnReasons['no-audio-selected'] + ' cell' + (warnReasons['no-audio-selected'] === 1 ? '' : 's') + ' with audio, none selected');
                     if (warnReasons['source-not-found']) parts.push(warnReasons['source-not-found'] + ' source file' + (warnReasons['source-not-found'] === 1 ? '' : 's') + ' missing');
                     if (infoReasons['no-audio-recorded']) parts.push(infoReasons['no-audio-recorded'] + ' cell' + (infoReasons['no-audio-recorded'] === 1 ? '' : 's') + ' without recorded audio');
                     if (infoReasons['no-text-recorded']) parts.push(infoReasons['no-text-recorded'] + ' book' + (infoReasons['no-text-recorded'] === 1 ? '' : 's') + ' without text');

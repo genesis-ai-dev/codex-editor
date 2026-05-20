@@ -2285,7 +2285,8 @@ type EditorReceiveMessages =
                     validatedBy?: ValidationEntry[];
                 };
             }>;
-            currentAttachmentId: string | null; // The ID of the currently selected/active attachment
+            currentAttachmentId: string | null; // What the editor will actually play (explicit selection if valid, else most-recent non-deleted fallback)
+            explicitSelectedAudioId: string | null; // The user's actual selectedAudioId from the document, even if the attachment is missing/deleted
             hasExplicitSelection: boolean; // Whether user made explicit selection vs automatic behavior
         };
     }

@@ -3441,65 +3441,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     /**
-     * Cleans up invalid audio selections for all cells (safe to call during document operations)
-     * This is separated from getCurrentAttachment to avoid modifying state during read operations.
-     *
-     * When the selected audio is missing but a valid non-missing alternative exists,
-     * the selection is automatically updated to the best available attachment.
-     */
-    public cleanupInvalidAudioSelections(): void {
-        try {
-            let hasChanges = false;
-
-            for (const cell of this._documentData.cells) {
-                if (!cell.metadata?.selectedAudioId || !cell.metadata.attachments) {
-                    continue;
-                }
-
-                const selectedAttachment = cell.metadata.attachments[cell.metadata.selectedAudioId];
-
-                const isInvalid = !selectedAttachment ||
-                    selectedAttachment.type !== "audio" ||
-                    selectedAttachment.isDeleted;
-
-                const isMissing = !isInvalid && selectedAttachment.isMissing === true;
-
-                if (isInvalid || isMissing) {
-                    // Look for a valid non-missing audio attachment to auto-select
-                    const validAlternative = Object.entries(cell.metadata.attachments)
-                        .filter(([_, att]: [string, any]) =>
-                            att?.type === "audio" && !att.isDeleted && !att.isMissing
-                        )
-                        .sort(([_, a]: [string, any], [__, b]: [string, any]) =>
-                            (b.updatedAt || 0) - (a.updatedAt || 0)
-                        )[0];
-
-                    if (validAlternative) {
-                        cell.metadata.selectedAudioId = validAlternative[0];
-                        cell.metadata.selectionTimestamp = Date.now();
-                    } else {
-                        delete cell.metadata.selectedAudioId;
-                        delete cell.metadata.selectionTimestamp;
-                    }
-                    hasChanges = true;
-                    if (cell.metadata?.id) {
-                        this.markCellMutated(cell.metadata.id);
-                    }
-                }
-            }
-
-            if (hasChanges) {
-                this._isDirty = true;
-                this._onDidChangeForVsCodeAndWebview.fire({
-                    edits: this._edits,
-                });
-            }
-        } catch (error) {
-            console.error("Error cleaning up invalid audio selections:", error);
-        }
-    }
-
-    /**
      * Removes an attachment from a cell's metadata (hard delete - use softDeleteCellAttachment instead)
      * @param cellId The ID of the cell to update
      * @param attachmentId The unique ID of the attachment to remove

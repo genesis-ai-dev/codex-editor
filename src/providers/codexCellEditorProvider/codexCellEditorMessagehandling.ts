@@ -2521,9 +2521,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     getAudioHistory: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getAudioHistory"; }>;
 
-        // Clean up any invalid audio selections (safe to do now that document is loaded)
-        document.cleanupInvalidAudioSelections();
-
         const audioHistory = document.getAttachmentHistory(typedEvent.content.cellId, "audio") || [];
 
         // Get the current attachment to know which one is actually selected
@@ -2538,6 +2535,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 cellId: typedEvent.content.cellId,
                 audioHistory: audioHistory,
                 currentAttachmentId: currentAttachment?.attachmentId ?? null,
+                explicitSelectedAudioId: explicitSelection,
                 hasExplicitSelection: explicitSelection !== null
             }
         });
@@ -3299,6 +3297,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         cellId,
                         audioHistory,
                         currentAttachmentId: currentAttachment?.attachmentId ?? null,
+                        explicitSelectedAudioId: explicitSelection,
                         hasExplicitSelection: explicitSelection !== null
                     }
                 });

@@ -113,8 +113,10 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             const message = event.data;
             if (message.type === "audioHistoryReceived" && message.content.cellId === cellId) {
                 setAudioHistory(message.content.audioHistory);
-                // Use the currentAttachmentId from the backend (this reflects the actual selection state)
-                setSelectedAudioId(message.content.currentAttachmentId);
+                // Use the explicit selectedAudioId from the document — even if it points to a
+                // missing or deleted attachment, so the modal can honestly show "your selection
+                // is missing" rather than silently labeling a fallback as SELECTED.
+                setSelectedAudioId(message.content.explicitSelectedAudioId);
                 setHasExplicitSelection(message.content.hasExplicitSelection);
 
                 // Pre-mark entries that are known missing
@@ -558,7 +560,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                     {audioHistory.length > 0 ? (
                         audioHistory.map((entry, index) => {
                             const isCurrent = entry === currentAttachment; // Latest non-deleted
-                            const isSelected = selectedAudioId === entry.attachmentId; // Currently active (either explicit or automatic)
+                            const isSelected = selectedAudioId === entry.attachmentId; // The user's explicit pick (may also have MISSING/DELETED badges if the file is gone)
                             const isPlaying = playingId === entry.attachmentId;
                             const isLoading = delayedLoadingIds.has(entry.attachmentId);
                             const hasError =

@@ -39,11 +39,17 @@ export interface NotebookAudioStats {
     /** Eligible cells with no usable audio attachment at all. */
     noAudioRecordedCount: number;
     /**
-     * selectedAudioId was set on the cell but the referenced take is gone,
-     * so nothing will be exported for this cell (we refuse to substitute an
-     * unapproved take).
+     * selectedAudioId was set on the cell but the referenced attachment is
+     * gone (deleted, missing, or unknown). Nothing will be exported — the
+     * user has to pick again or re-record.
      */
-    selectionLostCount: number;
+    selectionMissingCount: number;
+    /**
+     * No selectedAudioId, but non-deleted takes are present. The user has
+     * never picked one (or their pick was cleared by deletion). Nothing will
+     * be exported — we refuse to auto-pick on the user's behalf.
+     */
+    noneSelectedCount: number;
 }
 
 export interface FileGroupEntry {
@@ -136,7 +142,8 @@ export function analyzeNotebookAudioStats(
     let eligibleCellCount = 0;
     let audioReadyCount = 0;
     let noAudioRecordedCount = 0;
-    let selectionLostCount = 0;
+    let selectionMissingCount = 0;
+    let noneSelectedCount = 0;
 
     for (const cell of notebook.cells) {
         if (!isExportableCell(cell)) continue;
@@ -149,8 +156,10 @@ export function analyzeNotebookAudioStats(
         // Mirror the exporter: cells we can't label aren't surfaced as
         // missing-audio rows, so they shouldn't inflate the Step 1 counts.
         if (!isLabelableCell(cell)) continue;
-        if (state === "selection-lost") {
-            selectionLostCount += 1;
+        if (state === "selection-missing") {
+            selectionMissingCount += 1;
+        } else if (state === "none-selected") {
+            noneSelectedCount += 1;
         } else {
             noAudioRecordedCount += 1;
         }
@@ -160,7 +169,8 @@ export function analyzeNotebookAudioStats(
         eligibleCellCount,
         audioReadyCount,
         noAudioRecordedCount,
-        selectionLostCount,
+        selectionMissingCount,
+        noneSelectedCount,
     };
 }
 

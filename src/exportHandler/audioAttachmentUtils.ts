@@ -23,17 +23,22 @@ export interface AudioPick {
     end?: number;
 }
 
-export type CellAudioState = "ready" | "selection-lost" | "none";
+export type CellAudioState =
+    | "ready"
+    | "selection-missing"
+    | "none-selected"
+    | "none";
 
 export interface AudioPickOutcome {
     /**
-     * `ready` — there is an audio take to export (either `selectedAudioId`
-     *           matched a candidate, or no selection was set and we picked
-     *           the most-recent recording).
-     * `selection-lost` — `selectedAudioId` was set but the referenced
-     *           attachment is gone. We deliberately do NOT fall back to a
-     *           different take, because that take wasn't approved by the
-     *           user. The cell needs to be revisited.
+     * `ready` — `selectedAudioId` matched a valid candidate; export this take.
+     * `selection-missing` — `selectedAudioId` was set but the referenced
+     *           attachment is gone (deleted / missing / unknown). We refuse
+     *           to silently substitute another take. The user needs to pick
+     *           again or re-record.
+     * `none-selected` — no `selectedAudioId` is set, but at least one
+     *           non-deleted, non-missing audio take exists. We refuse to
+     *           auto-pick — the user must explicitly choose a take.
      * `none` — the cell has no usable audio attachments at all.
      */
     state: CellAudioState;
@@ -100,22 +105,13 @@ export function pickAudioAttachment(cell: unknown): AudioPickOutcome {
             };
         }
         // selectedAudioId set but the referenced take is gone — surface as
-        // selection-lost rather than silently substituting an unapproved take.
-        return { state: "selection-lost" };
+        // selection-missing rather than silently substituting an unapproved take.
+        return { state: "selection-missing" };
     }
 
-    // No explicit selection — most-recent take is the implicit choice.
-    candidates.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    const top = candidates[0];
-    return {
-        state: "ready",
-        pick: {
-            id: top.id,
-            url: top.url,
-            start: top.start,
-            end: top.end,
-        },
-    };
+    // No explicit selection but valid takes exist. We refuse to auto-pick —
+    // the user has to explicitly choose a take before export.
+    return { state: "none-selected" };
 }
 
 /**

@@ -744,7 +744,8 @@ export async function exportAudioAttachments(
     let missingCount = 0;
     let streamFailCount = 0;
     let notRecordedCount = 0;
-    let selectionLostCount = 0;
+    let noneSelectedCount = 0;
+    let selectionMissingCount = 0;
 
     for (const [index, file] of selectedFiles.entries()) {
         reporter.report({
@@ -796,16 +797,28 @@ export async function exportAudioAttachments(
                         // entirely rather than reporting a row they can't act on.
                         continue;
                     }
-                    if (outcome.state === "selection-lost") {
-                        // The user explicitly chose a take but it's no longer
-                        // available. We refuse to export a different take they
-                        // never approved — surface so they can pick a new one.
+                    if (outcome.state === "selection-missing") {
+                        // The user explicitly chose a take but the attachment
+                        // is gone (deleted, missing, or unknown). We refuse to
+                        // substitute a different take they never approved.
+                        reporter.fileMissing(
+                            label,
+                            "audio-file-missing",
+                            "The audio file you selected for this cell cannot be found. Open the cell to choose another take or re-record."
+                        );
+                        selectionMissingCount++;
+                        continue;
+                    }
+                    if (outcome.state === "none-selected") {
+                        // There are valid takes on this cell but the user has
+                        // never picked one (or their previous pick was cleared
+                        // when its take was deleted). We refuse to auto-pick.
                         reporter.fileMissing(
                             label,
                             "no-audio-selected",
-                            "The previously-selected take is no longer available. Re-open this cell to choose a take before exporting."
+                            "Audio is recorded for this cell but no take has been selected. Open the cell to choose which take to export."
                         );
-                        selectionLostCount++;
+                        noneSelectedCount++;
                         continue;
                     }
                     // No usable attachment at all — Tier 1 informational.
@@ -1026,7 +1039,8 @@ export async function exportAudioAttachments(
     debug(
         `Export summary: ${copiedCount} files copied, ${missingCount} skipped, ` +
         `${streamFailCount} stream failures, ${notRecordedCount} cells without recorded audio, ` +
-        `${selectionLostCount} cells with broken selection`
+        `${noneSelectedCount} cells with audio but none selected, ` +
+        `${selectionMissingCount} cells with selected audio missing`
     );
 
     if (streamFailCount > 0 && copiedCount === 0) {
@@ -1044,7 +1058,8 @@ export async function exportAudioAttachments(
         summaryParts.push(`${missingCount - streamFailCount} could not be resolved`);
     }
     if (notRecordedCount > 0) summaryParts.push(`${notRecordedCount} cells without recorded audio`);
-    if (selectionLostCount > 0) summaryParts.push(`${selectionLostCount} cells with broken selection`);
+    if (noneSelectedCount > 0) summaryParts.push(`${noneSelectedCount} cells with audio, none selected`);
+    if (selectionMissingCount > 0) summaryParts.push(`${selectionMissingCount} cells with selected audio missing`);
 
     reporter.complete({
         exportPath: exportDir.fsPath,
