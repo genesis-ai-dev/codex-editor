@@ -74,6 +74,7 @@ export interface CellListProps {
     currentMilestoneIndex?: number;
     currentSubsectionIndex?: number;
     cellsPerPage?: number;
+    onInspectSimilarWording?: (cellId: string, targetContent: string) => void;
 }
 
 const DEBUG_ENABLED = false;
@@ -123,6 +124,7 @@ const CellList: React.FC<CellListProps> = ({
     currentMilestoneIndex = 0,
     currentSubsectionIndex = 0,
     cellsPerPage = 50,
+    onInspectSimilarWording,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -966,6 +968,7 @@ const CellList: React.FC<CellListProps> = ({
                             vscode={vscode}
                             isSourceText={isSourceText}
                             isAuthenticated={isAuthenticated}
+                            onInspectSimilarWording={onInspectSimilarWording}
                         />
                     </span>
                 );
@@ -1076,6 +1079,7 @@ const CellList: React.FC<CellListProps> = ({
         requiredAudioValidations,
         isAudioOnly,
         isAuthenticated,
+        onInspectSimilarWording,
     ]);
 
     // Fetch comments count for all visible cells (batched)
