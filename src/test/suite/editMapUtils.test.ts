@@ -359,14 +359,15 @@ suite("editMapUtils Test Suite", () => {
             const firstEdit = metadata.edits![0];
             const firstTimestamp = firstEdit.timestamp;
 
-            // Manually add a duplicate with same timestamp
+            // Manually add a duplicate with same timestamp and same id
             metadata.edits!.push({
+                id: firstEdit.id,
                 editMap: EditMapUtils.projectName(),
                 value: testProjectName,
                 timestamp: firstTimestamp,
                 type: EditType.USER_EDIT,
                 author: testAuthor,
-            });
+            } as any);
 
             assert.strictEqual(metadata.edits!.length, 2, "Should have two edits before deduplication");
 

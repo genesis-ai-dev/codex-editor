@@ -47,13 +47,22 @@ export const getCellValueData = (cell: QuillCellContent) => {
     // Ensure editHistory exists and is an array
     const editHistory = cell.editHistory || [];
 
-    // Find the latest edit that matches the current cell content (strict match).
-    // Falls back to the latest value edit if the strict match fails, which can happen
-    // when the merge step during save subtly normalizes the stored value.
-    const reversed = editHistory.slice().reverse();
-    const latestEditThatMatchesCellValue =
-        reversed.find((edit) => EditMapUtils.isValue(edit.editMap) && edit.value === cell.cellContent) ??
-        reversed.find((edit) => EditMapUtils.isValue(edit.editMap) && !edit.preview);
+    // O(1) lookup by activeEditId when available
+    let latestEditThatMatchesCellValue: (typeof editHistory)[number] | undefined;
+    if (cell.activeEditId) {
+        latestEditThatMatchesCellValue = editHistory.find(
+            (edit) => (edit as any).id === cell.activeEditId && EditMapUtils.isValue(edit.editMap)
+        );
+    }
+
+    // Fallback: find the latest edit that matches the current cell content (strict match).
+    // Falls back to the latest value edit if the strict match fails.
+    if (!latestEditThatMatchesCellValue) {
+        const reversed = editHistory.slice().reverse();
+        latestEditThatMatchesCellValue =
+            reversed.find((edit) => EditMapUtils.isValue(edit.editMap) && edit.value === cell.cellContent) ??
+            reversed.find((edit) => EditMapUtils.isValue(edit.editMap) && !edit.preview);
+    }
 
     // Get audio validation from attachments instead of edits
     let audioValidatedBy: ValidationEntry[] = [];

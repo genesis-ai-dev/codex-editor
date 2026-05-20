@@ -244,11 +244,17 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const diskBuf = await vscode.workspace.fs.readFile(document.uri);
         const diskJson = JSON.parse(new TextDecoder().decode(diskBuf));
         const diskCell = diskJson.cells.find((c: any) => c.metadata.id === cellId);
-        assert.strictEqual(diskCell.value, newValue, "On disk: user edit value should persist");
+        // On disk, cell.value is now a CellValueOnDisk object when activeEditId is set
         const editsOnDisk = diskCell.metadata.edits || [];
         const lastValueEdit = [...editsOnDisk].reverse().find((e: any) => JSON.stringify(e.editMap) === JSON.stringify(["value"]));
         assert.ok(lastValueEdit, "On disk: should have a value edit entry");
         assert.strictEqual(lastValueEdit?.type, "user-edit", "On disk: latest value edit should be user-edit");
+        if (diskCell.metadata.activeEditId) {
+            assert.strictEqual(diskCell.value.selectedEdit, diskCell.metadata.activeEditId, "On disk: value.selectedEdit should match activeEditId");
+            assert.strictEqual(lastValueEdit.value, newValue, "On disk: edit value should contain the user edit text");
+        } else {
+            assert.strictEqual(diskCell.value, newValue, "On disk: user edit value should persist");
+        }
     });
 
     test("resolveCustomEditor sets up message passing", async () => {

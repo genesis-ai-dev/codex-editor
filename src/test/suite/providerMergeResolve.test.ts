@@ -125,7 +125,13 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         assert.strictEqual(shared.metadata.cellLabel, latestLabel);
 
         // Value should be from the latest value edit (ours v2)
-        assert.strictEqual(shared.value, ourLatestValue);
+        // After merge, value may be a CellValueOnDisk object or a string
+        if (typeof shared.value === "object" && shared.value?.selectedEdit) {
+            const matchingEdit = (shared.metadata.edits || []).find((e: any) => e.id === shared.value.selectedEdit);
+            assert.strictEqual(matchingEdit?.value, ourLatestValue, "Selected edit value should match latest");
+        } else {
+            assert.strictEqual(shared.value, ourLatestValue);
+        }
 
         // Timestamps checks skipped: only relevant for timestamped content types
 

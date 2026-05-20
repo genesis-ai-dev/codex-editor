@@ -7,6 +7,7 @@ import type {
 import { removeHtmlTags } from "../exportHandler/subtitleUtils";
 import { CodexCellTypes } from "../../types/enums";
 import { isContentCell } from "../utils/cellTypeUtils";
+import { resolveCellValue } from "../utils/cellValueResolver";
 
 type SourceLine = {
     cellId: string;
@@ -61,7 +62,7 @@ const buildSourceLinesFromFile = (file: FileData): SourceLine[] => {
         }
         const cellId = getCellId(cell);
         if (!cellId) return;
-        const value = typeof cell.value === "string" ? cell.value : "";
+        const value = resolveCellValue(cell as any);
         const normalized = normalizeText(value);
         if (!normalized) return;
         lines.push({ cellId, sourceValue: normalized });
