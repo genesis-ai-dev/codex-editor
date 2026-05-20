@@ -3,6 +3,7 @@ export interface ValidationQueueItem {
     cellId: string;
     validate: boolean;
     isAudioValidation?: boolean;
+    attachmentId?: string;
     timestamp: number;
     resolve: () => void;
     reject: (error: any) => void;
@@ -27,13 +28,14 @@ export const processValidationQueue = async (vscode: any, isAudioValidation: boo
         try {
             // Send validation request to provider
             const command = item.isAudioValidation ? "validateAudioCell" : "validateCell";
-            vscode.postMessage({
-                command,
-                content: {
-                    cellId: item.cellId,
-                    validate: item.validate,
-                },
-            });
+            const content: { cellId: string; validate: boolean; attachmentId?: string } = {
+                cellId: item.cellId,
+                validate: item.validate,
+            };
+            if (item.attachmentId) {
+                content.attachmentId = item.attachmentId;
+            }
+            vscode.postMessage({ command, content });
 
             // Wait for a short delay to allow the provider to process
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -48,12 +50,13 @@ export const processValidationQueue = async (vscode: any, isAudioValidation: boo
 };
 
 // Add validation request to queue
-export const enqueueValidation = (cellId: string, validate: boolean, isAudioValidation: boolean = false): Promise<void> => {
+export const enqueueValidation = (cellId: string, validate: boolean, isAudioValidation: boolean = false, attachmentId?: string): Promise<void> => {
     return new Promise((resolve, reject) => {
         validationQueue.push({
             cellId,
             validate,
             isAudioValidation,
+            attachmentId,
             timestamp: Date.now(),
             resolve,
             reject,

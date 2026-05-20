@@ -56,6 +56,10 @@ interface MobileHeaderMenuProps {
     vscode: any;
     autoDownloadAudioOnOpen?: boolean;
     onToggleAutoDownloadAudio?: (value: boolean) => void;
+    autoRecordOnMicClick?: boolean;
+    onToggleAutoRecordOnMicClick?: (value: boolean) => void;
+    recordingCountdownSeconds?: number;
+    onCycleRecordingCountdown?: () => void;
 }
 
 export function MobileHeaderMenu({
@@ -83,6 +87,10 @@ export function MobileHeaderMenu({
     vscode,
     autoDownloadAudioOnOpen,
     onToggleAutoDownloadAudio,
+    autoRecordOnMicClick,
+    onToggleAutoRecordOnMicClick,
+    recordingCountdownSeconds = 3,
+    onCycleRecordingCountdown,
 }: MobileHeaderMenuProps) {
     const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
 
@@ -259,6 +267,58 @@ export function MobileHeaderMenu({
                         }}
                     >
                         {autoDownloadAudioOnOpen ? "On" : "Off"}
+                    </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    onClick={() =>
+                        onToggleAutoRecordOnMicClick &&
+                        onToggleAutoRecordOnMicClick(!autoRecordOnMicClick)
+                    }
+                    className="cursor-pointer"
+                >
+                    <i className="codicon codicon-record mr-2 h-4 w-4" />
+                    <span className="flex-1">Auto-record on mic click</span>
+                    <span
+                        className="text-xs px-2 py-0.5 rounded-full"
+                        style={{
+                            backgroundColor: autoRecordOnMicClick
+                                ? "var(--vscode-charts-blue)"
+                                : "var(--vscode-editorHoverWidget-border)",
+                            color: autoRecordOnMicClick
+                                ? "var(--vscode-editor-background)"
+                                : "var(--vscode-foreground)",
+                        }}
+                    >
+                        {autoRecordOnMicClick ? "On" : "Off"}
+                    </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    onSelect={(e) => {
+                        // Keep the menu open so the user can step through
+                        // values without re-opening.
+                        e.preventDefault();
+                        onCycleRecordingCountdown?.();
+                    }}
+                    className="cursor-pointer"
+                >
+                    <i className="codicon codicon-clock mr-2 h-4 w-4" />
+                    <span className="flex-1">Recording countdown</span>
+                    <span
+                        className="text-xs px-2 py-0.5 rounded-full"
+                        style={{
+                            backgroundColor:
+                                recordingCountdownSeconds > 0
+                                    ? "var(--vscode-charts-blue)"
+                                    : "var(--vscode-editorHoverWidget-border)",
+                            color:
+                                recordingCountdownSeconds > 0
+                                    ? "var(--vscode-editor-background)"
+                                    : "var(--vscode-foreground)",
+                        }}
+                    >
+                        {recordingCountdownSeconds === 0
+                            ? "Off"
+                            : `${recordingCountdownSeconds}s`}
                     </span>
                 </DropdownMenuItem>
 
