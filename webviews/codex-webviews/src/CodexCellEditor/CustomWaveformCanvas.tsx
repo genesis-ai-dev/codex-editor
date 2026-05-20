@@ -45,6 +45,10 @@ const formatTime = (time: number): string => {
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 };
 
+// Module-scope so the value is referentially stable across renders, which
+// keeps it out of the React hook dependency arrays.
+const DEBUG_LOGS = false;
+
 // Helper function to normalize colors and handle alpha transparency safely
 const normalizeColor = (color: string): string => {
     if (!color || color.trim() === "") return "#000000";
@@ -147,7 +151,6 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     showDebugInfo = false,
     author,
 }) => {
-    const DEBUG_LOGS = false;
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
@@ -223,8 +226,16 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
 
     // Calculate number of bars based on canvas width
     const numberOfBars = useMemo(() => {
-        return Math.floor(canvasWidth / (barWidth + barGap));
+        return Math.max(1, Math.floor(canvasWidth / (barWidth + barGap)));
     }, [canvasWidth, barWidth, barGap]);
+
+    // High-resolution peak buffer decoded once per audio file. The visible bar
+    // count varies with `canvasWidth` (resize), but re-decoding on every resize
+    // would race the `cancelled` flag and frequently never complete. Instead
+    // we decode at a fixed resolution and bin down to `numberOfBars` at draw
+    // time — decode runs once per audio, layout shifts are cheap.
+    const PEAK_RESOLUTION = 2048;
+    const [highResPeaks, setHighResPeaks] = useState<number[]>([]);
 
     // Resize observer for responsive canvas
     useEffect(() => {
@@ -275,9 +286,18 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         [normalize]
     );
 
-    // Decode audio when audio data becomes available (but defer expensive operations)
+    // Decode audio when audio data becomes available. Peaks are generated at a
+    // fixed high resolution so that this effect's dependency footprint does
+    // NOT include `numberOfBars` — otherwise every resize would re-fire and
+    // race the `cancelled` flag, sometimes leaving `hasLoadedRef.current` at
+    // `false` and the waveform empty forever (which also hangs the play
+    // button via `ensurePeaksLoaded`).
     useEffect(() => {
         let cancelled = false;
+        // Reset the load flag so the play-button title doesn't claim the new
+        // file is already buffered. Any decode-completion path below will
+        // flip it back to `true`.
+        hasLoadedRef.current = false;
         const decode = async () => {
             try {
                 let arrayBuffer: ArrayBuffer | null = null;
@@ -291,35 +311,83 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 if (!arrayBuffer) return;
                 if (cancelled) return;
 
-                // Use a low-priority timeout to avoid blocking the UI thread
+                // Defer the expensive decodeAudioData call so cell opening is
+                // not blocked. The flag-check pattern (cancelled) lets a
+                // stale audio change abort cleanly.
                 setTimeout(async () => {
                     try {
                         if (cancelled) return;
                         const audioContext = new (window.AudioContext ||
                             (window as any).webkitAudioContext)();
-                        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-                        if (cancelled) return;
-                        if (isFinite(audioBuffer.duration) && audioBuffer.duration > 0) {
-                            setDuration(audioBuffer.duration);
-                            setCurrentTime(0);
+                        try {
+                            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer!);
+                            if (cancelled) return;
+                            if (isFinite(audioBuffer.duration) && audioBuffer.duration > 0) {
+                                setDuration(audioBuffer.duration);
+                                setCurrentTime(0);
+                            }
+                            const generated = await generatePeaks(audioBuffer, PEAK_RESOLUTION);
+                            if (cancelled) return;
+                            setHighResPeaks(generated);
+                        } finally {
+                            try {
+                                audioContext.close();
+                            } catch {
+                                /* already closed */
+                            }
                         }
-                        const generatedPeaks = await generatePeaks(audioBuffer, numberOfBars);
-                        if (cancelled) return;
-                        setPeaks(generatedPeaks);
+                        // Mark loaded even if peak generation produced an empty
+                        // array — the play button only needs the audio element
+                        // to be ready, not the visualization.
                         hasLoadedRef.current = true;
-                    } catch {
-                        // Ignore; will retry on interaction
+                    } catch (err) {
+                        // Even on decode failure, allow playback to proceed
+                        // via the <audio> element. The visualization will
+                        // simply remain blank — far better than a hung play
+                        // button.
+                        hasLoadedRef.current = true;
+                        if (DEBUG_LOGS) {
+                            console.warn("[CustomWaveformCanvas] decodeAudioData failed:", err);
+                        }
                     }
-                }, 100); // Small delay to avoid blocking cell opening
-            } catch {
-                // Ignore; will retry on interaction
+                }, 100);
+            } catch (err) {
+                hasLoadedRef.current = true;
+                if (DEBUG_LOGS) {
+                    console.warn("[CustomWaveformCanvas] audio fetch/buffer failed:", err);
+                }
             }
         };
         if (audioBlob || audioUrl) decode();
         return () => {
             cancelled = true;
         };
-    }, [audioUrl, audioBlob, numberOfBars, generatePeaks]);
+    }, [audioUrl, audioBlob, generatePeaks]);
+
+    // Re-bin the high-resolution peaks into `numberOfBars` whenever the bar
+    // count or the underlying peaks change. This is a cheap O(N) pass and
+    // does NOT re-decode audio.
+    useEffect(() => {
+        if (highResPeaks.length === 0 || numberOfBars <= 0) {
+            setPeaks([]);
+            return;
+        }
+        const binned: number[] = [];
+        const blockSize = highResPeaks.length / numberOfBars;
+        for (let i = 0; i < numberOfBars; i++) {
+            const start = Math.floor(i * blockSize);
+            const end = Math.floor((i + 1) * blockSize);
+            let max = 0;
+            for (let j = start; j < end; j++) {
+                const v = highResPeaks[j] ?? 0;
+                if (v > max) max = v;
+            }
+            // Fall back to first sample when the bar covers <1 source sample
+            // (very narrow canvases) so we never emit a 0 from an empty range.
+            binned.push(end > start ? max : highResPeaks[Math.min(start, highResPeaks.length - 1)] ?? 0);
+        }
+        setPeaks(binned);
+    }, [highResPeaks, numberOfBars]);
 
     // On-demand loader for audio element and peaks
     const hasLoadedRef = useRef(false); // peaks/duration decoded
@@ -334,21 +402,6 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         }
     }, [audioUrl]);
 
-    const ensurePeaksLoaded = useCallback(async () => {
-        if (hasLoadedRef.current) return;
-
-        // Wait for the automatic decoding to complete (it should already be in progress)
-        return new Promise<void>((resolve) => {
-            const checkLoaded = () => {
-                if (hasLoadedRef.current) {
-                    resolve();
-                } else {
-                    setTimeout(checkLoaded, 50);
-                }
-            };
-            checkLoaded();
-        });
-    }, []);
 
     // Draw waveform.
     //
@@ -737,13 +790,25 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         };
     }, [volume, playbackRate, duration]);
 
-    // Handle audio URL changes
+    // Keep the <audio> src in sync with `audioUrl`. We assign eagerly (not on
+    // first interaction) so `audio.play()` doesn't race the peaks decode, and
+    // we re-assign on every change so a re-record / history-swap doesn't leave
+    // the element pointing at a revoked blob URL. The old behaviour set src
+    // exactly once per mount and surfaced a spurious "Error loading audio"
+    // banner whenever the parent rotated the URL.
     useEffect(() => {
         const audio = audioRef.current;
-        if (!audio || !audioUrl) {
-            return;
+        if (!audio || !audioUrl) return;
+        if (audio.src !== audioUrl) {
+            audio.src = audioUrl;
+            // Reset playback-derived state so the new file doesn't inherit
+            // the previous track's duration/position/error overlay.
+            setError(null);
+            setDuration(0);
+            setCurrentTime(0);
+            setIsPlaying(false);
         }
-        // Do nothing on URL change; we now lazy-load on demand
+        hasSetSrcRef.current = true;
     }, [audioUrl]);
 
     const togglePlayPause = useCallback(async () => {
@@ -754,10 +819,10 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             return;
         }
 
-        // Ensure audio and peaks are loaded on first play
-        if (!hasLoadedRef.current) {
-            await ensurePeaksLoaded();
-        }
+        // Playback is intentionally decoupled from peak decoding. The waveform
+        // visualization can finish (or fail) on its own schedule; the user
+        // pressing play should never have to wait for `decodeAudioData` to
+        // resolve. We only need the <audio> element to have a src.
         ensureAudioSrcSet();
 
         if (isPlaying) {
@@ -787,7 +852,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 }
             }
         }
-    }, [isPlaying, error, isLoading, duration, playbackRate, ensurePeaksLoaded, ensureAudioSrcSet]);
+    }, [isPlaying, error, playbackRate, ensureAudioSrcSet]);
 
     const handleSeekChange = useCallback(
         (value: number) => {
@@ -917,9 +982,19 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     const VolumeIcon = volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
     return (
         <div className="waveform-canvas p-4 rounded-lg shadow-md w-full" ref={containerRef}>
-            {/* Canvas */}
-            <div className="relative flex items-center gap-2 mb-4 pb-5">
-                {/* No spinner overlay to avoid flicker; keep UI calm */}
+            {/*
+              Layout: a relative `pl-12` wrapper around the canvas leaves a
+              48px gutter on the left for an absolutely-positioned play
+              button. The canvas itself uses `w-full` to take the wrapper's
+              content width — sizing a <canvas> directly with `flex-1` is
+              unreliable because the canvas has an intrinsic size from its
+              `width` attribute (set imperatively to `canvasWidth * dpr`)
+              that conflicts with the flex algorithm. `bg-secondary/40` on
+              the canvas provides the same chrome as RecorderWaveform; the
+              canvas draws transparently on top of it.
+            */}
+            <div className="relative w-full mb-4 pl-12 pb-5">
+                {/* Error overlay covers the whole canvas area. */}
                 {error && !isLoading && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--vscode-errorForeground)]/10 rounded z-10 p-4">
                         <AlertTriangle className="h-8 w-8 text-[var(--vscode-errorForeground)] mb-2" />
@@ -928,62 +1003,58 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                         </p>
                     </div>
                 )}
-                {/* Play/pause button sits inline with the canvas as a flex sibling so they share the same vertical center. */}
+                {/* Play/pause button overlays the left gutter, vertically centered. */}
                 {!error && (
-                    <Button
-                        size="icon"
-                        variant="ghost"
-                        className="bg-[var(--vscode-button-background)] hover:bg-[var(--vscode-button-hoverBackground)] text-[var(--vscode-button-foreground)] rounded-full w-9 h-9 shrink-0 z-20"
-                        onClick={togglePlayPause}
-                        disabled={!!error || isLoading}
-                        title={
-                            isLoading && hasLoadedRef.current
-                                ? "Downloading audio..."
-                                : isPlaying
-                                ? "Pause (Space)"
-                                : "Play (Space)"
-                        }
-                    >
-                        {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                    </Button>
+                    <div className="absolute inset-y-0 left-2 flex items-center z-20 pointer-events-none">
+                        <Button
+                            size="icon"
+                            variant="ghost"
+                            className="bg-[var(--vscode-button-background)] hover:bg-[var(--vscode-button-hoverBackground)] text-[var(--vscode-button-foreground)] rounded-full w-9 h-9 pointer-events-auto"
+                            onClick={togglePlayPause}
+                            disabled={!!error || isLoading}
+                            title={
+                                isLoading && hasLoadedRef.current
+                                    ? "Downloading audio..."
+                                    : isPlaying
+                                    ? "Pause (Space)"
+                                    : "Play (Space)"
+                            }
+                        >
+                            {isPlaying ? (
+                                <Pause className="w-4 h-4" />
+                            ) : (
+                                <Play className="w-4 h-4" />
+                            )}
+                        </Button>
+                    </div>
                 )}
-                {/* Overlay time text at bottom-right of waveform */}
+                {/* Time overlay at bottom-right of the canvas. */}
                 {!error && (
                     <div className="absolute bottom-0 right-2 z-20 pointer-events-none text-xs sm:text-sm text-[var(--vscode-foreground)] font-mono whitespace-nowrap tabular-nums">
                         {formatTime(currentTime)} / {formatTime(duration)}
                     </div>
                 )}
-                {/*
-                  bg-secondary/40 + rounded-md mirror the RecorderWaveform's
-                  chrome so the live and playback waveforms read as one visual
-                  identity. The canvas itself draws with a transparent
-                  background and lets this frame show through.
-                */}
                 <canvas
                     ref={canvasRef}
-                    className="block flex-1 min-w-0 rounded-md"
+                    className="block w-full rounded-md bg-secondary/40"
                     style={{
                         height: height,
                         cursor: interact && !error ? (isDragging ? "grabbing" : "grab") : "default",
                         opacity: error ? 0.5 : 1,
                     }}
-                    onClick={async (e) => {
-                        // On click, always place the marker (seek), even if not playing
+                    onClick={(e) => {
+                        // On click, always place the marker (seek), even if not playing.
+                        // Seek/play readiness is owned by the eager src-set effect above;
+                        // we no longer await peak decoding here (would hang the click).
                         if (interact && !error) {
-                            if (!hasLoadedRef.current) {
-                                await ensurePeaksLoaded();
-                            }
                             ensureAudioSrcSet();
                             handleCanvasClick(e);
                         }
                     }}
                     onMouseMove={handleCanvasMouseMove}
                     onMouseLeave={handleCanvasMouseLeave}
-                    onMouseDown={async (e) => {
+                    onMouseDown={(e) => {
                         if (!interact || error) return;
-                        if (!hasLoadedRef.current) {
-                            await ensurePeaksLoaded();
-                        }
                         ensureAudioSrcSet();
                         if (!isFinite(duration) || duration <= 0) return;
                         setIsDragging(true);
@@ -995,11 +1066,8 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                         // Start with a preview; commit on mouseup
                         requestPreviewUpdate(newTime);
                     }}
-                    onTouchStart={async (e) => {
+                    onTouchStart={(e) => {
                         if (!interact || error) return;
-                        if (!hasLoadedRef.current) {
-                            await ensurePeaksLoaded();
-                        }
                         ensureAudioSrcSet();
                         if (!isFinite(duration) || duration <= 0) return;
                         setIsDragging(true);

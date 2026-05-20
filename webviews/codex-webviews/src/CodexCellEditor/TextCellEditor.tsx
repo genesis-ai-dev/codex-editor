@@ -25,7 +25,13 @@ import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
 import SourceTextDisplay from "./SourceTextDisplay";
 import { AudioHistoryViewer } from "./AudioHistoryViewer";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
-import { getCachedAudioDataUrl, setCachedAudioDataUrl, clearCachedAudio, getCachedAttachmentAudioDataUrl, setCachedAttachmentAudioDataUrl } from "../lib/audioCache";
+import {
+    getCachedAudioDataUrl,
+    setCachedAudioDataUrl,
+    clearCachedAudio,
+    getCachedAttachmentAudioDataUrl,
+    setCachedAttachmentAudioDataUrl,
+} from "../lib/audioCache";
 import { globalAudioController } from "../lib/audioController";
 import { trimRecordingTail } from "../utils/audioProcessing";
 import { getAudioTabMode, audioRecorderHint } from "./utils/audioViewMode";
@@ -105,7 +111,6 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import CommentsBadge from "./CommentsBadge";
-import { Checkbox } from "../components/ui/checkbox";
 import MicrophoneIcon from "../components/ui/icons/MicrophoneIcon";
 import { Languages } from "lucide-react";
 
@@ -339,7 +344,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     >(() => {
         try {
             const id = cellMarkers[0];
-            if (sessionStorage.getItem(`start-audio-recording-${id}`) || sessionStorage.getItem(`open-audio-history-${id}`)) {
+            if (
+                sessionStorage.getItem(`start-audio-recording-${id}`) ||
+                sessionStorage.getItem(`open-audio-history-${id}`)
+            ) {
                 return "audio";
             }
             const stored = sessionStorage.getItem("preferred-editor-tab");
@@ -540,7 +548,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
         scrollTimeoutRef.current = window.setTimeout(() => {
             scrollRafRef.current = requestAnimationFrame(() => {
                 const bottomPadding = 16;
-                const scrollContainer = scrollTarget.closest(".scrollable-content") as HTMLElement | null;
+                const scrollContainer = scrollTarget.closest(
+                    ".scrollable-content"
+                ) as HTMLElement | null;
                 const rect = scrollTarget.getBoundingClientRect();
                 const containerRect = scrollContainer?.getBoundingClientRect();
                 const visibleBottom = containerRect
@@ -2464,7 +2474,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
             // us whether the click landed in a position that needs scrolling.
             ensureEditorVisible();
         },
-        [unsavedChanges, handleSaveHtml, openCellById, setContentBeingUpdated, setEditorContent, ensureEditorVisible]
+        [
+            unsavedChanges,
+            handleSaveHtml,
+            openCellById,
+            setContentBeingUpdated,
+            setEditorContent,
+            ensureEditorVisible,
+        ]
     );
 
     useMessageHandler(
@@ -2584,7 +2601,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 // If this open was specifically forced to audio for recording, ignore
                 try {
                     const id = cellMarkers[0];
-                    if (sessionStorage.getItem(`start-audio-recording-${id}`) || sessionStorage.getItem(`open-audio-history-${id}`)) {
+                    if (
+                        sessionStorage.getItem(`start-audio-recording-${id}`) ||
+                        sessionStorage.getItem(`open-audio-history-${id}`)
+                    ) {
                         return;
                     }
                 } catch {
@@ -2885,75 +2905,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
         saveAudioToCellRef.current = saveAudioToCell;
     }, [saveAudioToCell]);
 
-    // Countdown timer effect - handles 3→2→1→0 countdown before recording starts
-    useEffect(() => {
-        if (countdown === null || countdown < 0) {
-            // Clean up interval if countdown is not active
-            if (countdownIntervalRef.current) {
-                clearInterval(countdownIntervalRef.current);
-                countdownIntervalRef.current = null;
-            }
-            return;
-        }
-
-        if (countdown === 0) {
-            // Countdown finished, start actual recording
-            if (countdownIntervalRef.current) {
-                clearInterval(countdownIntervalRef.current);
-                countdownIntervalRef.current = null;
-            }
-            setCountdown(null);
-            // Call the actual recording start function
-            startActualRecording();
-            return;
-        }
-
-        // Set up interval to decrement countdown every second
-        countdownIntervalRef.current = setInterval(() => {
-            setCountdown((prev) => {
-                if (prev === null || prev <= 0) {
-                    return null;
-                }
-                const next = prev - 1;
-                setRecordingStatus(next > 0 ? `Starting in ${next}...` : "Starting...");
-                return next;
-            });
-        }, 1000);
-
-        return () => {
-            if (countdownIntervalRef.current) {
-                clearInterval(countdownIntervalRef.current);
-                countdownIntervalRef.current = null;
-            }
-        };
-    }, [countdown, startActualRecording]);
-
-    // Recording elapsed time tracker - updates every 100ms while recording
-    useEffect(() => {
-        if (!isRecording || recordingStartTime === null) {
-            // Reset elapsed time when not recording
-            if (recordingTimerRef.current) {
-                clearInterval(recordingTimerRef.current);
-                recordingTimerRef.current = null;
-            }
-            setRecordingElapsedTime(0);
-            return;
-        }
-
-        // Update elapsed time every 100ms for smooth progress bar
-        recordingTimerRef.current = setInterval(() => {
-            const elapsed = (Date.now() - recordingStartTime) / 1000;
-            setRecordingElapsedTime(elapsed);
-        }, 100);
-
-        return () => {
-            if (recordingTimerRef.current) {
-                clearInterval(recordingTimerRef.current);
-                recordingTimerRef.current = null;
-            }
-        };
-    }, [isRecording, recordingStartTime]);
-
     const discardAudio = () => {
         setAudioBlob(null);
         setAudioUrl(null);
@@ -3188,7 +3139,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const preloadAudioForTab = useCallback(() => {
         // Skip requesting audio when we know there are no playable attachments for this cell
         const cellAudioState = audioAttachments?.[cellMarkers[0]];
-        if (cellAudioState === "none" || cellAudioState === "deletedOnly" || cellAudioState === "unselected") {
+        if (
+            cellAudioState === "none" ||
+            cellAudioState === "deletedOnly" ||
+            cellAudioState === "unselected"
+        ) {
             setIsAudioLoading(false);
             setAudioFetchPending(false);
             setAudioBlob(null);
@@ -3210,11 +3165,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 let cached = getCachedAudioDataUrl(cellMarkers[0]);
                 if (!cached) {
                     try {
-                        const storedAudioId = currentSelectedAudioId || sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
+                        const storedAudioId =
+                            currentSelectedAudioId ||
+                            sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
                         if (storedAudioId) {
                             cached = getCachedAttachmentAudioDataUrl(storedAudioId) ?? undefined;
                         }
-                    } catch { /* ignore */ }
+                    } catch {
+                        /* ignore */
+                    }
                 }
                 if (cached) {
                     (async () => {
@@ -3354,19 +3313,34 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 const newSelectedAudioId = message.content.audioId as string | null;
                 // Immediately update audioAttachments so waveform renders correctly in one pass
                 if (message.content.updatedAvailability) {
-                    window.dispatchEvent(new MessageEvent("message", {
-                        data: {
-                            type: "providerSendsAudioAttachments",
-                            attachments: { [cellMarkers[0]]: message.content.updatedAvailability }
-                        }
-                    }));
+                    window.dispatchEvent(
+                        new MessageEvent("message", {
+                            data: {
+                                type: "providerSendsAudioAttachments",
+                                attachments: {
+                                    [cellMarkers[0]]: message.content.updatedAvailability,
+                                },
+                            },
+                        })
+                    );
                 }
                 if (currentSelectedAudioId !== newSelectedAudioId) {
                     setCurrentSelectedAudioId(newSelectedAudioId);
                     if (newSelectedAudioId) {
-                        try { sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, newSelectedAudioId); } catch { /* ignore */ }
+                        try {
+                            sessionStorage.setItem(
+                                `audio-id-${cellMarkers[0]}`,
+                                newSelectedAudioId
+                            );
+                        } catch {
+                            /* ignore */
+                        }
                     } else {
-                        try { sessionStorage.removeItem(`audio-id-${cellMarkers[0]}`); } catch { /* ignore */ }
+                        try {
+                            sessionStorage.removeItem(`audio-id-${cellMarkers[0]}`);
+                        } catch {
+                            /* ignore */
+                        }
                     }
                     clearCachedAudio(cellMarkers[0]);
                     setAudioBlob(null);
@@ -3393,7 +3367,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 setIsAudioLoading(false);
                                 setAudioFetchPending(false);
                                 scrollEditorBottomIntoView();
-                            } catch { /* ignore, fall through to normal flow */ }
+                            } catch {
+                                /* ignore, fall through to normal flow */
+                            }
                         })();
                         return;
                     }
@@ -3431,7 +3407,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 const newSelectedAudioId = message.content.selectedAudioId;
                 if (currentSelectedAudioId !== newSelectedAudioId) {
                     setCurrentSelectedAudioId(newSelectedAudioId);
-                    try { sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, newSelectedAudioId); } catch { /* ignore */ }
+                    try {
+                        sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, newSelectedAudioId);
+                    } catch {
+                        /* ignore */
+                    }
                 }
             }
 
@@ -3439,7 +3419,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
             if (message.type === "providerSendsAudioAttachments") {
                 const availability = (message.attachments || {}) as Record<
                     string,
-                    "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "unselected" | "none"
+                    | "available"
+                    | "available-local"
+                    | "available-pointer"
+                    | "available-cached"
+                    | "missing"
+                    | "deletedOnly"
+                    | "unselected"
+                    | "none"
                 >;
                 const stateForCell = availability[cellMarkers[0]];
 
@@ -3521,7 +3508,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                 if (
                     isLocal ||
-                    ((stateForCell === "available" || stateForCell === "available-pointer" || stateForCell === "available-cached") &&
+                    ((stateForCell === "available" ||
+                        stateForCell === "available-pointer" ||
+                        stateForCell === "available-cached") &&
                         shouldAutoDownload)
                 ) {
                     setIsAudioLoading(true);
@@ -3555,7 +3544,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                     // Always cache the per-attachment data so the history viewer can use it
                     if (incomingId) {
-                        try { setCachedAttachmentAudioDataUrl(incomingId, message.content.audioData); } catch { /* */ }
+                        try {
+                            setCachedAttachmentAudioDataUrl(incomingId, message.content.audioData);
+                        } catch {
+                            /* */
+                        }
                     }
 
                     if (!isForCurrentSelection) {
@@ -3664,12 +3657,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     setIsAudioLoading(false);
                     setAudioFetchPending(false);
                     if (message.content.updatedAvailability) {
-                        window.dispatchEvent(new MessageEvent("message", {
-                            data: {
-                                type: "providerSendsAudioAttachments",
-                                attachments: { [cellMarkers[0]]: message.content.updatedAvailability }
-                            }
-                        }));
+                        window.dispatchEvent(
+                            new MessageEvent("message", {
+                                data: {
+                                    type: "providerSendsAudioAttachments",
+                                    attachments: {
+                                        [cellMarkers[0]]: message.content.updatedAvailability,
+                                    },
+                                },
+                            })
+                        );
                     }
                 } else {
                     setRecordingStatus(
@@ -3687,12 +3684,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 message.content.cellId === cellMarkers[0]
             ) {
                 if (message.content.updatedAvailability) {
-                    window.dispatchEvent(new MessageEvent("message", {
-                        data: {
-                            type: "providerSendsAudioAttachments",
-                            attachments: { [cellMarkers[0]]: message.content.updatedAvailability }
-                        }
-                    }));
+                    window.dispatchEvent(
+                        new MessageEvent("message", {
+                            data: {
+                                type: "providerSendsAudioAttachments",
+                                attachments: {
+                                    [cellMarkers[0]]: message.content.updatedAvailability,
+                                },
+                            },
+                        })
+                    );
                 }
                 window.vscodeApi.postMessage({
                     command: "getAudioHistory",
@@ -3737,7 +3738,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     }
                     if (currentSelectedAudioId !== providerSelectedId) {
                         setCurrentSelectedAudioId(providerSelectedId);
-                        try { sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, providerSelectedId); } catch { /* ignore */ }
+                        try {
+                            sessionStorage.setItem(
+                                `audio-id-${cellMarkers[0]}`,
+                                providerSelectedId
+                            );
+                        } catch {
+                            /* ignore */
+                        }
                     }
                 }
 
@@ -4205,7 +4213,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         </Button>
                                     </TooltipTrigger>
                                     <TooltipContent>
-                                        <p>See matching translations that may have influenced this result</p>
+                                        <p>
+                                            See matching translations that may have influenced this
+                                            result
+                                        </p>
                                     </TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
@@ -5206,7 +5217,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         // Treat countdown + warmup gap as "recording" so the
                                         // tab mode doesn't snap back to cell-list during
                                         // the brief async window before recorder.onstart.
-                                        isRecording: isRecording || countdown !== null || isStartingRecording,
+                                        isRecording:
+                                            isRecording ||
+                                            countdown !== null ||
+                                            isStartingRecording,
                                         showRecorder,
                                     });
 
@@ -5275,7 +5289,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     isTranscribing={isTranscribing}
                                                     transcriptionProgress={transcriptionProgress}
                                                     onTranscribe={handleTranscribeAudio}
-                                                    onInsertTranscription={handleInsertTranscription}
+                                                    onInsertTranscription={
+                                                        handleInsertTranscription
+                                                    }
                                                     onRequestRemove={() => {
                                                         setConfirmingDiscard(true);
                                                         scrollEditorBottomIntoView();
@@ -5287,11 +5303,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         setRecordingStartTime(null);
                                                         setRecordingElapsedTime(0);
                                                         if (countdownIntervalRef.current) {
-                                                            clearInterval(countdownIntervalRef.current);
+                                                            clearInterval(
+                                                                countdownIntervalRef.current
+                                                            );
                                                             countdownIntervalRef.current = null;
                                                         }
                                                         if (recordingTimerRef.current) {
-                                                            clearInterval(recordingTimerRef.current);
+                                                            clearInterval(
+                                                                recordingTimerRef.current
+                                                            );
                                                             recordingTimerRef.current = null;
                                                         }
                                                     }}
@@ -5319,7 +5339,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 {confirmingDiscard && (
                                                     <div className="flex flex-wrap items-center justify-center gap-2 mt-2 p-3 bg-[var(--vscode-editor-background)] border border-[var(--vscode-panel-border)] rounded-md">
                                                         <p className="text-sm text-[var(--vscode-foreground)] mr-4">
-                                                            Are you sure you want to delete this audio?
+                                                            Are you sure you want to delete this
+                                                            audio?
                                                         </p>
                                                         <Button
                                                             onClick={() => {
@@ -5334,7 +5355,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             Confirm
                                                         </Button>
                                                         <Button
-                                                            onClick={() => setConfirmingDiscard(false)}
+                                                            onClick={() =>
+                                                                setConfirmingDiscard(false)
+                                                            }
                                                             variant="outline"
                                                             size="sm"
                                                             className="h-8 px-2"
@@ -5356,10 +5379,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     !isTranscribing && (
                                                         <Badge
                                                             variant={
-                                                                isRecording ? "destructive" : "secondary"
+                                                                isRecording
+                                                                    ? "destructive"
+                                                                    : "secondary"
                                                             }
-                                                            className={`self-center ${isRecording ? "animate-pulse" : ""
-                                                                }`}
+                                                            className={`self-center ${
+                                                                isRecording ? "animate-pulse" : ""
+                                                            }`}
                                                         >
                                                             {isAudioSaving && (
                                                                 <Loader2 className="h-3 w-3 mr-2 animate-spin" />
@@ -5377,8 +5403,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 {audioValidationIconProps && (
                                                     <div className="absolute -top-2 -right-2 z-50">
                                                         <AudioValidationBadge
-                                                            validationStatusProps={audioValidationIconProps}
-                                                            popoverProps={audioValidationPopoverProps}
+                                                            validationStatusProps={
+                                                                audioValidationIconProps
+                                                            }
+                                                            popoverProps={
+                                                                audioValidationPopoverProps
+                                                            }
                                                             readOnly
                                                         />
                                                     </div>
@@ -5400,13 +5430,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                         setIsAudioLoading(true);
                                                                         setAudioFetchPending(true);
                                                                         const messageContent: EditorPostMessages =
-                                                                        {
-                                                                            command:
-                                                                                "requestAudioForCell",
-                                                                            content: {
-                                                                                cellId: cellMarkers[0],
-                                                                            },
-                                                                        };
+                                                                            {
+                                                                                command:
+                                                                                    "requestAudioForCell",
+                                                                                content: {
+                                                                                    cellId: cellMarkers[0],
+                                                                                },
+                                                                            };
                                                                         window.vscodeApi.postMessage(
                                                                             messageContent
                                                                         );
@@ -5444,16 +5474,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     // Calculate target duration from cell timestamps
                                     const targetDuration =
                                         cellTimestamps?.startTime !== undefined &&
-                                            cellTimestamps?.endTime !== undefined
+                                        cellTimestamps?.endTime !== undefined
                                             ? cellTimestamps.endTime - cellTimestamps.startTime
                                             : null;
                                     // Calculate progress percentage
                                     const progressPercentage =
                                         targetDuration && recordingElapsedTime > 0
                                             ? Math.min(
-                                                100,
-                                                (recordingElapsedTime / targetDuration) * 100
-                                            )
+                                                  100,
+                                                  (recordingElapsedTime / targetDuration) * 100
+                                              )
                                             : 0;
                                     // Determine if recording should stop filling (over 100%)
                                     const shouldStopFilling = progressPercentage >= 100;
@@ -5461,18 +5491,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     // `isStartingRecording` covers the async warmup gap between
                                     // countdown ending and `recorder.onstart` firing — treating
                                     // it as "recording" prevents the green→blue→red flash.
-                                    const recorderState: RecorderState = (isRecording || isStartingRecording)
-                                        ? "recording"
-                                        : countdown !== null
+                                    const recorderState: RecorderState =
+                                        isRecording || isStartingRecording
+                                            ? "recording"
+                                            : countdown !== null
                                             ? "countdown"
                                             : "idle";
                                     const recorderTitle = isCellLocked
                                         ? "Cannot record: cell is locked"
                                         : isRecording
-                                            ? "Stop Recording"
-                                            : countdown !== null
-                                                ? `Starting in ${countdown}...`
-                                                : "Start Recording";
+                                        ? "Stop Recording"
+                                        : countdown !== null
+                                        ? `Starting in ${countdown}...`
+                                        : "Start Recording";
 
                                     return (
                                         <div className="relative bg-[var(--vscode-editor-background)] p-3 sm:p-4 rounded-md shadow w-full">
@@ -5499,7 +5530,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             yet (it draws idle bars until the stream lands). */}
                                                         {(isRecording || isStartingRecording) && (
                                                             <RecorderWaveform
-                                                                stream={mediaRecorder?.stream ?? null}
+                                                                stream={
+                                                                    mediaRecorder?.stream ?? null
+                                                                }
                                                             />
                                                         )}
 
@@ -5511,27 +5544,35 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     <div
                                                                         className="h-full rounded-full transition-all duration-100"
                                                                         style={{
-                                                                            width: `${shouldStopFilling
-                                                                                ? 100
-                                                                                : progressPercentage
-                                                                                }%`,
+                                                                            width: `${
+                                                                                shouldStopFilling
+                                                                                    ? 100
+                                                                                    : progressPercentage
+                                                                            }%`,
                                                                             backgroundColor:
-                                                                                progressPercentage <= 90
+                                                                                progressPercentage <=
+                                                                                90
                                                                                     ? "rgb(234, 179, 8)" // yellow-500
-                                                                                    : progressPercentage <= 99
-                                                                                        ? "rgb(34, 197, 94)" // green-500
-                                                                                        : "rgb(239, 68, 68)", // red-500
+                                                                                    : progressPercentage <=
+                                                                                      99
+                                                                                    ? "rgb(34, 197, 94)" // green-500
+                                                                                    : "rgb(239, 68, 68)", // red-500
                                                                         }}
                                                                     />
                                                                 </div>
                                                                 <div className="flex justify-between text-xs text-muted-foreground">
                                                                     <span>
-                                                                        {isRecording || recordingElapsedTime > 0
-                                                                            ? `${recordingElapsedTime.toFixed(3)}s`
+                                                                        {isRecording ||
+                                                                        recordingElapsedTime > 0
+                                                                            ? `${recordingElapsedTime.toFixed(
+                                                                                  3
+                                                                              )}s`
                                                                             : "0s"}
                                                                     </span>
                                                                     <span>Timestamp Length</span>
-                                                                    <span>{targetDuration.toFixed(1)}s</span>
+                                                                    <span>
+                                                                        {targetDuration.toFixed(1)}s
+                                                                    </span>
                                                                 </div>
                                                             </div>
                                                         )}
@@ -5543,7 +5584,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     title={`The last ${RECORDING_TAIL_TRIM_MS} ms is trimmed on stop so the stop-button click doesn't end up in the recording.`}
                                                                 >
                                                                     <Scissors className="h-2.5 w-2.5" />
-                                                                    {RECORDING_TAIL_TRIM_MS} ms tail auto-trimmed
+                                                                    {RECORDING_TAIL_TRIM_MS} ms tail
+                                                                    auto-trimmed
                                                                 </span>
                                                             </div>
                                                         )}
@@ -5552,8 +5594,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 <AlertTriangle
                                                                     className="h-3 w-3"
                                                                     style={{
-                                                                        color:
-                                                                            "var(--vscode-errorForeground)",
+                                                                        color: "var(--vscode-errorForeground)",
                                                                     }}
                                                                 />
                                                                 {hint}
