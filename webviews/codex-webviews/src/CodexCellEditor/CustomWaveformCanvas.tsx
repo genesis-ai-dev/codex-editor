@@ -1010,9 +1010,8 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
               content width — sizing a <canvas> directly with `flex-1` is
               unreliable because the canvas has an intrinsic size from its
               `width` attribute (set imperatively to `canvasWidth * dpr`)
-              that conflicts with the flex algorithm. `bg-secondary/40` on
-              the canvas provides the same chrome as RecorderWaveform; the
-              canvas draws transparently on top of it.
+              that conflicts with the flex algorithm. The canvas draws
+              transparently with no background fill.
             */}
             <div className="relative w-full mb-4 pl-12 pb-5">
                 {/* Error overlay covers the whole canvas area. */}
@@ -1024,9 +1023,14 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                         </p>
                     </div>
                 )}
-                {/* Play/pause button overlays the left gutter, vertically centered. */}
+                {/* Play/pause button overlays the left gutter, vertically centered
+                    against the canvas itself (not the wrapper, which includes
+                    `pb-5` for the time overlay below). */}
                 {!error && (
-                    <div className="absolute inset-y-0 left-2 flex items-center z-20 pointer-events-none">
+                    <div
+                        className="absolute left-2 top-0 flex items-center z-20 pointer-events-none"
+                        style={{ height }}
+                    >
                         <Button
                             size="icon"
                             variant="ghost"
@@ -1057,7 +1061,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 )}
                 <canvas
                     ref={canvasRef}
-                    className="block w-full rounded-md bg-secondary/40"
+                    className="block w-full rounded-md"
                     style={{
                         height: height,
                         cursor: interact && !error ? (isDragging ? "grabbing" : "grab") : "default",
