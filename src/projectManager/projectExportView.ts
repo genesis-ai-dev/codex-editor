@@ -90,7 +90,29 @@ async function checkHtmlStructureMismatches(
     return { totalMismatches, fileDetails };
 }
 
+/**
+ * Single live panel. If the user runs the export command again while a
+ * wizard is already open (even in a background tab), we surface that one
+ * instead of creating a duplicate. Cleared on dispose so a fresh invocation
+ * gets a fresh panel.
+ */
+let activeExportPanel: vscode.WebviewPanel | undefined;
+
 export async function openProjectExportView(context: vscode.ExtensionContext) {
+    if (activeExportPanel) {
+        // Bring the existing wizard forward instead of stacking another one.
+        // preserveFocus=false because the user explicitly asked to open the
+        // wizard — give them the cursor.
+        try {
+            activeExportPanel.reveal(vscode.ViewColumn.One, false);
+            return;
+        } catch {
+            // Panel was disposed but our reference is stale — fall through
+            // and create a fresh one.
+            activeExportPanel = undefined;
+        }
+    }
+
     const panel = vscode.window.createWebviewPanel(
         "projectExportView",
         "Export Project",
@@ -100,6 +122,12 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
             retainContextWhenHidden: true,
         }
     );
+    activeExportPanel = panel;
+    panel.onDidDispose(() => {
+        if (activeExportPanel === panel) {
+            activeExportPanel = undefined;
+        }
+    });
 
     const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
     const sourceLanguage = projectConfig.get("sourceLanguage");
@@ -885,39 +913,72 @@ function getWebviewContent(
                 .export-extra-messages div { padding: 2px 0; }
 
                 /*
-                 * Clickable Step 1 audio-stat counters. Visually they read as
-                 * regular grey text but on hover they get a subtle underline
-                 * + accent colour so the user can tell they are interactive.
-                 * Severity colour matches the popover header that pops up.
+                 * Clickable Step 1 audio-stat counters. Styled as actual
+                 * tags (matching the existing .file-status-tag pattern in
+                 * this view) so the affordance reads immediately. The
+                 * surrounding "30 with audio" text stays plain, making the
+                 * contrast the cue: tags are clickable, prose isn't.
                  */
                 .file-audio-stats .stat-pill {
-                    display: inline;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
                     cursor: pointer;
-                    padding: 0;
-                    background: none;
-                    border: none;
+                    padding: 1px 7px;
+                    border-radius: 10px;
                     font: inherit;
-                    color: inherit;
-                    border-radius: 3px;
-                    text-decoration: underline;
-                    text-decoration-color: transparent;
-                    text-decoration-thickness: 1px;
-                    text-underline-offset: 2px;
-                    transition: text-decoration-color 120ms ease, color 120ms ease;
+                    font-size: 1em;
+                    line-height: 1.3;
+                    background: transparent;
+                    border: 1px solid transparent;
+                    transition:
+                        background-color 120ms ease,
+                        border-color 120ms ease,
+                        color 120ms ease;
                 }
-                .file-audio-stats .stat-pill:hover,
+                .file-audio-stats .stat-pill .codicon {
+                    font-size: 0.85em;
+                    opacity: 0.7;
+                    margin-left: 1px;
+                }
+                .file-audio-stats .stat-pill:hover .codicon,
+                .file-audio-stats .stat-pill:focus-visible .codicon {
+                    opacity: 1;
+                }
                 .file-audio-stats .stat-pill:focus-visible {
-                    outline: none;
-                    text-decoration-color: currentColor;
+                    outline: 1px solid var(--vscode-focusBorder, #2563eb);
+                    outline-offset: 1px;
                 }
+                /* Tier 3 — error: red tint, matches .tier-error styling */
                 .file-audio-stats .stat-pill.stat-error {
                     color: var(--vscode-errorForeground, #dc2626);
+                    background-color: rgba(220, 38, 38, 0.10);
+                    border-color: rgba(220, 38, 38, 0.32);
                 }
+                .file-audio-stats .stat-pill.stat-error:hover {
+                    background-color: rgba(220, 38, 38, 0.18);
+                    border-color: rgba(220, 38, 38, 0.50);
+                }
+                /* Tier 2 — warn: yellow tint, matches .tier-warn styling */
                 .file-audio-stats .stat-pill.stat-warn {
                     color: var(--vscode-charts-yellow, #ca8a04);
+                    background-color: rgba(202, 138, 4, 0.10);
+                    border-color: rgba(202, 138, 4, 0.32);
                 }
+                .file-audio-stats .stat-pill.stat-warn:hover {
+                    background-color: rgba(202, 138, 4, 0.18);
+                    border-color: rgba(202, 138, 4, 0.50);
+                }
+                /* Tier 1 — info: neutral, uses VS Code chrome colours */
                 .file-audio-stats .stat-pill.stat-info {
                     color: var(--vscode-descriptionForeground);
+                    background-color: var(--vscode-input-background);
+                    border-color: var(--vscode-input-border);
+                }
+                .file-audio-stats .stat-pill.stat-info:hover {
+                    background-color: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+                    border-color: var(--vscode-focusBorder, var(--vscode-input-border));
+                    color: var(--vscode-foreground);
                 }
 
                 /*
@@ -1471,7 +1532,11 @@ function getWebviewContent(
                         ' data-severity="' + severity + '"',
                         ' data-title="' + escapeHtml(title) + '"',
                         ' aria-label="' + escapeHtml(title + ' (' + count + ')') + '"',
-                        '>' + count + ' ' + escapeHtml(label) + '</button>'
+                        ' aria-haspopup="dialog"',
+                        '>',
+                        '<span>' + count + ' ' + escapeHtml(label) + '</span>',
+                        '<i class="codicon codicon-chevron-down" aria-hidden="true"></i>',
+                        '</button>'
                     ].join('');
                 }
 
@@ -1484,6 +1549,16 @@ function getWebviewContent(
                 const cellListPopoverState = {
                     open: false,
                     lastFocused: null,
+                    // Identifies which (filePath, bucket) is currently in
+                    // view so the body's scroll listener knows where to
+                    // write. Null when no popover is open.
+                    currentKey: null,
+                    // Per-(filePath, bucket) scroll position, preserved for
+                    // the lifetime of this webview. Lets the user pop a
+                    // long cell list open, scroll down, peek at another
+                    // count, and come back to where they were. Keyed by
+                    // path (stable across renders) rather than indices.
+                    scrollMemory: new Map(),
                     bucketKeys: {
                         selectionMissing: 'selectionMissingCells',
                         noneSelected: 'noneSelectedCells',
@@ -1491,7 +1566,7 @@ function getWebviewContent(
                     }
                 };
 
-                function openCellListPopover(anchorEl, title, severity, cells) {
+                function openCellListPopover(anchorEl, title, severity, cells, memoryKey) {
                     const root = document.getElementById('cellListPopover');
                     const backdrop = document.getElementById('cellListPopoverBackdrop');
                     const titleEl = document.getElementById('cellListPopoverTitle');
@@ -1514,6 +1589,18 @@ function getWebviewContent(
                         ? '1 cell'
                         : cells.length + ' cells';
 
+                    // currentKey must be assigned BEFORE we restore scroll —
+                    // otherwise the synthetic scroll event our restore
+                    // triggers would write into the previous key's slot.
+                    cellListPopoverState.currentKey = memoryKey || null;
+
+                    // Look up the saved scroll for this (file, bucket). We
+                    // can't APPLY it yet — see the rAF block below — but
+                    // grab it now while we still have local context.
+                    const savedScroll = memoryKey && cellListPopoverState.scrollMemory.has(memoryKey)
+                        ? cellListPopoverState.scrollMemory.get(memoryKey)
+                        : 0;
+
                     // Show before positioning so getBoundingClientRect is
                     // accurate. CSS keeps it invisible until the .open class
                     // toggles opacity.
@@ -1522,9 +1609,21 @@ function getWebviewContent(
 
                     positionCellListPopover(anchorEl, root);
 
-                    // Defer .open so the transition runs from the initial
-                    // scale(0.97) state.
-                    requestAnimationFrame(() => root.classList.add('open'));
+                    // Apply scrollTop AFTER display:flex and AFTER layout has
+                    // run (rAF guarantees that). If we set scrollTop while
+                    // the popover root was still display:none (which happens
+                    // when the previous close's 140ms hide timeout had time
+                    // to fire), the browser silently clamps the value to 0
+                    // because the element has no scroll range yet — and on
+                    // re-show the body keeps whatever residual scrollTop
+                    // the DOM element carried from the previous popover's
+                    // content. Doing it in rAF fixes both:
+                    //   - first-time opens always land at 0
+                    //   - re-opens restore the user's saved position
+                    requestAnimationFrame(() => {
+                        bodyEl.scrollTop = savedScroll;
+                        root.classList.add('open');
+                    });
 
                     cellListPopoverState.open = true;
                     cellListPopoverState.lastFocused = anchorEl || null;
@@ -1538,7 +1637,22 @@ function getWebviewContent(
                     if (!cellListPopoverState.open) return;
                     const root = document.getElementById('cellListPopover');
                     const backdrop = document.getElementById('cellListPopoverBackdrop');
+                    const bodyEl = document.getElementById('cellListPopoverBody');
                     if (!root || !backdrop) return;
+
+                    // Snapshot the scroll position before we hide so the
+                    // next open of the same (file, bucket) lands where the
+                    // user left off. We also save on every scroll event,
+                    // but capturing here covers the case where the popover
+                    // is closed via Escape/outside-click without a final
+                    // scroll firing first.
+                    if (bodyEl && cellListPopoverState.currentKey) {
+                        cellListPopoverState.scrollMemory.set(
+                            cellListPopoverState.currentKey,
+                            bodyEl.scrollTop
+                        );
+                    }
+
                     root.classList.remove('open');
                     backdrop.classList.remove('open');
                     // Hide after the transition to keep tab order clean.
@@ -1546,6 +1660,7 @@ function getWebviewContent(
                         if (!cellListPopoverState.open) root.style.display = 'none';
                     }, 140);
                     cellListPopoverState.open = false;
+                    cellListPopoverState.currentKey = null;
                     if (cellListPopoverState.lastFocused && typeof cellListPopoverState.lastFocused.focus === 'function') {
                         try { cellListPopoverState.lastFocused.focus(); } catch { /* noop */ }
                     }
@@ -1604,7 +1719,12 @@ function getWebviewContent(
                             const stats = file && file.audioStats;
                             const key = cellListPopoverState.bucketKeys[bucket];
                             const cells = (stats && key && Array.isArray(stats[key])) ? stats[key] : [];
-                            openCellListPopover(trigger, title, severity, cells);
+                            // Memory key uses the file path (stable across
+                            // re-renders) plus bucket, so filter toggles
+                            // and other in-place re-renders don't blow
+                            // away the user's scroll position.
+                            const memoryKey = (file && file.path ? file.path : ('g' + gIdx + '-f' + fIdx)) + '|' + bucket;
+                            openCellListPopover(trigger, title, severity, cells, memoryKey);
                             event.stopPropagation();
                             return;
                         }
@@ -1626,6 +1746,20 @@ function getWebviewContent(
                     if (closeBtn) {
                         closeBtn.addEventListener('click', () => closeCellListPopover());
                     }
+
+                    // Persist scroll position live as the user scrolls. This
+                    // also covers cases where the close path can't read the
+                    // final scrollTop (e.g. dispose, navigation away).
+                    const bodyEl = document.getElementById('cellListPopoverBody');
+                    if (bodyEl) {
+                        bodyEl.addEventListener('scroll', () => {
+                            if (!cellListPopoverState.open || !cellListPopoverState.currentKey) return;
+                            cellListPopoverState.scrollMemory.set(
+                                cellListPopoverState.currentKey,
+                                bodyEl.scrollTop
+                            );
+                        });
+                    }
                     document.addEventListener('keydown', (e) => {
                         if (e.key === 'Escape' && cellListPopoverState.open) {
                             closeCellListPopover();
@@ -1635,11 +1769,18 @@ function getWebviewContent(
                     window.addEventListener('resize', () => {
                         if (cellListPopoverState.open) closeCellListPopover();
                     });
-                    // The Step 1 file list is scrollable — reposition is
-                    // harder than closing, and the user can re-open after
-                    // scrolling. Cheap and predictable.
-                    document.addEventListener('scroll', () => {
-                        if (cellListPopoverState.open) closeCellListPopover();
+                    // Close the popover when the page behind it scrolls, but
+                    // NOT when the user is scrolling inside the popover's own
+                    // list. The popover itself is position: fixed, so we
+                    // don't need to reposition on outer scroll — just
+                    // dismiss it so it doesn't hover over unrelated content.
+                    document.addEventListener('scroll', (event) => {
+                        if (!cellListPopoverState.open) return;
+                        const target = event.target;
+                        if (target && target.closest && target.closest('#cellListPopover')) {
+                            return;
+                        }
+                        closeCellListPopover();
                     }, true);
                 }
 
@@ -1716,8 +1857,8 @@ function getWebviewContent(
                                         'noAudioRecorded',
                                         'info',
                                         f.audioStats.noAudioRecordedCount,
-                                        'without recording',
-                                        f.displayName + ' — cells with no recorded audio'
+                                        'without audio',
+                                        f.displayName + ' — cells without audio'
                                     ));
                                 }
                                 if (parts.length > 0) {
