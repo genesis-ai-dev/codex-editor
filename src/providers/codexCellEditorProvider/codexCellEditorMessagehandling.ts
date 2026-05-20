@@ -18,7 +18,7 @@ import { getAuthApi } from "@/extension";
 import { getCommentsFromFile } from "../../utils/fileUtils";
 import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
 import { toPosixPath } from "../../utils/pathUtils";
-import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
+import { revalidateCellMissingFlags, clearMissingFlagAfterSuccess } from "../../utils/audioMissingUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 
@@ -2000,6 +2000,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         return;
                     }
 
+                    // Resolution succeeded — repair a stale `isMissing=true`
+                    // flag if one was lingering from a previous migration scan.
+                    clearMissingFlagAfterSuccess(document, cellId, targetAttachmentId);
+
                     // Convert to base64 and send to webview
                     const base64Data = `data:${mimeType};base64,${Buffer.from(fileData).toString('base64')}`;
 
@@ -2109,6 +2113,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                     // Non-fatal
                                 }
                             }
+
+                            // Resolution succeeded via the pointer fallback —
+                            // repair any stale `isMissing=true` so the next
+                            // pre-flight scan / audio history modal reflects
+                            // reality without waiting for another migration.
+                            clearMissingFlagAfterSuccess(document, cellId, targetAttachmentId);
 
                             // Send to webview
                             const ext = path.extname(fullPath).toLowerCase();

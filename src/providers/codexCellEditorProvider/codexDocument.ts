@@ -3225,25 +3225,31 @@ export class CodexCellDocument implements vscode.CustomDocument {
             return null;
         }
 
-        // STEP 1: Check for explicit selection first
+        // STEP 1: Check for explicit selection first. We deliberately do NOT
+        // filter on `isMissing` — that flag is a stale hint from the last
+        // migration scan, and the resolver (audioRequest handler /
+        // resolveAudioBytes) attempts an end-to-end LFS fetch at access time.
+        // Filtering here would prematurely demote the user's explicit choice
+        // to a fallback that may not even be what they intended.
         if (cell.metadata?.selectedAudioId && attachmentType === "audio") {
             const selectedAttachment = cell.metadata.attachments?.[cell.metadata.selectedAudioId];
 
-            // Validate selection is still valid and the file isn't missing
             if (selectedAttachment &&
                 selectedAttachment.type === attachmentType &&
-                !selectedAttachment.isDeleted &&
-                !selectedAttachment.isMissing) {
+                !selectedAttachment.isDeleted) {
                 return {
                     attachmentId: cell.metadata.selectedAudioId,
                     attachment: selectedAttachment
                 };
             }
 
-            // Selection is invalid or missing — fall through to automatic resolution
+            // Selection is invalid (deleted or unknown id) — fall through to
+            // automatic resolution.
         }
 
-        // STEP 2: Fall back to latest non-deleted, non-missing attachment (prefer available files)
+        // STEP 2: Fall back to latest non-deleted attachment. Same `isMissing`
+        // rationale as above — let the resolver decide what's actually
+        // playable rather than filter on a potentially-stale flag.
         const attachments = Object.entries(cell.metadata.attachments)
             .filter(([_, attachment]: [string, any]) =>
                 attachment &&
@@ -3251,9 +3257,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 !attachment.isDeleted
             )
             .sort(([_, a]: [string, any], [__, b]: [string, any]) => {
-                const aMissing = a.isMissing ? 1 : 0;
-                const bMissing = b.isMissing ? 1 : 0;
-                if (aMissing !== bMissing) return aMissing - bMissing;
                 return (b.updatedAt || 0) - (a.updatedAt || 0);
             });
 

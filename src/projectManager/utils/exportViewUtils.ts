@@ -102,8 +102,11 @@ function cellHasAudioAttachment(cell: CellEntry): boolean {
     if (!attachments) {
         return false;
     }
+    // Note: `isMissing` is intentionally not part of the predicate. The flag
+    // is a stale hint; the export's resolver will attempt LFS resolution at
+    // access time and report real failures via the missing-files reporter.
     return Object.values(attachments).some(
-        (att) => att.type === "audio" && !att.isDeleted && !att.isMissing && !!att.url
+        (att) => att.type === "audio" && !att.isDeleted && !!att.url
     );
 }
 

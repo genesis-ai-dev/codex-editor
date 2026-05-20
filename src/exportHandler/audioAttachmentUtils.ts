@@ -78,8 +78,12 @@ export function pickAudioAttachment(cell: unknown): AudioPickOutcome {
         };
         if (att.type !== "audio") continue;
         if (att.isDeleted) continue;
-        if (att.isMissing) continue;
         if (!att.url || typeof att.url !== "string") continue;
+        // Note: we deliberately ignore `isMissing` here. The flag is a stale
+        // hint from the last migration scan; the resolution path (playback
+        // or `resolveAudioBytes` in audioExporter.ts) attempts the fetch
+        // end-to-end at access time. If it fails, the caller surfaces the
+        // failure as `audio-file-missing` then.
         candidates.push({
             id: attId,
             url: att.url,

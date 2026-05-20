@@ -136,4 +136,37 @@ export function setMissingFlagOnAttachmentObject(att: any, desiredMissing: boole
     }
 }
 
+/**
+ * Clears `isMissing` on a specific attachment after a successful resolution.
+ * Used by the audio playback handler to repair stale flags whenever the
+ * resolver successfully fetched bytes (either from a local file or from LFS).
+ *
+ * Asymmetric on purpose: we never *set* `isMissing=true` from runtime
+ * resolution failures because they're often transient (network, auth). The
+ * migration scan is the only thing that proactively marks attachments as
+ * missing.
+ */
+export function clearMissingFlagAfterSuccess(
+    document: CodexCellDocument,
+    cellId: string,
+    attachmentId: string
+): void {
+    try {
+        const cell = (document as any)._documentData?.cells?.find(
+            (c: any) => c?.metadata?.id === cellId
+        );
+        const attachment = cell?.metadata?.attachments?.[attachmentId];
+        if (!attachment || attachment.isMissing !== true) {
+            return;
+        }
+        const updated = { ...attachment };
+        if (setMissingFlagOnAttachmentObject(updated, false)) {
+            document.updateCellAttachment(cellId, attachmentId, updated);
+        }
+    } catch (err) {
+        // Non-fatal: leave the stale flag in place rather than disrupt playback.
+        console.warn("Failed to clear isMissing after successful resolution", { cellId, attachmentId, err });
+    }
+}
+
 

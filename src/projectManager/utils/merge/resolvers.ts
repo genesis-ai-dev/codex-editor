@@ -1777,10 +1777,13 @@ function isValidSelection(selectedId: string, attachments?: { [key: string]: any
     }
 
     const attachment = attachments[selectedId];
+    // We deliberately do NOT check `isMissing` here. The flag is a stale hint
+    // from the last migration scan; dropping a user's CRDT selection because
+    // their machine hadn't synced the pointer yet would silently overwrite
+    // their explicit choice during merge.
     return attachment &&
         attachment.type === "audio" &&
-        !attachment.isDeleted &&
-        !attachment.isMissing;
+        !attachment.isDeleted;
 }
 
 /**
