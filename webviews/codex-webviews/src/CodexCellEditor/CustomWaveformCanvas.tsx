@@ -88,12 +88,6 @@ const normalizeColor = (color: string): string => {
     return "#000000";
 };
 
-// Helper function to create color with alpha
-const colorWithAlpha = (color: string, alphaHex: string): string => {
-    const normalizedColor = normalizeColor(color);
-    return normalizedColor + alphaHex;
-};
-
 // Helper function to get theme-aware colors from CSS custom properties
 const getThemeColors = (element: HTMLElement) => {
     const computedStyle = getComputedStyle(element);
@@ -140,7 +134,10 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     progressColor,
     cursorColor,
     barWidth = 3,
-    barGap = 1,
+    // Wider gap than before (was 1px). The recorder uses a roughly 1:1 bar-to-gap
+    // ratio which reads as rhythmic punctuation rather than a dense comb; we
+    // approximate that here without dropping playback density too much.
+    barGap = 2,
     barRadius = 2,
     showHover = true,
     responsive = true,
@@ -352,7 +349,14 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         });
     }, []);
 
-    // Draw waveform
+    // Draw waveform.
+    //
+    // Visual parity with `RecorderWaveform`: red destructive bars anchored on
+    // the centerline, rounded caps, compression curve to lift quiet peaks, and
+    // a played/unplayed opacity split that doubles as progress indication. The
+    // peaks themselves are still computed from the full audio file (static
+    // overview), so this is the recorder's *look* on a playback layout —
+    // dynamic bar count, click-to-seek, hover tooltip all preserved.
     const drawWaveform = useCallback(() => {
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext("2d");
@@ -363,85 +367,123 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         canvas.height = height * dpr;
         ctx.scale(dpr, dpr);
 
-        // Use theme-aware colors, with prop overrides
+        // Match the recorder: read `--destructive` once per draw, fall back to
+        // a sensible red when the CSS var isn't resolvable (test/headless env).
+        const root = getComputedStyle(document.documentElement);
+        const recorderRed = root.getPropertyValue("--destructive").trim() || "#dc2626";
+
         const colors = {
             background: backgroundColor || themeColors.background,
-            wave: waveColor || themeColors.mutedForeground,
-            progress: progressColor || themeColors.primary,
+            // `waveColor`/`progressColor` props still win when callers want a
+            // theme-tinted look, but the new default is the recorder red so
+            // record/playback are visually one identity.
+            bar: waveColor || recorderRed,
+            progress: progressColor || recorderRed,
             cursor: cursorColor || themeColors.foreground,
         };
 
-        // Clear canvas
-        ctx.fillStyle = normalizeColor(colors.background);
-        ctx.fillRect(0, 0, canvasWidth, height);
+        // Transparent canvas: the wrapper provides the `bg-secondary/40` frame
+        // (same chrome as RecorderWaveform), so we just clear and draw bars.
+        ctx.clearRect(0, 0, canvasWidth, height);
 
         const barCount = Math.min(peaks.length, numberOfBars);
-        // During drag, reflect the previewed time in the visualization so blue/gray update in real time
+        // During drag, reflect the previewed time so the opacity split + line
+        // update in real time.
         const displayTime = isDragging && hoveredTime != null ? hoveredTime : currentTime;
         const progress = duration > 0 ? displayTime / duration : 0;
 
-        // Draw bars
+        // Recorder-parity constants, tuned for a *playback* layout:
+        //   - MIN_BAR_HEIGHT keeps the centerline visible during silent stretches
+        //   - maxBarHeight ratio (0.85) mirrors the live recorder
+        //   - COMPRESSION_EXP < 1 lifts quiet sections without saturating loud ones
+        //
+        // The recorder uses a more aggressive exponent (0.6) because it shapes
+        // raw analyser samples where silence sits near the midpoint and quiet
+        // speech is just a few units away. Our peaks are already `(max+rms)/2`
+        // over a block, so they're pre-smoothed; a milder exponent here keeps
+        // silent regions visually silent (just MIN_BAR_HEIGHT) and lets voice
+        // peaks pop — matches the "Voice Memos overview" reading.
+        const MIN_BAR_HEIGHT = 3;
+        const maxBarHeight = height * 0.85;
+        const cy = height / 2;
+        const COMPRESSION_EXP = 0.85;
+        const cornerRadius = Math.min(barWidth / 2, 4);
+        const hasRoundRect = typeof (ctx as CanvasRenderingContext2D).roundRect === "function";
+        // Soft alpha ramp across the playhead instead of a hard cliff. Width
+        // is given in bar-counts so the transition stays visually consistent
+        // regardless of canvas width / bar density.
+        const PLAYED_ALPHA = 1;
+        const UNPLAYED_ALPHA = 0.4;
+        const TRANSITION_HALFWIDTH_BARS = 1.25;
+
+        ctx.fillStyle = normalizeColor(colors.bar);
+
         for (let i = 0; i < barCount; i++) {
+            const rawAmp = peaks[i] ?? 0;
+            // The peaks array is already normalized to [0, 1]; the compression
+            // exponent shapes the response curve. This is a visual tweak — not
+            // a re-analysis of the audio.
+            const amp = Math.min(1, Math.pow(rawAmp, COMPRESSION_EXP));
+            const h = Math.max(MIN_BAR_HEIGHT, amp * maxBarHeight);
             const x = i * (barWidth + barGap);
-            const barHeight = peaks[i] * height * 0.9;
-            const y = (height - barHeight) / 2;
-            const isPlayed = i / barCount <= progress;
+            const y = cy - h / 2;
+            // Center of this bar, expressed as a [0, 1] fraction of total time.
+            const barCenter = (i + 0.5) / barCount;
 
-            // Gradient effect
-            const gradient = ctx.createLinearGradient(0, y, 0, y + barHeight);
-            if (isPlayed) {
-                gradient.addColorStop(0, normalizeColor(colors.progress));
-                gradient.addColorStop(1, colorWithAlpha(colors.progress, "88"));
+            // Distance from the playhead in "bars". Bars far behind the
+            // playhead are fully played (α=1); bars far ahead are fully
+            // unplayed (α=0.4); bars within ±TRANSITION_HALFWIDTH_BARS smoothly
+            // interpolate between the two — no visible step at the edge.
+            const distanceBars = (barCenter - progress) * barCount;
+            let alpha: number;
+            if (distanceBars <= -TRANSITION_HALFWIDTH_BARS) {
+                alpha = PLAYED_ALPHA;
+            } else if (distanceBars >= TRANSITION_HALFWIDTH_BARS) {
+                alpha = UNPLAYED_ALPHA;
             } else {
-                gradient.addColorStop(0, normalizeColor(colors.wave));
-                gradient.addColorStop(1, colorWithAlpha(colors.wave, "44"));
+                const t = (distanceBars + TRANSITION_HALFWIDTH_BARS) / (2 * TRANSITION_HALFWIDTH_BARS);
+                alpha = PLAYED_ALPHA * (1 - t) + UNPLAYED_ALPHA * t;
             }
+            ctx.globalAlpha = alpha;
 
-            ctx.fillStyle = gradient;
-
-            // Draw rounded rectangles
-            ctx.beginPath();
-            ctx.roundRect(x, y, barWidth, barHeight, barRadius);
-            ctx.fill();
-
-            // Mirror effect (bottom half)
-            ctx.globalAlpha = 0.5;
-            ctx.beginPath();
-            ctx.roundRect(x, height - y - barHeight, barWidth, barHeight, barRadius);
-            ctx.fill();
-            ctx.globalAlpha = 1;
+            if (hasRoundRect) {
+                ctx.beginPath();
+                ctx.roundRect(x, y, barWidth, h, Math.min(cornerRadius, h / 2));
+                ctx.fill();
+            } else {
+                ctx.fillRect(x, y, barWidth, h);
+            }
         }
+        ctx.globalAlpha = 1;
 
-        // Draw prominent progress line (also when progress is 0)
+        // Progress cursor. Drawn in the cursor colour (theme foreground) for
+        // high contrast against the red bars; a 1px glow at the same colour
+        // softens the line. Kept thin so it reads as a position marker rather
+        // than a competing visual element.
         if (duration > 0) {
             const progressX = progress * canvasWidth;
-            
-            // Draw a thick progress line
-            ctx.strokeStyle = normalizeColor(colors.progress);
-            ctx.lineWidth = 3;
-            ctx.globalAlpha = 0.8;
+            ctx.strokeStyle = normalizeColor(colors.cursor);
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 0.85;
             ctx.setLineDash([]);
             ctx.beginPath();
             ctx.moveTo(progressX, 0);
             ctx.lineTo(progressX, height);
             ctx.stroke();
-            
-            // Add a subtle glow effect
-            ctx.shadowColor = normalizeColor(colors.progress);
-            ctx.shadowBlur = 6;
-            ctx.strokeStyle = normalizeColor(colors.progress);
+
+            ctx.shadowColor = normalizeColor(colors.cursor);
+            ctx.shadowBlur = 4;
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(progressX, 0);
             ctx.lineTo(progressX, height);
             ctx.stroke();
-            
-            // Reset shadow and alpha
+
             ctx.shadowBlur = 0;
             ctx.globalAlpha = 1;
         }
 
-        // Draw hover/drag preview cursor and time tooltip
+        // Hover/drag preview cursor and time tooltip — unchanged behaviour.
         if ((showHover || isDragging) && hoveredTime !== null && duration > 0) {
             const hoverX = (hoveredTime / duration) * canvasWidth;
             ctx.strokeStyle = normalizeColor(colors.cursor);
@@ -453,7 +495,6 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             ctx.stroke();
             ctx.setLineDash([]);
 
-            // Time tooltip
             ctx.fillStyle = normalizeColor(colors.cursor);
             ctx.font = "12px sans-serif";
             const timeText = formatTime(hoveredTime);
@@ -478,7 +519,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         numberOfBars,
         barWidth,
         barGap,
-        barRadius,
+        isDragging,
         backgroundColor,
         waveColor,
         progressColor,
@@ -886,13 +927,18 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                         {formatTime(currentTime)} / {formatTime(duration)}
                     </div>
                 )}
+                {/*
+                  bg-secondary/40 + rounded-md mirror the RecorderWaveform's
+                  chrome so the live and playback waveforms read as one visual
+                  identity. The canvas itself draws with a transparent
+                  background and lets this frame show through.
+                */}
                 <canvas
                     ref={canvasRef}
+                    className="block w-full bg-secondary/40 rounded-md"
                     style={{
-                        width: "100%",
                         height: height,
                         cursor: interact && !error ? (isDragging ? "grabbing" : "grab") : "default",
-                        borderRadius: "0.25rem",
                         opacity: error ? 0.5 : 1,
                     }}
                     onClick={async (e) => {
