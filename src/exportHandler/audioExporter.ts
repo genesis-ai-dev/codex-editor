@@ -593,8 +593,10 @@ export async function exportAudioAttachments(
 
                     // Build destination filename: <file>_<lang>_<label>_<line>.wav (always export as WAV)
                     const timeFromCell = (cell?.metadata?.data || {}) as AudioCellData;
-                    const start = timeFromCell.audioStartTime || timeFromCell.startTime;
-                    const end = timeFromCell.audioEndTime || timeFromCell.endTime;
+                    // Use ?? so a literal 0 for audioStartTime/audioEndTime is preferred
+                    // over the cell timestamps, instead of falling through.
+                    const start = timeFromCell.audioStartTime ?? timeFromCell.startTime;
+                    const end = timeFromCell.audioEndTime ?? timeFromCell.endTime;
                     const originalExt = extname(absoluteSrc.fsPath) || ".wav";
                     const labelRaw = cell?.metadata?.cellLabel || "unlabeled";
                     const label = sanitizeFileComponent(String(labelRaw).toLowerCase());
