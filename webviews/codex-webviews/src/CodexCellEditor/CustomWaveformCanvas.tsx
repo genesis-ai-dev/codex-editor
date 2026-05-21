@@ -15,7 +15,7 @@ import {
     AccordionTrigger,
 } from "../components/ui/accordion";
 import { Badge } from "../components/ui/badge";
-import { Play, Pause, Volume2, Volume1, VolumeX, Loader2, AlertTriangle } from "lucide-react";
+import { Play, Pause, Volume2, Volume1, VolumeX, Loader2, AlertTriangle, User } from "lucide-react";
 import { cn } from "../lib/utils";
 
 interface CustomWaveformCanvasProps {
@@ -35,6 +35,7 @@ interface CustomWaveformCanvasProps {
     interact?: boolean;
     showControls?: boolean;
     showDebugInfo?: boolean;
+    author?: string;
 }
 
 const formatTime = (time: number): string => {
@@ -87,12 +88,6 @@ const normalizeColor = (color: string): string => {
     return "#000000";
 };
 
-// Helper function to create color with alpha
-const colorWithAlpha = (color: string, alphaHex: string): string => {
-    const normalizedColor = normalizeColor(color);
-    return normalizedColor + alphaHex;
-};
-
 // Helper function to get theme-aware colors from CSS custom properties
 const getThemeColors = (element: HTMLElement) => {
     const computedStyle = getComputedStyle(element);
@@ -139,7 +134,10 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     progressColor,
     cursorColor,
     barWidth = 3,
-    barGap = 1,
+    // Wider gap than before (was 1px). The recorder uses a roughly 1:1 bar-to-gap
+    // ratio which reads as rhythmic punctuation rather than a dense comb; we
+    // approximate that here without dropping playback density too much.
+    barGap = 2,
     barRadius = 2,
     showHover = true,
     responsive = true,
@@ -147,6 +145,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     interact = true,
     showControls = true,
     showDebugInfo = false,
+    author,
 }) => {
     const DEBUG_LOGS = false;
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -291,12 +290,13 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 }
                 if (!arrayBuffer) return;
                 if (cancelled) return;
-                
+
                 // Use a low-priority timeout to avoid blocking the UI thread
                 setTimeout(async () => {
                     try {
                         if (cancelled) return;
-                        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                        const audioContext = new (window.AudioContext ||
+                            (window as any).webkitAudioContext)();
                         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
                         if (cancelled) return;
                         if (isFinite(audioBuffer.duration) && audioBuffer.duration > 0) {
@@ -336,7 +336,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
 
     const ensurePeaksLoaded = useCallback(async () => {
         if (hasLoadedRef.current) return;
-        
+
         // Wait for the automatic decoding to complete (it should already be in progress)
         return new Promise<void>((resolve) => {
             const checkLoaded = () => {
@@ -350,7 +350,16 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         });
     }, []);
 
-    // Draw waveform
+    // Draw waveform.
+    //
+    // Layout parity with `RecorderWaveform`: bars anchored on the centerline,
+    // rounded caps, compression curve to lift quiet peaks, and a played/unplayed
+    // opacity split that doubles as progress indication. Color is theme-aware
+    // (foreground) rather than the recorder's destructive red so playback doesn't
+    // signal an active recording. The peaks themselves are still computed from
+    // the full audio file (static overview), so this is the recorder's *layout*
+    // on a playback surface — dynamic bar count, click-to-seek, hover tooltip
+    // all preserved.
     const drawWaveform = useCallback(() => {
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext("2d");
@@ -361,85 +370,120 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         canvas.height = height * dpr;
         ctx.scale(dpr, dpr);
 
-        // Use theme-aware colors, with prop overrides
         const colors = {
             background: backgroundColor || themeColors.background,
-            wave: waveColor || themeColors.mutedForeground,
-            progress: progressColor || themeColors.primary,
+            // Default to the theme foreground (near-black in light themes,
+            // near-white in dark themes). The played/unplayed split is handled
+            // by the alpha ramp below, not a separate hue, so the unplayed
+            // segment naturally fades into a softer version of the same color.
+            bar: waveColor || themeColors.foreground,
+            progress: progressColor || themeColors.foreground,
             cursor: cursorColor || themeColors.foreground,
         };
 
-        // Clear canvas
-        ctx.fillStyle = normalizeColor(colors.background);
-        ctx.fillRect(0, 0, canvasWidth, height);
+        // Transparent canvas: the wrapper provides the `bg-secondary/40` frame
+        // (same chrome as RecorderWaveform), so we just clear and draw bars.
+        ctx.clearRect(0, 0, canvasWidth, height);
 
         const barCount = Math.min(peaks.length, numberOfBars);
-        // During drag, reflect the previewed time in the visualization so blue/gray update in real time
+        // During drag, reflect the previewed time so the opacity split + line
+        // update in real time.
         const displayTime = isDragging && hoveredTime != null ? hoveredTime : currentTime;
         const progress = duration > 0 ? displayTime / duration : 0;
 
-        // Draw bars
+        // Recorder-parity constants, tuned for a *playback* layout:
+        //   - MIN_BAR_HEIGHT keeps the centerline visible during silent stretches
+        //   - maxBarHeight ratio (0.85) mirrors the live recorder
+        //   - COMPRESSION_EXP < 1 lifts quiet sections without saturating loud ones
+        //
+        // The recorder uses a more aggressive exponent (0.6) because it shapes
+        // raw analyser samples where silence sits near the midpoint and quiet
+        // speech is just a few units away. Our peaks are already `(max+rms)/2`
+        // over a block, so they're pre-smoothed; a milder exponent here keeps
+        // silent regions visually silent (just MIN_BAR_HEIGHT) and lets voice
+        // peaks pop — matches the "Voice Memos overview" reading.
+        const MIN_BAR_HEIGHT = 3;
+        const maxBarHeight = height * 0.85;
+        const cy = height / 2;
+        const COMPRESSION_EXP = 0.85;
+        const cornerRadius = Math.min(barWidth / 2, 4);
+        const hasRoundRect = typeof (ctx as CanvasRenderingContext2D).roundRect === "function";
+        // Soft alpha ramp across the playhead instead of a hard cliff. Width
+        // is given in bar-counts so the transition stays visually consistent
+        // regardless of canvas width / bar density.
+        const PLAYED_ALPHA = 1;
+        const UNPLAYED_ALPHA = 0.4;
+        const TRANSITION_HALFWIDTH_BARS = 1.25;
+
+        ctx.fillStyle = normalizeColor(colors.bar);
+
         for (let i = 0; i < barCount; i++) {
+            const rawAmp = peaks[i] ?? 0;
+            // The peaks array is already normalized to [0, 1]; the compression
+            // exponent shapes the response curve. This is a visual tweak — not
+            // a re-analysis of the audio.
+            const amp = Math.min(1, Math.pow(rawAmp, COMPRESSION_EXP));
+            const h = Math.max(MIN_BAR_HEIGHT, amp * maxBarHeight);
             const x = i * (barWidth + barGap);
-            const barHeight = peaks[i] * height * 0.9;
-            const y = (height - barHeight) / 2;
-            const isPlayed = i / barCount <= progress;
+            const y = cy - h / 2;
+            // Center of this bar, expressed as a [0, 1] fraction of total time.
+            const barCenter = (i + 0.5) / barCount;
 
-            // Gradient effect
-            const gradient = ctx.createLinearGradient(0, y, 0, y + barHeight);
-            if (isPlayed) {
-                gradient.addColorStop(0, normalizeColor(colors.progress));
-                gradient.addColorStop(1, colorWithAlpha(colors.progress, "88"));
+            // Distance from the playhead in "bars". Bars far behind the
+            // playhead are fully played (α=1); bars far ahead are fully
+            // unplayed (α=0.4); bars within ±TRANSITION_HALFWIDTH_BARS smoothly
+            // interpolate between the two — no visible step at the edge.
+            const distanceBars = (barCenter - progress) * barCount;
+            let alpha: number;
+            if (distanceBars <= -TRANSITION_HALFWIDTH_BARS) {
+                alpha = PLAYED_ALPHA;
+            } else if (distanceBars >= TRANSITION_HALFWIDTH_BARS) {
+                alpha = UNPLAYED_ALPHA;
             } else {
-                gradient.addColorStop(0, normalizeColor(colors.wave));
-                gradient.addColorStop(1, colorWithAlpha(colors.wave, "44"));
+                const t =
+                    (distanceBars + TRANSITION_HALFWIDTH_BARS) / (2 * TRANSITION_HALFWIDTH_BARS);
+                alpha = PLAYED_ALPHA * (1 - t) + UNPLAYED_ALPHA * t;
             }
+            ctx.globalAlpha = alpha;
 
-            ctx.fillStyle = gradient;
-
-            // Draw rounded rectangles
-            ctx.beginPath();
-            ctx.roundRect(x, y, barWidth, barHeight, barRadius);
-            ctx.fill();
-
-            // Mirror effect (bottom half)
-            ctx.globalAlpha = 0.5;
-            ctx.beginPath();
-            ctx.roundRect(x, height - y - barHeight, barWidth, barHeight, barRadius);
-            ctx.fill();
-            ctx.globalAlpha = 1;
+            if (hasRoundRect) {
+                ctx.beginPath();
+                ctx.roundRect(x, y, barWidth, h, Math.min(cornerRadius, h / 2));
+                ctx.fill();
+            } else {
+                ctx.fillRect(x, y, barWidth, h);
+            }
         }
+        ctx.globalAlpha = 1;
 
-        // Draw prominent progress line (also when progress is 0)
+        // Progress cursor. Drawn in the cursor colour (theme foreground) for
+        // high contrast against the red bars; a 1px glow at the same colour
+        // softens the line. Kept thin so it reads as a position marker rather
+        // than a competing visual element.
         if (duration > 0) {
             const progressX = progress * canvasWidth;
-            
-            // Draw a thick progress line
-            ctx.strokeStyle = normalizeColor(colors.progress);
-            ctx.lineWidth = 3;
-            ctx.globalAlpha = 0.8;
+            ctx.strokeStyle = normalizeColor(colors.cursor);
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 0.85;
             ctx.setLineDash([]);
             ctx.beginPath();
             ctx.moveTo(progressX, 0);
             ctx.lineTo(progressX, height);
             ctx.stroke();
-            
-            // Add a subtle glow effect
-            ctx.shadowColor = normalizeColor(colors.progress);
-            ctx.shadowBlur = 6;
-            ctx.strokeStyle = normalizeColor(colors.progress);
+
+            ctx.shadowColor = normalizeColor(colors.cursor);
+            ctx.shadowBlur = 4;
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(progressX, 0);
             ctx.lineTo(progressX, height);
             ctx.stroke();
-            
-            // Reset shadow and alpha
+
             ctx.shadowBlur = 0;
             ctx.globalAlpha = 1;
         }
 
-        // Draw hover/drag preview cursor and time tooltip
+        // Hover/drag preview cursor and time tooltip — unchanged behaviour.
         if ((showHover || isDragging) && hoveredTime !== null && duration > 0) {
             const hoverX = (hoveredTime / duration) * canvasWidth;
             ctx.strokeStyle = normalizeColor(colors.cursor);
@@ -451,7 +495,6 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             ctx.stroke();
             ctx.setLineDash([]);
 
-            // Time tooltip
             ctx.fillStyle = normalizeColor(colors.cursor);
             ctx.font = "12px sans-serif";
             const timeText = formatTime(hoveredTime);
@@ -476,7 +519,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         numberOfBars,
         barWidth,
         barGap,
-        barRadius,
+        isDragging,
         backgroundColor,
         waveColor,
         progressColor,
@@ -492,15 +535,20 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             // Only update during normal playback, not during loading
             if (audioRef.current && isPlaying && !isLoading && isFinite(duration) && duration > 0) {
                 const audioCurrentTime = audioRef.current.currentTime;
-                if (isFinite(audioCurrentTime) && audioCurrentTime >= 0 && audioCurrentTime !== currentTime) {
+                if (
+                    isFinite(audioCurrentTime) &&
+                    audioCurrentTime >= 0 &&
+                    audioCurrentTime !== currentTime
+                ) {
                     // Throttle updates to prevent rapid traversal
                     const timeDiff = Math.abs(audioCurrentTime - currentTime);
-                    if (timeDiff >= 0.1) { // Only update if difference is significant (100ms)
+                    if (timeDiff >= 0.1) {
+                        // Only update if difference is significant (100ms)
                         setCurrentTime(audioCurrentTime);
                     }
                 }
             }
-            
+
             drawWaveform();
             animationRef.current = requestAnimationFrame(animate);
         };
@@ -526,7 +574,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 setIsLoading(false);
                 return;
             }
-            
+
             // Validate duration
             if (isFinite(audioDuration) && audioDuration > 0 && audioDuration !== Infinity) {
                 setDuration(audioDuration);
@@ -535,24 +583,36 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 setCurrentTime(0); // Reset current time to prevent fast traversal
                 if (DEBUG_LOGS) console.log("✅ Duration set successfully:", audioDuration);
             } else {
-                if (DEBUG_LOGS) console.warn("⚠️ Invalid audio duration:", audioDuration, "readyState:", audio.readyState);
+                if (DEBUG_LOGS)
+                    console.warn(
+                        "⚠️ Invalid audio duration:",
+                        audioDuration,
+                        "readyState:",
+                        audio.readyState
+                    );
                 // For base64 data URLs, duration might not be available until later
                 let retryCount = 0;
                 const retryDuration = () => {
                     retryCount++;
-                    if (retryCount > 20) { // Stop after 2 seconds
+                    if (retryCount > 20) {
+                        // Stop after 2 seconds
                         // As a fallback, if we decoded buffers already, use that duration instead of erroring
                         if (duration > 0 && isFinite(duration) && duration !== Infinity) {
                             setIsLoading(false);
                             return;
                         } else {
-                            if (DEBUG_LOGS) console.error("❌ Failed to get audio duration after retries");
+                            if (DEBUG_LOGS)
+                                console.error("❌ Failed to get audio duration after retries");
                             setIsLoading(false);
                             return;
                         }
                     }
-                    
-                    if (isFinite(audio.duration) && audio.duration > 0 && audio.duration !== Infinity) {
+
+                    if (
+                        isFinite(audio.duration) &&
+                        audio.duration > 0 &&
+                        audio.duration !== Infinity
+                    ) {
                         setDuration(audio.duration);
                         setIsLoading(false);
                         setError(null);
@@ -590,40 +650,50 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 if (DEBUG_LOGS) console.log("✅ Duration updated:", audioDuration);
             }
         };
-        
+
         const handleCanPlay = () => {
             setIsLoading(false);
             // Sometimes duration becomes available at canplay instead of loadedmetadata
-            if (audio.duration && isFinite(audio.duration) && audio.duration > 0 && duration === 0) {
+            if (
+                audio.duration &&
+                isFinite(audio.duration) &&
+                audio.duration > 0 &&
+                duration === 0
+            ) {
                 setDuration(audio.duration);
                 setCurrentTime(0); // Reset current time
                 console.log("✅ Duration loaded:", audio.duration);
             }
         };
-        
+
         const handleWaiting = () => {
             // Only show loading while actively playing/buffering
             if (isPlaying && audio.readyState < 3) {
                 setIsLoading(true);
             }
         };
-        
+
         const handlePlaying = () => {
             setIsLoading(false);
             // Final fallback - sometimes duration is only available when playing starts
-            if (audio.duration && isFinite(audio.duration) && audio.duration > 0 && duration === 0) {
+            if (
+                audio.duration &&
+                isFinite(audio.duration) &&
+                audio.duration > 0 &&
+                duration === 0
+            ) {
                 setDuration(audio.duration);
                 setCurrentTime(0); // Reset current time
                 console.log("✅ Duration loaded:", audio.duration);
             }
         };
-        
+
         const handleTimeUpdate = () => {
             // Only update time if audio is properly loaded and not in loading phase
             if (isLoading || !isFinite(duration) || duration <= 0) {
                 return;
             }
-            
+
             const newTime = audio.currentTime;
             if (isFinite(newTime) && newTime >= 0) {
                 setCurrentTime(newTime);
@@ -650,7 +720,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         if (audio.readyState >= 2) {
             handleLoadedMetadata();
         }
-        
+
         // Do not auto-load on URL changes; we lazy-load on first interaction
 
         return () => {
@@ -678,12 +748,12 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
 
     const togglePlayPause = useCallback(async () => {
         const audio = audioRef.current;
-        
+
         // More lenient conditions - only block for critical issues
         if (!audio || error) {
             return;
         }
-        
+
         // Ensure audio and peaks are loaded on first play
         if (!hasLoadedRef.current) {
             await ensurePeaksLoaded();
@@ -700,11 +770,15 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             } catch (e) {
                 // Auto-play may be blocked; try resuming AudioContext then retry once
                 try {
-                    const ctx = (window as any).AudioContext ? new (window as any).AudioContext() : null;
+                    const ctx = (window as any).AudioContext
+                        ? new (window as any).AudioContext()
+                        : null;
                     if (ctx && ctx.state === "suspended") {
                         await ctx.resume();
                     }
-                } catch {}
+                } catch {
+                    /* empty */
+                }
                 try {
                     await audio.play();
                 } catch (err) {
@@ -721,10 +795,10 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             if (!audio || error || !isFinite(value) || value < 0) {
                 return;
             }
-            
+
             // Clamp the value to valid range
             const clampedValue = Math.max(0, Math.min(duration || 0, value));
-            
+
             try {
                 audio.currentTime = clampedValue;
                 setCurrentTime(clampedValue);
@@ -842,12 +916,9 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
 
     const VolumeIcon = volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
     return (
-        <div
-            className="waveform-canvas bg-[var(--vscode-editor-background)] p-4 rounded-lg shadow-md w-full"
-            ref={containerRef}
-        >
+        <div className="waveform-canvas p-4 rounded-lg shadow-md w-full" ref={containerRef}>
             {/* Canvas */}
-            <div className="relative mb-4 pl-12 pb-5">
+            <div className="relative flex items-center gap-2 mb-4 pb-5">
                 {/* No spinner overlay to avoid flicker; keep UI calm */}
                 {error && !isLoading && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--vscode-errorForeground)]/10 rounded z-10 p-4">
@@ -857,26 +928,24 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                         </p>
                     </div>
                 )}
-                {/* Overlay play/pause button on left-center of waveform */}
+                {/* Play/pause button sits inline with the canvas as a flex sibling so they share the same vertical center. */}
                 {!error && (
-                    <div className="absolute inset-y-0 left-2 flex items-center z-20 pointer-events-none">
-                        <Button
-                            size="icon"
-                            variant="ghost"
-                            className="bg-[var(--vscode-button-background)] hover:bg-[var(--vscode-button-hoverBackground)] text-[var(--vscode-button-foreground)] rounded-full w-9 h-9 pointer-events-auto"
-                            onClick={togglePlayPause}
-                            disabled={!!error || isLoading}
-                            title={
-                                isLoading && hasLoadedRef.current
-                                    ? "Downloading audio..."
-                                    : isPlaying
-                                        ? "Pause (Space)"
-                                        : "Play (Space)"
-                            }
-                        >
-                            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                        </Button>
-                    </div>
+                    <Button
+                        size="icon"
+                        variant="ghost"
+                        className="bg-[var(--vscode-button-background)] hover:bg-[var(--vscode-button-hoverBackground)] text-[var(--vscode-button-foreground)] rounded-full w-9 h-9 shrink-0 z-20"
+                        onClick={togglePlayPause}
+                        disabled={!!error || isLoading}
+                        title={
+                            isLoading && hasLoadedRef.current
+                                ? "Downloading audio..."
+                                : isPlaying
+                                ? "Pause (Space)"
+                                : "Play (Space)"
+                        }
+                    >
+                        {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                    </Button>
                 )}
                 {/* Overlay time text at bottom-right of waveform */}
                 {!error && (
@@ -884,13 +953,18 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                         {formatTime(currentTime)} / {formatTime(duration)}
                     </div>
                 )}
+                {/*
+                  bg-secondary/40 + rounded-md mirror the RecorderWaveform's
+                  chrome so the live and playback waveforms read as one visual
+                  identity. The canvas itself draws with a transparent
+                  background and lets this frame show through.
+                */}
                 <canvas
                     ref={canvasRef}
+                    className="block flex-1 min-w-0 rounded-md"
                     style={{
-                        width: "100%",
                         height: height,
                         cursor: interact && !error ? (isDragging ? "grabbing" : "grab") : "default",
-                        borderRadius: "0.25rem",
                         opacity: error ? 0.5 : 1,
                     }}
                     onClick={async (e) => {
@@ -944,12 +1018,25 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                         const x = touch.clientX - rect.left;
                         const progress = Math.max(0, Math.min(1, x / rect.width));
                         const newTime = progress * duration;
-                        if (isDragging && interact && !error && isFinite(duration) && duration > 0) {
+                        if (
+                            isDragging &&
+                            interact &&
+                            !error &&
+                            isFinite(duration) &&
+                            duration > 0
+                        ) {
                             requestPreviewUpdate(newTime);
                         }
                     }}
                     onTouchEnd={() => {
-                        if (isDragging && interact && !error && isFinite(duration) && duration > 0 && hoveredTime != null) {
+                        if (
+                            isDragging &&
+                            interact &&
+                            !error &&
+                            isFinite(duration) &&
+                            duration > 0 &&
+                            hoveredTime != null
+                        ) {
                             const commitTime = Math.max(0, Math.min(duration, hoveredTime));
                             handleSeekChange(commitTime);
                         }
@@ -1010,8 +1097,14 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                             </Select>
                         </div>
                     </div>
-                    <div className="text-xs text-[var(--vscode-descriptionForeground)] text-center">
-                        Space: Play/Pause • ←/→: Skip 5s
+                    <div className="flex items-center text-xs text-[var(--vscode-descriptionForeground)]">
+                        {author && (
+                            <span className="inline-flex items-center gap-1 text-xs text-[var(--vscode-foreground)] truncate shrink-0 max-w-[40%]">
+                                <User className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">{author}</span>
+                            </span>
+                        )}
+                        <span className="ml-auto">Space: Play/Pause • ←/→: Skip 5s</span>
                     </div>
                 </div>
             )}

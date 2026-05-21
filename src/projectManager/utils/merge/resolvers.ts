@@ -1697,90 +1697,70 @@ export function mergeAttachments(
 }
 
 /**
- * Resolves audio selection conflicts using selection timestamps
+ * Resolves audio selection conflicts purely by `selectionTimestamp`.
+ *
+ * `selectedAudioId` is treated as user-intent data that is never auto-mutated by
+ * the merge path. Every code path that writes `selectedAudioId` also writes a
+ * fresh `selectionTimestamp`, so "newer timestamp wins" exactly equals "last
+ * user intent wins".
+ *
+ * Rules:
+ *   - Both sides absent (key not set) → return `{}` (no keys written).
+ *   - One side absent → the other side's value wins verbatim.
+ *   - Both sides have a value (including `""` or a dangling id) → the side with
+ *     the newer `selectionTimestamp` wins; ties prefer ours. The winner's value
+ *     is kept verbatim — even if it doesn't resolve to a present attachment.
+ *
+ * Dangling ids (pointing to a nonexistent / deleted / non-audio attachment) can
+ * therefore persist through merges. The UI (`deriveAudioAvailability` in the
+ * webview, `resolveSelectedAttachmentState` on the provider) renders dangling
+ * ids as "nothing selected", so there is no user-visible corruption — only a
+ * preserved record of the user's last explicit intent.
+ *
  * @param ourMetadata Our cell metadata
  * @param theirMetadata Their cell metadata
- * @param mergedAttachments The merged attachments object
+ * @param _mergedAttachments Kept for signature stability; no longer consulted.
  * @returns Resolved selection state
  */
 function resolveAudioSelection(
     ourMetadata?: any,
     theirMetadata?: any,
-    mergedAttachments?: { [key: string]: any; }
+    _mergedAttachments?: { [key: string]: any; }
 ): { selectedAudioId?: string; selectionTimestamp?: number; } {
-    const ourSelection = ourMetadata?.selectedAudioId;
-    const ourTimestamp = ourMetadata?.selectionTimestamp;
-    const theirSelection = theirMetadata?.selectedAudioId;
-    const theirTimestamp = theirMetadata?.selectionTimestamp;
+    const ourSel: string | undefined = ourMetadata?.selectedAudioId;
+    const ourTs: number | undefined = ourMetadata?.selectionTimestamp;
+    const theirSel: string | undefined = theirMetadata?.selectedAudioId;
+    const theirTs: number | undefined = theirMetadata?.selectionTimestamp;
 
-    // If neither has a selection, return undefined
-    if (!ourSelection && !theirSelection) {
+    const ourMissing = ourSel === undefined || ourSel === null;
+    const theirMissing = theirSel === undefined || theirSel === null;
+
+    if (ourMissing && theirMissing) {
         return {};
     }
 
-    // If only one has a selection, use that one (if valid)
-    if (ourSelection && !theirSelection) {
-        if (isValidSelection(ourSelection, mergedAttachments)) {
-            return { selectedAudioId: ourSelection, selectionTimestamp: ourTimestamp };
-        }
-        return {};
+    if (ourMissing) {
+        debugLog(`Using their audio selection ${theirSel} (ours absent)`);
+        return { selectedAudioId: theirSel, selectionTimestamp: theirTs };
     }
 
-    if (theirSelection && !ourSelection) {
-        if (isValidSelection(theirSelection, mergedAttachments)) {
-            return { selectedAudioId: theirSelection, selectionTimestamp: theirTimestamp };
-        }
-        return {};
+    if (theirMissing) {
+        debugLog(`Keeping our audio selection ${ourSel} (theirs absent)`);
+        return { selectedAudioId: ourSel, selectionTimestamp: ourTs };
     }
 
-    // Both have selections - use the more recent one
-    if (ourSelection && theirSelection) {
-        const ourTime = ourTimestamp || 0;
-        const theirTime = theirTimestamp || 0;
+    const ourTime = ourTs ?? 0;
+    const theirTime = theirTs ?? 0;
+    const winnerIsOurs = theirTime > ourTime ? false : true;
 
-        if (theirTime > ourTime) {
-            // Their selection is more recent
-            if (isValidSelection(theirSelection, mergedAttachments)) {
-                debugLog(`Using their audio selection ${theirSelection} (newer timestamp)`);
-                return { selectedAudioId: theirSelection, selectionTimestamp: theirTimestamp };
-            }
-        } else {
-            // Our selection is more recent or same time (prefer ours)
-            if (isValidSelection(ourSelection, mergedAttachments)) {
-                debugLog(`Keeping our audio selection ${ourSelection} (newer or equal timestamp)`);
-                return { selectedAudioId: ourSelection, selectionTimestamp: ourTimestamp };
-            }
-        }
+    debugLog(
+        `Using ${winnerIsOurs ? "our" : "their"} audio selection ${winnerIsOurs ? ourSel : theirSel
+        } (newer or equal timestamp)`
+    );
 
-        // If the preferred selection is invalid, try the other one
-        const fallbackSelection = theirTime > ourTime ? ourSelection : theirSelection;
-        const fallbackTimestamp = theirTime > ourTime ? ourTimestamp : theirTimestamp;
-
-        if (isValidSelection(fallbackSelection, mergedAttachments)) {
-            return { selectedAudioId: fallbackSelection, selectionTimestamp: fallbackTimestamp };
-        }
-    }
-
-    // No valid selection found
-    return {};
-}
-
-/**
- * Checks if a selection is valid (attachment exists and isn't deleted)
- * @param selectedId The selected attachment ID
- * @param attachments The attachments object
- * @returns True if selection is valid
- */
-function isValidSelection(selectedId: string, attachments?: { [key: string]: any; }): boolean {
-    if (!attachments || !selectedId) {
-        return false;
-    }
-
-    const attachment = attachments[selectedId];
-    return attachment &&
-        attachment.type === "audio" &&
-        !attachment.isDeleted &&
-        !attachment.isMissing;
+    return winnerIsOurs
+        ? { selectedAudioId: ourSel, selectionTimestamp: ourTs }
+        : { selectedAudioId: theirSel, selectionTimestamp: theirTs };
 }
 
 /**

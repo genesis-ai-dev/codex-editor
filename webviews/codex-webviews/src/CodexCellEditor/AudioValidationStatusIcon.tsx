@@ -1,5 +1,36 @@
 import React from "react";
 
+export const getValidationLabel = (opts: {
+    currentValidations: number;
+    requiredValidations: number;
+    isValidatedByCurrentUser: boolean;
+    otherValidatorCount?: number;
+}): string => {
+    if (opts.currentValidations === 0) {
+        return "No validators";
+    }
+    const isFullyValidated = opts.currentValidations >= opts.requiredValidations;
+    const others = opts.otherValidatorCount ?? (opts.currentValidations - (opts.isValidatedByCurrentUser ? 1 : 0));
+    const otherText = others === 1 ? "1 user" : `${others} users`;
+
+    if (isFullyValidated) {
+        if (opts.isValidatedByCurrentUser && others > 0) {
+            return `Fully validated by you + ${otherText}`;
+        }
+        if (opts.isValidatedByCurrentUser) {
+            return "Fully validated by you";
+        }
+        return `Fully validated by ${otherText}`;
+    }
+    if (opts.isValidatedByCurrentUser && others > 0) {
+        return `Validated by you + ${otherText}`;
+    }
+    if (opts.isValidatedByCurrentUser) {
+        return "Validated by you";
+    }
+    return `Validated by ${otherText}`;
+};
+
 export interface ValidationStatusIconProps {
     isValidationInProgress: boolean;
     isDisabled: boolean;
@@ -7,6 +38,7 @@ export interface ValidationStatusIconProps {
     requiredValidations: number;
     isValidatedByCurrentUser: boolean;
     displayValidationText?: boolean;
+    otherValidatorCount?: number;
 }
 
 const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
@@ -16,6 +48,7 @@ const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
     requiredValidations,
     isValidatedByCurrentUser,
     displayValidationText,
+    otherValidatorCount,
 }) => {
     if (isValidationInProgress) {
         return (
@@ -51,73 +84,22 @@ const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
 
     const isFullyValidated = currentValidations >= requiredValidations;
 
-    if (isFullyValidated) {
-        if (isValidatedByCurrentUser) {
-            return (
-                <div className="flex items-center justify-center text-sm font-light">
-                    <i
-                        className="codicon codicon-check-all"
-                        style={{
-                            fontSize: "14px",
-                            color: isDisabled
-                                ? "var(--vscode-disabledForeground)"
-                                : "var(--vscode-charts-green)",
-                            filter: "drop-shadow(0 0 0.5px rgba(0,0,0,0.45))",
-                        }}
-                    ></i>
-                    {displayValidationText && <span className="ml-1">Fully validated</span>}
-                </div>
-            );
-        }
-        return (
-            <div className="flex items-center justify-center text-sm font-light">
-                <i
-                    className="codicon codicon-check-all"
-                    style={{
-                        fontSize: "14px",
-                        color: isDisabled
-                            ? "var(--vscode-disabledForeground)"
-                            : "var(--vscode-charts-green)",
-                        filter: "drop-shadow(0 0 0.5px rgba(0,0,0,0.45))",
-                    }}
-                ></i>
-                {displayValidationText && (
-                    <span className="ml-1">Fully validated by other user(s)</span>
-                )}
-            </div>
-        );
-    }
+    const label = getValidationLabel({ currentValidations, requiredValidations, isValidatedByCurrentUser, otherValidatorCount });
 
-    if (isValidatedByCurrentUser) {
-        return (
-            <div className="flex items-center justify-center text-sm font-light">
-                <i
-                    className="codicon codicon-check"
-                    style={{
-                        fontSize: "14px",
-                        color: isDisabled
-                            ? "var(--vscode-disabledForeground)"
-                            : "var(--vscode-charts-green)",
-                        filter: "drop-shadow(0 0 0.5px rgba(0,0,0,0.45))",
-                    }}
-                ></i>
-                {displayValidationText && <span className="ml-1">Validated by you</span>}
-            </div>
-        );
-    }
+    const iconClass = isFullyValidated ? "codicon codicon-check-all" : isValidatedByCurrentUser ? "codicon codicon-check" : "codicon codicon-circle-filled";
+    const iconColor = (isFullyValidated || isValidatedByCurrentUser)
+        ? (isDisabled ? "var(--vscode-disabledForeground)" : "var(--vscode-charts-green)")
+        : (isDisabled ? "var(--vscode-disabledForeground)" : "var(--vscode-descriptionForeground)");
+    const iconSize = (isFullyValidated || isValidatedByCurrentUser) ? "14px" : "12px";
+    const iconFilter = (isFullyValidated || isValidatedByCurrentUser) ? "drop-shadow(0 0 0.5px rgba(0,0,0,0.45))" : undefined;
 
     return (
         <div className="flex items-center justify-center text-sm font-light">
             <i
-                className="codicon codicon-circle-filled"
-                style={{
-                    fontSize: "12px",
-                    color: isDisabled
-                        ? "var(--vscode-disabledForeground)"
-                        : "var(--vscode-descriptionForeground)",
-                }}
+                className={iconClass}
+                style={{ fontSize: iconSize, color: iconColor, filter: iconFilter }}
             ></i>
-            {displayValidationText && <span className="ml-1">Validated by other user(s)</span>}
+            {displayValidationText && <span className="ml-1">{label}</span>}
         </div>
     );
 };
