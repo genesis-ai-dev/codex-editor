@@ -2,6 +2,11 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import { toPosixPath, normalizeAttachmentUrl } from './pathUtils';
 import { setMissingFlagOnAttachmentObject } from './audioMissingUtils';
+import {
+    CURRENT_AUDIO_SCHEMA_VERSION,
+    getAudioSchemaVersion,
+    setAudioSchemaVersion,
+} from './localProjectSettings';
 
 const DEBUG_MODE = false;
 const debug = (message: string) => {
@@ -66,6 +71,17 @@ export class AudioAttachmentsMigrator {
                 await this.updateMissingFlagsForCodexDocuments();
             } catch (error) {
                 console.error('[AudioAttachmentsMigration] Error updating missing flags on attachments:', error);
+            }
+
+            // With `isMissing` flags now reflecting filesystem reality, run any
+            // one-shot audio schema migrations (e.g. backfilling legacy
+            // `selectedAudioId` selections). Gated by a per-machine version
+            // flag in `localProjectSettings.json`, so this is a no-op on
+            // already-migrated machines.
+            try {
+                await this.runAudioSchemaMigrations();
+            } catch (error) {
+                console.error('[AudioAttachmentsMigration] Error running audio schema migrations:', error);
             }
         } catch (error) {
             console.error('[AudioAttachmentsMigration] Error during migration:', error);
@@ -698,6 +714,198 @@ export class AudioAttachmentsMigrator {
             // Directory might already exist
         }
     }
+
+    /**
+     * Runs every one-shot audio schema migration needed to bring this machine
+     * up to `CURRENT_AUDIO_SCHEMA_VERSION`. Each step is idempotent. The
+     * version is bumped on disk only after the full chain succeeds so an
+     * interrupted activation resumes from the last unfinished step.
+     *
+     * The version flag lives in `.project/localProjectSettings.json`, which is
+     * gitignored, so every machine processes its own local cells regardless of
+     * CRDT sync ordering.
+     */
+    public async runAudioSchemaMigrations(): Promise<void> {
+        try {
+            const current = await getAudioSchemaVersion(this.workspaceFolder.uri);
+            if (current >= CURRENT_AUDIO_SCHEMA_VERSION) {
+                debug(`Audio schema already at version ${current} — skipping`);
+                return;
+            }
+
+            debug(`Audio schema at v${current}; upgrading to v${CURRENT_AUDIO_SCHEMA_VERSION}`);
+
+            // Track whether any step had per-document failures so we can decide
+            // whether to persist the new schema version. We only bump on a fully
+            // clean pass — that way failed docs get another shot on the next
+            // activation instead of being silently left in legacy state.
+            let allStepsClean = true;
+
+            if (current < 1) {
+                const { hadFailures } = await this.backfillLegacyAudioSelections();
+                if (hadFailures) allStepsClean = false;
+            }
+
+            if (allStepsClean) {
+                await setAudioSchemaVersion(CURRENT_AUDIO_SCHEMA_VERSION, this.workspaceFolder.uri);
+                debug(`Audio schema migration complete; persisted v${CURRENT_AUDIO_SCHEMA_VERSION}`);
+            } else {
+                debug(
+                    `Audio schema migration completed with per-document failures; ` +
+                    `leaving version at v${current} so the next activation retries.`
+                );
+            }
+        } catch (error) {
+            console.error('[AudioAttachmentsMigration] runAudioSchemaMigrations failed:', error);
+        }
+    }
+
+    /**
+     * v1 migration — backfill `selectedAudioId` + `selectionTimestamp` on legacy
+     * cells (pre-Aug-18-2025, before the field existed). For each cell where
+     * `selectedAudioId` is undefined and at least one valid (not deleted, not
+     * missing) audio attachment exists, pick the latest-by-`createdAt`
+     * attachment (lexicographic tie-break on the attachment id for determinism
+     * across users) and write both fields.
+     *
+     * `selectionTimestamp` is set to the chosen attachment's `createdAt`, which
+     * is always less than any future real user click (Date.now()), so genuine
+     * selections always win the CRDT merge.
+     *
+     * Idempotent: cells where `selectedAudioId !== undefined` are skipped, so
+     * partial completions resume cleanly on the next pass.
+     */
+    private async backfillLegacyAudioSelections(): Promise<{ hadFailures: boolean; }> {
+        debug('Starting legacy audio selection backfill (v1)...');
+
+        const codexPattern = new vscode.RelativePattern(
+            this.workspaceFolder.uri,
+            "files/target/**/*.codex"
+        );
+        const codexUris = await vscode.workspace.findFiles(codexPattern);
+
+        if (codexUris.length === 0) {
+            debug('No codex documents found — backfill is a no-op');
+            return { hadFailures: false };
+        }
+
+        let mutatedDocs = 0;
+        let mutatedCells = 0;
+        let hadFailures = false;
+        for (const documentUri of codexUris) {
+            try {
+                const result = await this.backfillLegacyAudioSelectionsForDocument(documentUri);
+                if (result.changed) {
+                    mutatedDocs++;
+                    mutatedCells += result.cellsBackfilled;
+                }
+            } catch (error) {
+                console.error(
+                    `[AudioAttachmentsMigration] Backfill failed for ${documentUri.fsPath}:`,
+                    error
+                );
+                hadFailures = true;
+                // Continue — partial progress is fine. The caller will skip
+                // bumping the schema version so the next activation retries
+                // any docs that failed.
+            }
+        }
+
+        if (mutatedCells > 0) {
+            debug(`Backfilled selectedAudioId on ${mutatedCells} cells across ${mutatedDocs} documents`);
+        } else {
+            debug('No legacy cells required backfill');
+        }
+
+        return { hadFailures };
+    }
+
+    /**
+     * Backfill `selectedAudioId` + `selectionTimestamp` for a single .codex
+     * document. Mutates only cells where `selectedAudioId === undefined` AND
+     * at least one valid audio attachment exists.
+     */
+    private async backfillLegacyAudioSelectionsForDocument(
+        documentUri: vscode.Uri
+    ): Promise<{ changed: boolean; cellsBackfilled: number; }> {
+        const documentContent = await vscode.workspace.fs.readFile(documentUri);
+        const documentText = new TextDecoder('utf-8').decode(documentContent);
+
+        if (!documentText.trim().length) {
+            return { changed: false, cellsBackfilled: 0 };
+        }
+
+        let documentData: any;
+        try {
+            documentData = JSON.parse(documentText);
+        } catch {
+            debug(`Skipping non-JSON document ${documentUri.fsPath}`);
+            return { changed: false, cellsBackfilled: 0 };
+        }
+
+        const cells = Array.isArray(documentData?.cells) ? documentData.cells : [];
+        if (cells.length === 0) {
+            return { changed: false, cellsBackfilled: 0 };
+        }
+
+        let cellsBackfilled = 0;
+
+        for (const cell of cells) {
+            const metadata = cell?.metadata;
+            if (!metadata || typeof metadata !== 'object') continue;
+
+            // Only touch true legacy cells. `undefined` means "key never written";
+            // `""` is the explicit deselection sentinel and must be preserved.
+            if (metadata.selectedAudioId !== undefined) continue;
+
+            const attachments = metadata.attachments;
+            if (!attachments || typeof attachments !== 'object') continue;
+
+            // Pick the latest-by-createdAt valid audio attachment.
+            // "Valid" = audio, not deleted, not missing, with a URL. Ties are
+            // broken by lexicographic attachmentId so two users running the
+            // migration on the same attachment set arrive at the same choice.
+            let bestId: string | null = null;
+            let bestCreatedAt = -Infinity;
+
+            for (const [attId, attRaw] of Object.entries(attachments)) {
+                const att = attRaw as any;
+                if (!att || typeof att !== 'object') continue;
+                if (att.type !== 'audio') continue;
+                if (att.isDeleted) continue;
+                if (att.isMissing) continue;
+                if (typeof att.url !== 'string' || att.url.length === 0) continue;
+
+                const created = typeof att.createdAt === 'number' ? att.createdAt : 0;
+                if (
+                    created > bestCreatedAt ||
+                    (created === bestCreatedAt && (bestId === null || attId < bestId))
+                ) {
+                    bestCreatedAt = created;
+                    bestId = attId;
+                }
+            }
+
+            if (bestId !== null) {
+                metadata.selectedAudioId = bestId;
+                metadata.selectionTimestamp = bestCreatedAt;
+                cellsBackfilled++;
+            }
+        }
+
+        if (cellsBackfilled === 0) {
+            return { changed: false, cellsBackfilled: 0 };
+        }
+
+        const updatedContent = JSON.stringify(documentData, null, 2);
+        await vscode.workspace.fs.writeFile(
+            documentUri,
+            new TextEncoder().encode(updatedContent)
+        );
+        debug(`Backfilled ${cellsBackfilled} cells in ${documentUri.fsPath}`);
+
+        return { changed: true, cellsBackfilled };
+    }
 }
 
 /**
@@ -749,4 +957,18 @@ export async function ensureAudioAttachmentsFolderStructure(workspaceFolder: vsc
 export async function migrateAudioAttachments(workspaceFolder: vscode.WorkspaceFolder): Promise<void> {
     const migrator = new AudioAttachmentsMigrator(workspaceFolder);
     await migrator.migrate();
+}
+
+/**
+ * Public function to run the (chained) one-shot audio metadata schema
+ * migrations for a workspace, gated by the per-machine `audioSchemaVersion`
+ * flag in `localProjectSettings.json`. Intended to be called from extension
+ * activation; safe to call on every activation (no-op once the flag matches
+ * `CURRENT_AUDIO_SCHEMA_VERSION`).
+ */
+export async function runAudioSchemaMigrationsForWorkspace(
+    workspaceFolder: vscode.WorkspaceFolder
+): Promise<void> {
+    const migrator = new AudioAttachmentsMigrator(workspaceFolder);
+    await migrator.runAudioSchemaMigrations();
 }

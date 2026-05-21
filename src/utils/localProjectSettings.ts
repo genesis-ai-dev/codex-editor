@@ -59,6 +59,15 @@ export interface LocalProjectSettings {
     keepFilesOnStreamAndSave?: boolean;
     /** When true, the editor will download/stream audio as soon as a cell opens */
     autoDownloadAudioOnOpen?: boolean;
+    /** When true, clicking the microphone icon in the cell list auto-starts recording */
+    autoRecordOnMicClick?: boolean;
+    /**
+     * Number of seconds to count down before recording begins after the mic
+     * button is clicked. 0 disables the visible countdown but still enforces
+     * a 250ms minimum click-debounce so an accidental double click cannot
+     * immediately start a recording. Default: 3.
+     */
+    recordingCountdownSeconds?: number;
     /** When true, AI Metrics view shows detailed technical metrics instead of simple mode */
     detailedAIMetrics?: boolean;
     /** Track in-progress update for restart-safe cleanup */
@@ -87,10 +96,30 @@ export interface LocalProjectSettings {
     syncDelayMinutes?: number;
     /** Cached display name from GitLab API, persisted locally so it survives offline/orphaned states */
     displayedProjectName?: string;
+    /**
+     * Per-machine version of the audio metadata schema this project's local
+     * .codex files have been migrated to. Bumped whenever a new one-shot audio
+     * migration ships; the migrator runs every step from `currentVersion + 1`
+     * through `CURRENT_AUDIO_SCHEMA_VERSION` and persists the new value here
+     * on success. Stored locally (this file is gitignored) so each machine
+     * processes its own .codex files regardless of CRDT sync ordering.
+     *
+     * Versions:
+     *   1 — backfill `selectedAudioId` + `selectionTimestamp` on legacy cells
+     *       (pre-Aug-18-2025) that have at least one valid audio attachment
+     *       (not deleted, not missing) and no explicit selection.
+     */
+    audioSchemaVersion?: number;
     // Legacy keys (read and mirrored for backward compatibility)
     mediaFilesStrategy?: MediaFilesStrategy;
     lastModeRun?: MediaFilesStrategy;
 }
+
+/**
+ * Current target audio metadata schema version. Increment when adding a new
+ * one-shot audio migration step in `AudioAttachmentsMigrator.runAudioSchemaMigrations`.
+ */
+export const CURRENT_AUDIO_SCHEMA_VERSION = 1;
 
 const SETTINGS_FILE_NAME = "localProjectSettings.json";
 
@@ -213,6 +242,8 @@ async function writeLocalProjectSettingsInternal(
             keepFilesOnStreamAndSave: settings.keepFilesOnStreamAndSave,
             forceCloseAfterSuccessfulSwap: settings.forceCloseAfterSuccessfulSwap,
             autoDownloadAudioOnOpen: settings.autoDownloadAudioOnOpen ?? false,
+            autoRecordOnMicClick: settings.autoRecordOnMicClick ?? false,
+            recordingCountdownSeconds: settings.recordingCountdownSeconds ?? 3,
             detailedAIMetrics: settings.detailedAIMetrics,
             lfsSourceRemoteUrl: settings.lfsSourceRemoteUrl,
             updateState: settings.updateState,
@@ -361,12 +392,41 @@ export async function ensureLocalProjectSettingsExists(
         changesApplied: true,
         mediaFileStrategyApplyState: "applied",
         autoDownloadAudioOnOpen: false,
+        autoRecordOnMicClick: false,
+        recordingCountdownSeconds: 3,
         mediaFileStrategySwitchStarted: false,
         autoSyncEnabled: true,
         syncDelayMinutes: 5,
         ...(defaults || {}),
     };
     await writeLocalProjectSettings(def, workspaceFolderUri);
+}
+
+/**
+ * Returns the audio metadata schema version this machine has already migrated
+ * this project to. Defaults to 0 when the key is absent (e.g., never migrated,
+ * or fresh clone on a new machine).
+ */
+export async function getAudioSchemaVersion(
+    workspaceFolderUri?: vscode.Uri
+): Promise<number> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    return typeof settings.audioSchemaVersion === "number" ? settings.audioSchemaVersion : 0;
+}
+
+/**
+ * Persists the completed audio metadata schema version for this machine.
+ * Called by `AudioAttachmentsMigrator.runAudioSchemaMigrations` only after
+ * every chained migration step succeeds, so an interrupted run can resume
+ * on the next activation.
+ */
+export async function setAudioSchemaVersion(
+    version: number,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    settings.audioSchemaVersion = version;
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
 }
 
 export async function getAutoDownloadAudioOnOpen(workspaceFolderUri?: vscode.Uri): Promise<boolean> {
@@ -380,6 +440,48 @@ export async function setAutoDownloadAudioOnOpen(
 ): Promise<void> {
     const settings = await readLocalProjectSettings(workspaceFolderUri);
     settings.autoDownloadAudioOnOpen = !!value;
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
+}
+
+export async function getAutoRecordOnMicClick(workspaceFolderUri?: vscode.Uri): Promise<boolean> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    return !!settings.autoRecordOnMicClick;
+}
+
+export async function setAutoRecordOnMicClick(
+    value: boolean,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    settings.autoRecordOnMicClick = !!value;
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
+}
+
+/**
+ * Returns the configured countdown duration (in seconds) before a recording
+ * begins. Falls back to 3s when unset. Always returns a non-negative number.
+ */
+export async function getRecordingCountdownSeconds(
+    workspaceFolderUri?: vscode.Uri
+): Promise<number> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    const raw = settings.recordingCountdownSeconds;
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+        return 3;
+    }
+    return raw;
+}
+
+export async function setRecordingCountdownSeconds(
+    value: number,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    const sanitized =
+        typeof value === "number" && Number.isFinite(value) && value >= 0
+            ? Math.min(Math.round(value), 3)
+            : 3;
+    settings.recordingCountdownSeconds = sanitized;
     await writeLocalProjectSettings(settings, workspaceFolderUri);
 }
 

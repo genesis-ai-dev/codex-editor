@@ -91,25 +91,36 @@ export async function revalidateCellMissingFlags(
         );
         if (!cell?.metadata?.attachments) return false;
 
-        let changed = false;
-        for (const [attId, attVal] of Object.entries(cell.metadata.attachments) as [string, any][]) {
-            if (!attVal || typeof attVal !== "object") continue;
-            if (attVal.type !== "audio") continue;
-            const url: string | undefined = attVal.url;
-            if (!url || typeof url !== "string") continue;
+        // Probe every audio attachment in parallel — pointer-existence checks are
+        // independent fs.stat calls and there's no ordering requirement.  The
+        // document mutation itself is applied serially after probes complete so
+        // the in-memory write path stays single-threaded.
+        const entries = Object.entries(cell.metadata.attachments) as [string, any][];
+        const probes = await Promise.all(
+            entries.map(async ([attId, attVal]) => {
+                if (!attVal || typeof attVal !== "object") return null;
+                if (attVal.type !== "audio") return null;
+                const url: string | undefined = attVal.url;
+                if (!url || typeof url !== "string") return null;
 
-            // If the file exists but pointer is missing, try to restore the pointer now
-            let existsInPointers = await attachmentPointerExists(workspaceFolder, url);
-            if (!existsInPointers) {
-                existsInPointers = await ensurePointerFromFiles(workspaceFolder, url);
-            }
-            const desiredMissing = !existsInPointers;
-            // Use shared util to set flag and bump updatedAt only when changed
-            const updated = { ...attVal };
-            if (setMissingFlagOnAttachmentObject(updated, desiredMissing)) {
-                document.updateCellAttachment(cellId, attId, updated);
-                changed = true;
-            }
+                let existsInPointers = await attachmentPointerExists(workspaceFolder, url);
+                if (!existsInPointers) {
+                    existsInPointers = await ensurePointerFromFiles(workspaceFolder, url);
+                }
+                const desiredMissing = !existsInPointers;
+                const updated = { ...attVal };
+                if (setMissingFlagOnAttachmentObject(updated, desiredMissing)) {
+                    return { attId, updated };
+                }
+                return null;
+            })
+        );
+
+        let changed = false;
+        for (const probe of probes) {
+            if (!probe) continue;
+            document.updateCellAttachment(cellId, probe.attId, probe.updated);
+            changed = true;
         }
         return changed;
     } catch (err) {

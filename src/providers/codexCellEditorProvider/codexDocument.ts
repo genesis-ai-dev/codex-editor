@@ -2618,7 +2618,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     // Method to validate a cell's audio by a user
-    public async validateCellAudio(cellId: string, validate: boolean = true) {
+    public async validateCellAudio(cellId: string, validate: boolean = true, targetAttachmentId?: string) {
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
         );
@@ -2629,13 +2629,22 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
 
-        // Get the current audio attachment for this cell
-        const currentAttachment = this.getCurrentAttachment(cellId, "audio");
-        if (!currentAttachment) {
-            throw new Error("No audio attachment found for cell to validate");
-        }
+        let attachmentId: string;
+        let attachment: any;
 
-        const { attachmentId, attachment } = currentAttachment;
+        if (targetAttachmentId) {
+            attachment = cellToUpdate.metadata?.attachments?.[targetAttachmentId];
+            if (!attachment) {
+                throw new Error("Specified audio attachment not found");
+            }
+            attachmentId = targetAttachmentId;
+        } else {
+            const currentAttachment = this.getCurrentAttachment(cellId, "audio");
+            if (!currentAttachment) {
+                throw new Error("No audio attachment found for cell to validate");
+            }
+            ({ attachmentId, attachment } = currentAttachment);
+        }
 
         // Initialize validation array if it doesn't exist
         if (!attachment.validatedBy) {
@@ -2705,12 +2714,14 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 cellId,
                 type: "audioValidation",
                 validatedBy: attachment.validatedBy,
+                attachmentId,
             }),
             edits: [
                 {
                     cellId,
                     type: "audioValidation",
                     validatedBy: attachment.validatedBy,
+                    attachmentId,
                 },
             ],
         });
@@ -2956,13 +2967,22 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public getCellAudioValidatedBy(cellId: string): ValidationEntry[] {
-        const currentAttachment = this.getCurrentAttachment(cellId, "audio");
+        const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
+        const selectedAudioId = cell?.metadata?.selectedAudioId;
+        const selectedAttachment = selectedAudioId
+            ? cell?.metadata?.attachments?.[selectedAudioId]
+            : undefined;
 
-        if (!currentAttachment || !Array.isArray(currentAttachment.attachment?.validatedBy)) {
+        if (
+            !selectedAttachment ||
+            selectedAttachment.type !== "audio" ||
+            selectedAttachment.isDeleted ||
+            !Array.isArray(selectedAttachment.validatedBy)
+        ) {
             return [];
         }
 
-        return currentAttachment.attachment.validatedBy.filter((entry: any) =>
+        return selectedAttachment.validatedBy.filter((entry: any) =>
             this.isValidValidationEntry(entry)
         );
     }
@@ -3187,10 +3207,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
         attachment.isDeleted = true;
         attachment.updatedAt = Date.now();
 
-        // If we're deleting the selected audio, clear the selection (fall back to automatic)
+        // If we're deleting the selected audio, clear the selection (fall back to automatic).
+        // Preserve the keys with an empty string + fresh timestamp so the deselection is
+        // explicit and CRDT-mergeable rather than a silent key removal.
         if (attachment.type === "audio" && cell.metadata?.selectedAudioId === attachmentId) {
-            delete cell.metadata.selectedAudioId;
-            delete cell.metadata.selectionTimestamp;
+            cell.metadata.selectedAudioId = "";
+            cell.metadata.selectionTimestamp = Date.now();
         }
 
         // Record the edit
@@ -3247,9 +3269,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // automatic resolution.
         }
 
-        // STEP 2: Fall back to latest non-deleted attachment. Same `isMissing`
-        // rationale as above — let the resolver decide what's actually
-        // playable rather than filter on a potentially-stale flag.
+        // STEP 2: Fall back to newest non-deleted attachment by createdAt. Same
+        // `isMissing` rationale as above — let the resolver decide what's
+        // actually playable rather than filter on a potentially-stale flag.
+        // Sort by `createdAt` (not `updatedAt`) so this matches the audio
+        // history viewer's "CURRENT" badge and doesn't bleed through from
+        // `updatedAt` bumps caused by `isMissing` migration scans.
         const attachments = Object.entries(cell.metadata.attachments)
             .filter(([_, attachment]: [string, any]) =>
                 attachment &&
@@ -3257,7 +3282,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 !attachment.isDeleted
             )
             .sort(([_, a]: [string, any], [__, b]: [string, any]) => {
-                return (b.updatedAt || 0) - (a.updatedAt || 0);
+                return (b.createdAt || 0) - (a.createdAt || 0);
             });
 
         if (attachments.length === 0) {
@@ -3409,12 +3434,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cell = this._documentData.cells[indexOfCellToUpdate];
 
+        // Preserve existing "nothing to clear" short-circuit: undefined AND "" both return.
+        // This avoids churning the file/edit log when deselect is called on a cell that
+        // was never selected or has already been explicitly cleared.
         if (!cell.metadata?.selectedAudioId) {
-            return; // Nothing to clear
+            return;
         }
 
-        delete cell.metadata.selectedAudioId;
-        delete cell.metadata.selectionTimestamp;
+        cell.metadata.selectedAudioId = "";
+        cell.metadata.selectionTimestamp = Date.now();
 
         // Record the edit
         this._edits.push({
@@ -3440,7 +3468,23 @@ export class CodexCellDocument implements vscode.CustomDocument {
             (cell) => cell.metadata?.id === cellId
         );
 
-        return cell?.metadata?.selectedAudioId ?? null;
+        // Treat an empty string (explicitly cleared) the same as an absent key, so callers
+        // that check for a "real" explicit selection don't get fooled by the sentinel "".
+        const val = cell?.metadata?.selectedAudioId;
+        return val ? val : null;
+    }
+
+    /**
+     * Returns the per-cell `selectionTimestamp` (set on every audio
+     * select/clear) from the in-memory document. Used by message handlers to
+     * stamp broadcasts so the webview can discard out-of-order updates.
+     */
+    public getSelectionTimestamp(cellId: string): number | undefined {
+        const cell = this._documentData.cells.find(
+            (cell) => cell.metadata?.id === cellId
+        );
+        const ts = (cell?.metadata as any)?.selectionTimestamp;
+        return typeof ts === "number" ? ts : undefined;
     }
 
     /**
