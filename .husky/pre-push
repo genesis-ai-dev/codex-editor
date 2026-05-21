@@ -1,11 +1,53 @@
-#!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
-
-set -euo pipefail
+set -eu
 
 # Allow bypass via env if needed
 if [ "${SKIP_PREPUSH_TESTS:-}" = "1" ]; then
   exit 0
+fi
+
+# --------------------------------------------------------------------------
+# PATH bootstrap
+# --------------------------------------------------------------------------
+# Some GUI git clients (GitHub Desktop, Tower, Fork, etc.) launch hooks with
+# a heavily stripped PATH that omits /usr/local/bin, /opt/homebrew/bin, and
+# any NVM-managed node directories. That makes `node`/`npm` unfindable and
+# the hook fails with "env: node: No such file or directory" (exit 127).
+#
+# Add common locations explicitly, then load NVM if present so we resolve to
+# the user's default node version.
+# --------------------------------------------------------------------------
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+# Try NVM (default version) when node is still missing.
+if ! command -v node >/dev/null 2>&1; then
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  if [ -s "$NVM_DIR/nvm.sh" ]; then
+    # shellcheck disable=SC1091
+    . "$NVM_DIR/nvm.sh" >/dev/null 2>&1 || true
+  fi
+fi
+
+# Fallback: if NVM didn't load but a default-alias version exists, add it to PATH.
+if ! command -v node >/dev/null 2>&1 && [ -d "$HOME/.nvm/versions/node" ]; then
+  default_alias_file="$HOME/.nvm/alias/default"
+  default_version=""
+  if [ -f "$default_alias_file" ]; then
+    default_version="$(cat "$default_alias_file" 2>/dev/null || true)"
+  fi
+  if [ -z "$default_version" ]; then
+    # Pick the highest-installed version as a last resort.
+    default_version="$(ls "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -n1)"
+  fi
+  if [ -n "$default_version" ] && [ -x "$HOME/.nvm/versions/node/$default_version/bin/node" ]; then
+    export PATH="$HOME/.nvm/versions/node/$default_version/bin:$PATH"
+  fi
+fi
+
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  echo "❌ pre-push: cannot find node/npm in PATH." >&2
+  echo "   PATH=$PATH" >&2
+  echo "   To bypass this hook for one push, re-run with: SKIP_PREPUSH_TESTS=1 git push" >&2
+  exit 1
 fi
 
 # Stash any local changes (tracked, staged, and untracked) so tests run against HEAD only
@@ -46,4 +88,3 @@ npm test
 
 echo "🧪 Running webview tests..."
 npm run test:webviews
-

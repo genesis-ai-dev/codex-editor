@@ -59,6 +59,15 @@ export interface LocalProjectSettings {
     keepFilesOnStreamAndSave?: boolean;
     /** When true, the editor will download/stream audio as soon as a cell opens */
     autoDownloadAudioOnOpen?: boolean;
+    /** When true, clicking the microphone icon in the cell list auto-starts recording */
+    autoRecordOnMicClick?: boolean;
+    /**
+     * Number of seconds to count down before recording begins after the mic
+     * button is clicked. 0 disables the visible countdown but still enforces
+     * a 250ms minimum click-debounce so an accidental double click cannot
+     * immediately start a recording. Default: 3.
+     */
+    recordingCountdownSeconds?: number;
     /** When true, AI Metrics view shows detailed technical metrics instead of simple mode */
     detailedAIMetrics?: boolean;
     /** Track in-progress update for restart-safe cleanup */
@@ -213,6 +222,8 @@ async function writeLocalProjectSettingsInternal(
             keepFilesOnStreamAndSave: settings.keepFilesOnStreamAndSave,
             forceCloseAfterSuccessfulSwap: settings.forceCloseAfterSuccessfulSwap,
             autoDownloadAudioOnOpen: settings.autoDownloadAudioOnOpen ?? false,
+            autoRecordOnMicClick: settings.autoRecordOnMicClick ?? false,
+            recordingCountdownSeconds: settings.recordingCountdownSeconds ?? 3,
             detailedAIMetrics: settings.detailedAIMetrics,
             lfsSourceRemoteUrl: settings.lfsSourceRemoteUrl,
             updateState: settings.updateState,
@@ -361,6 +372,8 @@ export async function ensureLocalProjectSettingsExists(
         changesApplied: true,
         mediaFileStrategyApplyState: "applied",
         autoDownloadAudioOnOpen: false,
+        autoRecordOnMicClick: false,
+        recordingCountdownSeconds: 3,
         mediaFileStrategySwitchStarted: false,
         autoSyncEnabled: true,
         syncDelayMinutes: 5,
@@ -380,6 +393,48 @@ export async function setAutoDownloadAudioOnOpen(
 ): Promise<void> {
     const settings = await readLocalProjectSettings(workspaceFolderUri);
     settings.autoDownloadAudioOnOpen = !!value;
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
+}
+
+export async function getAutoRecordOnMicClick(workspaceFolderUri?: vscode.Uri): Promise<boolean> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    return !!settings.autoRecordOnMicClick;
+}
+
+export async function setAutoRecordOnMicClick(
+    value: boolean,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    settings.autoRecordOnMicClick = !!value;
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
+}
+
+/**
+ * Returns the configured countdown duration (in seconds) before a recording
+ * begins. Falls back to 3s when unset. Always returns a non-negative number.
+ */
+export async function getRecordingCountdownSeconds(
+    workspaceFolderUri?: vscode.Uri
+): Promise<number> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    const raw = settings.recordingCountdownSeconds;
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+        return 3;
+    }
+    return raw;
+}
+
+export async function setRecordingCountdownSeconds(
+    value: number,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    const sanitized =
+        typeof value === "number" && Number.isFinite(value) && value >= 0
+            ? Math.min(Math.round(value), 3)
+            : 3;
+    settings.recordingCountdownSeconds = sanitized;
     await writeLocalProjectSettings(settings, workspaceFolderUri);
 }
 

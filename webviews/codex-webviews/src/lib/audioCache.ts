@@ -1,6 +1,7 @@
-// Simple in-webview cache for audio data URLs keyed by cellId.
-// We cache the base64 data URL so components can convert to Blob/URL without
-// re-requesting from the extension.
+// In-webview cache for audio data URLs.
+// Cell-level keys (cellId) store the currently-selected attachment's data.
+// Attachment-level keys (attachment:${attachmentId}) persist across selection
+// changes so previously downloaded audio can be restored without re-fetching.
 
 const audioDataUrlCache: Map<string, string> = new Map();
 
@@ -22,6 +23,14 @@ export function clearAllCachedAudio(): void {
 
 export function hasCachedAudio(cellId: string): boolean {
     return audioDataUrlCache.has(cellId);
+}
+
+export function getCachedAttachmentAudioDataUrl(attachmentId: string): string | undefined {
+    return audioDataUrlCache.get(`attachment:${attachmentId}`);
+}
+
+export function setCachedAttachmentAudioDataUrl(attachmentId: string, dataUrl: string): void {
+    audioDataUrlCache.set(`attachment:${attachmentId}`, dataUrl);
 }
 
 
