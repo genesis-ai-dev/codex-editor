@@ -34,7 +34,7 @@ import {
 } from "../lib/audioCache";
 import { globalAudioController } from "../lib/audioController";
 import { trimRecordingTail } from "../utils/audioProcessing";
-import { getAudioTabMode, audioRecorderHint } from "./utils/audioViewMode";
+import { getAudioTabMode, audioRecorderHint, type AudioAvailability } from "./utils/audioViewMode";
 import { RecorderCircle, type RecorderState } from "./components/RecorderCircle";
 import { RecorderWaveform } from "./components/RecorderWaveform";
 
@@ -160,14 +160,7 @@ interface CellEditorProps {
     nextCellId?: string;
     nextEndTime?: number;
     audioAttachments?: {
-        [cellId: string]:
-            | "available"
-            | "available-local"
-            | "available-pointer"
-            | "available-cached"
-            | "deletedOnly"
-            | "none"
-            | "missing";
+        [cellId: string]: AudioAvailability;
     };
     requiredValidations?: number;
     requiredAudioValidations?: number;

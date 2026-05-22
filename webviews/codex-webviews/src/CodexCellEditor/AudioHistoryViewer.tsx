@@ -23,7 +23,7 @@ import ValidationStatusIcon from "./AudioValidationStatusIcon";
 import type { ValidationStatusIconProps } from "./AudioValidationStatusIcon";
 import { AudioValidationBadge } from "./AudioValidationBadge";
 import type { AudioValidationPopoverProps } from "./AudioValidationBadge";
-import { getHistoryRowMode } from "./utils/audioViewMode";
+import { getHistoryRowMode, type AudioAvailability } from "./utils/audioViewMode";
 
 interface AudioHistoryEntry {
     attachmentId: string;
@@ -53,7 +53,7 @@ interface AudioHistoryViewerProps {
     onClose: () => void;
     currentUsername?: string | null;
     requiredAudioValidations?: number;
-    audioAvailability?: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none";
+    audioAvailability?: AudioAvailability;
     cell?: QuillCellContent;
 }
 
