@@ -273,7 +273,8 @@ const createCellsFromDocx = (
         const fullText = paragraph.runs.map((r) => r.content).join('');
         if (!fullText.trim()) continue;
 
-        const ranges = splitTextIntoRanges(fullText, idealCellLength);
+        const locale = pickParagraphLocale(paragraph);
+        const ranges = splitTextIntoRanges(fullText, idealCellLength, locale);
         const charRanges = buildRunCharRanges(paragraph.runs);
         const isMultiSegment = ranges.length > 1;
 
@@ -312,6 +313,39 @@ const createCellsFromDocx = (
 // ---------------------------------------------------------------------------
 // Run-slicing helpers (DOCX-specific, used to map text ranges back to runs)
 // ---------------------------------------------------------------------------
+
+/**
+ * Pick the dominant BCP-47 locale for a paragraph by tallying the non-empty
+ * w:lang values across its runs, weighted by run content length so a one-word
+ * code-switched span doesn't outvote the rest of the paragraph. Ties are
+ * broken by first appearance. Returns undefined when no run carries a lang
+ * attribute, which makes the splitter fall back to its regex path.
+ */
+const pickParagraphLocale = (paragraph: DocxParagraph): string | undefined => {
+    const weights = new Map<string, number>();
+    const firstSeen = new Map<string, number>();
+    for (let i = 0; i < paragraph.runs.length; i++) {
+        const lang = paragraph.runs[i].runProperties?.lang;
+        if (!lang) continue;
+        const weight = paragraph.runs[i].content.length || 1;
+        weights.set(lang, (weights.get(lang) ?? 0) + weight);
+        if (!firstSeen.has(lang)) firstSeen.set(lang, i);
+    }
+    if (weights.size === 0) return undefined;
+
+    let best: string | undefined;
+    let bestWeight = -1;
+    for (const [lang, w] of weights) {
+        if (
+            w > bestWeight ||
+            (w === bestWeight && (firstSeen.get(lang) ?? Infinity) < (firstSeen.get(best ?? '') ?? Infinity))
+        ) {
+            best = lang;
+            bestWeight = w;
+        }
+    }
+    return best;
+};
 
 interface RunCharRange {
     run: DocxRun;
