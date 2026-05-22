@@ -5117,7 +5117,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                                         <div className="flex justify-between">
                                             <div className="flex gap-2">
-                                                {isSubtitlesType && (
+                                                {isSubtitlesType && shouldShowVideoPlayer && videoUrl && (
                                                     <Button
                                                         onClick={handlePlayAudioWithVideo}
                                                         variant="default"
@@ -5128,7 +5128,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 (effectiveTimestamps?.startTime ??
                                                                     0) <=
                                                                 0 ||
-                                                            !shouldShowVideoPlayer ||
                                                             isPlayAudioLoading
                                                         }
                                                     >
