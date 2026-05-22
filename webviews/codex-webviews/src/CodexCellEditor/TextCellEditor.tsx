@@ -413,8 +413,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const audioSaveRequestIdRef = useRef<string | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    /** Wall-clock end time for the active pre-record countdown (performance.now()). */
+    const countdownEndTimeRef = useRef<number | null>(null);
     const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
     const saveAudioToCellRef = useRef<((blob: Blob) => void) | null>(null);
+    const startActualRecordingRef = useRef<(() => Promise<void>) | null>(null);
     // Refs for synchronized audio/video playback
     const audioElementRef = useRef<HTMLAudioElement | null>(null);
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
@@ -643,9 +646,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     useEffect(() => {
         return () => {
             if (countdownIntervalRef.current) {
-                clearInterval(countdownIntervalRef.current);
+                clearTimeout(countdownIntervalRef.current);
                 countdownIntervalRef.current = null;
             }
+            countdownEndTimeRef.current = null;
             if (recordingTimerRef.current) {
                 clearInterval(recordingTimerRef.current);
                 recordingTimerRef.current = null;
@@ -823,48 +827,47 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     }, [audioUrl]);
 
-    // Countdown timer effect - handles 3→2→1→0 countdown before recording starts
     useEffect(() => {
-        if (countdown === null || countdown < 0) {
-            // Clean up interval if countdown is not active
-            if (countdownIntervalRef.current) {
-                clearInterval(countdownIntervalRef.current);
-                countdownIntervalRef.current = null;
-            }
-            return;
+        startActualRecordingRef.current = startActualRecording;
+    }, [startActualRecording]);
+
+    const clearRecordingCountdownTimer = useCallback(() => {
+        if (countdownIntervalRef.current) {
+            clearTimeout(countdownIntervalRef.current);
+            countdownIntervalRef.current = null;
         }
+        countdownEndTimeRef.current = null;
+    }, []);
 
-        if (countdown === 0) {
-            // Countdown finished, start actual recording
-            if (countdownIntervalRef.current) {
-                clearInterval(countdownIntervalRef.current);
-                countdownIntervalRef.current = null;
-            }
-            setCountdown(null);
-            // Call the actual recording start function
-            startActualRecording();
-            return;
-        }
+    // Single wall-clock countdown: chained timeouts scheduled from one end
+    // time so ticks aren't reset by re-renders or startActualRecording changes.
+    const beginRecordingCountdown = useCallback(
+        (seconds: number) => {
+            clearRecordingCountdownTimer();
+            const endTime = performance.now() + seconds * 1000;
+            countdownEndTimeRef.current = endTime;
 
-        // Set up interval to decrement countdown every second
-        countdownIntervalRef.current = setInterval(() => {
-            setCountdown((prev) => {
-                if (prev === null || prev <= 0) {
-                    return null;
-                }
-                const next = prev - 1;
-                setRecordingStatus(next > 0 ? `Starting in ${next}...` : "Starting...");
-                return next;
-            });
-        }, 1000);
+            const scheduleDigit = (digit: number) => {
+                setCountdown(digit);
+                setRecordingStatus(`Starting in ${digit}...`);
 
-        return () => {
-            if (countdownIntervalRef.current) {
-                clearInterval(countdownIntervalRef.current);
-                countdownIntervalRef.current = null;
-            }
-        };
-    }, [countdown, startActualRecording]);
+                const delay = Math.max(0, endTime - (digit - 1) * 1000 - performance.now());
+                countdownIntervalRef.current = setTimeout(() => {
+                    if (digit <= 1) {
+                        clearRecordingCountdownTimer();
+                        setCountdown(null);
+                        setRecordingStatus("Starting...");
+                        void startActualRecordingRef.current?.();
+                    } else {
+                        scheduleDigit(digit - 1);
+                    }
+                }, delay) as unknown as NodeJS.Timeout;
+            };
+
+            scheduleDigit(seconds);
+        },
+        [clearRecordingCountdownTimer]
+    );
 
     // Recording elapsed time tracker - updates every 100ms while recording
     useEffect(() => {
@@ -2709,8 +2712,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 : 3;
 
         if (configuredSeconds >= 1) {
-            setCountdown(configuredSeconds);
-            setRecordingStatus(`Starting in ${configuredSeconds}...`);
+            beginRecordingCountdown(configuredSeconds);
             return;
         }
 
@@ -2732,10 +2734,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         if (countdown !== null) {
             setCountdown(null);
             setRecordingStatus("");
-            if (countdownIntervalRef.current) {
-                clearInterval(countdownIntervalRef.current);
-                countdownIntervalRef.current = null;
-            }
+            clearRecordingCountdownTimer();
             return;
         }
 
@@ -5299,12 +5298,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         setCountdown(null);
                                                         setRecordingStartTime(null);
                                                         setRecordingElapsedTime(0);
-                                                        if (countdownIntervalRef.current) {
-                                                            clearInterval(
-                                                                countdownIntervalRef.current
-                                                            );
-                                                            countdownIntervalRef.current = null;
-                                                        }
+                                                        clearRecordingCountdownTimer();
                                                         if (recordingTimerRef.current) {
                                                             clearInterval(
                                                                 recordingTimerRef.current
