@@ -30,7 +30,7 @@ const AVAILABLE_SET = new Set<AudioAvailability>([
 ]);
 
 /**
- * Decide which of the three editor-tab modes to render.
+ * Decide which of the editor-tab modes to render.
  *
  * Precedence:
  *   1. Active recording / explicit recorder request → "recorder"
@@ -40,6 +40,12 @@ const AVAILABLE_SET = new Set<AudioAvailability>([
  *   3. State is one of the available-* variants → "download".
  *   4. Everything else (`none`, `unselected`, `deletedOnly`, `missing`,
  *      undefined) → "recorder".
+ *
+ * Note: there is intentionally no "loading" mode here.  Spinners during
+ * fetches live inside the download / recorder UIs themselves, keyed off
+ * `audioFetchPending` / `isAudioLoading`.  A dedicated "loading" mode was
+ * tried previously and turned out to mask rather than fix flicker — the
+ * real flicker fixes live in `TextCellEditor`'s preload + message handlers.
  */
 export const getAudioTabMode = ({
     state,

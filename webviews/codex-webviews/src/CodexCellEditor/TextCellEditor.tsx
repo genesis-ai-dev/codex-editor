@@ -2881,8 +2881,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                 // Store the audio ID temporarily
                 sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, uniqueId);
-                // Store the audio ID temporarily
-                sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, uniqueId);
+
+                // The provider's `document.updateCellAttachment` auto-selects
+                // the just-saved attachment (see codexDocument.ts). Mirror that
+                // selection locally now so the `audioHistoryReceived` handler
+                // (which re-fires shortly after save) doesn't see a mismatch
+                // between our `currentSelectedAudioId` and the provider's
+                // selection and wipe the freshly-recorded blob mid-render.
+                setCurrentSelectedAudioId(uniqueId);
 
                 // Set the audioBlob (audioUrl will be derived automatically)
                 setAudioBlob(blob);
@@ -3127,25 +3133,36 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     };
 
-    // Preload audio when audio tab is accessed
+    // Preload audio when audio tab is accessed.
+    //
+    // Responsibility: FETCH audio bytes when we don't already have them.  This
+    // function MUST NOT clear local audio state — that ownership lives with
+    // the explicit `audioAttachmentDeleted` and `providerSendsAudioAttachments`
+    // handlers.  Clearing here was the source of a flicker: right after
+    // recording, the cell's availability is briefly still `"none"` (the
+    // provider hasn't broadcast `"available-local"` yet) while `audioBlob` is
+    // set.  An aggressive clear here would nuke the just-recorded blob and
+    // flip the tab to the RecorderCircle for one frame until the broadcast
+    // arrived.
     const preloadAudioForTab = useCallback(() => {
-        // Skip requesting audio when we know there are no playable attachments for this cell
+        // If we already have audio bytes in memory (freshly recorded, hydrated
+        // from cache, etc.) there is nothing to fetch.  Skip everything.
+        if (audioBlob) return;
+
         const cellAudioState = audioAttachments?.[cellMarkers[0]];
         if (
             cellAudioState === "none" ||
             cellAudioState === "deletedOnly" ||
             cellAudioState === "unselected"
         ) {
+            // No playable audio to fetch — just settle the loading flags so
+            // the UI doesn't sit on a spinner.  `getAudioTabMode` falls
+            // through to `"recorder"` for these states already, so we do not
+            // need to flip `showRecorder` ourselves.
             setIsAudioLoading(false);
             setAudioFetchPending(false);
-            setAudioBlob(null);
-            setAudioUrl(null);
-            setAudioAuthor(undefined);
-            setShowRecorder(cellAudioState !== "unselected");
             return;
         }
-        // If we already have a freshly recorded blob, don't fetch again
-        if (audioBlob) return;
         // If cached from this session, hydrate without re-requesting — but only
         // when the cached data belongs to the currently selected attachment.
         // If the cell's availability is "available-pointer", the selected audio
@@ -3276,17 +3293,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
         ensureEditorVisible();
     }, [cellMarkers, ensureEditorVisible]);
 
-    // If the provider toggles auto-download while this cell is open, fetch immediately
-    useMessageHandler("providerUpdatesNotebookMetadataForWebview", (event: MessageEvent) => {
-        try {
-            const msg = event.data as any;
-            if (msg?.content?.autoDownloadAudioOnOpen === true) {
-                preloadAudioForTab();
+    // If the provider toggles auto-download while this cell is open, fetch immediately.
+    // IMPORTANT: pass `[preloadAudioForTab]` as deps so the handler always invokes the
+    // latest closure.  Without this the handler is registered once on mount and forever
+    // calls the initial `preloadAudioForTab` (whose closure captures empty
+    // `audioAttachments` and `audioBlob=null`).  On every tab switch the provider
+    // re-broadcasts this metadata, which would otherwise re-fire the stale closure and
+    // wipe live audio state — surfacing the RecorderCircle for a frame.
+    useMessageHandler(
+        "providerUpdatesNotebookMetadataForWebview",
+        (event: MessageEvent) => {
+            try {
+                const msg = event.data as any;
+                if (msg?.content?.autoDownloadAudioOnOpen === true) {
+                    preloadAudioForTab();
+                }
+            } catch {
+                /* no-op */
             }
-        } catch {
-            /* no-op */
-        }
-    });
+        },
+        [preloadAudioForTab]
+    );
 
     // (Cache hydration handled in preloadAudioForTab to avoid double-renders)
 
@@ -3476,7 +3503,36 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     stateForCell === "missing" ||
                     stateForCell === "unselected"
                 ) {
-                    const { clearCachedAudio } = await import("../lib/audioCache");
+                    // Guard against transient broadcasts that race a freshly-saved
+                    // recording.  `saveAudioToCell` writes the new attachment's
+                    // uniqueId to sessionStorage (`audio-id-<cellId>`) and sets
+                    // `currentSelectedAudioId`.  When both still hold a matching
+                    // value the local blob IS the just-saved audio — clearing it
+                    // here would flip the tab to the recorder for a frame
+                    // (RecorderCircle flash) until the next broadcast restores
+                    // `available-local` and `providerSendsAudioData` re-hydrates
+                    // the bytes.  Mirrors the same defensive read used in
+                    // `audioHistoryReceived`.  Request the authoritative history
+                    // so we self-correct if the broadcast really was right.
+                    let __localAudioId: string | null = null;
+                    try {
+                        __localAudioId = sessionStorage.getItem(
+                            `audio-id-${cellMarkers[0]}`
+                        );
+                    } catch {
+                        /* ignore */
+                    }
+                    if (
+                        audioBlob &&
+                        currentSelectedAudioId &&
+                        __localAudioId === currentSelectedAudioId
+                    ) {
+                        window.vscodeApi.postMessage({
+                            command: "getAudioHistory",
+                            content: { cellId: cellMarkers[0] },
+                        } as EditorPostMessages);
+                        return;
+                    }
                     clearCachedAudio(cellMarkers[0]);
                     setAudioBlob(null);
                     setAudioUrl(null);
@@ -3583,7 +3639,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         setIsAudioLoading(false);
                     }
                 } else {
-                    // No audio — clear stale state (including session cache) and prepare recorder
                     clearCachedAudio(cellMarkers[0]);
                     setAudioBlob(null);
                     setAudioUrl(null);
@@ -3722,7 +3777,22 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 if (message.content.currentAttachmentId) {
                     const providerSelectedId = message.content.currentAttachmentId;
                     if (currentSelectedAudioId && currentSelectedAudioId !== providerSelectedId) {
-                        if (audioBlob) {
+                        // Cross-check sessionStorage before discarding the local
+                        // blob: a freshly-recorded blob writes its uniqueId to
+                        // `audio-id-<cellId>` in saveAudioToCell, so if that
+                        // matches the provider's current selection the in-memory
+                        // bytes ARE the right audio — clearing would cause the
+                        // waveform to flash back to the recorder/download view
+                        // until providerSendsAudioData re-hydrates it.
+                        let localAudioId: string | null = null;
+                        try {
+                            localAudioId = sessionStorage.getItem(
+                                `audio-id-${cellMarkers[0]}`
+                            );
+                        } catch {
+                            /* ignore */
+                        }
+                        if (audioBlob && localAudioId !== providerSelectedId) {
                             clearCachedAudio(cellMarkers[0]);
                             setAudioBlob(null);
                             setAudioUrl(null);
