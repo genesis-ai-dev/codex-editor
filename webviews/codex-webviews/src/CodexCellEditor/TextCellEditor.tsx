@@ -1,11 +1,13 @@
-import { useRef, useEffect, useState, useContext, useCallback } from "react";
+import { useRef, useEffect, useState, useContext, useCallback, useMemo } from "react";
 import {
     EditorCellContent,
     EditorPostMessages,
     QuillCellContent,
     EditHistory,
     Timestamps,
+    CustomNotebookMetadata,
 } from "../../../../types";
+import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import Editor, { EditorHandles } from "./Editor";
 import { getCleanedHtml } from "./utils";
 import { CodexCellTypes } from "../../../../types/enums";
@@ -23,9 +25,16 @@ import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
 import SourceTextDisplay from "./SourceTextDisplay";
 import { AudioHistoryViewer } from "./AudioHistoryViewer";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
-import { getCachedAudioDataUrl, setCachedAudioDataUrl, clearCachedAudio, getCachedAttachmentAudioDataUrl, setCachedAttachmentAudioDataUrl } from "../lib/audioCache";
+import {
+    getCachedAudioDataUrl,
+    setCachedAudioDataUrl,
+    clearCachedAudio,
+    getCachedAttachmentAudioDataUrl,
+    setCachedAttachmentAudioDataUrl,
+} from "../lib/audioCache";
+import { globalAudioController } from "../lib/audioController";
 import { trimRecordingTail } from "../utils/audioProcessing";
-import { getAudioTabMode, audioRecorderHint } from "./utils/audioViewMode";
+import { getAudioTabMode, audioRecorderHint, type AudioAvailability } from "./utils/audioViewMode";
 import { RecorderCircle, type RecorderState } from "./components/RecorderCircle";
 import { RecorderWaveform } from "./components/RecorderWaveform";
 
@@ -102,6 +111,8 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import CommentsBadge from "./CommentsBadge";
+import MicrophoneIcon from "../components/ui/icons/MicrophoneIcon";
+import { Languages } from "lucide-react";
 
 // Define interface for saved backtranslation
 interface SavedBacktranslation {
@@ -144,15 +155,12 @@ interface CellEditorProps {
     footnoteOffset?: number;
     prevEndTime?: number;
     nextStartTime?: number;
+    prevCellId?: string;
+    prevStartTime?: number;
+    nextCellId?: string;
+    nextEndTime?: number;
     audioAttachments?: {
-        [cellId: string]:
-            | "available"
-            | "available-local"
-            | "available-pointer"
-            | "available-cached"
-            | "deletedOnly"
-            | "none"
-            | "missing";
+        [cellId: string]: AudioAvailability;
     };
     requiredValidations?: number;
     requiredAudioValidations?: number;
@@ -160,6 +168,12 @@ interface CellEditorProps {
     vscode?: any;
     isSourceText?: boolean;
     isAuthenticated?: boolean;
+    playerRef?: React.RefObject<ReactPlayerRef>;
+    videoUrl?: string;
+    shouldShowVideoPlayer?: boolean;
+    metadata?: CustomNotebookMetadata;
+    muteVideoAudioDuringPlayback?: boolean;
+    setMuteVideoAudioDuringPlayback?: (value: boolean) => void;
     onInspectSimilarWording?: (cellId: string, targetContent: string) => void;
 }
 
@@ -260,6 +274,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     footnoteOffset = 1,
     prevEndTime,
     nextStartTime,
+    prevCellId,
+    prevStartTime,
+    nextCellId,
+    nextEndTime,
     audioAttachments,
     requiredValidations,
     requiredAudioValidations,
@@ -268,6 +286,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
     isSourceText,
     isAuthenticated,
     onInspectSimilarWording,
+    playerRef,
+    videoUrl,
+    shouldShowVideoPlayer,
+    metadata,
+    muteVideoAudioDuringPlayback: muteVideoAudioDuringPlaybackProp,
+    setMuteVideoAudioDuringPlayback: setMuteVideoAudioDuringPlaybackProp,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -313,7 +337,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     >(() => {
         try {
             const id = cellMarkers[0];
-            if (sessionStorage.getItem(`start-audio-recording-${id}`) || sessionStorage.getItem(`open-audio-history-${id}`)) {
+            if (
+                sessionStorage.getItem(`start-audio-recording-${id}`) ||
+                sessionStorage.getItem(`open-audio-history-${id}`)
+            ) {
                 return "audio";
             }
             const stored = sessionStorage.getItem("preferred-editor-tab");
@@ -359,6 +386,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [audioAuthor, setAudioAuthor] = useState<string | undefined>(undefined);
+    const [audioDuration, setAudioDuration] = useState<number | null>(null);
     // While awaiting provider response, avoid showing "No audio attached" to prevent flicker
     const [audioFetchPending, setAudioFetchPending] = useState<boolean>(true);
     const [isRecording, setIsRecording] = useState(false);
@@ -378,8 +406,69 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const audioSaveRequestIdRef = useRef<string | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    /** Wall-clock end time for the active pre-record countdown (performance.now()). */
+    const countdownEndTimeRef = useRef<number | null>(null);
     const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
     const saveAudioToCellRef = useRef<((blob: Blob) => void) | null>(null);
+    const startActualRecordingRef = useRef<(() => Promise<void>) | null>(null);
+    // Tracks an in-flight `deleteAudioAttachment` so audio for the just-
+    // deleted cell can't sneak back onto the waveform while the provider's
+    // confirming broadcast is in flight. Without this, three separate paths
+    // each race the deletion and re-populate `audioBlob`:
+    //   1. `preloadAudioForTab` re-hydrates from the still-warm cellId-keyed
+    //      audio cache (or the attachment-keyed one via stale
+    //      `currentSelectedAudioId`).
+    //   2. `preloadAudioForTab` posts `requestAudioForCell` because state is
+    //      still "available-local".
+    //   3. The `providerSendsAudioAttachments` handler's auto-download branch
+    //      does the same when broadcasts arrive before the deletion.
+    // All three consult `isAudioDeletionPendingForThisCell` and skip until
+    // the post-delete branch (or the safety expiry) clears the ref.
+    const pendingAudioDeletionRef = useRef<{
+        cellId: string;
+        audioId: string;
+        expiresAt: number;
+    } | null>(null);
+    // Whether `pendingAudioDeletionRef` is currently asserting "no audio for
+    // this cell" — checked by every path that could re-populate `audioBlob`
+    // for the open cell. Self-clears stale entries past their safety expiry
+    // so a missed confirmation broadcast never permanently blocks fetches.
+    const isAudioDeletionPendingForThisCell = useCallback((): boolean => {
+        const pending = pendingAudioDeletionRef.current;
+        if (!pending) return false;
+        if (pending.cellId !== cellMarkers[0]) return false;
+        if (Date.now() >= pending.expiresAt) {
+            pendingAudioDeletionRef.current = null;
+            return false;
+        }
+        return true;
+    }, [cellMarkers]);
+    // Refs for synchronized audio/video playback
+    const audioElementRef = useRef<HTMLAudioElement | null>(null);
+    const videoElementRef = useRef<HTMLVideoElement | null>(null);
+    const videoTimeUpdateHandlerRef = useRef<((e: Event) => void) | null>(null);
+    const audioTimeUpdateHandlerRef = useRef<((e: Event) => void) | null>(null);
+    const previousVideoMuteStateRef = useRef<boolean | null>(null);
+    // Refs for combined audio playback
+    const overlappingAudioUrlsRef = useRef<Map<string, string>>(new Map()); // Store blob URLs for cleanup
+    // Legacy refs kept for cleanup compatibility (will be cleared but not actively used)
+    const overlappingAudioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+    const overlappingAudioHandlersRef = useRef<Map<string, (e: Event) => void>>(new Map());
+    const overlappingAudioDelaysRef = useRef<Map<string, number>>(new Map());
+    const overlappingAudioOffsetsRef = useRef<Map<string, number>>(new Map());
+    const audioBufferCacheRef = useRef<Map<string, AudioBuffer>>(new Map()); // Cache decoded AudioBuffers by blob URL
+    const [combinedAudioBlobKey, setCombinedAudioBlobKey] = useState(0); // Force recalculation when timestamps change
+    const [internalMuteVideoDuringPlayback, setInternalMuteVideoDuringPlayback] = useState(true);
+    const muteVideoAudioDuringPlayback =
+        muteVideoAudioDuringPlaybackProp ?? internalMuteVideoDuringPlayback;
+    const setMuteVideoAudioDuringPlayback =
+        setMuteVideoAudioDuringPlaybackProp ?? setInternalMuteVideoDuringPlayback;
+    const previousAudioTimestampValuesRef = useRef<[number, number] | null>(null);
+    const effectiveTimestampsRef = useRef<Timestamps | undefined>(undefined);
+    const effectiveAudioTimestampsRef = useRef<Timestamps | undefined>(undefined);
+    const contentBeingUpdatedRef = useRef<EditorCellContent>(contentBeingUpdated);
+    const [prevAudioTimestamps, setPrevAudioTimestamps] = useState<Timestamps | null>(null);
+    const [nextAudioTimestamps, setNextAudioTimestamps] = useState<Timestamps | null>(null);
     const [confirmingDiscard, setConfirmingDiscard] = useState(false);
     const [showRecorder, setShowRecorder] = useState(() => {
         try {
@@ -390,7 +479,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     });
     const [isAudioLoading, setIsAudioLoading] = useState(false);
+    const [isPlayAudioLoading, setIsPlayAudioLoading] = useState(false);
     const [hasAudioHistory, setHasAudioHistory] = useState<boolean>(false);
+    const [audioWarning, setAudioWarning] = useState<string | null>(null);
     const [currentSelectedAudioId, setCurrentSelectedAudioId] = useState<string | null>(null);
 
     // Transcription state
@@ -416,6 +507,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // performs a single smooth scroll after layout settles.
     const scrollTimeoutRef = useRef<number | null>(null);
     const scrollRafRef = useRef<number | null>(null);
+
+    const isSubtitlesType = metadata?.importerType === "subtitles";
 
     // Compute audio validation icon props once for this render (after audio state is declared)
     const { iconProps: audioValidationIconProps } = useAudioValidationStatus({
@@ -483,7 +576,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
         scrollTimeoutRef.current = window.setTimeout(() => {
             scrollRafRef.current = requestAnimationFrame(() => {
                 const bottomPadding = 16;
-                const scrollContainer = scrollTarget.closest(".scrollable-content") as HTMLElement | null;
+                const scrollContainer = scrollTarget.closest(
+                    ".scrollable-content"
+                ) as HTMLElement | null;
                 const rect = scrollTarget.getBoundingClientRect();
                 const containerRect = scrollContainer?.getBoundingClientRect();
                 const visibleBottom = containerRect
@@ -576,9 +671,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     useEffect(() => {
         return () => {
             if (countdownIntervalRef.current) {
-                clearInterval(countdownIntervalRef.current);
+                clearTimeout(countdownIntervalRef.current);
                 countdownIntervalRef.current = null;
             }
+            countdownEndTimeRef.current = null;
             if (recordingTimerRef.current) {
                 clearInterval(recordingTimerRef.current);
                 recordingTimerRef.current = null;
@@ -598,6 +694,375 @@ const CellEditor: React.FC<CellEditorProps> = ({
             setAudioUrl(null);
         }
     }, [audioBlob]);
+
+    // Calculate audio duration from audioBlob
+    useEffect(() => {
+        let cancelled = false;
+        const calculateDuration = async () => {
+            try {
+                if (!audioBlob) {
+                    setAudioDuration(null);
+                    return;
+                }
+
+                const arrayBuffer = await audioBlob.arrayBuffer();
+                if (cancelled) return;
+
+                // Use a low-priority timeout to avoid blocking the UI thread
+                setTimeout(async () => {
+                    try {
+                        if (cancelled) return;
+                        const audioContext = new (window.AudioContext ||
+                            (window as any).webkitAudioContext)();
+                        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                        if (cancelled) return;
+                        if (isFinite(audioBuffer.duration) && audioBuffer.duration > 0) {
+                            setAudioDuration(audioBuffer.duration);
+                        } else {
+                            setAudioDuration(null);
+                        }
+                        try {
+                            audioContext.close();
+                        } catch {
+                            void 0;
+                        }
+                    } catch {
+                        // Ignore decode errors
+                        if (!cancelled) {
+                            setAudioDuration(null);
+                        }
+                    }
+                }, 100);
+            } catch {
+                // Ignore errors
+                if (!cancelled) {
+                    setAudioDuration(null);
+                }
+            }
+        };
+
+        calculateDuration();
+        return () => {
+            cancelled = true;
+        };
+    }, [audioBlob]);
+
+    // Actual recording function - called after countdown completes
+    const startActualRecording = useCallback(async () => {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            setRecordingStatus("Microphone not supported in this browser");
+            return;
+        }
+
+        // Flag the warmup window before any await: from this point until
+        // `recorder.onstart` fires, the button must read as "recording" so
+        // we don't flash through the idle (blue) state.
+        setIsStartingRecording(true);
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    // Request high-quality capture suitable for later WAV conversion during export
+                    sampleRate: 48000,
+                    sampleSize: 24, // May be ignored by some browsers; best-effort
+                    channelCount: 1,
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false,
+                },
+            });
+
+            const mediaRecorderOptions: MediaRecorderOptions = {};
+            try {
+                if (typeof MediaRecorder !== "undefined") {
+                    if (MediaRecorder.isTypeSupported?.("audio/webm;codecs=opus")) {
+                        mediaRecorderOptions.mimeType = "audio/webm;codecs=opus";
+                    } else if (MediaRecorder.isTypeSupported?.("audio/webm")) {
+                        mediaRecorderOptions.mimeType = "audio/webm";
+                    }
+                }
+            } catch {
+                // no-op, fall back to default mimeType
+            }
+            // Increase bitrate for higher quality Opus encoding
+            mediaRecorderOptions.audioBitsPerSecond = 256000; // 256 kbps
+
+            const recorder = new MediaRecorder(stream, mediaRecorderOptions);
+
+            audioChunksRef.current = [];
+
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) {
+                    audioChunksRef.current.push(e.data);
+                }
+            };
+
+            recorder.onstart = () => {
+                setIsRecording(true);
+                setIsStartingRecording(false);
+                setRecordingStatus("Recording...");
+                setRecordingStartTime(Date.now());
+                setRecordingElapsedTime(0);
+            };
+
+            recorder.onstop = async () => {
+                setIsRecording(false);
+                setRecordingStartTime(null);
+                setRecordingElapsedTime(0);
+
+                // Release the microphone immediately — no further data will
+                // arrive after stop, and holding the tracks open delays the
+                // OS-level recording indicator from turning off.
+                stream.getTracks().forEach((track) => track.stop());
+
+                // Trim a short tail off the recording to remove the click
+                // sound from the user pressing stop. Mirrors the leading
+                // debounce on start; the user is informed of this trim via
+                // a small notice in the recorder UI. If the trim fails
+                // (decoder error, very short clip, etc.) the helper returns
+                // the original blob unchanged.
+                const rawBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+                const blob = await trimRecordingTail(rawBlob, RECORDING_TAIL_TRIM_MS);
+
+                setAudioBlob(blob);
+
+                // Clean up old URL if exists
+                if (audioUrl) {
+                    URL.revokeObjectURL(audioUrl);
+                }
+
+                const url = URL.createObjectURL(blob);
+                setAudioUrl(url);
+                setRecordingStatus("Recording complete");
+
+                // Save audio to cell data
+                if (saveAudioToCellRef.current) {
+                    saveAudioToCellRef.current(blob);
+                }
+                setShowRecorder(false);
+            };
+
+            recorder.start();
+            setMediaRecorder(recorder);
+        } catch (err) {
+            setRecordingStatus("Microphone access denied");
+            console.error("Error accessing microphone:", err);
+            setCountdown(null);
+            setIsStartingRecording(false);
+        }
+    }, [audioUrl]);
+
+    useEffect(() => {
+        startActualRecordingRef.current = startActualRecording;
+    }, [startActualRecording]);
+
+    const clearRecordingCountdownTimer = useCallback(() => {
+        if (countdownIntervalRef.current) {
+            clearTimeout(countdownIntervalRef.current);
+            countdownIntervalRef.current = null;
+        }
+        countdownEndTimeRef.current = null;
+    }, []);
+
+    // Single wall-clock countdown: chained timeouts scheduled from one end
+    // time so ticks aren't reset by re-renders or startActualRecording changes.
+    const beginRecordingCountdown = useCallback(
+        (seconds: number) => {
+            clearRecordingCountdownTimer();
+            const endTime = performance.now() + seconds * 1000;
+            countdownEndTimeRef.current = endTime;
+
+            const scheduleDigit = (digit: number) => {
+                setCountdown(digit);
+                setRecordingStatus(`Starting in ${digit}...`);
+
+                const delay = Math.max(0, endTime - (digit - 1) * 1000 - performance.now());
+                countdownIntervalRef.current = setTimeout(() => {
+                    if (digit <= 1) {
+                        clearRecordingCountdownTimer();
+                        setCountdown(null);
+                        setRecordingStatus("Starting...");
+                        void startActualRecordingRef.current?.();
+                    } else {
+                        scheduleDigit(digit - 1);
+                    }
+                }, delay) as unknown as NodeJS.Timeout;
+            };
+
+            scheduleDigit(seconds);
+        },
+        [clearRecordingCountdownTimer]
+    );
+
+    // Recording elapsed time tracker - updates every 100ms while recording
+    useEffect(() => {
+        if (!isRecording || recordingStartTime === null) {
+            // Reset elapsed time when not recording
+            if (recordingTimerRef.current) {
+                clearInterval(recordingTimerRef.current);
+                recordingTimerRef.current = null;
+            }
+            setRecordingElapsedTime(0);
+            return;
+        }
+
+        // Update elapsed time every 100ms for smooth progress bar
+        recordingTimerRef.current = setInterval(() => {
+            const elapsed = (Date.now() - recordingStartTime) / 1000;
+            setRecordingElapsedTime(elapsed);
+        }, 100);
+
+        return () => {
+            if (recordingTimerRef.current) {
+                clearInterval(recordingTimerRef.current);
+                recordingTimerRef.current = null;
+            }
+        };
+    }, [isRecording, recordingStartTime]);
+
+    // Helper function to request audio timestamps for a cell
+    const requestCellAudioTimestamps = useCallback((cellId: string): Promise<Timestamps | null> => {
+        return new Promise((resolve) => {
+            let resolved = false;
+            const timeout = setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    window.removeEventListener("message", handler);
+                    resolve(null);
+                }
+            }, 5000);
+
+            const handler = (event: MessageEvent) => {
+                const message = event.data;
+
+                if (
+                    message?.type === "providerSendsCellAudioTimestamps" &&
+                    message.content?.cellId === cellId
+                ) {
+                    if (!resolved) {
+                        resolved = true;
+                        clearTimeout(timeout);
+                        window.removeEventListener("message", handler);
+                        resolve(message.content.audioTimestamps || null);
+                    }
+                }
+            };
+
+            window.addEventListener("message", handler);
+            window.vscodeApi.postMessage({
+                command: "requestCellAudioTimestamps",
+                content: { cellId },
+            } as EditorPostMessages);
+        });
+    }, []);
+
+    // Fetch previous/next cell audio timestamps
+    useEffect(() => {
+        let cancelled = false;
+
+        const fetchAudioTimestamps = async () => {
+            const promises: Promise<void>[] = [];
+
+            if (prevCellId) {
+                promises.push(
+                    requestCellAudioTimestamps(prevCellId).then((timestamps) => {
+                        if (!cancelled) {
+                            setPrevAudioTimestamps(timestamps);
+                        }
+                    })
+                );
+            } else {
+                setPrevAudioTimestamps(null);
+            }
+
+            if (nextCellId) {
+                promises.push(
+                    requestCellAudioTimestamps(nextCellId).then((timestamps) => {
+                        if (!cancelled) {
+                            setNextAudioTimestamps(timestamps);
+                        }
+                    })
+                );
+            } else {
+                setNextAudioTimestamps(null);
+            }
+
+            await Promise.all(promises);
+        };
+
+        fetchAudioTimestamps();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [prevCellId, nextCellId, requestCellAudioTimestamps]);
+
+    // Refresh adjacent cell audio timestamps when their audio attachment state changes
+    useEffect(() => {
+        let cancelled = false;
+
+        const refreshAdjacentTimestamps = async () => {
+            const promises: Promise<void>[] = [];
+
+            // Refresh previous cell timestamps if it has audio available.
+            // "available-cached" is the post-download state for LFS-pointer audio
+            // (Stream Only mode); it must be treated the same as "available-*"
+            // so Play Video's download flow re-hydrates these timestamps.
+            if (
+                prevCellId &&
+                (audioAttachments?.[prevCellId] === "available" ||
+                    audioAttachments?.[prevCellId] === "available-local" ||
+                    audioAttachments?.[prevCellId] === "available-pointer" ||
+                    audioAttachments?.[prevCellId] === "available-cached")
+            ) {
+                promises.push(
+                    requestCellAudioTimestamps(prevCellId).then((timestamps) => {
+                        if (!cancelled) {
+                            setPrevAudioTimestamps(timestamps);
+                        }
+                    })
+                );
+            }
+
+            // Refresh next cell timestamps if it has audio available.
+            // See note above on "available-cached".
+            if (
+                nextCellId &&
+                (audioAttachments?.[nextCellId] === "available" ||
+                    audioAttachments?.[nextCellId] === "available-local" ||
+                    audioAttachments?.[nextCellId] === "available-pointer" ||
+                    audioAttachments?.[nextCellId] === "available-cached")
+            ) {
+                promises.push(
+                    requestCellAudioTimestamps(nextCellId).then((timestamps) => {
+                        if (!cancelled) {
+                            setNextAudioTimestamps(timestamps);
+                        }
+                    })
+                );
+            }
+
+            await Promise.all(promises);
+        };
+
+        refreshAdjacentTimestamps();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [prevCellId, nextCellId, audioAttachments, requestCellAudioTimestamps]);
+
+    // Drop the "No audio available in the current video timestamp range" warning
+    // when audio availability changes. The warning is only set inside
+    // handlePlayAudioWithVideo (~line 1743) at click time and only cleared there
+    // on a successful click (~line 1737), so without this effect, restoring a
+    // deleted audio leaves a stale message visible until the next Play Video
+    // press. Reacting to audioBlob covers the current cell directly; reacting to
+    // audioAttachments covers restorations that haven't yet reloaded the blob
+    // and adjacent-cell changes that could resolve the warning.
+    useEffect(() => {
+        setAudioWarning(null);
+    }, [audioBlob, audioAttachments]);
 
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
@@ -639,9 +1104,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     const [editableLabel, setEditableLabel] = useState(cellLabel || "");
     const [similarCells, setSimilarCells] = useState<SimilarCell[]>([]);
-    const [showSuggestions, setShowSuggestions] = useState(false);
-    const [cursorPosition, setCursorPosition] = useState(0);
-    const [activeSearchPosition, setActiveSearchPosition] = useState<number | null>(null);
     const [isEditorControlsExpanded, setIsEditorControlsExpanded] = useState(false);
     const [isPinned, setIsPinned] = useState(false);
     const [showAdvancedControls, setShowAdvancedControls] = useState(false);
@@ -713,6 +1175,30 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     },
                 };
                 window.vscodeApi.postMessage(messageContent);
+                // Optimistically clear staged timestamps - will be re-cleared by effect if needed
+                const { cellTimestamps, ...rest } = contentBeingUpdated;
+                setContentBeingUpdated(rest as EditorCellContent);
+            }
+            const audioTs = contentBeingUpdated.cellAudioTimestamps;
+            if (
+                audioTs &&
+                (typeof audioTs.startTime === "number" || typeof audioTs.endTime === "number")
+            ) {
+                const messageContent: EditorPostMessages = {
+                    command: "updateCellAudioTimestamps",
+                    content: {
+                        cellId: cellMarkers[0],
+                        timestamps: audioTs,
+                    },
+                };
+                window.vscodeApi.postMessage(messageContent);
+                // Optimistically clear staged audio timestamps - mirrors the
+                // cellTimestamps clear above. Without this, a sync that arrives
+                // before the provider's mutation round-trips (and the match-and-clear
+                // effect at ~line 2303 fires) leaves a stale staged value masking
+                // the new persisted cell.audioTimestamps in the slider.
+                const { cellAudioTimestamps, ...audioRest } = contentBeingUpdated;
+                setContentBeingUpdated(audioRest as EditorCellContent);
             }
         }, 0);
     };
@@ -723,13 +1209,911 @@ const CellEditor: React.FC<CellEditorProps> = ({
         typeof nextStartTime === "number" ? nextStartTime : Number.POSITIVE_INFINITY;
     const effectiveTimestamps: Timestamps | undefined =
         contentBeingUpdated.cellTimestamps ?? cellTimestamps;
+    const effectiveAudioTimestamps: Timestamps | undefined = useMemo(() => {
+        return (
+            contentBeingUpdated.cellAudioTimestamps ??
+            cell.audioTimestamps ??
+            (cell.data?.audioStartTime !== undefined || cell.data?.audioEndTime !== undefined
+                ? {
+                      startTime: cell.data.audioStartTime,
+                      endTime: cell.data.audioEndTime,
+                  }
+                : undefined)
+        );
+    }, [contentBeingUpdated.cellAudioTimestamps, cell.audioTimestamps, cell.data]);
+
+    // Keep refs updated so saveAudioToCell can read current state when updating audio timestamps
+    useEffect(() => {
+        effectiveTimestampsRef.current = effectiveTimestamps;
+    }, [effectiveTimestamps]);
+    useEffect(() => {
+        effectiveAudioTimestampsRef.current = effectiveAudioTimestamps;
+    }, [effectiveAudioTimestamps]);
+
+    useEffect(() => {
+        contentBeingUpdatedRef.current = contentBeingUpdated;
+    }, [contentBeingUpdated]);
+
+    // Reset previous audio timestamp values ref when effectiveAudioTimestamps changes
+    useEffect(() => {
+        if (effectiveAudioTimestamps) {
+            const start = effectiveAudioTimestamps.startTime ?? 0;
+            const end = effectiveAudioTimestamps.endTime ?? 0;
+            previousAudioTimestampValuesRef.current = [start, end];
+        } else {
+            previousAudioTimestampValuesRef.current = null;
+        }
+    }, [effectiveAudioTimestamps]);
+
+    // Initialize or sync audio timestamps when Timestamps tab is opened with current cell audio
+    useEffect(() => {
+        // Only run when Timestamps tab is active
+        if (activeTab !== "timestamps") {
+            return;
+        }
+
+        if (!audioBlob || !audioDuration || audioDuration <= 0) {
+            return;
+        }
+
+        // Stored audio timestamps duration (if any) — compare to current audio duration
+        const storedDuration = effectiveAudioTimestamps
+            ? (effectiveAudioTimestamps.endTime ?? 0) - (effectiveAudioTimestamps.startTime ?? 0)
+            : 0;
+        const durationMismatch = Math.abs(storedDuration - audioDuration) > 0.01;
+
+        // Initialize when no audio timestamps, or overwrite when current audio duration differs (e.g. new recording)
+        const shouldUpdate =
+            (!effectiveAudioTimestamps && !contentBeingUpdated.cellAudioTimestamps) ||
+            durationMismatch;
+
+        if (shouldUpdate) {
+            // Preserve previous audio start time when re-recording; otherwise use video start or 0
+            const startTime =
+                effectiveAudioTimestamps?.startTime ?? effectiveTimestamps?.startTime ?? 0;
+            const endTime = startTime + audioDuration;
+
+            const initialAudioTimestamps: Timestamps = {
+                startTime: Number(startTime.toFixed(3)),
+                endTime: Number(endTime.toFixed(3)),
+            };
+
+            setContentBeingUpdated({
+                ...contentBeingUpdated,
+                cellAudioTimestamps: initialAudioTimestamps,
+            });
+
+            // Immediately save audio timestamps to provider so adjacent cells can see them
+            const messageContent: EditorPostMessages = {
+                command: "updateCellAudioTimestamps",
+                content: {
+                    cellId: cellMarkers[0],
+                    timestamps: initialAudioTimestamps,
+                },
+            };
+            window.vscodeApi.postMessage(messageContent);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        activeTab,
+        audioBlob,
+        audioDuration,
+        effectiveAudioTimestamps,
+        effectiveTimestamps,
+        prevCellId,
+        nextCellId,
+        requestCellAudioTimestamps,
+    ]);
+
+    // Extended bounds for overlapping ranges
+    const extendedMinBound =
+        typeof prevStartTime === "number" ? prevStartTime : Math.max(0, previousEndBound);
+    const extendedMaxBound =
+        typeof nextEndTime === "number"
+            ? nextEndTime
+            : Number.isFinite(nextStartBound)
+            ? nextStartBound
+            : Math.max(
+                  effectiveTimestamps?.endTime ?? 0,
+                  (effectiveTimestamps?.startTime ?? 0) + 10
+              );
+
     const computedMaxBound = Number.isFinite(nextStartBound)
         ? nextStartBound
         : Math.max(effectiveTimestamps?.endTime ?? 0, (effectiveTimestamps?.startTime ?? 0) + 10);
 
+    // "available-cached" is the post-download state for LFS-pointer audio
+    // (Stream Only mode); without it, the prev/next sliders disappear right
+    // after Play Video downloads adjacent cells' audio.
+    const hasPrevAudioAvailable =
+        !!prevCellId &&
+        (audioAttachments?.[prevCellId] === "available" ||
+            audioAttachments?.[prevCellId] === "available-local" ||
+            audioAttachments?.[prevCellId] === "available-pointer" ||
+            audioAttachments?.[prevCellId] === "available-cached");
+    const hasNextAudioAvailable =
+        !!nextCellId &&
+        (audioAttachments?.[nextCellId] === "available" ||
+            audioAttachments?.[nextCellId] === "available-local" ||
+            audioAttachments?.[nextCellId] === "available-pointer" ||
+            audioAttachments?.[nextCellId] === "available-cached");
+    const canPlayAudioWithVideo =
+        Boolean(audioBlob) || hasPrevAudioAvailable || hasNextAudioAvailable;
+
+    // Helper function to request audio blob for a cell
+    const requestAudioBlob = useCallback((cellId: string): Promise<Blob | null> => {
+        return new Promise((resolve) => {
+            let resolved = false;
+            const timeout = setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    window.removeEventListener("message", handler);
+                    resolve(null);
+                }
+            }, 5000);
+
+            const handler = (event: MessageEvent) => {
+                const message = event.data;
+                if (
+                    message?.type === "providerSendsAudioData" &&
+                    message.content?.cellId === cellId
+                ) {
+                    if (!resolved) {
+                        resolved = true;
+                        clearTimeout(timeout);
+                        window.removeEventListener("message", handler);
+                        if (message.content.audioData) {
+                            fetch(message.content.audioData)
+                                .then((res) => res.blob())
+                                .then((blob) => resolve(blob))
+                                .catch(() => resolve(null));
+                        } else {
+                            resolve(null);
+                        }
+                    }
+                }
+            };
+
+            window.addEventListener("message", handler);
+            window.vscodeApi.postMessage({
+                command: "requestAudioForCell",
+                content: { cellId },
+            } as EditorPostMessages);
+        });
+    }, []);
+
+    // Helper function to clean up all overlapping audio (simplified - mainly for URL cleanup)
+    const cleanupOverlappingAudio = useCallback(() => {
+        // Clean up any remaining blob URLs
+        overlappingAudioUrlsRef.current.forEach((url) => {
+            URL.revokeObjectURL(url);
+        });
+        overlappingAudioUrlsRef.current.clear();
+        overlappingAudioElementsRef.current.clear();
+        overlappingAudioHandlersRef.current.clear();
+        overlappingAudioDelaysRef.current.clear();
+        overlappingAudioOffsetsRef.current.clear();
+    }, []);
+
+    /**
+     * Convert AudioBuffer to WAV format blob
+     */
+    const audioBufferToWav = useCallback((buffer: AudioBuffer): ArrayBuffer => {
+        const length = buffer.length;
+        const numberOfChannels = buffer.numberOfChannels;
+        const sampleRate = buffer.sampleRate;
+        const arrayBuffer = new ArrayBuffer(44 + length * numberOfChannels * 2);
+        const view = new DataView(arrayBuffer);
+
+        // WAV header
+        const writeString = (offset: number, string: string) => {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        };
+
+        let offset = 0;
+        writeString(offset, "RIFF");
+        offset += 4;
+        view.setUint32(offset, 36 + length * numberOfChannels * 2, true);
+        offset += 4;
+        writeString(offset, "WAVE");
+        offset += 4;
+        writeString(offset, "fmt ");
+        offset += 4;
+        view.setUint32(offset, 16, true);
+        offset += 4;
+        view.setUint16(offset, 1, true);
+        offset += 2;
+        view.setUint16(offset, numberOfChannels, true);
+        offset += 2;
+        view.setUint32(offset, sampleRate, true);
+        offset += 4;
+        view.setUint32(offset, sampleRate * numberOfChannels * 2, true);
+        offset += 4;
+        view.setUint16(offset, numberOfChannels * 2, true);
+        offset += 2;
+        view.setUint16(offset, 16, true);
+        offset += 2;
+        writeString(offset, "data");
+        offset += 4;
+        view.setUint32(offset, length * numberOfChannels * 2, true);
+        offset += 4;
+
+        // Convert float samples to 16-bit PCM
+        for (let i = 0; i < length; i++) {
+            for (let channel = 0; channel < numberOfChannels; channel++) {
+                const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]));
+                view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+                offset += 2;
+            }
+        }
+
+        return arrayBuffer;
+    }, []);
+
+    /**
+     * Combine multiple audio segments into a single audio blob
+     * Uses Web Audio API to decode, extract portions, and concatenate audio
+     */
+    const combineAudioSegments = useCallback(
+        async (
+            segments: Array<{
+                blob: Blob;
+                startTime: number; // When this segment should start in the final audio (relative to timeline start)
+                offsetInAudio: number; // Offset within the source audio blob to start from
+                duration: number; // Duration to extract from the source audio
+            }>,
+            totalDuration: number, // Total duration of the final combined audio
+            sampleRate: number = 44100
+        ): Promise<Blob> => {
+            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
+                sampleRate,
+            });
+
+            // Create a buffer for the final combined audio
+            const totalSamples = Math.ceil(totalDuration * sampleRate);
+            const combinedBuffer = audioContext.createBuffer(1, totalSamples, sampleRate);
+            const combinedData = combinedBuffer.getChannelData(0);
+
+            // Process each segment
+            for (let segIndex = 0; segIndex < segments.length; segIndex++) {
+                const segment = segments[segIndex];
+                try {
+                    // Check cache first - use blob size + first few bytes as key
+                    let audioBuffer: AudioBuffer | undefined;
+                    const blobKey = `${segment.blob.size}-${segment.blob.type}`;
+
+                    // Try to get from cache
+                    audioBuffer = audioBufferCacheRef.current.get(blobKey);
+
+                    if (!audioBuffer) {
+                        // Decode the audio blob
+                        const arrayBuffer = await segment.blob.arrayBuffer();
+                        audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                        // Cache it
+                        audioBufferCacheRef.current.set(blobKey, audioBuffer);
+                    }
+
+                    // Use the actual sample rate from the decoded audio buffer
+                    const sourceSampleRate = audioBuffer.sampleRate;
+
+                    // Calculate where this segment should be placed in the combined buffer (using target sample rate)
+                    const startSample = Math.floor(segment.startTime * sampleRate);
+
+                    // Calculate source audio positions using the source audio's sample rate
+                    const sourceStartSample = Math.floor(segment.offsetInAudio * sourceSampleRate);
+                    const sourceDurationSamples = Math.floor(segment.duration * sourceSampleRate);
+                    const sourceEndSample = Math.min(
+                        sourceStartSample + sourceDurationSamples,
+                        audioBuffer.length
+                    );
+                    const actualSourceSamples = sourceEndSample - sourceStartSample;
+
+                    // Calculate how many samples we need in the combined buffer (using target sample rate)
+                    const targetDurationSamples = Math.floor(segment.duration * sampleRate);
+                    const segmentSamples = Math.min(
+                        targetDurationSamples,
+                        totalSamples - startSample
+                    );
+
+                    // Extract the portion we need from the source audio
+                    const sourceData = audioBuffer.getChannelData(0);
+
+                    // Mix the audio data into the combined buffer with sample rate conversion
+                    if (sourceSampleRate === sampleRate) {
+                        // Same sample rate - direct mix
+                        for (let i = 0; i < segmentSamples && startSample + i < totalSamples; i++) {
+                            const sourceIndex = sourceStartSample + i;
+                            if (sourceIndex < sourceData.length && sourceIndex < sourceEndSample) {
+                                // Add to existing value to mix overlapping segments
+                                combinedData[startSample + i] += sourceData[sourceIndex];
+                            }
+                        }
+                    } else {
+                        // Different sample rate - resample using linear interpolation
+                        const ratio = sourceSampleRate / sampleRate;
+                        for (let i = 0; i < segmentSamples && startSample + i < totalSamples; i++) {
+                            const sourceIndexFloat = sourceStartSample + i * ratio;
+                            const sourceIndex = Math.floor(sourceIndexFloat);
+                            const nextIndex = Math.min(sourceIndex + 1, sourceEndSample - 1);
+
+                            if (sourceIndex < sourceData.length && sourceIndex < sourceEndSample) {
+                                let sampleValue: number;
+                                if (
+                                    nextIndex > sourceIndex &&
+                                    nextIndex < sourceEndSample &&
+                                    sourceIndexFloat !== sourceIndex
+                                ) {
+                                    // Linear interpolation
+                                    const fraction = sourceIndexFloat - sourceIndex;
+                                    sampleValue =
+                                        sourceData[sourceIndex] * (1 - fraction) +
+                                        sourceData[nextIndex] * fraction;
+                                } else {
+                                    // No interpolation needed (exact match or at boundary)
+                                    sampleValue = sourceData[sourceIndex];
+                                }
+                                // Add to existing value to mix overlapping segments
+                                combinedData[startSample + i] += sampleValue;
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.warn("Error processing audio segment:", error);
+                    // Continue with other segments even if one fails
+                }
+            }
+
+            // Normalize the audio to prevent clipping when multiple segments overlap
+            let maxAmplitude = 0;
+            for (let i = 0; i < totalSamples; i++) {
+                const absValue = Math.abs(combinedData[i]);
+                if (absValue > maxAmplitude) {
+                    maxAmplitude = absValue;
+                }
+            }
+
+            // If the maximum amplitude exceeds 1.0, normalize to prevent clipping
+            if (maxAmplitude > 1.0) {
+                const normalizationFactor = 1.0 / maxAmplitude;
+                for (let i = 0; i < totalSamples; i++) {
+                    combinedData[i] *= normalizationFactor;
+                }
+            }
+
+            // Convert the combined buffer back to a blob
+            const wavBuffer = audioBufferToWav(combinedBuffer);
+            return new Blob([wavBuffer], { type: "audio/wav" });
+        },
+        [audioBufferToWav]
+    );
+
+    // Memoized combined audio blob - combines current cell + overlapping segments
+    // Created on-demand in handlePlayAudioWithVideo and cached
+    const combinedAudioBlobRef = useRef<Blob | null>(null);
+    const combinedAudioBlobKeyRef = useRef<string>("");
+
+    // Generate a key for the current audio configuration to detect changes
+    const getCombinedAudioKey = useCallback(() => {
+        const startTime = effectiveTimestamps?.startTime;
+        const endTime = effectiveTimestamps?.endTime;
+        const audioStart = effectiveAudioTimestamps?.startTime;
+        const audioEnd = effectiveAudioTimestamps?.endTime;
+        const prevAudioStart = prevAudioTimestamps?.startTime ?? prevStartTime;
+        const prevAudioEnd = prevAudioTimestamps?.endTime ?? prevEndTime;
+        const nextAudioStart = nextAudioTimestamps?.startTime ?? nextStartTime;
+        const nextAudioEnd = nextAudioTimestamps?.endTime ?? nextEndTime;
+        return `${audioBlob ? "hasCurrent" : "noCurrent"}-${prevCellId || "none"}-${
+            nextCellId || "none"
+        }-${startTime}-${endTime}-${audioStart}-${audioEnd}-${prevAudioStart}-${prevAudioEnd}-${nextAudioStart}-${nextAudioEnd}-${combinedAudioBlobKey}`;
+    }, [
+        audioBlob,
+        prevCellId,
+        nextCellId,
+        effectiveTimestamps,
+        effectiveAudioTimestamps,
+        prevStartTime,
+        prevEndTime,
+        prevAudioTimestamps,
+        nextStartTime,
+        nextEndTime,
+        nextAudioTimestamps,
+        combinedAudioBlobKey,
+    ]);
+
+    // Debounced handler to invalidate combined audio blob cache when timestamps change
+    const debouncedInvalidateCombinedAudio = useMemo(() => {
+        let timeoutId: NodeJS.Timeout | null = null;
+        return () => {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+            timeoutId = setTimeout(() => {
+                // Invalidate cache by updating the key
+                setCombinedAudioBlobKey((prev) => prev + 1);
+                combinedAudioBlobRef.current = null;
+                combinedAudioBlobKeyRef.current = "";
+            }, 2000); // 2 second debounce
+        };
+    }, []);
+
+    // Handler to play audio blob with synchronized video playback
+    const handlePlayAudioWithVideo = useCallback(async () => {
+        // Validate prerequisites
+        const startTime = effectiveTimestamps?.startTime;
+        const endTime = effectiveTimestamps?.endTime;
+
+        if (startTime === undefined || endTime === undefined) {
+            console.warn("Timestamps are not available");
+            return;
+        }
+
+        if (endTime <= startTime) {
+            console.warn("Invalid timestamps: endTime must be greater than startTime");
+            return;
+        }
+
+        setIsPlayAudioLoading(true);
+        try {
+            // Clean up any existing playback
+            if (audioElementRef.current) {
+                if (audioTimeUpdateHandlerRef.current) {
+                    audioElementRef.current.removeEventListener(
+                        "timeupdate",
+                        audioTimeUpdateHandlerRef.current
+                    );
+                    audioTimeUpdateHandlerRef.current = null;
+                }
+                const currentUrl = overlappingAudioUrlsRef.current.get("combined");
+                if (currentUrl) {
+                    URL.revokeObjectURL(currentUrl);
+                    overlappingAudioUrlsRef.current.delete("combined");
+                }
+                audioElementRef.current.pause();
+                audioElementRef.current.src = "";
+                audioElementRef.current = null;
+            }
+
+            if (videoElementRef.current && videoTimeUpdateHandlerRef.current) {
+                videoElementRef.current.removeEventListener(
+                    "timeupdate",
+                    videoTimeUpdateHandlerRef.current
+                );
+                videoTimeUpdateHandlerRef.current = null;
+            }
+
+            // Collect all audio segments that need to be combined
+            const totalDuration = endTime - startTime;
+            const segments: Array<{
+                blob: Blob;
+                startTime: number;
+                offsetInAudio: number;
+                duration: number;
+            }> = [];
+
+            // Check if we have a cached combined blob for this configuration
+            const currentKey = getCombinedAudioKey();
+            let combinedBlob = combinedAudioBlobRef.current;
+
+            if (!combinedBlob || combinedAudioBlobKeyRef.current !== currentKey) {
+                // Need to create new combined blob
+                // Collect segments
+
+                // Current cell audio
+                if (audioBlob) {
+                    const resolvedAudioStartTime = effectiveAudioTimestamps?.startTime ?? startTime;
+                    const resolvedAudioEndTime = effectiveAudioTimestamps?.endTime ?? endTime;
+                    const playStartTime = Math.max(resolvedAudioStartTime, startTime);
+                    const playEndTime = Math.min(resolvedAudioEndTime, endTime);
+
+                    if (playEndTime > playStartTime) {
+                        const offsetInAudio = playStartTime - resolvedAudioStartTime;
+                        const duration = playEndTime - playStartTime;
+                        const startTimeInCombined = playStartTime - startTime;
+
+                        segments.push({
+                            blob: audioBlob,
+                            startTime: startTimeInCombined,
+                            offsetInAudio,
+                            duration,
+                        });
+                    }
+                }
+
+                // Previous cell audio - use audio timestamps if available, fallback to video timestamps
+                if (prevCellId) {
+                    const prevAudioStart = prevAudioTimestamps?.startTime ?? prevStartTime;
+                    const prevAudioEnd = prevAudioTimestamps?.endTime ?? prevEndTime;
+
+                    if (
+                        typeof prevAudioStart === "number" &&
+                        typeof prevAudioEnd === "number" &&
+                        startTime < prevAudioEnd
+                    ) {
+                        const prevBlob = await requestAudioBlob(prevCellId);
+                        if (prevBlob) {
+                            const playStartTime = Math.max(prevAudioStart, startTime);
+                            const playEndTime = Math.min(prevAudioEnd, endTime);
+
+                            if (playEndTime > playStartTime) {
+                                const offsetInAudio = playStartTime - prevAudioStart;
+                                const duration = playEndTime - playStartTime;
+                                const startTimeInCombined = playStartTime - startTime;
+
+                                segments.push({
+                                    blob: prevBlob,
+                                    startTime: startTimeInCombined,
+                                    offsetInAudio,
+                                    duration,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // Next cell audio - use audio timestamps if available, fallback to video timestamps
+                if (nextCellId) {
+                    const nextAudioStart = nextAudioTimestamps?.startTime ?? nextStartTime;
+                    const nextAudioEnd = nextAudioTimestamps?.endTime ?? nextEndTime;
+
+                    if (
+                        typeof nextAudioStart === "number" &&
+                        typeof nextAudioEnd === "number" &&
+                        endTime > nextAudioStart
+                    ) {
+                        const nextBlob = await requestAudioBlob(nextCellId);
+                        if (nextBlob) {
+                            const playStartTime = Math.max(nextAudioStart, startTime);
+                            const playEndTime = Math.min(nextAudioEnd, endTime);
+
+                            if (playEndTime > playStartTime) {
+                                const offsetInAudio = playStartTime - nextAudioStart;
+                                const duration = playEndTime - playStartTime;
+                                const startTimeInCombined = playStartTime - startTime;
+
+                                segments.push({
+                                    blob: nextBlob,
+                                    startTime: startTimeInCombined,
+                                    offsetInAudio,
+                                    duration,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // Combine segments if we have any
+                if (segments.length > 0) {
+                    try {
+                        combinedBlob = await combineAudioSegments(segments, totalDuration);
+                        combinedAudioBlobRef.current = combinedBlob;
+                        combinedAudioBlobKeyRef.current = currentKey;
+                        setAudioWarning(null);
+                    } catch (error) {
+                        console.error("Error combining audio segments:", error);
+                        combinedBlob = null;
+                    }
+                } else {
+                    setAudioWarning("No audio available in the current video timestamp range");
+                    return;
+                }
+            }
+
+            if (!combinedBlob) {
+                console.warn("No combined audio blob available");
+                return;
+            }
+
+            // Helper function to clean up all audio and video
+            const cleanupAll = () => {
+                if (audioElementRef.current) {
+                    const audioToClean = audioElementRef.current;
+                    if (audioTimeUpdateHandlerRef.current) {
+                        audioToClean.removeEventListener(
+                            "timeupdate",
+                            audioTimeUpdateHandlerRef.current
+                        );
+                        audioTimeUpdateHandlerRef.current = null;
+                    }
+                    const combinedUrl = overlappingAudioUrlsRef.current.get("combined");
+                    if (combinedUrl) {
+                        URL.revokeObjectURL(combinedUrl);
+                        overlappingAudioUrlsRef.current.delete("combined");
+                    }
+                    audioToClean.pause();
+                    audioToClean.src = "";
+                    audioElementRef.current = null;
+                    // Release so globalAudioController clears current; otherwise VideoPlayer
+                    // play later thinks "other audio" is still playing and skips cell overlay audio.
+                    globalAudioController.release(audioToClean);
+                }
+
+                // Restore video mute state and clean up video
+                if (videoElementRef.current) {
+                    if (previousVideoMuteStateRef.current !== null) {
+                        videoElementRef.current.muted = previousVideoMuteStateRef.current;
+                        previousVideoMuteStateRef.current = null;
+                    }
+                    if (videoTimeUpdateHandlerRef.current) {
+                        videoElementRef.current.removeEventListener(
+                            "timeupdate",
+                            videoTimeUpdateHandlerRef.current
+                        );
+                        videoTimeUpdateHandlerRef.current = null;
+                    }
+                    videoElementRef.current.pause();
+                    videoElementRef.current = null;
+                }
+            };
+
+            // Create single audio element from combined blob
+            const audioUrl = URL.createObjectURL(combinedBlob);
+            overlappingAudioUrlsRef.current.set("combined", audioUrl);
+            const audio = new Audio(audioUrl);
+            audioElementRef.current = audio;
+
+            // Set up audio event handlers
+            audio.onended = () => {
+                if (!videoElementRef.current) {
+                    cleanupAll();
+                }
+            };
+            audio.onerror = () => {
+                const error = audio.error;
+                // Only log if it's a real error (not just unsupported format - code 4)
+                // MediaError codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
+                if (error && error.code !== 4) {
+                    const errorMessage = error.message
+                        ? `Error loading combined audio: ${error.message}`
+                        : "Error loading combined audio";
+                    console.warn(errorMessage);
+                }
+            };
+
+            // Set up timeupdate listener to stop at endTime
+            const audioTimeUpdateHandler = (e: Event) => {
+                const target = e.target as HTMLAudioElement;
+                if (target.currentTime >= totalDuration) {
+                    target.pause();
+                    if (audioTimeUpdateHandlerRef.current) {
+                        target.removeEventListener("timeupdate", audioTimeUpdateHandlerRef.current);
+                        audioTimeUpdateHandlerRef.current = null;
+                    }
+                    cleanupAll();
+                }
+            };
+
+            audioTimeUpdateHandlerRef.current = audioTimeUpdateHandler;
+            audio.addEventListener("timeupdate", audioTimeUpdateHandler);
+
+            // Wait for audio to be ready
+            await new Promise<void>((resolve, reject) => {
+                const handleLoadedMetadata = () => {
+                    audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+                    audio.removeEventListener("error", handleError);
+                    resolve();
+                };
+
+                const handleError = () => {
+                    audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+                    audio.removeEventListener("error", handleError);
+                    const error = audio.error;
+                    const errorMessage = error?.message || "Error loading combined audio";
+                    reject(new Error(errorMessage));
+                };
+
+                if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
+                    handleLoadedMetadata();
+                } else {
+                    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
+                    audio.addEventListener("error", handleError);
+                }
+            });
+
+            // Handle video playback if available
+            if (
+                shouldShowVideoPlayer &&
+                videoUrl &&
+                playerRef?.current &&
+                startTime !== undefined &&
+                endTime !== undefined
+            ) {
+                try {
+                    let videoElement: HTMLVideoElement | null = null;
+                    let seeked = false;
+
+                    // First try seekTo method if available
+                    if (typeof playerRef.current.seekTo === "function") {
+                        playerRef.current.seekTo(startTime, "seconds");
+                        seeked = true;
+                    }
+
+                    // Try to find the video element
+                    const internalPlayer = playerRef.current.getInternalPlayer?.();
+
+                    if (internalPlayer instanceof HTMLVideoElement) {
+                        videoElement = internalPlayer;
+                        if (!seeked) {
+                            videoElement.currentTime = startTime;
+                            seeked = true;
+                        }
+                    } else if (internalPlayer && typeof internalPlayer === "object") {
+                        // Try different ways to access the video element
+                        const foundVideo =
+                            (internalPlayer as any).querySelector?.("video") ||
+                            (internalPlayer as any).video ||
+                            internalPlayer;
+
+                        if (foundVideo instanceof HTMLVideoElement) {
+                            videoElement = foundVideo;
+                            if (!seeked) {
+                                videoElement.currentTime = startTime;
+                                seeked = true;
+                            }
+                        }
+                    }
+
+                    // Last resort: Try to find video element in the DOM
+                    if (!videoElement && playerRef.current) {
+                        const wrapper = playerRef.current as any;
+                        const foundVideo =
+                            wrapper.querySelector?.("video") ||
+                            wrapper.parentElement?.querySelector?.("video");
+
+                        if (foundVideo instanceof HTMLVideoElement) {
+                            videoElement = foundVideo;
+                            if (!seeked) {
+                                videoElement.currentTime = startTime;
+                                seeked = true;
+                            }
+                        }
+                    }
+
+                    // If we found the video element, mute it and set up playback
+                    if (videoElement) {
+                        videoElementRef.current = videoElement;
+                        previousVideoMuteStateRef.current = videoElement.muted;
+                        // Only mute if checkbox is checked
+                        videoElement.muted = muteVideoAudioDuringPlayback;
+
+                        // Check if we're already past the end time (shouldn't happen, but be safe)
+                        if (videoElement.currentTime >= endTime) {
+                            // Already past end time, don't play
+                            videoElement.pause();
+                            cleanupAll();
+                        } else {
+                            // Set up timeupdate listener to pause at endTime
+                            const timeUpdateHandler = (e: Event) => {
+                                const target = e.target as HTMLVideoElement;
+                                if (target.currentTime >= endTime) {
+                                    target.pause();
+                                    if (videoTimeUpdateHandlerRef.current) {
+                                        target.removeEventListener(
+                                            "timeupdate",
+                                            videoTimeUpdateHandlerRef.current
+                                        );
+                                        videoTimeUpdateHandlerRef.current = null;
+                                    }
+                                    cleanupAll();
+                                }
+                            };
+
+                            // Start video playback first, then set up the handler
+                            // This prevents the handler from firing and pausing before play() resolves
+                            try {
+                                await videoElement.play();
+
+                                // Only set up the handler after play() succeeds
+                                // This prevents race conditions where pause() interrupts play()
+                                videoTimeUpdateHandlerRef.current = timeUpdateHandler;
+                                videoElement.addEventListener("timeupdate", timeUpdateHandler);
+                            } catch (playError) {
+                                // Suppress AbortError warnings - these are expected when pause() interrupts play()
+                                // This can happen if cleanup is called while play() is pending
+                                if (
+                                    playError instanceof Error &&
+                                    playError.name !== "AbortError" &&
+                                    playError.name !== "NotAllowedError"
+                                ) {
+                                    console.warn("Video play() failed:", playError);
+                                }
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error("Error setting up video playback:", error);
+                }
+            }
+
+            // Play the combined audio using globalAudioController to prevent duplicate playback
+            // This ensures useMultiCellAudioPlayback knows audio is already playing
+            try {
+                await globalAudioController.playExclusive(audio);
+            } catch (playError) {
+                if (
+                    playError instanceof Error &&
+                    playError.name !== "AbortError" &&
+                    playError.name !== "NotAllowedError"
+                ) {
+                    console.error("Error playing combined audio:", playError);
+                    cleanupAll();
+                }
+            }
+        } finally {
+            setIsPlayAudioLoading(false);
+        }
+    }, [
+        audioBlob,
+        effectiveTimestamps,
+        effectiveAudioTimestamps,
+        shouldShowVideoPlayer,
+        videoUrl,
+        playerRef,
+        muteVideoAudioDuringPlayback,
+        prevCellId,
+        prevStartTime,
+        prevEndTime,
+        prevAudioTimestamps,
+        nextCellId,
+        nextStartTime,
+        nextEndTime,
+        nextAudioTimestamps,
+        requestAudioBlob,
+        combineAudioSegments,
+        getCombinedAudioKey,
+    ]);
+
     useEffect(() => {
         setEditableLabel(cellLabel || "");
     }, [cellLabel]);
+
+    // Cleanup audio/video playback on unmount or when cell changes
+    useEffect(() => {
+        // Capture refs for cleanup
+        const audioElement = audioElementRef.current;
+        const audioHandler = audioTimeUpdateHandlerRef.current;
+        const audioUrls = overlappingAudioUrlsRef.current;
+        const audioBufferCache = audioBufferCacheRef.current;
+
+        return () => {
+            // Clean up audio element
+            if (audioElement) {
+                if (audioHandler) {
+                    audioElement.removeEventListener("timeupdate", audioHandler);
+                }
+                const combinedUrl = audioUrls.get("combined");
+                if (combinedUrl) {
+                    URL.revokeObjectURL(combinedUrl);
+                    audioUrls.delete("combined");
+                }
+                audioElement.pause();
+                audioElement.src = "";
+                globalAudioController.release(audioElement);
+            }
+            // Clear combined audio blob cache
+            combinedAudioBlobRef.current = null;
+            combinedAudioBlobKeyRef.current = "";
+            // Clear audio buffer cache when cell changes
+            audioBufferCache.clear();
+
+            // Clean up video element listeners and restore mute state
+            if (videoElementRef.current) {
+                if (videoTimeUpdateHandlerRef.current) {
+                    videoElementRef.current.removeEventListener(
+                        "timeupdate",
+                        videoTimeUpdateHandlerRef.current
+                    );
+                    videoTimeUpdateHandlerRef.current = null;
+                }
+                if (previousVideoMuteStateRef.current !== null) {
+                    videoElementRef.current.muted = previousVideoMuteStateRef.current;
+                    previousVideoMuteStateRef.current = null;
+                }
+                videoElementRef.current = null;
+            }
+        };
+    }, [cellMarkers]);
 
     // Fetch comments count for this cell
     // Comments count now handled by CellList.tsx batched requests
@@ -958,6 +2342,45 @@ const CellEditor: React.FC<CellEditorProps> = ({
         setUnsavedChanges,
     ]);
 
+    // Clear staged timestamps when prop updates to match (after successful save)
+    useEffect(() => {
+        const staged = contentBeingUpdated.cellTimestamps;
+        const prop = cellTimestamps;
+
+        // Only clear if we have staged timestamps and they match the prop
+        if (staged && prop) {
+            const startMatch = (staged.startTime ?? undefined) === (prop.startTime ?? undefined);
+            const endMatch = (staged.endTime ?? undefined) === (prop.endTime ?? undefined);
+
+            if (startMatch && endMatch) {
+                // Timestamps match - clear staged changes
+                const { cellTimestamps, ...rest } = contentBeingUpdated;
+                setContentBeingUpdated(rest as EditorCellContent);
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cellTimestamps, contentBeingUpdated.cellTimestamps]);
+
+    // Clear staged audio timestamps when persisted values update to match (after successful save)
+    useEffect(() => {
+        const staged = contentBeingUpdated.cellAudioTimestamps;
+        const persisted = cell.audioTimestamps;
+
+        // Only clear if we have staged audio timestamps and they match the persisted values
+        if (staged && persisted) {
+            const startMatch =
+                (staged.startTime ?? undefined) === (persisted.startTime ?? undefined);
+            const endMatch = (staged.endTime ?? undefined) === (persisted.endTime ?? undefined);
+
+            if (startMatch && endMatch) {
+                // Audio timestamps match - clear staged changes
+                const { cellAudioTimestamps, ...rest } = contentBeingUpdated;
+                setContentBeingUpdated(rest as EditorCellContent);
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cell.audioTimestamps, contentBeingUpdated.cellAudioTimestamps]);
+
     // Add effect to fetch source text
     useEffect(() => {
         // Only fetch source text for non-paratext and non-child cells
@@ -1109,7 +2532,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
             // us whether the click landed in a position that needs scrolling.
             ensureEditorVisible();
         },
-        [unsavedChanges, handleSaveHtml, openCellById, setContentBeingUpdated, setEditorContent, ensureEditorVisible]
+        [
+            unsavedChanges,
+            handleSaveHtml,
+            openCellById,
+            setContentBeingUpdated,
+            setEditorContent,
+            ensureEditorVisible,
+        ]
     );
 
     useMessageHandler(
@@ -1229,7 +2659,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 // If this open was specifically forced to audio for recording, ignore
                 try {
                     const id = cellMarkers[0];
-                    if (sessionStorage.getItem(`start-audio-recording-${id}`) || sessionStorage.getItem(`open-audio-history-${id}`)) {
+                    if (
+                        sessionStorage.getItem(`start-audio-recording-${id}`) ||
+                        sessionStorage.getItem(`open-audio-history-${id}`)
+                    ) {
                         return;
                     }
                 } catch {
@@ -1334,8 +2767,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 : 3;
 
         if (configuredSeconds >= 1) {
-            setCountdown(configuredSeconds);
-            setRecordingStatus(`Starting in ${configuredSeconds}...`);
+            beginRecordingCountdown(configuredSeconds);
             return;
         }
 
@@ -1357,10 +2789,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         if (countdown !== null) {
             setCountdown(null);
             setRecordingStatus("");
-            if (countdownIntervalRef.current) {
-                clearInterval(countdownIntervalRef.current);
-                countdownIntervalRef.current = null;
-            }
+            clearRecordingCountdownTimer();
             return;
         }
 
@@ -1434,6 +2863,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     mimeType: blob.type || undefined,
                     sizeBytes: blob.size,
                 };
+                let durationSec: number | undefined;
                 try {
                     const arrayBuf = await blob.arrayBuffer();
                     // Decode to PCM to obtain duration and channels
@@ -1442,7 +2872,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         sampleRate: 48000,
                     } as any);
                     const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-                    const durationSec = decoded.duration;
+                    durationSec = decoded.duration;
                     const channels = decoded.numberOfChannels;
                     // Approximated bitrate in kbps: size(bytes)*8 / duration(seconds) / 1000
                     const bitrateKbps =
@@ -1464,6 +2894,32 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 } catch {
                     // ignore metadata decode errors
                 }
+
+                // Update Timestamps tab with current cell audio so it stays in sync after recording.
+                // Preserve previous audio start time when re-recording (from contentBeingUpdated, kept after save).
+                if (typeof durationSec === "number" && durationSec > 0) {
+                    const startTime =
+                        effectiveAudioTimestampsRef.current?.startTime ??
+                        effectiveTimestampsRef.current?.startTime ??
+                        0;
+                    const endTime = startTime + durationSec;
+                    const newAudioTimestamps: Timestamps = {
+                        startTime: Number(startTime.toFixed(3)),
+                        endTime: Number(endTime.toFixed(3)),
+                    };
+                    setContentBeingUpdated({
+                        ...contentBeingUpdatedRef.current,
+                        cellAudioTimestamps: newAudioTimestamps,
+                    });
+                    window.vscodeApi.postMessage({
+                        command: "updateCellAudioTimestamps",
+                        content: {
+                            cellId: cellMarkers[0],
+                            timestamps: newAudioTimestamps,
+                        },
+                    });
+                }
+
                 // Send to provider to save file
                 const requestId =
                     typeof crypto !== "undefined" &&
@@ -1483,18 +2939,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         metadata: meta,
                     },
                 };
-
                 window.vscodeApi.postMessage(messageContent);
 
                 // Store the audio ID temporarily
                 sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, uniqueId);
+
+                // The provider's `document.updateCellAttachment` auto-selects
+                // the just-saved attachment (see codexDocument.ts). Mirror that
+                // selection locally now so the `audioHistoryReceived` handler
+                // (which re-fires shortly after save) doesn't see a mismatch
+                // between our `currentSelectedAudioId` and the provider's
+                // selection and wipe the freshly-recorded blob mid-render.
+                setCurrentSelectedAudioId(uniqueId);
 
                 // Set the audioBlob (audioUrl will be derived automatically)
                 setAudioBlob(blob);
             };
             reader.readAsDataURL(blob);
         },
-        [cellMarkers]
+        [cellMarkers, setContentBeingUpdated]
     );
 
     // Keep ref updated with saveAudioToCell function
@@ -1502,185 +2965,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
         saveAudioToCellRef.current = saveAudioToCell;
     }, [saveAudioToCell]);
 
-    // Actual recording function - called after countdown completes
-    const startActualRecording = useCallback(async () => {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            setRecordingStatus("Microphone not supported in this browser");
-            return;
-        }
-
-        // Flag the warmup window before any await: from this point until
-        // `recorder.onstart` fires, the button must read as "recording" so
-        // we don't flash through the idle (blue) state.
-        setIsStartingRecording(true);
-
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    // Request high-quality capture suitable for later WAV conversion during export
-                    sampleRate: 48000,
-                    sampleSize: 24, // May be ignored by some browsers; best-effort
-                    channelCount: 1,
-                    echoCancellation: false,
-                    noiseSuppression: false,
-                    autoGainControl: false,
-                },
-            });
-
-            const mediaRecorderOptions: MediaRecorderOptions = {};
-            try {
-                if (typeof MediaRecorder !== "undefined") {
-                    if (MediaRecorder.isTypeSupported?.("audio/webm;codecs=opus")) {
-                        mediaRecorderOptions.mimeType = "audio/webm;codecs=opus";
-                    } else if (MediaRecorder.isTypeSupported?.("audio/webm")) {
-                        mediaRecorderOptions.mimeType = "audio/webm";
-                    }
-                }
-            } catch {
-                // no-op, fall back to default mimeType
-            }
-            // Increase bitrate for higher quality Opus encoding
-            mediaRecorderOptions.audioBitsPerSecond = 256000; // 256 kbps
-
-            const recorder = new MediaRecorder(stream, mediaRecorderOptions);
-
-            audioChunksRef.current = [];
-
-            recorder.ondataavailable = (e) => {
-                if (e.data.size > 0) {
-                    audioChunksRef.current.push(e.data);
-                }
-            };
-
-            recorder.onstart = () => {
-                setIsRecording(true);
-                setIsStartingRecording(false);
-                setRecordingStatus("Recording...");
-                setRecordingStartTime(Date.now());
-                setRecordingElapsedTime(0);
-            };
-
-            recorder.onstop = async () => {
-                setIsRecording(false);
-                setRecordingStartTime(null);
-                setRecordingElapsedTime(0);
-
-                // Release the microphone immediately — no further data will
-                // arrive after stop, and holding the tracks open delays the
-                // OS-level recording indicator from turning off.
-                stream.getTracks().forEach((track) => track.stop());
-
-                // Trim a short tail off the recording to remove the click
-                // sound from the user pressing stop. Mirrors the leading
-                // debounce on start; the user is informed of this trim via
-                // a small notice in the recorder UI. If the trim fails
-                // (decoder error, very short clip, etc.) the helper returns
-                // the original blob unchanged.
-                const rawBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-                const blob = await trimRecordingTail(rawBlob, RECORDING_TAIL_TRIM_MS);
-
-                setAudioBlob(blob);
-
-                // Clean up old URL if exists
-                if (audioUrl) {
-                    URL.revokeObjectURL(audioUrl);
-                }
-
-                const url = URL.createObjectURL(blob);
-                setAudioUrl(url);
-                setRecordingStatus("Recording complete");
-
-                // Save audio to cell data
-                if (saveAudioToCellRef.current) {
-                    saveAudioToCellRef.current(blob);
-                }
-                setShowRecorder(false);
-            };
-
-            recorder.start();
-            setMediaRecorder(recorder);
-        } catch (err) {
-            setRecordingStatus("Microphone access denied");
-            console.error("Error accessing microphone:", err);
-            setCountdown(null);
-            setIsStartingRecording(false);
-        }
-    }, [audioUrl]);
-
-    // Countdown timer effect - handles 3→2→1→0 countdown before recording starts
-    useEffect(() => {
-        if (countdown === null || countdown < 0) {
-            // Clean up interval if countdown is not active
-            if (countdownIntervalRef.current) {
-                clearInterval(countdownIntervalRef.current);
-                countdownIntervalRef.current = null;
-            }
-            return;
-        }
-
-        if (countdown === 0) {
-            // Countdown finished, start actual recording
-            if (countdownIntervalRef.current) {
-                clearInterval(countdownIntervalRef.current);
-                countdownIntervalRef.current = null;
-            }
-            setCountdown(null);
-            // Call the actual recording start function
-            startActualRecording();
-            return;
-        }
-
-        // Set up interval to decrement countdown every second
-        countdownIntervalRef.current = setInterval(() => {
-            setCountdown((prev) => {
-                if (prev === null || prev <= 0) {
-                    return null;
-                }
-                const next = prev - 1;
-                setRecordingStatus(next > 0 ? `Starting in ${next}...` : "Starting...");
-                return next;
-            });
-        }, 1000);
-
-        return () => {
-            if (countdownIntervalRef.current) {
-                clearInterval(countdownIntervalRef.current);
-                countdownIntervalRef.current = null;
-            }
-        };
-    }, [countdown, startActualRecording]);
-
-    // Recording elapsed time tracker - updates every 100ms while recording
-    useEffect(() => {
-        if (!isRecording || recordingStartTime === null) {
-            // Reset elapsed time when not recording
-            if (recordingTimerRef.current) {
-                clearInterval(recordingTimerRef.current);
-                recordingTimerRef.current = null;
-            }
-            setRecordingElapsedTime(0);
-            return;
-        }
-
-        // Update elapsed time every 100ms for smooth progress bar
-        recordingTimerRef.current = setInterval(() => {
-            const elapsed = (Date.now() - recordingStartTime) / 1000;
-            setRecordingElapsedTime(elapsed);
-        }, 100);
-
-        return () => {
-            if (recordingTimerRef.current) {
-                clearInterval(recordingTimerRef.current);
-                recordingTimerRef.current = null;
-            }
-        };
-    }, [isRecording, recordingStartTime]);
-
     const discardAudio = () => {
         setAudioBlob(null);
         setAudioUrl(null);
         setAudioAuthor(undefined);
         setRecordingStatus("");
+        // Drop the cellId-keyed in-memory cache so `preloadAudioForTab`'s
+        // hydration path can't re-fetch the just-discarded data URL on the
+        // re-render that follows `setAudioBlob(null)`.
+        clearCachedAudio(cellMarkers[0]);
 
         // Cancel any ongoing transcription
         if (transcriptionClientRef.current) {
@@ -1700,6 +2993,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
         // If we have an audio ID, notify provider to delete the file
         if (audioId) {
+            // Mark this cell as having a pending deletion so the auto-download
+            // handler skips the next stale "available-*" broadcast for it.
+            // 5s expiry covers normal provider round-trip and falls back open
+            // if the confirming broadcast never arrives (error, disconnection).
+            pendingAudioDeletionRef.current = {
+                cellId: cellMarkers[0],
+                audioId,
+                expiresAt: Date.now() + 5000,
+            };
             const messageContent: EditorPostMessages = {
                 command: "deleteAudioAttachment",
                 content: {
@@ -1906,21 +3208,42 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     };
 
-    // Preload audio when audio tab is accessed
+    // Preload audio when audio tab is accessed.
+    //
+    // Responsibility: FETCH audio bytes when we don't already have them.  This
+    // function MUST NOT clear local audio state — that ownership lives with
+    // the explicit `audioAttachmentDeleted` and `providerSendsAudioAttachments`
+    // handlers.  Clearing here was the source of a flicker: right after
+    // recording, the cell's availability is briefly still `"none"` (the
+    // provider hasn't broadcast `"available-local"` yet) while `audioBlob` is
+    // set.  An aggressive clear here would nuke the just-recorded blob and
+    // flip the tab to the RecorderCircle for one frame until the broadcast
+    // arrived.
     const preloadAudioForTab = useCallback(() => {
-        // Skip requesting audio when we know there are no playable attachments for this cell
+        // If we already have audio bytes in memory (freshly recorded, hydrated
+        // from cache, etc.) there is nothing to fetch.  Skip everything.
+        if (audioBlob) return;
+
+        // A `deleteAudioAttachment` is in flight for this cell. Both the
+        // cache-hydration and `requestAudioForCell` paths below would
+        // otherwise re-populate `audioBlob` with the audio we just deleted,
+        // until the provider's confirming broadcast finally lands.
+        if (isAudioDeletionPendingForThisCell()) return;
+
         const cellAudioState = audioAttachments?.[cellMarkers[0]];
-        if (cellAudioState === "none" || cellAudioState === "deletedOnly" || cellAudioState === "unselected") {
+        if (
+            cellAudioState === "none" ||
+            cellAudioState === "deletedOnly" ||
+            cellAudioState === "unselected"
+        ) {
+            // No playable audio to fetch — just settle the loading flags so
+            // the UI doesn't sit on a spinner.  `getAudioTabMode` falls
+            // through to `"recorder"` for these states already, so we do not
+            // need to flip `showRecorder` ourselves.
             setIsAudioLoading(false);
             setAudioFetchPending(false);
-            setAudioBlob(null);
-            setAudioUrl(null);
-            setAudioAuthor(undefined);
-            setShowRecorder(cellAudioState !== "unselected");
             return;
         }
-        // If we already have a freshly recorded blob, don't fetch again
-        if (audioBlob) return;
         // If cached from this session, hydrate without re-requesting — but only
         // when the cached data belongs to the currently selected attachment.
         // If the cell's availability is "available-pointer", the selected audio
@@ -1932,11 +3255,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 let cached = getCachedAudioDataUrl(cellMarkers[0]);
                 if (!cached) {
                     try {
-                        const storedAudioId = currentSelectedAudioId || sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
+                        const storedAudioId =
+                            currentSelectedAudioId ||
+                            sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
                         if (storedAudioId) {
                             cached = getCachedAttachmentAudioDataUrl(storedAudioId) ?? undefined;
                         }
-                    } catch { /* ignore */ }
+                    } catch {
+                        /* ignore */
+                    }
                 }
                 if (cached) {
                     (async () => {
@@ -1974,7 +3301,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             setIsAudioLoading(false);
             setAudioFetchPending(false);
         }
-    }, [cellMarkers, audioBlob, audioAttachments]);
+    }, [cellMarkers, audioBlob, audioAttachments, isAudioDeletionPendingForThisCell]);
 
     // Cell-switch effect: reset per-cell state and handle one-shot session flags.
     // Keyed on the primitive cellId so it does NOT re-fire on audioBlob/audioAttachments
@@ -2047,17 +3374,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
         ensureEditorVisible();
     }, [cellMarkers, ensureEditorVisible]);
 
-    // If the provider toggles auto-download while this cell is open, fetch immediately
-    useMessageHandler("providerUpdatesNotebookMetadataForWebview", (event: MessageEvent) => {
-        try {
-            const msg = event.data as any;
-            if (msg?.content?.autoDownloadAudioOnOpen === true) {
-                preloadAudioForTab();
+    // If the provider toggles auto-download while this cell is open, fetch immediately.
+    // IMPORTANT: pass `[preloadAudioForTab]` as deps so the handler always invokes the
+    // latest closure.  Without this the handler is registered once on mount and forever
+    // calls the initial `preloadAudioForTab` (whose closure captures empty
+    // `audioAttachments` and `audioBlob=null`).  On every tab switch the provider
+    // re-broadcasts this metadata, which would otherwise re-fire the stale closure and
+    // wipe live audio state — surfacing the RecorderCircle for a frame.
+    useMessageHandler(
+        "providerUpdatesNotebookMetadataForWebview",
+        (event: MessageEvent) => {
+            try {
+                const msg = event.data as any;
+                if (msg?.content?.autoDownloadAudioOnOpen === true) {
+                    preloadAudioForTab();
+                }
+            } catch {
+                /* no-op */
             }
-        } catch {
-            /* no-op */
-        }
-    });
+        },
+        [preloadAudioForTab]
+    );
 
     // (Cache hydration handled in preloadAudioForTab to avoid double-renders)
 
@@ -2076,19 +3413,34 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 const newSelectedAudioId = message.content.audioId as string | null;
                 // Immediately update audioAttachments so waveform renders correctly in one pass
                 if (message.content.updatedAvailability) {
-                    window.dispatchEvent(new MessageEvent("message", {
-                        data: {
-                            type: "providerSendsAudioAttachments",
-                            attachments: { [cellMarkers[0]]: message.content.updatedAvailability }
-                        }
-                    }));
+                    window.dispatchEvent(
+                        new MessageEvent("message", {
+                            data: {
+                                type: "providerSendsAudioAttachments",
+                                attachments: {
+                                    [cellMarkers[0]]: message.content.updatedAvailability,
+                                },
+                            },
+                        })
+                    );
                 }
                 if (currentSelectedAudioId !== newSelectedAudioId) {
                     setCurrentSelectedAudioId(newSelectedAudioId);
                     if (newSelectedAudioId) {
-                        try { sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, newSelectedAudioId); } catch { /* ignore */ }
+                        try {
+                            sessionStorage.setItem(
+                                `audio-id-${cellMarkers[0]}`,
+                                newSelectedAudioId
+                            );
+                        } catch {
+                            /* ignore */
+                        }
                     } else {
-                        try { sessionStorage.removeItem(`audio-id-${cellMarkers[0]}`); } catch { /* ignore */ }
+                        try {
+                            sessionStorage.removeItem(`audio-id-${cellMarkers[0]}`);
+                        } catch {
+                            /* ignore */
+                        }
                     }
                     clearCachedAudio(cellMarkers[0]);
                     setAudioBlob(null);
@@ -2115,7 +3467,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 setIsAudioLoading(false);
                                 setAudioFetchPending(false);
                                 scrollEditorBottomIntoView();
-                            } catch { /* ignore, fall through to normal flow */ }
+                            } catch {
+                                /* ignore, fall through to normal flow */
+                            }
                         })();
                         return;
                     }
@@ -2153,7 +3507,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 const newSelectedAudioId = message.content.selectedAudioId;
                 if (currentSelectedAudioId !== newSelectedAudioId) {
                     setCurrentSelectedAudioId(newSelectedAudioId);
-                    try { sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, newSelectedAudioId); } catch { /* ignore */ }
+                    try {
+                        sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, newSelectedAudioId);
+                    } catch {
+                        /* ignore */
+                    }
                 }
             }
 
@@ -2161,7 +3519,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
             if (message.type === "providerSendsAudioAttachments") {
                 const availability = (message.attachments || {}) as Record<
                     string,
-                    "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "unselected" | "none"
+                    | "available"
+                    | "available-local"
+                    | "available-pointer"
+                    | "available-cached"
+                    | "missing"
+                    | "deletedOnly"
+                    | "unselected"
+                    | "none"
                 >;
                 const stateForCell = availability[cellMarkers[0]];
 
@@ -2219,7 +3584,42 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     stateForCell === "missing" ||
                     stateForCell === "unselected"
                 ) {
-                    const { clearCachedAudio } = await import("../lib/audioCache");
+                    // Guard against transient broadcasts that race a freshly-saved
+                    // recording.  `saveAudioToCell` writes the new attachment's
+                    // uniqueId to sessionStorage (`audio-id-<cellId>`) and sets
+                    // `currentSelectedAudioId`.  When both still hold a matching
+                    // value the local blob IS the just-saved audio — clearing it
+                    // here would flip the tab to the recorder for a frame
+                    // (RecorderCircle flash) until the next broadcast restores
+                    // `available-local` and `providerSendsAudioData` re-hydrates
+                    // the bytes.  Mirrors the same defensive read used in
+                    // `audioHistoryReceived`.  Request the authoritative history
+                    // so we self-correct if the broadcast really was right.
+                    let __localAudioId: string | null = null;
+                    try {
+                        __localAudioId = sessionStorage.getItem(
+                            `audio-id-${cellMarkers[0]}`
+                        );
+                    } catch {
+                        /* ignore */
+                    }
+                    if (
+                        audioBlob &&
+                        currentSelectedAudioId &&
+                        __localAudioId === currentSelectedAudioId
+                    ) {
+                        window.vscodeApi.postMessage({
+                            command: "getAudioHistory",
+                            content: { cellId: cellMarkers[0] },
+                        } as EditorPostMessages);
+                        return;
+                    }
+                    // Provider has confirmed the deletion (or any other
+                    // post-delete state) — release the in-flight guard so
+                    // future broadcasts for this cell behave normally again.
+                    if (pendingAudioDeletionRef.current?.cellId === cellMarkers[0]) {
+                        pendingAudioDeletionRef.current = null;
+                    }
                     clearCachedAudio(cellMarkers[0]);
                     setAudioBlob(null);
                     setAudioUrl(null);
@@ -2242,9 +3642,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 const isLocal = stateForCell === "available-local";
 
                 if (
-                    isLocal ||
-                    ((stateForCell === "available" || stateForCell === "available-pointer" || stateForCell === "available-cached") &&
-                        shouldAutoDownload)
+                    !isAudioDeletionPendingForThisCell() &&
+                    (isLocal ||
+                        ((stateForCell === "available" ||
+                            stateForCell === "available-pointer" ||
+                            stateForCell === "available-cached") &&
+                            shouldAutoDownload))
                 ) {
                     setIsAudioLoading(true);
                     const messageContent: EditorPostMessages = {
@@ -2260,6 +3663,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 message.type === "providerSendsAudioData" &&
                 message.content.cellId === cellMarkers[0]
             ) {
+                // Drop in-flight responses for a cell with a pending deletion.
+                // A `requestAudioForCell` posted just before the user pressed
+                // delete (e.g. by the cell-switch preload) can otherwise land
+                // here mid-deletion and re-populate `audioBlob` with the audio
+                // we just discarded.
+                if (isAudioDeletionPendingForThisCell()) {
+                    return;
+                }
                 if (message.content.audioData) {
                     // Only update the main waveform/selection when this response was not
                     // triggered by a history-viewer request for a specific non-current audio.
@@ -2277,7 +3688,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                     // Always cache the per-attachment data so the history viewer can use it
                     if (incomingId) {
-                        try { setCachedAttachmentAudioDataUrl(incomingId, message.content.audioData); } catch { /* */ }
+                        try {
+                            setCachedAttachmentAudioDataUrl(incomingId, message.content.audioData);
+                        } catch {
+                            /* */
+                        }
                     }
 
                     if (!isForCurrentSelection) {
@@ -2320,7 +3735,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         setIsAudioLoading(false);
                     }
                 } else {
-                    // No audio — clear stale state (including session cache) and prepare recorder
                     clearCachedAudio(cellMarkers[0]);
                     setAudioBlob(null);
                     setAudioUrl(null);
@@ -2386,12 +3800,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     setIsAudioLoading(false);
                     setAudioFetchPending(false);
                     if (message.content.updatedAvailability) {
-                        window.dispatchEvent(new MessageEvent("message", {
-                            data: {
-                                type: "providerSendsAudioAttachments",
-                                attachments: { [cellMarkers[0]]: message.content.updatedAvailability }
-                            }
-                        }));
+                        window.dispatchEvent(
+                            new MessageEvent("message", {
+                                data: {
+                                    type: "providerSendsAudioAttachments",
+                                    attachments: {
+                                        [cellMarkers[0]]: message.content.updatedAvailability,
+                                    },
+                                },
+                            })
+                        );
                     }
                 } else {
                     setRecordingStatus(
@@ -2409,12 +3827,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 message.content.cellId === cellMarkers[0]
             ) {
                 if (message.content.updatedAvailability) {
-                    window.dispatchEvent(new MessageEvent("message", {
-                        data: {
-                            type: "providerSendsAudioAttachments",
-                            attachments: { [cellMarkers[0]]: message.content.updatedAvailability }
-                        }
-                    }));
+                    window.dispatchEvent(
+                        new MessageEvent("message", {
+                            data: {
+                                type: "providerSendsAudioAttachments",
+                                attachments: {
+                                    [cellMarkers[0]]: message.content.updatedAvailability,
+                                },
+                            },
+                        })
+                    );
                 }
                 window.vscodeApi.postMessage({
                     command: "getAudioHistory",
@@ -2451,7 +3873,22 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 if (message.content.currentAttachmentId) {
                     const providerSelectedId = message.content.currentAttachmentId;
                     if (currentSelectedAudioId && currentSelectedAudioId !== providerSelectedId) {
-                        if (audioBlob) {
+                        // Cross-check sessionStorage before discarding the local
+                        // blob: a freshly-recorded blob writes its uniqueId to
+                        // `audio-id-<cellId>` in saveAudioToCell, so if that
+                        // matches the provider's current selection the in-memory
+                        // bytes ARE the right audio — clearing would cause the
+                        // waveform to flash back to the recorder/download view
+                        // until providerSendsAudioData re-hydrates it.
+                        let localAudioId: string | null = null;
+                        try {
+                            localAudioId = sessionStorage.getItem(
+                                `audio-id-${cellMarkers[0]}`
+                            );
+                        } catch {
+                            /* ignore */
+                        }
+                        if (audioBlob && localAudioId !== providerSelectedId) {
                             clearCachedAudio(cellMarkers[0]);
                             setAudioBlob(null);
                             setAudioUrl(null);
@@ -2459,7 +3896,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     }
                     if (currentSelectedAudioId !== providerSelectedId) {
                         setCurrentSelectedAudioId(providerSelectedId);
-                        try { sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, providerSelectedId); } catch { /* ignore */ }
+                        try {
+                            sessionStorage.setItem(
+                                `audio-id-${cellMarkers[0]}`,
+                                providerSelectedId
+                            );
+                        } catch {
+                            /* ignore */
+                        }
                     }
                 }
 
@@ -2500,6 +3944,336 @@ const CellEditor: React.FC<CellEditorProps> = ({
             }
         };
     }, [mediaRecorder]);
+
+    const currentAudioTimestampSlider = () => {
+        if (!audioBlob || !audioDuration) {
+            return null;
+        }
+
+        const currentStart =
+            effectiveAudioTimestamps?.startTime ?? effectiveTimestamps?.startTime ?? 0;
+        const currentEnd =
+            effectiveAudioTimestamps?.endTime ??
+            (currentStart && currentStart + audioDuration) ??
+            audioDuration;
+
+        // Calculate bounds: min = 0 or prevStartTime, max = audioDuration or nextEndTime
+        const audioMinBound = typeof prevStartTime === "number" ? Math.max(0, prevStartTime) : 0;
+        const audioMaxBound = typeof nextEndTime === "number" ? nextEndTime : audioDuration;
+
+        // Initialize previous values ref if needed
+        if (previousAudioTimestampValuesRef.current === null) {
+            previousAudioTimestampValuesRef.current = [currentStart, currentEnd];
+        }
+
+        return (
+            <>
+                <Slider
+                    min={audioMinBound}
+                    max={audioMaxBound}
+                    value={[currentStart, currentEnd]}
+                    step={0.001}
+                    className="audio-timestamp-slider"
+                    onValueChange={(vals: number[]) => {
+                        const [newStart, newEnd] = vals;
+                        const prev = previousAudioTimestampValuesRef.current;
+                        if (!prev) {
+                            previousAudioTimestampValuesRef.current = [newStart, newEnd];
+                            return;
+                        }
+
+                        const [prevStart, prevEnd] = prev;
+                        const prevDuration = prevEnd - prevStart;
+
+                        // Calculate which handle moved and by how much
+                        const startDelta = newStart - prevStart;
+                        const endDelta = newEnd - prevEnd;
+
+                        // Determine which handle was dragged (the one that moved more)
+                        let offset: number;
+                        if (Math.abs(startDelta) > Math.abs(endDelta)) {
+                            // Start handle was dragged
+                            offset = startDelta;
+                        } else {
+                            // End handle was dragged
+                            offset = endDelta;
+                        }
+
+                        // Apply the same offset to both handles (synchronized block movement)
+                        let newClampedStart = prevStart + offset;
+                        let newClampedEnd = prevEnd + offset;
+
+                        // Clamp to bounds
+                        newClampedStart = Math.max(
+                            audioMinBound,
+                            Math.min(newClampedStart, audioMaxBound - prevDuration)
+                        );
+                        newClampedEnd = Math.min(
+                            audioMaxBound,
+                            Math.max(newClampedEnd, audioMinBound + prevDuration)
+                        );
+
+                        // Ensure duration is maintained
+                        if (newClampedEnd - newClampedStart !== prevDuration) {
+                            // If clamping changed the duration, adjust to maintain it
+                            if (newClampedStart + prevDuration <= audioMaxBound) {
+                                newClampedEnd = newClampedStart + prevDuration;
+                            } else if (newClampedEnd - prevDuration >= audioMinBound) {
+                                newClampedStart = newClampedEnd - prevDuration;
+                            } else {
+                                // If we can't maintain duration, use the new values but ensure valid range
+                                newClampedStart = Math.max(audioMinBound, newClampedStart);
+                                newClampedEnd = Math.min(audioMaxBound, newClampedEnd);
+                                if (newClampedEnd <= newClampedStart) {
+                                    newClampedEnd = newClampedStart + 0.001;
+                                }
+                            }
+                        }
+
+                        previousAudioTimestampValuesRef.current = [newClampedStart, newClampedEnd];
+
+                        const updatedAudioTimestamps: Timestamps = {
+                            startTime: Number(newClampedStart.toFixed(3)),
+                            endTime: Number(newClampedEnd.toFixed(3)),
+                        };
+
+                        setContentBeingUpdated({
+                            ...contentBeingUpdated,
+                            cellAudioTimestamps: updatedAudioTimestamps,
+                            cellChanged: true,
+                        });
+                        setUnsavedChanges(true);
+                        // Invalidate combined audio blob cache after debounce
+                        debouncedInvalidateCombinedAudio();
+                    }}
+                />
+                <div className="flex justify-between text-xs text-muted-foreground mt-4">
+                    <span>Min: {formatTime(audioMinBound)}</span>
+                    <span>Max: {formatTime(audioMaxBound)}</span>
+                </div>
+            </>
+        );
+    };
+
+    const currentTimestampSlider = () => {
+        if (
+            isSubtitlesType &&
+            effectiveTimestamps &&
+            (effectiveTimestamps.startTime !== undefined ||
+                effectiveTimestamps.endTime !== undefined)
+        ) {
+            return (
+                <>
+                    <Slider
+                        min={extendedMinBound}
+                        max={Math.max(
+                            extendedMaxBound,
+                            effectiveTimestamps.endTime ?? extendedMinBound
+                        )}
+                        value={[
+                            Math.max(
+                                extendedMinBound,
+                                effectiveTimestamps.startTime ?? extendedMinBound
+                            ),
+                            Math.min(
+                                extendedMaxBound,
+                                effectiveTimestamps.endTime ??
+                                    effectiveTimestamps.startTime ??
+                                    extendedMaxBound
+                            ),
+                        ]}
+                        step={0.001}
+                        onValueChange={(vals: number[]) => {
+                            const [start, end] = vals;
+                            const clampedStart = Math.max(extendedMinBound, Math.min(start, end));
+                            const clampedEnd = Math.min(
+                                extendedMaxBound,
+                                Math.max(end, clampedStart)
+                            );
+                            const updatedTimestamps: Timestamps = {
+                                ...effectiveTimestamps,
+                                startTime: Number(clampedStart.toFixed(3)),
+                                endTime: Number(clampedEnd.toFixed(3)),
+                            };
+                            setContentBeingUpdated({
+                                ...contentBeingUpdated,
+                                cellTimestamps: updatedTimestamps,
+                                cellChanged: true,
+                            });
+                            setUnsavedChanges(true);
+                            // Invalidate combined audio blob cache after debounce
+                            debouncedInvalidateCombinedAudio();
+                        }}
+                    />
+                </>
+            );
+        } else if (
+            !isSubtitlesType &&
+            effectiveTimestamps &&
+            (effectiveTimestamps.startTime !== undefined ||
+                effectiveTimestamps.endTime !== undefined)
+        ) {
+            return (
+                <>
+                    <Slider
+                        min={Math.max(0, previousEndBound)}
+                        max={Math.max(computedMaxBound, effectiveTimestamps.endTime ?? 0)}
+                        value={[
+                            Math.max(
+                                Math.max(0, previousEndBound),
+                                effectiveTimestamps.startTime ?? 0
+                            ),
+                            Math.min(
+                                nextStartBound,
+                                effectiveTimestamps.endTime ?? effectiveTimestamps.startTime ?? 0
+                            ),
+                        ]}
+                        step={0.001}
+                        onValueChange={(vals: number[]) => {
+                            const [start, end] = vals;
+                            const clampedStart = Math.max(
+                                Math.max(0, previousEndBound),
+                                Math.min(start, end)
+                            );
+                            const clampedEnd = Math.min(
+                                nextStartBound,
+                                Math.max(end, clampedStart)
+                            );
+                            const updatedTimestamps: Timestamps = {
+                                ...effectiveTimestamps,
+                                startTime: Number(clampedStart.toFixed(3)),
+                                endTime: Number(clampedEnd.toFixed(3)),
+                            };
+                            setContentBeingUpdated({
+                                ...contentBeingUpdated,
+                                cellTimestamps: updatedTimestamps,
+                                cellChanged: true,
+                            });
+                            setUnsavedChanges(true);
+                            // Invalidate combined audio blob cache after debounce
+                            debouncedInvalidateCombinedAudio();
+                        }}
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground mt-2">
+                        <span>Min: {formatTime(Math.max(0, previousEndBound))}</span>
+                        <span>Max: {formatTime(computedMaxBound)}</span>
+                    </div>
+                </>
+            );
+        } else {
+            return null;
+        }
+    };
+
+    const effectiveDuration = (nextEndTime ?? 0) - (prevStartTime ?? 0);
+
+    const previousTimestampWidth = () => {
+        const prevAudioDuration = (prevEndTime ?? 0) - (prevStartTime ?? 0);
+
+        if (prevAudioDuration > effectiveDuration) {
+            return 100;
+        }
+
+        return (prevAudioDuration / (extendedMaxBound - extendedMinBound)) * 100;
+    };
+
+    const previousAudioTimestampWidth = () => {
+        if (!prevAudioTimestamps?.startTime || !prevAudioTimestamps?.endTime) {
+            return 0;
+        }
+
+        const videoRangeStart = prevStartTime ?? 0;
+        const videoRangeEnd = nextEndTime ?? 0;
+        const videoRange = videoRangeEnd - videoRangeStart;
+
+        if (videoRange <= 0) {
+            return 0;
+        }
+
+        // Calculate the actual start and end positions within the video range
+        const audioStart = Math.max(videoRangeStart, prevAudioTimestamps.startTime);
+        const audioEnd = Math.min(videoRangeEnd, prevAudioTimestamps.endTime);
+
+        // If audio starts after video range or ends before it starts, return 0
+        if (audioStart >= videoRangeEnd || audioEnd <= videoRangeStart) {
+            return 0;
+        }
+
+        const visibleDuration = audioEnd - audioStart;
+        const width = (visibleDuration / videoRange) * 100;
+
+        // Cap at 100% to prevent overflow
+        return Math.min(100, Math.max(0, width));
+    };
+
+    const previousAudioTimestampOffset = () => {
+        const videoRangeStart = prevStartTime ?? 0;
+        const videoRangeEnd = nextEndTime ?? 0;
+        const videoRange = videoRangeEnd - videoRangeStart;
+
+        if (videoRange <= 0 || !prevAudioTimestamps?.startTime) {
+            return 0;
+        }
+
+        // Calculate the actual start position (clipped to video range)
+        const audioStart = Math.max(videoRangeStart, prevAudioTimestamps.startTime);
+        const audioStartPosition = audioStart - videoRangeStart;
+        return (audioStartPosition / videoRange) * 100;
+    };
+
+    const nextTimestampWidth = () => {
+        const nextAudioDuration = (nextEndTime ?? 0) - (nextStartTime ?? 0);
+
+        if (nextAudioDuration > effectiveDuration) {
+            return 100;
+        }
+
+        return (nextAudioDuration / (extendedMaxBound - extendedMinBound)) * 100;
+    };
+
+    const nextAudioTimestampWidth = () => {
+        if (!nextAudioTimestamps?.startTime || !nextAudioTimestamps?.endTime) {
+            return 0;
+        }
+
+        const videoRangeStart = prevStartTime ?? 0;
+        const videoRangeEnd = nextEndTime ?? 0;
+        const videoRange = videoRangeEnd - videoRangeStart;
+
+        if (videoRange <= 0) {
+            return 0;
+        }
+
+        // Calculate the actual start and end positions within the video range
+        const audioStart = Math.max(videoRangeStart, nextAudioTimestamps.startTime);
+        const audioEnd = Math.min(videoRangeEnd, nextAudioTimestamps.endTime);
+
+        // If audio starts after video range or ends before it starts, return 0
+        if (audioStart >= videoRangeEnd || audioEnd <= videoRangeStart) {
+            return 0;
+        }
+
+        const visibleDuration = audioEnd - audioStart;
+        const width = (visibleDuration / videoRange) * 100;
+
+        // Cap at 100% to prevent overflow
+        return Math.min(100, Math.max(0, width));
+    };
+
+    const nextAudioTimestampOffset = () => {
+        const videoRangeStart = prevStartTime ?? 0;
+        const videoRangeEnd = nextEndTime ?? 0;
+        const videoRange = videoRangeEnd - videoRangeStart;
+
+        if (videoRange <= 0 || !nextAudioTimestamps?.startTime) {
+            return 0;
+        }
+
+        // Calculate the actual start position (clipped to video range)
+        const audioStart = Math.max(videoRangeStart, nextAudioTimestamps.startTime);
+        const audioStartPosition = audioStart - videoRangeStart;
+        return (audioStartPosition / videoRange) * 100;
+    };
 
     return (
         <Card className="w-full max-w-4xl shadow-xl" style={{ direction: textDirection }}>
@@ -2597,7 +4371,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         </Button>
                                     </TooltipTrigger>
                                     <TooltipContent>
-                                        <p>See matching translations that may have influenced this result</p>
+                                        <p>
+                                            See matching translations that may have influenced this
+                                            result
+                                        </p>
                                     </TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
@@ -3207,111 +4984,390 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                     {activeTab === "timestamps" && (
                         <TabsContent value="timestamps">
-                            <div className="content-section space-y-4">
-                                <h3 className="text-lg font-medium">Timestamps</h3>
+                            <div
+                                className={cn(
+                                    "content-section",
+                                    isSubtitlesType ? "px-7 py-4 space-y-4" : "p-4"
+                                )}
+                            >
+                                <div className="flex justify-between">
+                                    <h3 className="text-lg font-medium">Timestamps</h3>
+                                    {isSubtitlesType && (
+                                        <div className="flex flex-col items-end gap-2">
+                                            <div className="flex items-center gap-1">
+                                                <Languages className="w-4 h-4 text-muted-foreground/80" />
+                                                <span className="w-16 h-[4px] rounded-full bg-primary"></span>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                <MicrophoneIcon className="w-4 h-4 text-muted-foreground/80" />
+                                                <span className="w-16 h-[4px] rounded-full bg-[#ff9500]"></span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
 
                                 {effectiveTimestamps &&
                                 (effectiveTimestamps.startTime !== undefined ||
                                     effectiveTimestamps.endTime !== undefined) ? (
                                     <div className="space-y-4">
                                         {/* Scrubber with clamped handles */}
-                                        <div className="space-y-2">
-                                            <label className="text-sm font-medium">
-                                                Adjust range
-                                            </label>
-                                            <Slider
-                                                min={Math.max(0, previousEndBound)}
-                                                max={Math.max(
-                                                    computedMaxBound,
-                                                    effectiveTimestamps.endTime ?? 0
+                                        <div className="space-y-2 mt-1">
+                                            {/* Previous cell slider - read-only */}
+                                            {isSubtitlesType &&
+                                                typeof prevStartTime === "number" &&
+                                                typeof prevEndTime === "number" &&
+                                                prevStartTime < prevEndTime && (
+                                                    <div className="flex flex-col space-y-1 w-full">
+                                                        <label className="text-sm font-medium text-muted-foreground">
+                                                            Previous cell range
+                                                        </label>
+                                                        <div
+                                                            className="flex flex-col space-y-1 relative"
+                                                            style={{
+                                                                width: `${previousTimestampWidth()}%`,
+                                                            }}
+                                                        >
+                                                            <Slider
+                                                                disabled
+                                                                min={prevStartTime}
+                                                                max={prevEndTime}
+                                                                value={[prevStartTime, prevEndTime]}
+                                                                step={0.001}
+                                                                className="opacity-60"
+                                                            />
+                                                            <div className="flex min-w-max text-xs text-muted-foreground">
+                                                                <span>
+                                                                    End: {formatTime(prevEndTime)}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 )}
-                                                value={[
-                                                    Math.max(
-                                                        Math.max(0, previousEndBound),
-                                                        effectiveTimestamps.startTime ?? 0
-                                                    ),
-                                                    Math.min(
-                                                        nextStartBound,
-                                                        effectiveTimestamps.endTime ??
-                                                            effectiveTimestamps.startTime ??
-                                                            0
-                                                    ),
-                                                ]}
-                                                step={0.001}
-                                                onValueChange={(vals: number[]) => {
-                                                    const [start, end] = vals;
-                                                    const clampedStart = Math.max(
-                                                        Math.max(0, previousEndBound),
-                                                        Math.min(start, end)
-                                                    );
-                                                    const clampedEnd = Math.min(
-                                                        nextStartBound,
-                                                        Math.max(end, clampedStart)
-                                                    );
-                                                    const updatedTimestamps: Timestamps = {
-                                                        ...effectiveTimestamps,
-                                                        startTime: Number(clampedStart.toFixed(3)),
-                                                        endTime: Number(clampedEnd.toFixed(3)),
-                                                    };
-                                                    setContentBeingUpdated({
-                                                        ...contentBeingUpdated,
-                                                        cellTimestamps: updatedTimestamps,
-                                                        cellChanged: true,
-                                                    });
-                                                    setUnsavedChanges(true);
-                                                }}
-                                            />
-                                            <div className="flex justify-between text-xs text-muted-foreground">
-                                                <span>
-                                                    Min: {formatTime(Math.max(0, previousEndBound))}
-                                                </span>
-                                                <span>Max: {formatTime(computedMaxBound)}</span>
-                                            </div>
-                                        </div>
 
-                                        <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                                            <div className="text-sm">
-                                                <span className="font-medium">Duration:</span>{" "}
-                                                {effectiveTimestamps.startTime !== undefined &&
-                                                effectiveTimestamps.endTime !== undefined &&
-                                                (effectiveTimestamps.endTime as number) >
-                                                    (effectiveTimestamps.startTime as number)
-                                                    ? `${(
-                                                          (effectiveTimestamps.endTime as number) -
-                                                          (effectiveTimestamps.startTime as number)
-                                                      ).toFixed(3)}s`
-                                                    : "Invalid duration"}
-                                            </div>
-                                            <div className="text-sm text-muted-foreground">
-                                                {effectiveTimestamps.startTime !== undefined &&
-                                                effectiveTimestamps.endTime !== undefined &&
-                                                (effectiveTimestamps.endTime as number) >
-                                                    (effectiveTimestamps.startTime as number)
-                                                    ? `(${formatTime(
-                                                          effectiveTimestamps.startTime as number
-                                                      )} → ${formatTime(
-                                                          effectiveTimestamps.endTime as number
-                                                      )})`
-                                                    : ""}
-                                            </div>
-                                        </div>
+                                            {/* Previous audio slider - read-only.
+                                                Gate on hasPrevAudioAvailable so the slider
+                                                disappears when the adjacent cell's audio is
+                                                deleted; the cached prevAudioTimestamps state
+                                                wouldn't otherwise clear (the refresh effect at
+                                                ~line 968 only re-fetches when audio is
+                                                available). */}
+                                            {isSubtitlesType &&
+                                                hasPrevAudioAvailable &&
+                                                prevAudioTimestamps &&
+                                                typeof prevAudioTimestamps.startTime === "number" &&
+                                                typeof prevAudioTimestamps.endTime === "number" &&
+                                                prevAudioTimestamps.startTime <
+                                                    prevAudioTimestamps.endTime && (
+                                                    <div className="flex flex-col -mt-[0.25rem] w-full overflow-hidden">
+                                                        <div
+                                                            className="flex flex-col space-y-1 relative"
+                                                            style={{
+                                                                width: `${previousAudioTimestampWidth()}%`,
+                                                                marginLeft: `${previousAudioTimestampOffset()}%`,
+                                                                maxWidth: `calc(100% - ${previousAudioTimestampOffset()}%)`,
+                                                            }}
+                                                        >
+                                                            <Slider
+                                                                disabled
+                                                                min={prevAudioTimestamps.startTime}
+                                                                max={prevAudioTimestamps.endTime}
+                                                                value={[
+                                                                    prevAudioTimestamps.startTime,
+                                                                    prevAudioTimestamps.endTime,
+                                                                ]}
+                                                                step={0.001}
+                                                                className="opacity-60 audio-timestamp-slider"
+                                                            />
+                                                            <div className="flex min-w-max text-xs text-muted-foreground">
+                                                                <span>
+                                                                    End:{" "}
+                                                                    {formatTime(
+                                                                        prevAudioTimestamps.endTime
+                                                                    )}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
 
-                                        <div className="flex gap-2">
-                                            <Button
-                                                onClick={() => {
-                                                    // Clear timestamps
-                                                    setContentBeingUpdated({
-                                                        ...contentBeingUpdated,
-                                                        cellTimestamps: undefined,
-                                                    });
-                                                }}
-                                                variant="outline"
-                                                size="sm"
+                                            <div
+                                                className={cn(
+                                                    "flex flex-col rounded-md",
+                                                    isSubtitlesType
+                                                        ? "-mx-[1rem] px-[1rem] border border-muted-foreground/30"
+                                                        : "mx-0 px-0"
+                                                )}
                                             >
-                                                <RotateCcw className="mr-1 h-4 w-4" />
-                                                Revert
-                                            </Button>
+                                                {isSubtitlesType && (
+                                                    <label className="text-sm font-medium text-muted-foreground mt-1">
+                                                        Current Cell Range
+                                                    </label>
+                                                )}
+                                                {/* Current cell slider */}
+                                                <div className="flex flex-col justify-center w-full mt-4">
+                                                    {currentTimestampSlider()}
+                                                </div>
+
+                                                {/* Current audio slider */}
+                                                {audioBlob && audioDuration && isSubtitlesType && (
+                                                    <div className="flex flex-col justify-center space-y-1 mt-[1.5rem] mb-1 w-full">
+                                                        {currentAudioTimestampSlider()}
+                                                    </div>
+                                                )}
+                                                <div className="flex items-center my-2 rounded-lg">
+                                                    <div className="text-sm flex flex-col items-start gap-1 w-full">
+                                                        <div
+                                                            className={cn(
+                                                                "flex items-center gap-1 w-full",
+                                                                isSubtitlesType
+                                                                    ? "justify-between"
+                                                                    : "justify-end mt-4"
+                                                            )}
+                                                        >
+                                                            {isSubtitlesType ? (
+                                                                <div className="flex gap-1 items-center text-sm text-muted-foreground">
+                                                                    <Languages className="w-4 h-4 text-muted-foreground/80" />
+
+                                                                    {effectiveTimestamps.startTime !==
+                                                                        undefined &&
+                                                                    effectiveTimestamps.endTime !==
+                                                                        undefined &&
+                                                                    (effectiveTimestamps.endTime as number) >
+                                                                        (effectiveTimestamps.startTime as number)
+                                                                        ? `${formatTime(
+                                                                              effectiveTimestamps.startTime as number
+                                                                          )} → ${formatTime(
+                                                                              effectiveTimestamps.endTime as number
+                                                                          )}`
+                                                                        : ""}
+                                                                </div>
+                                                            ) : (
+                                                                <div className="text-sm text-muted-foreground">
+                                                                    Duration:
+                                                                </div>
+                                                            )}
+                                                            <div>
+                                                                {effectiveTimestamps.startTime !==
+                                                                    undefined &&
+                                                                effectiveTimestamps.endTime !==
+                                                                    undefined &&
+                                                                (effectiveTimestamps.endTime as number) >
+                                                                    (effectiveTimestamps.startTime as number)
+                                                                    ? `${(
+                                                                          (effectiveTimestamps.endTime as number) -
+                                                                          (effectiveTimestamps.startTime as number)
+                                                                      ).toFixed(3)}s`
+                                                                    : "Invalid duration"}
+                                                            </div>
+                                                        </div>
+                                                        {effectiveAudioTimestamps && (
+                                                            <div className="flex justify-between items-center gap-1 w-full">
+                                                                <div className="flex items-center gap-1">
+                                                                    <MicrophoneIcon className="w-4 h-4 text-muted-foreground/80" />
+
+                                                                    {effectiveAudioTimestamps.startTime !==
+                                                                        undefined &&
+                                                                    effectiveAudioTimestamps.endTime !==
+                                                                        undefined &&
+                                                                    (effectiveAudioTimestamps.endTime as number) >
+                                                                        (effectiveAudioTimestamps.startTime as number)
+                                                                        ? `${formatTime(
+                                                                              effectiveAudioTimestamps.startTime as number
+                                                                          )} → ${formatTime(
+                                                                              effectiveAudioTimestamps.endTime as number
+                                                                          )}`
+                                                                        : ""}
+                                                                </div>
+                                                                <div>
+                                                                    {effectiveAudioTimestamps.startTime !==
+                                                                        undefined &&
+                                                                    effectiveAudioTimestamps.endTime !==
+                                                                        undefined &&
+                                                                    (effectiveAudioTimestamps.endTime as number) >
+                                                                        (effectiveAudioTimestamps.startTime as number)
+                                                                        ? `${(
+                                                                              (effectiveAudioTimestamps.endTime as number) -
+                                                                              (effectiveAudioTimestamps.startTime as number)
+                                                                          ).toFixed(3)}s`
+                                                                        : "Invalid duration"}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Next cell slider - read-only */}
+                                            {isSubtitlesType &&
+                                                typeof nextStartTime === "number" &&
+                                                typeof nextEndTime === "number" &&
+                                                nextStartTime < nextEndTime && (
+                                                    <div className="flex flex-col justify-end items-end space-y-1 w-full">
+                                                        <label className="text-sm font-medium text-muted-foreground">
+                                                            Next cell range
+                                                        </label>
+                                                        <div
+                                                            className="flex flex-col items-end space-y-1 relative"
+                                                            style={{
+                                                                width: `${nextTimestampWidth()}%`,
+                                                            }}
+                                                        >
+                                                            <Slider
+                                                                disabled
+                                                                min={Math.max(0, nextStartTime)}
+                                                                max={Math.max(
+                                                                    nextEndTime,
+                                                                    nextStartTime + 0.001
+                                                                )}
+                                                                value={[nextStartTime, nextEndTime]}
+                                                                step={0.001}
+                                                                className="opacity-60"
+                                                            />
+                                                            <div className="flex min-w-max text-xs text-muted-foreground">
+                                                                <span>
+                                                                    Start:{" "}
+                                                                    {formatTime(nextStartTime)}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                            {/* Next audio slider - read-only.
+                                                Gate on hasNextAudioAvailable so the slider
+                                                disappears when the adjacent cell's audio is
+                                                deleted; see "Previous audio slider" comment
+                                                above. */}
+                                            {isSubtitlesType &&
+                                                hasNextAudioAvailable &&
+                                                nextAudioTimestamps &&
+                                                typeof nextAudioTimestamps.startTime === "number" &&
+                                                typeof nextAudioTimestamps.endTime === "number" &&
+                                                nextAudioTimestamps.startTime <
+                                                    nextAudioTimestamps.endTime && (
+                                                    <div className="flex flex-col justify-end items-start -mt-[0.25rem] w-full overflow-hidden">
+                                                        <div
+                                                            className="flex flex-col items-end space-y-1 relative"
+                                                            style={{
+                                                                width: `${nextAudioTimestampWidth()}%`,
+                                                                marginLeft: `${nextAudioTimestampOffset()}%`,
+                                                                maxWidth: `calc(100% - ${nextAudioTimestampOffset()}%)`,
+                                                            }}
+                                                        >
+                                                            <Slider
+                                                                disabled
+                                                                min={Math.max(
+                                                                    0,
+                                                                    nextAudioTimestamps.startTime
+                                                                )}
+                                                                max={Math.max(
+                                                                    nextAudioTimestamps.endTime,
+                                                                    nextAudioTimestamps.startTime +
+                                                                        0.001
+                                                                )}
+                                                                value={[
+                                                                    nextAudioTimestamps.startTime,
+                                                                    nextAudioTimestamps.endTime,
+                                                                ]}
+                                                                step={0.001}
+                                                                className="opacity-60 audio-timestamp-slider"
+                                                            />
+                                                            <div className="flex min-w-max text-xs text-muted-foreground">
+                                                                <span>
+                                                                    Start:{" "}
+                                                                    {formatTime(
+                                                                        nextAudioTimestamps.startTime
+                                                                    )}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
                                         </div>
+
+                                        <div className="flex justify-between">
+                                            <div className="flex gap-2">
+                                                {isSubtitlesType && shouldShowVideoPlayer && videoUrl && (
+                                                    <Button
+                                                        onClick={handlePlayAudioWithVideo}
+                                                        variant="default"
+                                                        size="sm"
+                                                        disabled={
+                                                            !canPlayAudioWithVideo ||
+                                                            (effectiveTimestamps?.endTime ?? 0) -
+                                                                (effectiveTimestamps?.startTime ??
+                                                                    0) <=
+                                                                0 ||
+                                                            isPlayAudioLoading
+                                                        }
+                                                    >
+                                                        {isPlayAudioLoading ? (
+                                                            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                                        ) : (
+                                                            <Play className="mr-1 h-4 w-4" />
+                                                        )}
+                                                        Play Video
+                                                    </Button>
+                                                )}
+                                                <Button
+                                                    onClick={() => {
+                                                        // Clear both cell-range and audio-range
+                                                        // staging so both sliders snap back to
+                                                        // their persisted values. The audio
+                                                        // staging used to "revert" implicitly via
+                                                        // a serializer-cache bug; now that audio
+                                                        // timestamps actually persist on save,
+                                                        // Revert has to clear them explicitly.
+                                                        setContentBeingUpdated({
+                                                            ...contentBeingUpdated,
+                                                            cellTimestamps: undefined,
+                                                            cellAudioTimestamps: undefined,
+                                                        });
+                                                        // The dirty-tracking effect (~line 2260)
+                                                        // doesn't watch cellAudioTimestamps, so
+                                                        // it won't recompute unsavedChanges when
+                                                        // only audio staging is cleared. Mirror
+                                                        // discardLabelChanges and recompute here
+                                                        // so the Save button hides correctly.
+                                                        const labelDirty =
+                                                            (editableLabel ?? "") !==
+                                                            (cellLabel ?? "");
+                                                        setUnsavedChanges(
+                                                            Boolean(isTextDirty || labelDirty)
+                                                        );
+                                                    }}
+                                                    variant="outline"
+                                                    size="sm"
+                                                >
+                                                    <RotateCcw className="mr-1 h-4 w-4" />
+                                                    Revert
+                                                </Button>
+                                            </div>
+                                            {isSubtitlesType && shouldShowVideoPlayer && (
+                                                <div className="flex items-center gap-2">
+                                                    <Checkbox
+                                                        id="mute-video-audio-during-playback"
+                                                        checked={muteVideoAudioDuringPlayback}
+                                                        onCheckedChange={(checked) =>
+                                                            setMuteVideoAudioDuringPlayback(
+                                                                checked === true
+                                                            )
+                                                        }
+                                                    />
+                                                    <label
+                                                        htmlFor="mute-video-audio-during-playback"
+                                                        className="text-sm cursor-pointer"
+                                                    >
+                                                        Mute video
+                                                    </label>
+                                                </div>
+                                            )}
+                                        </div>
+                                        {audioWarning && (
+                                            <div className="text-sm text-red-500">
+                                                {audioWarning}
+                                            </div>
+                                        )}
                                     </div>
                                 ) : (
                                     <div className="text-center p-8 text-muted-foreground">
@@ -3340,15 +5396,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         (audioUrl.startsWith("blob:") ||
                                             audioUrl.startsWith("data:") ||
                                             audioUrl.startsWith("http"));
-                                    const hasPlayableAudio =
-                                        !!audioBlob && validUrlPrefix;
+                                    const hasPlayableAudio = !!audioBlob && validUrlPrefix;
                                     const mode = getAudioTabMode({
                                         state: cellAudioState,
                                         hasAudioBlob: hasPlayableAudio,
                                         // Treat countdown + warmup gap as "recording" so the
                                         // tab mode doesn't snap back to cell-list during
                                         // the brief async window before recorder.onstart.
-                                        isRecording: isRecording || countdown !== null || isStartingRecording,
+                                        isRecording:
+                                            isRecording ||
+                                            countdown !== null ||
+                                            isStartingRecording,
                                         showRecorder,
                                     });
 
@@ -3417,7 +5475,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     isTranscribing={isTranscribing}
                                                     transcriptionProgress={transcriptionProgress}
                                                     onTranscribe={handleTranscribeAudio}
-                                                    onInsertTranscription={handleInsertTranscription}
+                                                    onInsertTranscription={
+                                                        handleInsertTranscription
+                                                    }
                                                     onRequestRemove={() => {
                                                         setConfirmingDiscard(true);
                                                         scrollEditorBottomIntoView();
@@ -3428,12 +5488,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         setCountdown(null);
                                                         setRecordingStartTime(null);
                                                         setRecordingElapsedTime(0);
-                                                        if (countdownIntervalRef.current) {
-                                                            clearInterval(countdownIntervalRef.current);
-                                                            countdownIntervalRef.current = null;
-                                                        }
+                                                        clearRecordingCountdownTimer();
                                                         if (recordingTimerRef.current) {
-                                                            clearInterval(recordingTimerRef.current);
+                                                            clearInterval(
+                                                                recordingTimerRef.current
+                                                            );
                                                             recordingTimerRef.current = null;
                                                         }
                                                     }}
@@ -3443,19 +5502,26 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     audioValidationPopoverProps={
                                                         audioValidationPopoverProps
                                                     }
-                                                    targetDuration={
+                                                    targetDurationSeconds={
+                                                        isSubtitlesType &&
                                                         cellTimestamps?.startTime !== undefined &&
-                                                            cellTimestamps?.endTime !== undefined
+                                                        cellTimestamps?.endTime !== undefined
                                                             ? cellTimestamps.endTime -
-                                                            cellTimestamps.startTime
-                                                            : null
+                                                              cellTimestamps.startTime
+                                                            : undefined
+                                                    }
+                                                    audioDurationSeconds={
+                                                        isSubtitlesType
+                                                            ? audioDuration ?? undefined
+                                                            : undefined
                                                     }
                                                 />
 
                                                 {confirmingDiscard && (
                                                     <div className="flex flex-wrap items-center justify-center gap-2 mt-2 p-3 bg-[var(--vscode-editor-background)] border border-[var(--vscode-panel-border)] rounded-md">
                                                         <p className="text-sm text-[var(--vscode-foreground)] mr-4">
-                                                            Are you sure you want to delete this audio?
+                                                            Are you sure you want to delete this
+                                                            audio?
                                                         </p>
                                                         <Button
                                                             onClick={() => {
@@ -3470,7 +5536,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             Confirm
                                                         </Button>
                                                         <Button
-                                                            onClick={() => setConfirmingDiscard(false)}
+                                                            onClick={() =>
+                                                                setConfirmingDiscard(false)
+                                                            }
                                                             variant="outline"
                                                             size="sm"
                                                             className="h-8 px-2"
@@ -3492,10 +5560,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     !isTranscribing && (
                                                         <Badge
                                                             variant={
-                                                                isRecording ? "destructive" : "secondary"
+                                                                isRecording
+                                                                    ? "destructive"
+                                                                    : "secondary"
                                                             }
-                                                            className={`self-center ${isRecording ? "animate-pulse" : ""
-                                                                }`}
+                                                            className={`self-center ${
+                                                                isRecording ? "animate-pulse" : ""
+                                                            }`}
                                                         >
                                                             {isAudioSaving && (
                                                                 <Loader2 className="h-3 w-3 mr-2 animate-spin" />
@@ -3513,8 +5584,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 {audioValidationIconProps && (
                                                     <div className="absolute -top-2 -right-2 z-50">
                                                         <AudioValidationBadge
-                                                            validationStatusProps={audioValidationIconProps}
-                                                            popoverProps={audioValidationPopoverProps}
+                                                            validationStatusProps={
+                                                                audioValidationIconProps
+                                                            }
+                                                            popoverProps={
+                                                                audioValidationPopoverProps
+                                                            }
                                                             readOnly
                                                         />
                                                     </div>
@@ -3536,13 +5611,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                         setIsAudioLoading(true);
                                                                         setAudioFetchPending(true);
                                                                         const messageContent: EditorPostMessages =
-                                                                        {
-                                                                            command:
-                                                                                "requestAudioForCell",
-                                                                            content: {
-                                                                                cellId: cellMarkers[0],
-                                                                            },
-                                                                        };
+                                                                            {
+                                                                                command:
+                                                                                    "requestAudioForCell",
+                                                                                content: {
+                                                                                    cellId: cellMarkers[0],
+                                                                                },
+                                                                            };
                                                                         window.vscodeApi.postMessage(
                                                                             messageContent
                                                                         );
@@ -3577,46 +5652,39 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                                     // mode === "recorder"
                                     const hint = audioRecorderHint(cellAudioState);
+                                    // Calculate target duration from cell timestamps
                                     const targetDuration =
                                         cellTimestamps?.startTime !== undefined &&
-                                            cellTimestamps?.endTime !== undefined
+                                        cellTimestamps?.endTime !== undefined
                                             ? cellTimestamps.endTime - cellTimestamps.startTime
                                             : null;
+                                    // Calculate progress percentage
                                     const progressPercentage =
                                         targetDuration && recordingElapsedTime > 0
                                             ? Math.min(
-                                                100,
-                                                (recordingElapsedTime / targetDuration) * 100
-                                            )
+                                                  100,
+                                                  (recordingElapsedTime / targetDuration) * 100
+                                              )
                                             : 0;
+                                    // Determine if recording should stop filling (over 100%)
                                     const shouldStopFilling = progressPercentage >= 100;
-                                    // Smooth HSL hue interpolation: green (140) → yellow (50) → red (0).
-                                    // Replaces the previous step-bucket colour at 90/99% with a
-                                    // continuous gradient so the user reads "approaching the line"
-                                    // gradually instead of via abrupt colour jumps.
-                                    const progressHue =
-                                        progressPercentage <= 80
-                                            ? 140 // green
-                                            : progressPercentage <= 95
-                                                ? 140 - ((progressPercentage - 80) / 15) * 90 // → 50 (yellow)
-                                                : 50 - ((Math.min(100, progressPercentage) - 95) / 5) * 50; // → 0 (red)
-                                    const progressColor = `hsl(${progressHue}, 75%, 48%)`;
 
                                     // `isStartingRecording` covers the async warmup gap between
                                     // countdown ending and `recorder.onstart` firing — treating
                                     // it as "recording" prevents the green→blue→red flash.
-                                    const recorderState: RecorderState = (isRecording || isStartingRecording)
-                                        ? "recording"
-                                        : countdown !== null
+                                    const recorderState: RecorderState =
+                                        isRecording || isStartingRecording
+                                            ? "recording"
+                                            : countdown !== null
                                             ? "countdown"
                                             : "idle";
                                     const recorderTitle = isCellLocked
                                         ? "Cannot record: cell is locked"
                                         : isRecording
-                                            ? "Stop Recording"
-                                            : countdown !== null
-                                                ? `Starting in ${countdown}...`
-                                                : "Start Recording";
+                                        ? "Stop Recording"
+                                        : countdown !== null
+                                        ? `Starting in ${countdown}...`
+                                        : "Start Recording";
 
                                     return (
                                         <div className="relative bg-[var(--vscode-editor-background)] p-3 sm:p-4 rounded-md shadow w-full">
@@ -3643,29 +5711,43 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             yet (it draws idle bars until the stream lands). */}
                                                         {(isRecording || isStartingRecording) && (
                                                             <RecorderWaveform
-                                                                stream={mediaRecorder?.stream ?? null}
+                                                                stream={
+                                                                    mediaRecorder?.stream ?? null
+                                                                }
                                                             />
                                                         )}
 
-                                                        {targetDuration ? (
+                                                        {/* Progress Bar — bucket colors (yellow/green/red)
+                                                            and 3-decimal elapsed time from the dubbing branch. */}
+                                                        {targetDuration && (
                                                             <div className="w-full space-y-2">
-                                                                <div className="relative w-full h-3 bg-secondary rounded-full overflow-hidden">
+                                                                <div className="relative w-full h-3 bg-blue-200/60 rounded-full overflow-hidden">
                                                                     <div
-                                                                        className={cn(
-                                                                            "h-full rounded-full transition-[width,background-color] duration-100 origin-left",
-                                                                            shouldStopFilling && "animate-in zoom-in-95 duration-200"
-                                                                        )}
+                                                                        className="h-full rounded-full transition-all duration-100"
                                                                         style={{
-                                                                            width: `${shouldStopFilling ? 100 : progressPercentage}%`,
-                                                                            backgroundColor: progressColor,
+                                                                            width: `${
+                                                                                shouldStopFilling
+                                                                                    ? 100
+                                                                                    : progressPercentage
+                                                                            }%`,
+                                                                            backgroundColor:
+                                                                                progressPercentage <=
+                                                                                90
+                                                                                    ? "rgb(234, 179, 8)" // yellow-500
+                                                                                    : progressPercentage <=
+                                                                                      99
+                                                                                    ? "rgb(34, 197, 94)" // green-500
+                                                                                    : "rgb(239, 68, 68)", // red-500
                                                                         }}
                                                                     />
                                                                 </div>
                                                                 <div className="flex justify-between text-xs text-muted-foreground">
                                                                     <span>
                                                                         {isRecording ||
-                                                                            recordingElapsedTime > 0
-                                                                            ? `${recordingElapsedTime.toFixed(1)}s`
+                                                                        recordingElapsedTime > 0
+                                                                            ? `${recordingElapsedTime.toFixed(
+                                                                                  3
+                                                                              )}s`
                                                                             : "0s"}
                                                                     </span>
                                                                     <span>Timestamp Length</span>
@@ -3674,7 +5756,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     </span>
                                                                 </div>
                                                             </div>
-                                                        ) : null}
+                                                        )}
+
                                                         {(isRecording || isStartingRecording) && (
                                                             <div className="w-full flex justify-end -mt-1">
                                                                 <span
@@ -3682,7 +5765,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     title={`The last ${RECORDING_TAIL_TRIM_MS} ms is trimmed on stop so the stop-button click doesn't end up in the recording.`}
                                                                 >
                                                                     <Scissors className="h-2.5 w-2.5" />
-                                                                    {RECORDING_TAIL_TRIM_MS} ms tail auto-trimmed
+                                                                    {RECORDING_TAIL_TRIM_MS} ms tail
+                                                                    auto-trimmed
                                                                 </span>
                                                             </div>
                                                         )}
@@ -3691,8 +5775,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 <AlertTriangle
                                                                     className="h-3 w-3"
                                                                     style={{
-                                                                        color:
-                                                                            "var(--vscode-errorForeground)",
+                                                                        color: "var(--vscode-errorForeground)",
                                                                     }}
                                                                 />
                                                                 {hint}
