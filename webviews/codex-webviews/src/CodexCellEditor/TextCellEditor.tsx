@@ -972,12 +972,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
         const refreshAdjacentTimestamps = async () => {
             const promises: Promise<void>[] = [];
 
-            // Refresh previous cell timestamps if it has audio available
+            // Refresh previous cell timestamps if it has audio available.
+            // "available-cached" is the post-download state for LFS-pointer audio
+            // (Stream Only mode); it must be treated the same as "available-*"
+            // so Play Video's download flow re-hydrates these timestamps.
             if (
                 prevCellId &&
                 (audioAttachments?.[prevCellId] === "available" ||
                     audioAttachments?.[prevCellId] === "available-local" ||
-                    audioAttachments?.[prevCellId] === "available-pointer")
+                    audioAttachments?.[prevCellId] === "available-pointer" ||
+                    audioAttachments?.[prevCellId] === "available-cached")
             ) {
                 promises.push(
                     requestCellAudioTimestamps(prevCellId).then((timestamps) => {
@@ -988,12 +992,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 );
             }
 
-            // Refresh next cell timestamps if it has audio available
+            // Refresh next cell timestamps if it has audio available.
+            // See note above on "available-cached".
             if (
                 nextCellId &&
                 (audioAttachments?.[nextCellId] === "available" ||
                     audioAttachments?.[nextCellId] === "available-local" ||
-                    audioAttachments?.[nextCellId] === "available-pointer")
+                    audioAttachments?.[nextCellId] === "available-pointer" ||
+                    audioAttachments?.[nextCellId] === "available-cached")
             ) {
                 promises.push(
                     requestCellAudioTimestamps(nextCellId).then((timestamps) => {
@@ -1284,16 +1290,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
         ? nextStartBound
         : Math.max(effectiveTimestamps?.endTime ?? 0, (effectiveTimestamps?.startTime ?? 0) + 10);
 
+    // "available-cached" is the post-download state for LFS-pointer audio
+    // (Stream Only mode); without it, the prev/next sliders disappear right
+    // after Play Video downloads adjacent cells' audio.
     const hasPrevAudioAvailable =
         !!prevCellId &&
         (audioAttachments?.[prevCellId] === "available" ||
             audioAttachments?.[prevCellId] === "available-local" ||
-            audioAttachments?.[prevCellId] === "available-pointer");
+            audioAttachments?.[prevCellId] === "available-pointer" ||
+            audioAttachments?.[prevCellId] === "available-cached");
     const hasNextAudioAvailable =
         !!nextCellId &&
         (audioAttachments?.[nextCellId] === "available" ||
             audioAttachments?.[nextCellId] === "available-local" ||
-            audioAttachments?.[nextCellId] === "available-pointer");
+            audioAttachments?.[nextCellId] === "available-pointer" ||
+            audioAttachments?.[nextCellId] === "available-cached");
     const canPlayAudioWithVideo =
         Boolean(audioBlob) || hasPrevAudioAvailable || hasNextAudioAvailable;
 
