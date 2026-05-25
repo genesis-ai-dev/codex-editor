@@ -160,7 +160,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
             filesToExport: string[];
             options?: ExportOptions;
         }) => {
-            await exportCodexContent(format, userSelectedPath, filesToExport, options);
+            return exportCodexContent(format, userSelectedPath, filesToExport, options);
         }
     );
 
