@@ -79,9 +79,10 @@ export const validateFile = async (file: File): Promise<FileValidationResult> =>
 export const parseFile = async (
     file: File,
     onProgress?: ProgressCallback,
-    options?: { idealCellLength?: number }
+    options?: { idealCellLength?: number; locale?: string }
 ): Promise<ImportResult> => {
     const idealCellLength = options?.idealCellLength ?? DEFAULT_IDEAL_CELL_LENGTH;
+    const locale = options?.locale;
 
     try {
         onProgress?.(createProgress('Reading File', 'Reading DOCX file...', 10));
@@ -111,7 +112,7 @@ export const parseFile = async (
         onProgress?.(createProgress('Creating Cells', 'Converting paragraphs to cells...', 60));
 
         // Convert document content to cells (paragraphs + table cells)
-        const cells = createCellsFromDocx(docxDoc, file.name, idealCellLength);
+        const cells = createCellsFromDocx(docxDoc, file.name, idealCellLength, locale);
 
         onProgress?.(createProgress('Creating Notebooks', 'Creating source and codex notebooks...', 80));
 
@@ -210,7 +211,8 @@ export const parseFile = async (
 const createCellsFromDocx = (
     docxDoc: DocxDocument,
     fileName: string,
-    idealCellLength: number = DEFAULT_IDEAL_CELL_LENGTH
+    idealCellLength: number = DEFAULT_IDEAL_CELL_LENGTH,
+    locale?: string
 ): any[] => {
     const cells: any[] = [];
 
@@ -273,7 +275,6 @@ const createCellsFromDocx = (
         const fullText = paragraph.runs.map((r) => r.content).join('');
         if (!fullText.trim()) continue;
 
-        const locale = pickParagraphLocale(paragraph);
         const ranges = splitTextIntoRanges(fullText, idealCellLength, locale);
         const charRanges = buildRunCharRanges(paragraph.runs);
         const isMultiSegment = ranges.length > 1;
@@ -313,39 +314,6 @@ const createCellsFromDocx = (
 // ---------------------------------------------------------------------------
 // Run-slicing helpers (DOCX-specific, used to map text ranges back to runs)
 // ---------------------------------------------------------------------------
-
-/**
- * Pick the dominant BCP-47 locale for a paragraph by tallying the non-empty
- * w:lang values across its runs, weighted by run content length so a one-word
- * code-switched span doesn't outvote the rest of the paragraph. Ties are
- * broken by first appearance. Returns undefined when no run carries a lang
- * attribute, which makes the splitter fall back to its regex path.
- */
-const pickParagraphLocale = (paragraph: DocxParagraph): string | undefined => {
-    const weights = new Map<string, number>();
-    const firstSeen = new Map<string, number>();
-    for (let i = 0; i < paragraph.runs.length; i++) {
-        const lang = paragraph.runs[i].runProperties?.lang;
-        if (!lang) continue;
-        const weight = paragraph.runs[i].content.length || 1;
-        weights.set(lang, (weights.get(lang) ?? 0) + weight);
-        if (!firstSeen.has(lang)) firstSeen.set(lang, i);
-    }
-    if (weights.size === 0) return undefined;
-
-    let best: string | undefined;
-    let bestWeight = -1;
-    for (const [lang, w] of weights) {
-        if (
-            w > bestWeight ||
-            (w === bestWeight && (firstSeen.get(lang) ?? Infinity) < (firstSeen.get(best ?? '') ?? Infinity))
-        ) {
-            best = lang;
-            bestWeight = w;
-        }
-    }
-    return best;
-};
 
 interface RunCharRange {
     run: DocxRun;

@@ -8,6 +8,7 @@ import { DEFAULT_IDEAL_CELL_LENGTH } from "../../utils/textSplitter";
 
 export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const [idealCellLength, setIdealCellLength] = useState<number>(DEFAULT_IDEAL_CELL_LENGTH);
+    const locale = props.wizardContext?.sourceLanguageTag;
 
     const analyzeFiles = useCallback(async (files: File[]): Promise<FileAnalysisStat[]> => {
         const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
@@ -41,7 +42,7 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                     throw new Error(`${file.name}: ${validation.errors.join(", ")}`);
                 }
 
-                const importResult = await parseFile(file, onProgress, { idealCellLength });
+                const importResult = await parseFile(file, onProgress, { idealCellLength, locale });
                 if (!importResult.success || !importResult.notebookPair) {
                     throw new Error(importResult.error || `Failed to parse ${file.name}`);
                 }
@@ -51,7 +52,7 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
 
             return results.length === 1 ? results[0]! : results;
         },
-        [idealCellLength]
+        [idealCellLength, locale]
     );
 
     const advancedSettings = (
