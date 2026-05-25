@@ -5,6 +5,7 @@ import type { ReactPlayerRef } from "../types/reactPlayerTypes";
 import { globalAudioController, AudioControllerEvent } from "../../lib/audioController";
 import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../../lib/audioCache";
 import { EditorPostMessages } from "../../../../../types";
+import type { AudioAvailability } from "../utils/audioViewMode";
 
 interface CellAudioData {
     cellId: string;
@@ -15,19 +16,10 @@ interface CellAudioData {
     isPlaying: boolean;
 }
 
-type AudioAttachmentState =
-    | "available"
-    | "available-local"
-    | "available-pointer"
-    | "available-cached"
-    | "deletedOnly"
-    | "none"
-    | "missing";
-
 interface UseMultiCellAudioPlaybackProps {
     translationUnitsForSection: QuillCellContent[];
     audioAttachments?: {
-        [cellId: string]: AudioAttachmentState;
+        [cellId: string]: AudioAvailability;
     };
     playerRef: React.RefObject<ReactPlayerRef>;
     vscode: WebviewApi<unknown>;

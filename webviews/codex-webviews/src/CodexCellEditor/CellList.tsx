@@ -32,6 +32,7 @@ import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { sanitizeQuillHtml } from "./utils";
 import { compareHtmlStructure, getStructureMismatchDescription } from "./utils/htmlStructureValidator";
 import type { ReactPlayerRef } from "./types/reactPlayerTypes";
+import type { AudioAvailability } from "./utils/audioViewMode";
 
 export interface CellListProps {
     translationUnits: QuillCellContent[];
@@ -52,14 +53,7 @@ export interface CellListProps {
     cellsInAutocompleteQueue?: string[]; // Cells queued for autocompletion
     successfulCompletions?: Set<string>; // Cells that completed successfully
     audioAttachments?: {
-        [cellId: string]:
-            | "available"
-            | "available-local"
-            | "available-pointer"
-            | "available-cached"
-            | "deletedOnly"
-            | "none"
-            | "missing";
+        [cellId: string]: AudioAvailability;
     }; // Cells that have audio attachments
     isSaving?: boolean;
     saveError?: boolean; // Whether there was a save error/timeout
@@ -1196,7 +1190,7 @@ const CellList: React.FC<CellListProps> = ({
                                 allTranslationsComplete={successfulCompletions.size > 0}
                                 handleCellTranslation={handleCellTranslation}
                                 handleCellClick={openCellById}
-                                audioAttachments={audioAttachments as any}
+                                audioAttachments={audioAttachments}
                                 footnoteOffset={calculateFootnoteOffset(i)}
                                 isCorrectionEditorMode={isCorrectionEditorMode}
                                 translationUnits={workingTranslationUnits}

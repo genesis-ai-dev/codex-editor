@@ -411,6 +411,38 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
     const saveAudioToCellRef = useRef<((blob: Blob) => void) | null>(null);
     const startActualRecordingRef = useRef<(() => Promise<void>) | null>(null);
+    // Tracks an in-flight `deleteAudioAttachment` so audio for the just-
+    // deleted cell can't sneak back onto the waveform while the provider's
+    // confirming broadcast is in flight. Without this, three separate paths
+    // each race the deletion and re-populate `audioBlob`:
+    //   1. `preloadAudioForTab` re-hydrates from the still-warm cellId-keyed
+    //      audio cache (or the attachment-keyed one via stale
+    //      `currentSelectedAudioId`).
+    //   2. `preloadAudioForTab` posts `requestAudioForCell` because state is
+    //      still "available-local".
+    //   3. The `providerSendsAudioAttachments` handler's auto-download branch
+    //      does the same when broadcasts arrive before the deletion.
+    // All three consult `isAudioDeletionPendingForThisCell` and skip until
+    // the post-delete branch (or the safety expiry) clears the ref.
+    const pendingAudioDeletionRef = useRef<{
+        cellId: string;
+        audioId: string;
+        expiresAt: number;
+    } | null>(null);
+    // Whether `pendingAudioDeletionRef` is currently asserting "no audio for
+    // this cell" — checked by every path that could re-populate `audioBlob`
+    // for the open cell. Self-clears stale entries past their safety expiry
+    // so a missed confirmation broadcast never permanently blocks fetches.
+    const isAudioDeletionPendingForThisCell = useCallback((): boolean => {
+        const pending = pendingAudioDeletionRef.current;
+        if (!pending) return false;
+        if (pending.cellId !== cellMarkers[0]) return false;
+        if (Date.now() >= pending.expiresAt) {
+            pendingAudioDeletionRef.current = null;
+            return false;
+        }
+        return true;
+    }, [cellMarkers]);
     // Refs for synchronized audio/video playback
     const audioElementRef = useRef<HTMLAudioElement | null>(null);
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
@@ -2938,6 +2970,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
         setAudioUrl(null);
         setAudioAuthor(undefined);
         setRecordingStatus("");
+        // Drop the cellId-keyed in-memory cache so `preloadAudioForTab`'s
+        // hydration path can't re-fetch the just-discarded data URL on the
+        // re-render that follows `setAudioBlob(null)`.
+        clearCachedAudio(cellMarkers[0]);
 
         // Cancel any ongoing transcription
         if (transcriptionClientRef.current) {
@@ -2957,6 +2993,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
         // If we have an audio ID, notify provider to delete the file
         if (audioId) {
+            // Mark this cell as having a pending deletion so the auto-download
+            // handler skips the next stale "available-*" broadcast for it.
+            // 5s expiry covers normal provider round-trip and falls back open
+            // if the confirming broadcast never arrives (error, disconnection).
+            pendingAudioDeletionRef.current = {
+                cellId: cellMarkers[0],
+                audioId,
+                expiresAt: Date.now() + 5000,
+            };
             const messageContent: EditorPostMessages = {
                 command: "deleteAudioAttachment",
                 content: {
@@ -3179,6 +3224,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
         // from cache, etc.) there is nothing to fetch.  Skip everything.
         if (audioBlob) return;
 
+        // A `deleteAudioAttachment` is in flight for this cell. Both the
+        // cache-hydration and `requestAudioForCell` paths below would
+        // otherwise re-populate `audioBlob` with the audio we just deleted,
+        // until the provider's confirming broadcast finally lands.
+        if (isAudioDeletionPendingForThisCell()) return;
+
         const cellAudioState = audioAttachments?.[cellMarkers[0]];
         if (
             cellAudioState === "none" ||
@@ -3250,7 +3301,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             setIsAudioLoading(false);
             setAudioFetchPending(false);
         }
-    }, [cellMarkers, audioBlob, audioAttachments]);
+    }, [cellMarkers, audioBlob, audioAttachments, isAudioDeletionPendingForThisCell]);
 
     // Cell-switch effect: reset per-cell state and handle one-shot session flags.
     // Keyed on the primitive cellId so it does NOT re-fire on audioBlob/audioAttachments
@@ -3563,6 +3614,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         } as EditorPostMessages);
                         return;
                     }
+                    // Provider has confirmed the deletion (or any other
+                    // post-delete state) — release the in-flight guard so
+                    // future broadcasts for this cell behave normally again.
+                    if (pendingAudioDeletionRef.current?.cellId === cellMarkers[0]) {
+                        pendingAudioDeletionRef.current = null;
+                    }
                     clearCachedAudio(cellMarkers[0]);
                     setAudioBlob(null);
                     setAudioUrl(null);
@@ -3585,11 +3642,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 const isLocal = stateForCell === "available-local";
 
                 if (
-                    isLocal ||
-                    ((stateForCell === "available" ||
-                        stateForCell === "available-pointer" ||
-                        stateForCell === "available-cached") &&
-                        shouldAutoDownload)
+                    !isAudioDeletionPendingForThisCell() &&
+                    (isLocal ||
+                        ((stateForCell === "available" ||
+                            stateForCell === "available-pointer" ||
+                            stateForCell === "available-cached") &&
+                            shouldAutoDownload))
                 ) {
                     setIsAudioLoading(true);
                     const messageContent: EditorPostMessages = {
@@ -3605,6 +3663,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 message.type === "providerSendsAudioData" &&
                 message.content.cellId === cellMarkers[0]
             ) {
+                // Drop in-flight responses for a cell with a pending deletion.
+                // A `requestAudioForCell` posted just before the user pressed
+                // delete (e.g. by the cell-switch preload) can otherwise land
+                // here mid-deletion and re-populate `audioBlob` with the audio
+                // we just discarded.
+                if (isAudioDeletionPendingForThisCell()) {
+                    return;
+                }
                 if (message.content.audioData) {
                     // Only update the main waveform/selection when this response was not
                     // triggered by a history-viewer request for a specific non-current audio.

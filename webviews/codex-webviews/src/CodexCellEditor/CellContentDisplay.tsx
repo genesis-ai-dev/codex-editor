@@ -29,6 +29,7 @@ import {
 } from "../components/ui/dialog";
 import AudioPlayButton from "./AudioPlayButton";
 import { MessageCircle } from "lucide-react";
+import type { AudioAvailability } from "./utils/audioViewMode";
 
 const SHOW_VALIDATION_BUTTON = true;
 interface CellContentDisplayProps {
@@ -48,14 +49,7 @@ interface CellContentDisplayProps {
     handleCellTranslation?: (cellId: string) => void;
     handleCellClick: (cellId: string) => void;
     audioAttachments?: {
-        [cellId: string]:
-            | "available"
-            | "available-local"
-            | "available-pointer"
-            | "available-cached"
-            | "deletedOnly"
-            | "none"
-            | "missing";
+        [cellId: string]: AudioAvailability;
     };
     footnoteOffset?: number; // Starting footnote number for this cell
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active

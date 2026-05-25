@@ -5,15 +5,7 @@ import { useMouse } from "@uidotdev/usehooks";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import { useMultiCellAudioPlayback } from "./hooks/useMultiCellAudioPlayback";
-
-type AudioAttachmentState =
-    | "available"
-    | "available-local"
-    | "available-pointer"
-    | "available-cached"
-    | "deletedOnly"
-    | "none"
-    | "missing";
+import type { AudioAvailability } from "./utils/audioViewMode";
 
 interface VideoTimelineEditorProps {
     videoUrl: string;
@@ -21,7 +13,7 @@ interface VideoTimelineEditorProps {
     vscode: any;
     playerRef: React.RefObject<ReactPlayerRef>;
     audioAttachments?: {
-        [cellId: string]: AudioAttachmentState;
+        [cellId: string]: AudioAvailability;
     };
     muteVideoWhenPlayingAudio?: boolean;
 }

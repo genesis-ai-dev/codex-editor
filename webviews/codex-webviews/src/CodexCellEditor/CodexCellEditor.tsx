@@ -22,6 +22,7 @@ import SourceCellContext from "./contextProviders/SourceCellContext";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
 import VideoTimelineEditor from "./VideoTimelineEditor";
+import type { AudioAvailability } from "./utils/audioViewMode";
 
 import {
     getCellValueData,
@@ -347,15 +348,7 @@ const CodexCellEditor: React.FC = () => {
 
     // Add audio attachments state
     const [audioAttachments, setAudioAttachments] = useState<{
-        [cellId: string]:
-            | "available"
-            | "available-local"
-            | "available-pointer"
-            | "available-cached"
-            | "deletedOnly"
-            | "unselected"
-            | "none"
-            | "missing";
+        [cellId: string]: AudioAvailability;
     }>({});
 
     // Webview-level snapshot of the last `selectedAudioId` seen per cell on a
