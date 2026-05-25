@@ -15,6 +15,10 @@ export const initializeAudioExporter = (context: vscode.ExtensionContext): void 
     extensionContext = context;
 };
 
+export function getAudioExporterContext(): vscode.ExtensionContext | undefined {
+    return extensionContext;
+}
+
 // Debug logging for audio export diagnostics
 const DEBUG = false;
 function debug(...args: any[]) {
@@ -28,7 +32,7 @@ type ExportAudioOptions = {
 };
 
 
-function sanitizeFileComponent(input: string): string {
+export function sanitizeFileComponent(input: string): string {
     return input
         .replace(/\s+/g, "_")
         .replace(/[^a-zA-Z0-9._-]/g, "-")
@@ -108,7 +112,7 @@ function formatTimeRangeSuffix(start?: number, end?: number): string {
     return `_${s || ""}-${e || ""}`;
 }
 
-function getTargetLanguageCode(): string {
+export function getTargetLanguageCode(): string {
     const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
     const lang = projectConfig.get<any>("targetLanguage") || {};
     const code: string = lang.tag || lang.refName || "lang";
@@ -430,19 +434,19 @@ async function prepareAudioForExport(
     return { bytes: original, ext };
 }
 
-async function readNotebook(uri: vscode.Uri): Promise<CodexNotebookAsJSONData> {
+export async function readNotebook(uri: vscode.Uri): Promise<CodexNotebookAsJSONData> {
     const bytes = await vscode.workspace.fs.readFile(uri);
     return JSON.parse(Buffer.from(bytes).toString());
 }
 
-function isActiveCell(cell: any): boolean {
+export function isActiveCell(cell: any): boolean {
     const data = cell?.metadata?.data;
     const isMerged = !!(data && data.merged);
     const isDeleted = !!(data && data.deleted);
     return !isMerged && !isDeleted;
 }
 
-function pickAudioAttachmentForCell(cell: any): { id: string; url: string; start?: number; end?: number; } | null {
+export function pickAudioAttachmentForCell(cell: any): { id: string; url: string; start?: number; end?: number; } | null {
     const attachments = cell?.metadata?.attachments || {};
     if (!attachments || typeof attachments !== "object") return null;
     const selectedId: string | undefined = cell?.metadata?.selectedAudioId;
@@ -467,7 +471,7 @@ function pickAudioAttachmentForCell(cell: any): { id: string; url: string; start
     return candidates[0];
 }
 
-async function pathExists(uri: vscode.Uri): Promise<boolean> {
+export async function pathExists(uri: vscode.Uri): Promise<boolean> {
     try { await vscode.workspace.fs.stat(uri); return true; } catch { return false; }
 }
 
