@@ -1275,6 +1275,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, audioTimestamps: timestamps }],
         });

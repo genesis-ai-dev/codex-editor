@@ -5203,11 +5203,30 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 )}
                                                 <Button
                                                     onClick={() => {
-                                                        // Clear timestamps
+                                                        // Clear both cell-range and audio-range
+                                                        // staging so both sliders snap back to
+                                                        // their persisted values. The audio
+                                                        // staging used to "revert" implicitly via
+                                                        // a serializer-cache bug; now that audio
+                                                        // timestamps actually persist on save,
+                                                        // Revert has to clear them explicitly.
                                                         setContentBeingUpdated({
                                                             ...contentBeingUpdated,
                                                             cellTimestamps: undefined,
+                                                            cellAudioTimestamps: undefined,
                                                         });
+                                                        // The dirty-tracking effect (~line 2260)
+                                                        // doesn't watch cellAudioTimestamps, so
+                                                        // it won't recompute unsavedChanges when
+                                                        // only audio staging is cleared. Mirror
+                                                        // discardLabelChanges and recompute here
+                                                        // so the Save button hides correctly.
+                                                        const labelDirty =
+                                                            (editableLabel ?? "") !==
+                                                            (cellLabel ?? "");
+                                                        setUnsavedChanges(
+                                                            Boolean(isTextDirty || labelDirty)
+                                                        );
                                                     }}
                                                     variant="outline"
                                                     size="sm"

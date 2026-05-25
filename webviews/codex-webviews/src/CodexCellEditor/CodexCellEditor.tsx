@@ -1983,6 +1983,14 @@ const CodexCellEditor: React.FC = () => {
                         ...prev,
                         cellLabel: match.cellLabel ?? prev.cellLabel,
                         cellTimestamps: match.timestamps ?? prev.cellTimestamps,
+                        // Reconcile audio timestamps too. Otherwise a staged value
+                        // (from auto-init at TextCellEditor.tsx:1192 or a save whose
+                        // clearing race didn't complete) keeps masking the freshly
+                        // synced cell.audioTimestamps, since the slider reads
+                        // staged ?? persisted. Without this, the user has to close
+                        // and reopen the editor to see synced audio range changes.
+                        cellAudioTimestamps:
+                            match.audioTimestamps ?? prev.cellAudioTimestamps,
                     };
                 });
             } else {
