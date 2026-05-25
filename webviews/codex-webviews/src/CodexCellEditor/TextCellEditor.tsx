@@ -1014,6 +1014,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
         };
     }, [prevCellId, nextCellId, audioAttachments, requestCellAudioTimestamps]);
 
+    // Drop the "No audio available in the current video timestamp range" warning
+    // when audio availability changes. The warning is only set inside
+    // handlePlayAudioWithVideo (~line 1743) at click time and only cleared there
+    // on a successful click (~line 1737), so without this effect, restoring a
+    // deleted audio leaves a stale message visible until the next Play Video
+    // press. Reacting to audioBlob covers the current cell directly; reacting to
+    // audioAttachments covers restorations that haven't yet reloaded the blob
+    // and adjacent-cell changes that could resolve the warning.
+    useEffect(() => {
+        setAudioWarning(null);
+    }, [audioBlob, audioAttachments]);
+
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
             debug("Scrolling to content in showFlashingBorder", {
@@ -4955,8 +4967,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     </div>
                                                 )}
 
-                                            {/* Previous audio slider - read-only */}
+                                            {/* Previous audio slider - read-only.
+                                                Gate on hasPrevAudioAvailable so the slider
+                                                disappears when the adjacent cell's audio is
+                                                deleted; the cached prevAudioTimestamps state
+                                                wouldn't otherwise clear (the refresh effect at
+                                                ~line 968 only re-fetches when audio is
+                                                available). */}
                                             {isSubtitlesType &&
+                                                hasPrevAudioAvailable &&
                                                 prevAudioTimestamps &&
                                                 typeof prevAudioTimestamps.startTime === "number" &&
                                                 typeof prevAudioTimestamps.endTime === "number" &&
@@ -5137,8 +5156,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     </div>
                                                 )}
 
-                                            {/* Next audio slider - read-only */}
+                                            {/* Next audio slider - read-only.
+                                                Gate on hasNextAudioAvailable so the slider
+                                                disappears when the adjacent cell's audio is
+                                                deleted; see "Previous audio slider" comment
+                                                above. */}
                                             {isSubtitlesType &&
+                                                hasNextAudioAvailable &&
                                                 nextAudioTimestamps &&
                                                 typeof nextAudioTimestamps.startTime === "number" &&
                                                 typeof nextAudioTimestamps.endTime === "number" &&
