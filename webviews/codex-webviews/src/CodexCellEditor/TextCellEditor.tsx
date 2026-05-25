@@ -1142,6 +1142,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     },
                 };
                 window.vscodeApi.postMessage(messageContent);
+                // Optimistically clear staged audio timestamps - mirrors the
+                // cellTimestamps clear above. Without this, a sync that arrives
+                // before the provider's mutation round-trips (and the match-and-clear
+                // effect at ~line 2303 fires) leaves a stale staged value masking
+                // the new persisted cell.audioTimestamps in the slider.
+                const { cellAudioTimestamps, ...audioRest } = contentBeingUpdated;
+                setContentBeingUpdated(audioRest as EditorCellContent);
             }
         }, 0);
     };
