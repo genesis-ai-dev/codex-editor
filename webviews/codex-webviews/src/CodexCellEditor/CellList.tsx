@@ -1013,9 +1013,6 @@ const CellList: React.FC<CellListProps> = ({
                                 unresolvedCommentsCount={cellCommentsCount.get(cellMarkers[0]) || 0}
                                 currentUsername={currentUsername || undefined}
                                 requiredValidations={requiredValidations}
-                                playerRef={playerRef}
-                                shouldShowVideoPlayer={shouldShowVideoPlayer}
-                                videoUrl={videoUrl}
                                 requiredAudioValidations={requiredAudioValidations}
                                 isAuthenticated={isAuthenticated}
                                 userAccessLevel={userAccessLevel}
@@ -1204,9 +1201,6 @@ const CellList: React.FC<CellListProps> = ({
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
                                 htmlStructureError={htmlStructureErrors.get(cellMarkers[0])}
-                                playerRef={playerRef}
-                                shouldShowVideoPlayer={shouldShowVideoPlayer}
-                                videoUrl={videoUrl}
                                 isOtherTypeAudioPlaying={isOtherTypeAudioPlaying}
                             />
                         </span>

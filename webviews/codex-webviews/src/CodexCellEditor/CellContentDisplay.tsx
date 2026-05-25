@@ -1,6 +1,5 @@
 import React, { useContext, useEffect, useRef, useState, useCallback } from "react";
 import { EditorPostMessages, QuillCellContent } from "../../../../types";
-import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import { processHtmlContent, updateFootnoteNumbering } from "./footnoteUtils";
 import { CodexCellTypes } from "../../../../types/enums";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
@@ -65,10 +64,6 @@ interface CellContentDisplayProps {
     showInlineBacktranslations?: boolean;
     backtranslation?: any;
     htmlStructureError?: string;
-    // Video player props
-    playerRef?: React.RefObject<ReactPlayerRef>;
-    shouldShowVideoPlayer?: boolean;
-    videoUrl?: string;
     // Audio playback state from other webview type (source or target)
     isOtherTypeAudioPlaying?: boolean;
 }
@@ -119,9 +114,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         allTranslationsComplete = false,
         handleCellTranslation,
         handleCellClick,
-        playerRef,
-        shouldShowVideoPlayer = false,
-        videoUrl,
         audioAttachments,
         footnoteOffset = 0,
         isCorrectionEditorMode = false,
@@ -896,10 +888,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                             (window as any).openCellById;
                                                         if (typeof open === "function") open(id);
                                                     }}
-                                                    playerRef={playerRef}
-                                                    cellTimestamps={cell.timestamps}
-                                                    shouldShowVideoPlayer={shouldShowVideoPlayer}
-                                                    videoUrl={videoUrl}
                                                     disabled={isOtherTypeAudioPlaying}
                                                     isSourceText={isSourceText}
                                                 />
