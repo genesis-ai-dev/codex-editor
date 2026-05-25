@@ -4559,6 +4559,26 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                 if (!ws) continue;
 
+                // The file watcher's `document.revert()` runs asynchronously and is not
+                // awaited, so by the time syncManager calls us the on-disk file may already
+                // hold the merged state while the in-memory document still reflects the
+                // pre-sync version. Reading from that stale model would broadcast the wrong
+                // `selectedAudioId` / availability — e.g. after a delete-then-remote-record
+                // round-trip the local user would be told the cell is still `deletedOnly`
+                // even though the freshly-pulled metadata points to the teammate's new
+                // attachment. Revert here to guarantee the broadcast reflects post-merge
+                // disk state. Skip dirty documents so we never discard unsaved edits.
+                if (!document.isDirty) {
+                    try {
+                        await document.revert();
+                    } catch (revertError) {
+                        console.warn(
+                            `[refreshAudioAttachmentsAfterSync] Failed to revert document before broadcast: ${documentUri}`,
+                            revertError
+                        );
+                    }
+                }
+
                 const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "unselected" | "none"; } = {};
                 // Per-cell `selectedAudioId` snapshot. Included in the broadcast so webviews
                 // can detect remote selection changes (a teammate selected a different audio
