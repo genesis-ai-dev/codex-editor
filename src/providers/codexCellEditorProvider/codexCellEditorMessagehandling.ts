@@ -2190,7 +2190,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 );
                             }
 
-                            if (mediaStrategy === "stream-and-save") {
+                            if (mediaStrategy === "stream-and-save" || mediaStrategy === "auto-download") {
+                                // Persist the just-downloaded bytes to `files/<X>` so the
+                                // next play of this cell reads from disk instead of
+                                // hitting LFS again. For auto-download this also lets
+                                // `reconcilePointersFilesystem` skip this OID when its
+                                // worker reaches it (it checks `files/<X>` existence
+                                // before issuing the HTTP request — see
+                                // GitService.ts Phase 3 worker), so the background
+                                // bulk-download doesn't redundantly re-fetch the same
+                                // bytes we just fetched here.
                                 try {
                                     await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(fullPath)));
                                     await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), lfsData);
