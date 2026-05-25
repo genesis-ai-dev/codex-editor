@@ -1,4 +1,4 @@
-import { CodexExportFormat, exportCodexContent } from "../exportHandler/exportHandler";
+import { CodexExportFormat, exportCodexContent, checkSubtitleOverlapsAndConfirm } from "../exportHandler/exportHandler";
 import { createWebviewReporter } from "../exportHandler/exportProgress";
 import * as fs from "fs";
 import * as vscode from "vscode";
@@ -300,6 +300,17 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                 safePostMessageToPanel(
                     panel,
                     { command: "htmlStructureCheckResult", mismatches: mismatchResults },
+                    "ProjectExport"
+                );
+                break;
+            }
+            case "checkSubtitleOverlaps": {
+                const proceed = await checkSubtitleOverlapsAndConfirm(
+                    message.filesToExport as string[]
+                );
+                safePostMessageToPanel(
+                    panel,
+                    { command: "subtitleOverlapResult", proceed },
                     "ProjectExport"
                 );
                 break;
@@ -1192,6 +1203,13 @@ function getWebviewContent(
                                             <span class="format-tag">Plain Text Only</span>
                                         </div>
                                     </div>
+                                    <div class="format-option" data-format="subtitles-vtt-with-cue-splitting">
+                                        <div class="format-option-content">
+                                            <strong>WebVTT with Cue Splitting</strong>
+                                            <p>Only use this option if you have overlapping subtitles representing independent speakers that need to appear and disappear at different times.</p>
+                                            <span class="format-tag">Plain Text Only</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             <!-- Round-trip: only for supported file types -->
@@ -1400,7 +1418,7 @@ function getWebviewContent(
                     </div>
                     <div class="bottom-bar-right">
                         <button class="step-btn visible" id="nextStep1" disabled onclick="goToStep2()"><span class="btn-text">Next Step</span><i class="codicon codicon-arrow-right"></i></button>
-                        <button class="step-btn" id="nextStep2" disabled onclick="goToStep3()"><span class="btn-text">Next Step</span><i class="codicon codicon-arrow-right"></i></button>
+                        <button class="step-btn" id="nextStep2" disabled onclick="advanceFromStep2()"><span class="btn-text">Next Step</span><i class="codicon codicon-arrow-right"></i></button>
                         <button class="step-btn" id="exportButton" disabled onclick="exportProject()"><span class="btn-text">Export</span><i class="codicon codicon-arrow-down"></i></button>
                     </div>
                 </div>
@@ -2546,6 +2564,32 @@ function getWebviewContent(
                     vscode.postMessage({ command: 'closeExportView' });
                 }
 
+                const SUBTITLE_FORMATS_THAT_WARN_ON_OVERLAP = new Set([
+                    'subtitles-srt',
+                    'subtitles-vtt-with-styles',
+                    'subtitles-vtt-without-styles',
+                ]);
+                let pendingSubtitleOverlapCheck = false;
+
+                function advanceFromStep2() {
+                    if (pendingSubtitleOverlapCheck) return;
+                    if (
+                        selectedFormat &&
+                        SUBTITLE_FORMATS_THAT_WARN_ON_OVERLAP.has(selectedFormat) &&
+                        selectedFiles.size > 0
+                    ) {
+                        pendingSubtitleOverlapCheck = true;
+                        const btn = document.getElementById('nextStep2');
+                        if (btn) btn.disabled = true;
+                        vscode.postMessage({
+                            command: 'checkSubtitleOverlaps',
+                            filesToExport: Array.from(selectedFiles),
+                        });
+                        return;
+                    }
+                    goToStep(3);
+                }
+
                 window.addEventListener('message', event => {
                     const message = event.data;
                     if (message.command === 'updateExportPath') {
@@ -2599,6 +2643,13 @@ function getWebviewContent(
                     if (message.command === 'exportError') {
                         showExportFinished(false, message.message || 'Export failed.');
                         return;
+                    }
+                    if (message.command === 'subtitleOverlapResult') {
+                        pendingSubtitleOverlapCheck = false;
+                        updateStep2Button();
+                        if (message.proceed) {
+                            goToStep(3);
+                        }
                     }
                 });
 

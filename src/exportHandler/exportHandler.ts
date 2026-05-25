@@ -5,8 +5,7 @@ import * as fs from "fs";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { removeHtmlTags, generateSrtData } from "./subtitleUtils";
-import { generateVttData } from "./vttUtils";
-
+import { generateVttData, hasOverlappingCues } from "./vttUtils";
 // import { exportRtfWithPandoc } from "../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
 
 const execAsync = promisify(exec);
@@ -48,6 +47,39 @@ function debug(...args: any[]) {
     if (DEBUG) {
         console.log("[DEBUG]", ...args);
     }
+}
+
+const SUBTITLE_OVERLAP_WARNING =
+    "Some selected files have overlapping subtitle timestamps. To split overlapping cues so they appear at different times, use the WebVTT with Cue Splitting option. Do you want to export anyway?";
+
+/**
+ * Checks selected files for overlapping VTT/SRT cues. If any file has overlaps, shows a warning
+ * and asks the user to confirm. Returns true if export should proceed, false to cancel.
+ */
+export async function checkSubtitleOverlapsAndConfirm(filesToExport: string[]): Promise<boolean> {
+    let hasOverlaps = false;
+    for (const filePath of filesToExport) {
+        try {
+            const codexData = await readCodexNotebookFromUri(vscode.Uri.file(filePath));
+            const cells = getActiveCells(codexData.cells);
+            if (hasOverlappingCues(cells)) {
+                hasOverlaps = true;
+                break;
+            }
+        } catch (err) {
+            console.warn(
+                `[checkSubtitleOverlapsAndConfirm] Failed to inspect ${filePath} for overlaps:`,
+                err
+            );
+        }
+    }
+    if (!hasOverlaps) return true;
+    const choice = await vscode.window.showWarningMessage(
+        SUBTITLE_OVERLAP_WARNING,
+        { modal: true },
+        "Export anyway"
+    );
+    return choice === "Export anyway";
 }
 
 /**
@@ -210,6 +242,7 @@ export enum CodexExportFormat {
     SUBTITLES_SRT = "subtitles-srt",
     SUBTITLES_VTT_WITH_STYLES = "subtitles-vtt-with-styles",
     SUBTITLES_VTT_WITHOUT_STYLES = "subtitles-vtt-without-styles",
+    SUBTITLES_VTT_WITH_CUE_SPLITTING = "subtitles-vtt-with-cue-splitting",
     XLIFF = "xliff",
     CSV = "csv",
     TSV = "tsv",
@@ -254,119 +287,119 @@ async function exportCodexContentAsIdmlRoundtrip(
             current: index + 1,
             total: filesToExport.length,
         });
-                try {
-                    const file = vscode.Uri.file(filePath);
-                    const fileName = basename(file.fsPath);
-                    const bookCode = fileName.split(".")[0] || "";
+        try {
+            const file = vscode.Uri.file(filePath);
+            const fileName = basename(file.fsPath);
+            const bookCode = fileName.split(".")[0] || "";
 
-                    // Read codex notebook
-                    const codexNotebook = await readCodexNotebookFromUri(file);
+            // Read codex notebook
+            const codexNotebook = await readCodexNotebookFromUri(file);
 
-                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker || '';
-                    const importerType = (codexNotebook.metadata as any)?.importerType || '';
-                    const fileType = (codexNotebook.metadata as any)?.fileType || '';
-                    const isBiblicaFile =
-                        corpusMarker === 'biblica' ||
-                        corpusMarker === 'biblica-idml' ||
-                        importerType === 'biblica' ||
-                        fileType === 'biblica' ||
-                        importerType === 'biblica-experimental' ||
-                        fileType === 'biblica-experimental';
-                    // const isReach4LifeFile =
-                    //     corpusMarker === 'reach4life' ||
-                    //     corpusMarker === 'reach4life-idml' ||
-                    //     importerType === 'reach4life' ||
-                    //     fileType === 'reach4life';
-                    const exporterType = isBiblicaFile ? 'Biblica' : 'Standard';
+            const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker || '';
+            const importerType = (codexNotebook.metadata as any)?.importerType || '';
+            const fileType = (codexNotebook.metadata as any)?.fileType || '';
+            const isBiblicaFile =
+                corpusMarker === 'biblica' ||
+                corpusMarker === 'biblica-idml' ||
+                importerType === 'biblica' ||
+                fileType === 'biblica' ||
+                importerType === 'biblica-experimental' ||
+                fileType === 'biblica-experimental';
+            // const isReach4LifeFile =
+            //     corpusMarker === 'reach4life' ||
+            //     corpusMarker === 'reach4life-idml' ||
+            //     importerType === 'reach4life' ||
+            //     fileType === 'reach4life';
+            const exporterType = isBiblicaFile ? 'Biblica' : 'Standard';
 
-                    console.log(`[IDML Export] Processing ${fileName} (corpusMarker: ${corpusMarker}) using ${exporterType} exporter`);
+            console.log(`[IDML Export] Processing ${fileName} (corpusMarker: ${corpusMarker}) using ${exporterType} exporter`);
 
-                    // Lookup original attachment by originalFileName or originalName metadata on the notebook (fallback to {bookCode}.idml)
-                    // Note: originalFileName points to the deduplicated file in attachments/files/originals (or legacy attachments/originals)
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
-                        (codexNotebook.metadata as any)?.originalName ||
-                        `${bookCode}.idml`;
-                    const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
+            // Lookup original attachment by originalFileName or originalName metadata on the notebook (fallback to {bookCode}.idml)
+            // Note: originalFileName points to the deduplicated file in attachments/files/originals (or legacy attachments/originals)
+            const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                (codexNotebook.metadata as any)?.originalName ||
+                `${bookCode}.idml`;
+            const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
 
-                    // Load original IDML
-                    let idmlData: Uint8Array;
-                    try {
-                        idmlData = await vscode.workspace.fs.readFile(originalFileUri);
-                    } catch (readErr) {
-                        throw new Error(
-                            `Original IDML file not found at "${originalFileUri.fsPath}". ` +
-                            `The file may have been deleted or moved. ` +
-                            `Try re-importing the source file. (originalFileName: "${originalFileName}")`
-                        );
-                    }
+            // Load original IDML
+            let idmlData: Uint8Array;
+            try {
+                idmlData = await vscode.workspace.fs.readFile(originalFileUri);
+            } catch (readErr) {
+                throw new Error(
+                    `Original IDML file not found at "${originalFileUri.fsPath}". ` +
+                    `The file may have been deleted or moved. ` +
+                    `Try re-importing the source file. (originalFileName: "${originalFileName}")`
+                );
+            }
 
-                    // Check if the file is a Git LFS pointer and resolve it if so
-                    if (isLfsPointerContent(idmlData)) {
-                        console.log(`[IDML Export] File "${originalFileUri.fsPath}" is a Git LFS pointer - attempting to resolve...`);
-                        reporter.report({
-                            stage: "downloading",
-                            message: `Downloading original IDML from LFS for ${fileName}...`,
-                            file: fileName,
-                        });
-                        const projectRoot = workspaceFolders[0].uri.fsPath;
-                        const lfsResult = await resolveLfsPointerFile(originalFileUri.fsPath, projectRoot);
-                        if (lfsResult.error || !lfsResult.data) {
-                            throw new Error(
-                                `Original IDML file "${originalFileName}" is an LFS pointer that could not be resolved. ` +
-                                (lfsResult.error ?? 'Unknown error')
-                            );
-                        }
-                        idmlData = lfsResult.data;
-                        console.log(`[IDML Export] LFS pointer resolved: ${idmlData.length} bytes`);
-                    }
-
-                    // Validate the file is a valid ZIP/IDML before processing
-                    if (idmlData.length < 4) {
-                        throw new Error(
-                            `Original IDML file at "${originalFileUri.fsPath}" is too small (${idmlData.length} bytes) ` +
-                            `to be a valid IDML/ZIP archive. The file may be corrupted or empty. ` +
-                            `Try re-importing the source file.`
-                        );
-                    }
-                    if (idmlData[0] !== 0x50 || idmlData[1] !== 0x4B) {
-                        const firstBytes = Array.from(idmlData.slice(0, 16))
-                            .map(b => b.toString(16).padStart(2, '0'))
-                            .join(' ');
-                        const firstChars = new TextDecoder('utf-8', { fatal: false })
-                            .decode(idmlData.slice(0, 64))
-                            .replace(/[^\x20-\x7E]/g, '.');
-                        throw new Error(
-                            `File "${originalFileUri.fsPath}" (${idmlData.length} bytes) ` +
-                            `is not a valid IDML/ZIP archive. Expected ZIP signature "PK" but found: [${firstBytes}]. ` +
-                            `Preview: "${firstChars}". ` +
-                            `The original file may have been corrupted during import. Try re-importing.`
-                        );
-                    }
-                    console.log(`[IDML Export] Loaded original IDML: ${originalFileUri.fsPath} (${idmlData.length} bytes, valid ZIP signature)`);
-
-                    let updatedIdmlData: Uint8Array;
-                    if (isBiblicaFile) {
-                        updatedIdmlData = await exportBiblicaIdml(idmlData, codexNotebook.cells);
-                    } else {
-                        updatedIdmlData = await exportIdmlRoundtrip(idmlData, codexNotebook.cells);
-                    }
-
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const suffix = isBiblicaFile ? '_biblica_translated' : '_translated';
-                    const injectedName = originalFileName.replace(/\.idml$/i, `_${timestamp}${suffix}.idml`);
-                    const injectedUri = vscode.Uri.joinPath(exportFolder, injectedName);
-                    await vscode.workspace.fs.writeFile(injectedUri, updatedIdmlData);
-
-                    console.log(`[IDML Export] ${exporterType} export completed: ${injectedName}`);
-                } catch (err) {
-                    console.error("IDML round-trip export failed:", err);
-                    reporter.fileMissing(
-                        basename(filePath),
-                        "error",
-                        err instanceof Error ? err.message : String(err)
+            // Check if the file is a Git LFS pointer and resolve it if so
+            if (isLfsPointerContent(idmlData)) {
+                console.log(`[IDML Export] File "${originalFileUri.fsPath}" is a Git LFS pointer - attempting to resolve...`);
+                reporter.report({
+                    stage: "downloading",
+                    message: `Downloading original IDML from LFS for ${fileName}...`,
+                    file: fileName,
+                });
+                const projectRoot = workspaceFolders[0].uri.fsPath;
+                const lfsResult = await resolveLfsPointerFile(originalFileUri.fsPath, projectRoot);
+                if (lfsResult.error || !lfsResult.data) {
+                    throw new Error(
+                        `Original IDML file "${originalFileName}" is an LFS pointer that could not be resolved. ` +
+                        (lfsResult.error ?? 'Unknown error')
                     );
                 }
+                idmlData = lfsResult.data;
+                console.log(`[IDML Export] LFS pointer resolved: ${idmlData.length} bytes`);
             }
+
+            // Validate the file is a valid ZIP/IDML before processing
+            if (idmlData.length < 4) {
+                throw new Error(
+                    `Original IDML file at "${originalFileUri.fsPath}" is too small (${idmlData.length} bytes) ` +
+                    `to be a valid IDML/ZIP archive. The file may be corrupted or empty. ` +
+                    `Try re-importing the source file.`
+                );
+            }
+            if (idmlData[0] !== 0x50 || idmlData[1] !== 0x4B) {
+                const firstBytes = Array.from(idmlData.slice(0, 16))
+                    .map(b => b.toString(16).padStart(2, '0'))
+                    .join(' ');
+                const firstChars = new TextDecoder('utf-8', { fatal: false })
+                    .decode(idmlData.slice(0, 64))
+                    .replace(/[^\x20-\x7E]/g, '.');
+                throw new Error(
+                    `File "${originalFileUri.fsPath}" (${idmlData.length} bytes) ` +
+                    `is not a valid IDML/ZIP archive. Expected ZIP signature "PK" but found: [${firstBytes}]. ` +
+                    `Preview: "${firstChars}". ` +
+                    `The original file may have been corrupted during import. Try re-importing.`
+                );
+            }
+            console.log(`[IDML Export] Loaded original IDML: ${originalFileUri.fsPath} (${idmlData.length} bytes, valid ZIP signature)`);
+
+            let updatedIdmlData: Uint8Array;
+            if (isBiblicaFile) {
+                updatedIdmlData = await exportBiblicaIdml(idmlData, codexNotebook.cells);
+            } else {
+                updatedIdmlData = await exportIdmlRoundtrip(idmlData, codexNotebook.cells);
+            }
+
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+            const suffix = isBiblicaFile ? '_biblica_translated' : '_translated';
+            const injectedName = originalFileName.replace(/\.idml$/i, `_${timestamp}${suffix}.idml`);
+            const injectedUri = vscode.Uri.joinPath(exportFolder, injectedName);
+            await vscode.workspace.fs.writeFile(injectedUri, updatedIdmlData);
+
+            console.log(`[IDML Export] ${exporterType} export completed: ${injectedName}`);
+        } catch (err) {
+            console.error("IDML round-trip export failed:", err);
+            reporter.fileMissing(
+                basename(filePath),
+                "error",
+                err instanceof Error ? err.message : String(err)
+            );
+        }
+    }
 
     reporter.complete({
         exportPath: userSelectedPath,
@@ -403,76 +436,76 @@ async function exportCodexContentAsDocxRoundtrip(
             current: index + 1,
             total: filesToExport.length,
         });
-                try {
-                    const file = vscode.Uri.file(filePath);
-                    const fileName = basename(file.fsPath);
-                    const bookCode = fileName.split(".")[0] || "";
+        try {
+            const file = vscode.Uri.file(filePath);
+            const fileName = basename(file.fsPath);
+            const bookCode = fileName.split(".")[0] || "";
 
-                    console.log(`[DOCX Export] Processing ${fileName} using experimental round-trip exporter`);
+            console.log(`[DOCX Export] Processing ${fileName} using experimental round-trip exporter`);
 
-                    // Read codex notebook
-                    const codexNotebook = await readCodexNotebookFromUri(file);
+            // Read codex notebook
+            const codexNotebook = await readCodexNotebookFromUri(file);
 
-                    // Check if this is a round-trip DOCX file
-                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
-                    if (corpusMarker !== 'docx' && corpusMarker !== 'docx-roundtrip') {
-                        console.warn(`[DOCX Export] Skipping ${fileName} - not imported with DOCX importer (corpusMarker: ${corpusMarker})`);
-                        reporter.fileMissing(fileName, "error", "not imported with DOCX importer");
-                        continue;
-                    }
+            // Check if this is a round-trip DOCX file
+            const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
+            if (corpusMarker !== 'docx' && corpusMarker !== 'docx-roundtrip') {
+                console.warn(`[DOCX Export] Skipping ${fileName} - not imported with DOCX importer (corpusMarker: ${corpusMarker})`);
+                reporter.fileMissing(fileName, "error", "not imported with DOCX importer");
+                continue;
+            }
 
-                    // Lookup original attachment by originalFileName or originalName metadata
-                    // Note: originalFileName points to the deduplicated file in attachments/files/originals (or legacy attachments/originals)
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
-                        (codexNotebook.metadata as any)?.originalName ||
-                        `${bookCode}.docx`;
-                    const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
+            // Lookup original attachment by originalFileName or originalName metadata
+            // Note: originalFileName points to the deduplicated file in attachments/files/originals (or legacy attachments/originals)
+            const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                (codexNotebook.metadata as any)?.originalName ||
+                `${bookCode}.docx`;
+            const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
 
-                    // Load original DOCX
-                    let docxData = await vscode.workspace.fs.readFile(originalFileUri);
+            // Load original DOCX
+            let docxData = await vscode.workspace.fs.readFile(originalFileUri);
 
-                    // Check if the file is a Git LFS pointer and resolve it
-                    if (isLfsPointerContent(docxData)) {
-                        console.log(`[DOCX Export] File "${originalFileUri.fsPath}" is a Git LFS pointer - resolving...`);
-                        reporter.report({
-                            stage: "downloading",
-                            message: `Downloading original DOCX from LFS for ${fileName}...`,
-                            file: fileName,
-                        });
-                        const projectRoot = workspaceFolders[0].uri.fsPath;
-                        const lfsResult = await resolveLfsPointerFile(originalFileUri.fsPath, projectRoot);
-                        if (lfsResult.error || !lfsResult.data) {
-                            throw new Error(
-                                `Original DOCX file "${originalFileName}" is an LFS pointer that could not be resolved. ` +
-                                (lfsResult.error ?? 'Unknown error')
-                            );
-                        }
-                        docxData = lfsResult.data;
-                        console.log(`[DOCX Export] LFS pointer resolved: ${docxData.length} bytes`);
-                    }
-
-                    // Export with translations
-                    const updatedDocxData = await exportDocxWithTranslations(
-                        docxData.buffer as ArrayBuffer,
-                        codexNotebook.cells
-                    );
-
-                    // Save translated DOCX into the chosen export folder
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const exportedName = originalFileName.replace(/\.docx$/i, `_${timestamp}_translated.docx`);
-                    const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
-                    await vscode.workspace.fs.writeFile(exportedUri, new Uint8Array(updatedDocxData));
-
-                    console.log(`[DOCX Export] Round-trip export completed: ${exportedName}`);
-                } catch (err) {
-                    console.error("DOCX round-trip export failed:", err);
-                    reporter.fileMissing(
-                        basename(filePath),
-                        "error",
-                        err instanceof Error ? err.message : String(err)
+            // Check if the file is a Git LFS pointer and resolve it
+            if (isLfsPointerContent(docxData)) {
+                console.log(`[DOCX Export] File "${originalFileUri.fsPath}" is a Git LFS pointer - resolving...`);
+                reporter.report({
+                    stage: "downloading",
+                    message: `Downloading original DOCX from LFS for ${fileName}...`,
+                    file: fileName,
+                });
+                const projectRoot = workspaceFolders[0].uri.fsPath;
+                const lfsResult = await resolveLfsPointerFile(originalFileUri.fsPath, projectRoot);
+                if (lfsResult.error || !lfsResult.data) {
+                    throw new Error(
+                        `Original DOCX file "${originalFileName}" is an LFS pointer that could not be resolved. ` +
+                        (lfsResult.error ?? 'Unknown error')
                     );
                 }
+                docxData = lfsResult.data;
+                console.log(`[DOCX Export] LFS pointer resolved: ${docxData.length} bytes`);
             }
+
+            // Export with translations
+            const updatedDocxData = await exportDocxWithTranslations(
+                docxData.buffer as ArrayBuffer,
+                codexNotebook.cells
+            );
+
+            // Save translated DOCX into the chosen export folder
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+            const exportedName = originalFileName.replace(/\.docx$/i, `_${timestamp}_translated.docx`);
+            const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
+            await vscode.workspace.fs.writeFile(exportedUri, new Uint8Array(updatedDocxData));
+
+            console.log(`[DOCX Export] Round-trip export completed: ${exportedName}`);
+        } catch (err) {
+            console.error("DOCX round-trip export failed:", err);
+            reporter.fileMissing(
+                basename(filePath),
+                "error",
+                err instanceof Error ? err.message : String(err)
+            );
+        }
+    }
 
     reporter.complete({
         exportPath: userSelectedPath,
@@ -509,152 +542,152 @@ async function exportCodexContentAsPdfRoundtrip(
             current: index + 1,
             total: filesToExport.length,
         });
-                try {
-                    const file = vscode.Uri.file(filePath);
-                    const fileName = basename(file.fsPath);
-                    const bookCode = fileName.split(".")[0] || "";
+        try {
+            const file = vscode.Uri.file(filePath);
+            const fileName = basename(file.fsPath);
+            const bookCode = fileName.split(".")[0] || "";
 
-                    console.log(`[PDF Export] Processing ${fileName} using DOCX exporter + docx2pdf`);
+            console.log(`[PDF Export] Processing ${fileName} using DOCX exporter + docx2pdf`);
 
-                    // Read codex notebook
-                    const codexNotebook = await readCodexNotebookFromUri(file);
+            // Read codex notebook
+            const codexNotebook = await readCodexNotebookFromUri(file);
 
-                    // Check if this is a PDF file
-                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker || '';
-                    const isPdfFile = corpusMarker === 'pdf';
-                    if (!isPdfFile) {
-                        console.warn(`[PDF Export] Skipping ${fileName} - not imported with PDF importer (corpusMarker: ${corpusMarker})`);
-                        reporter.fileMissing(fileName, "error", "not imported with PDF importer");
-                        continue;
-                    }
+            // Check if this is a PDF file
+            const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker || '';
+            const isPdfFile = corpusMarker === 'pdf';
+            if (!isPdfFile) {
+                console.warn(`[PDF Export] Skipping ${fileName} - not imported with PDF importer (corpusMarker: ${corpusMarker})`);
+                reporter.fileMissing(fileName, "error", "not imported with PDF importer");
+                continue;
+            }
 
-                    // Lookup original attachment by originalFileName or originalName metadata
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
-                        (codexNotebook.metadata as any)?.originalName ||
-                        `${bookCode}.pdf`;
+            // Lookup original attachment by originalFileName or originalName metadata
+            const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                (codexNotebook.metadata as any)?.originalName ||
+                `${bookCode}.pdf`;
 
-                    // Get converted DOCX filename from metadata or derive from PDF filename
-                    const pdfMetadata = (codexNotebook.metadata as any)?.pdfDocumentMetadata;
-                    const convertedDocxFileName = pdfMetadata?.convertedDocxFileName || originalFileName.replace(/\.pdf$/i, '.docx');
+            // Get converted DOCX filename from metadata or derive from PDF filename
+            const pdfMetadata = (codexNotebook.metadata as any)?.pdfDocumentMetadata;
+            const convertedDocxFileName = pdfMetadata?.convertedDocxFileName || originalFileName.replace(/\.pdf$/i, '.docx');
 
-                    // Resolve converted DOCX (preferred: attachments/files/originals, legacy: attachments/originals)
-                    const docxUri = await resolveOriginalFileUri(workspaceFolders[0], convertedDocxFileName);
-                    try {
-                        await vscode.workspace.fs.stat(docxUri);
-                    } catch {
-                        console.warn(`[PDF Export] No converted DOCX found at ${docxUri.fsPath}`);
-                        throw new Error(`No converted DOCX file found. Please re-import the PDF file.`);
-                    }
+            // Resolve converted DOCX (preferred: attachments/files/originals, legacy: attachments/originals)
+            const docxUri = await resolveOriginalFileUri(workspaceFolders[0], convertedDocxFileName);
+            try {
+                await vscode.workspace.fs.stat(docxUri);
+            } catch {
+                console.warn(`[PDF Export] No converted DOCX found at ${docxUri.fsPath}`);
+                throw new Error(`No converted DOCX file found. Please re-import the PDF file.`);
+            }
 
-                    // Read converted DOCX
-                    let docxBytes = await vscode.workspace.fs.readFile(docxUri);
+            // Read converted DOCX
+            let docxBytes = await vscode.workspace.fs.readFile(docxUri);
 
-                    // Check if the file is a Git LFS pointer and resolve it
-                    if (isLfsPointerContent(docxBytes)) {
-                        console.log(`[PDF Export] File "${docxUri.fsPath}" is a Git LFS pointer - resolving...`);
-                        reporter.report({
-                            stage: "downloading",
-                            message: `Downloading original DOCX from LFS for ${fileName}...`,
-                            file: fileName,
-                        });
-                        const projectRoot = workspaceFolders[0].uri.fsPath;
-                        const lfsResult = await resolveLfsPointerFile(docxUri.fsPath, projectRoot);
-                        if (lfsResult.error || !lfsResult.data) {
-                            throw new Error(
-                                `Converted DOCX file "${convertedDocxFileName}" is an LFS pointer that could not be resolved. ` +
-                                (lfsResult.error ?? 'Unknown error')
-                            );
-                        }
-                        docxBytes = lfsResult.data;
-                        console.log(`[PDF Export] LFS pointer resolved: ${docxBytes.length} bytes`);
-                    }
-
-                    const docxData = docxBytes.buffer.slice(docxBytes.byteOffset, docxBytes.byteOffset + docxBytes.byteLength) as ArrayBuffer;
-                    console.log(`[PDF Export] Using converted DOCX: ${docxUri.fsPath}`);
-
-                    reporter.report({
-                        stage: "writing",
-                        message: `Exporting DOCX for ${fileName}...`,
-                        file: fileName,
-                    });
-
-                    // Debug: Check cell metadata structure
-                    console.log(`[PDF Export] Codex notebook has ${codexNotebook.cells.length} cells`);
-                    if (codexNotebook.cells.length > 0) {
-                        const firstCell = codexNotebook.cells[0];
-                        const cellMeta = firstCell.metadata as any;
-                        console.log(`[PDF Export] First cell metadata:`, JSON.stringify({
-                            hasValue: !!firstCell.value,
-                            valueLength: firstCell.value?.length || 0,
-                            valuePreview: firstCell.value?.substring(0, 100) || '',
-                            paragraphIndex: cellMeta?.paragraphIndex,
-                            paragraphId: cellMeta?.paragraphId,
-                            hasData: !!cellMeta?.data,
-                            dataKeys: cellMeta?.data ? Object.keys(cellMeta.data) : []
-                        }, null, 2));
-                    }
-
-                    // Step 1: Use DOCX exporter to create translated DOCX
-                    const updatedDocxData = await exportDocxWithTranslations(
-                        docxData,
-                        codexNotebook.cells
-                    );
-
-                    // Step 2: Save translated DOCX to attachments/files/temporary folder
-                    const temporaryDir = vscode.Uri.joinPath(
-                        workspaceFolders[0].uri,
-                        ".project",
-                        "attachments",
-                        "files",
-                        "temporary"
-                    );
-
-                    // Ensure temporary directory exists
-                    try {
-                        await vscode.workspace.fs.createDirectory(temporaryDir);
-                    } catch {
-                        // Directory may already exist
-                    }
-
-                    // Get original PDF filename from metadata or derive from codex filename
-                    const originalPdfFileName = originalFileName || fileName.replace(/\.codex$/i, '.pdf');
-                    const translatedDocxFileName = originalPdfFileName.replace(/\.pdf$/i, '_translated.docx');
-                    const translatedDocxUri = vscode.Uri.joinPath(temporaryDir, translatedDocxFileName);
-
-                    await vscode.workspace.fs.writeFile(
-                        translatedDocxUri,
-                        new Uint8Array(updatedDocxData)
-                    );
-                    console.log(`[PDF Export] Saved translated DOCX to: ${translatedDocxUri.fsPath}`);
-
-                    reporter.report({
-                        stage: "writing",
-                        message: `Converting DOCX to PDF for ${fileName}...`,
-                        file: fileName,
-                    });
-
-                    // Step 3: Convert DOCX → PDF using docx2pdf via extension host
-                    const pdfData = await convertDocxToPdfViaExtension(translatedDocxUri.fsPath);
-
-                    // Step 4: Save translated PDF to user's selected destination
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const translatedPdfName = originalFileName.replace(/\.pdf$/i, `_${timestamp}_translated.pdf`);
-                    const translatedPdfUri = vscode.Uri.joinPath(exportFolder, translatedPdfName);
-
-                    await vscode.workspace.fs.writeFile(translatedPdfUri, new Uint8Array(pdfData));
-                    console.log(`[PDF Export] Saved translated PDF to: ${translatedPdfUri.fsPath}`);
-
-                    console.log(`[PDF Export] ✓ Exported ${translatedPdfName}`);
-
-                } catch (error) {
-                    console.error(`[PDF Export] Error exporting ${filePath}:`, error);
-                    reporter.fileMissing(
-                        basename(filePath),
-                        "error",
-                        error instanceof Error ? error.message : "Unknown error"
+            // Check if the file is a Git LFS pointer and resolve it
+            if (isLfsPointerContent(docxBytes)) {
+                console.log(`[PDF Export] File "${docxUri.fsPath}" is a Git LFS pointer - resolving...`);
+                reporter.report({
+                    stage: "downloading",
+                    message: `Downloading original DOCX from LFS for ${fileName}...`,
+                    file: fileName,
+                });
+                const projectRoot = workspaceFolders[0].uri.fsPath;
+                const lfsResult = await resolveLfsPointerFile(docxUri.fsPath, projectRoot);
+                if (lfsResult.error || !lfsResult.data) {
+                    throw new Error(
+                        `Converted DOCX file "${convertedDocxFileName}" is an LFS pointer that could not be resolved. ` +
+                        (lfsResult.error ?? 'Unknown error')
                     );
                 }
+                docxBytes = lfsResult.data;
+                console.log(`[PDF Export] LFS pointer resolved: ${docxBytes.length} bytes`);
             }
+
+            const docxData = docxBytes.buffer.slice(docxBytes.byteOffset, docxBytes.byteOffset + docxBytes.byteLength) as ArrayBuffer;
+            console.log(`[PDF Export] Using converted DOCX: ${docxUri.fsPath}`);
+
+            reporter.report({
+                stage: "writing",
+                message: `Exporting DOCX for ${fileName}...`,
+                file: fileName,
+            });
+
+            // Debug: Check cell metadata structure
+            console.log(`[PDF Export] Codex notebook has ${codexNotebook.cells.length} cells`);
+            if (codexNotebook.cells.length > 0) {
+                const firstCell = codexNotebook.cells[0];
+                const cellMeta = firstCell.metadata as any;
+                console.log(`[PDF Export] First cell metadata:`, JSON.stringify({
+                    hasValue: !!firstCell.value,
+                    valueLength: firstCell.value?.length || 0,
+                    valuePreview: firstCell.value?.substring(0, 100) || '',
+                    paragraphIndex: cellMeta?.paragraphIndex,
+                    paragraphId: cellMeta?.paragraphId,
+                    hasData: !!cellMeta?.data,
+                    dataKeys: cellMeta?.data ? Object.keys(cellMeta.data) : []
+                }, null, 2));
+            }
+
+            // Step 1: Use DOCX exporter to create translated DOCX
+            const updatedDocxData = await exportDocxWithTranslations(
+                docxData,
+                codexNotebook.cells
+            );
+
+            // Step 2: Save translated DOCX to attachments/files/temporary folder
+            const temporaryDir = vscode.Uri.joinPath(
+                workspaceFolders[0].uri,
+                ".project",
+                "attachments",
+                "files",
+                "temporary"
+            );
+
+            // Ensure temporary directory exists
+            try {
+                await vscode.workspace.fs.createDirectory(temporaryDir);
+            } catch {
+                // Directory may already exist
+            }
+
+            // Get original PDF filename from metadata or derive from codex filename
+            const originalPdfFileName = originalFileName || fileName.replace(/\.codex$/i, '.pdf');
+            const translatedDocxFileName = originalPdfFileName.replace(/\.pdf$/i, '_translated.docx');
+            const translatedDocxUri = vscode.Uri.joinPath(temporaryDir, translatedDocxFileName);
+
+            await vscode.workspace.fs.writeFile(
+                translatedDocxUri,
+                new Uint8Array(updatedDocxData)
+            );
+            console.log(`[PDF Export] Saved translated DOCX to: ${translatedDocxUri.fsPath}`);
+
+            reporter.report({
+                stage: "writing",
+                message: `Converting DOCX to PDF for ${fileName}...`,
+                file: fileName,
+            });
+
+            // Step 3: Convert DOCX → PDF using docx2pdf via extension host
+            const pdfData = await convertDocxToPdfViaExtension(translatedDocxUri.fsPath);
+
+            // Step 4: Save translated PDF to user's selected destination
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+            const translatedPdfName = originalFileName.replace(/\.pdf$/i, `_${timestamp}_translated.pdf`);
+            const translatedPdfUri = vscode.Uri.joinPath(exportFolder, translatedPdfName);
+
+            await vscode.workspace.fs.writeFile(translatedPdfUri, new Uint8Array(pdfData));
+            console.log(`[PDF Export] Saved translated PDF to: ${translatedPdfUri.fsPath}`);
+
+            console.log(`[PDF Export] ✓ Exported ${translatedPdfName}`);
+
+        } catch (error) {
+            console.error(`[PDF Export] Error exporting ${filePath}:`, error);
+            reporter.fileMissing(
+                basename(filePath),
+                "error",
+                error instanceof Error ? error.message : "Unknown error"
+            );
+        }
+    }
 
     reporter.complete({
         exportPath: userSelectedPath,
@@ -818,87 +851,87 @@ async function exportCodexContentAsObsRoundtrip(
             current: index + 1,
             total: filesToExport.length,
         });
-                try {
-                    const file = vscode.Uri.file(filePath);
-                    const fileName = basename(file.fsPath);
+        try {
+            const file = vscode.Uri.file(filePath);
+            const fileName = basename(file.fsPath);
 
-                    console.log(`[OBS Export] Processing ${fileName} using OBS markdown exporter`);
+            console.log(`[OBS Export] Processing ${fileName} using OBS markdown exporter`);
 
-                    // Read codex notebook
-                    const codexNotebook = await readCodexNotebookFromUri(file);
+            // Read codex notebook
+            const codexNotebook = await readCodexNotebookFromUri(file);
 
-                    // Check if this is an OBS file
-                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
-                    if (corpusMarker !== 'obs') {
-                        console.warn(`[OBS Export] Skipping ${fileName} - not imported with OBS importer (corpusMarker: ${corpusMarker})`);
-                        reporter.fileMissing(fileName, "error", "not imported with OBS importer");
-                        continue;
-                    }
-
-                    // Get the stored OBS story structure
-                    let obsStoryJson = (codexNotebook.metadata as any)?.obsStory;
-
-                    // If obsStory is not in metadata, reconstruct it from cells
-                    if (!obsStoryJson) {
-                        console.warn(`[OBS Export] No OBS story structure in metadata for ${fileName}, reconstructing from cells...`);
-
-                        const { extractObsStoryFromCells } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/obs/obsExporter");
-                        const reconstructedStory = extractObsStoryFromCells(codexNotebook.cells);
-                        obsStoryJson = JSON.stringify(reconstructedStory);
-
-                        console.log('[OBS Export] Reconstructed story structure from cells');
-                    } else {
-                        console.log('[OBS Export] Retrieved OBS story structure from metadata');
-                    }
-
-                    const storyParsed = typeof obsStoryJson === "string" ? JSON.parse(obsStoryJson) : obsStoryJson;
-
-                    let updatedMarkdown: string;
-                    if (obsStoryHasSourceSpans(storyParsed)) {
-                        const originalFileNameForRead =
-                            (codexNotebook.metadata as any)?.originalFileName ||
-                            (codexNotebook.metadata as any)?.originalName ||
-                            `${fileName.split(".")[0]}.md`;
-                        const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileNameForRead);
-                        const originalBytes = await vscode.workspace.fs.readFile(originalFileUri);
-                        const originalText = new TextDecoder("utf-8").decode(originalBytes);
-                        const translationMap = collectObsTranslationsFromCells(codexNotebook.cells as never);
-                        updatedMarkdown = exportObsWithTranslationsFromOriginal(originalText, storyParsed, translationMap);
-                        console.log("[OBS Export] Used span-based patch from saved original, length:", updatedMarkdown.length);
-                    } else {
-                        updatedMarkdown = await exportObsWithTranslations(
-                            codexNotebook.cells,
-                            obsStoryJson
-                        );
-                        console.log("[OBS Export] Used structure reconstruction, length:", updatedMarkdown.length);
-                    }
-
-                    // Determine output filename
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
-                        (codexNotebook.metadata as any)?.originalName ||
-                        `${fileName.split('.')[0]}.md`;
-                    const baseFileName = originalFileName.replace(/\.md$/i, '');
-
-                    // Create timestamped filename
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").split('T')[0]; // YYYY-MM-DD format
-                    const exportedName = `${baseFileName}_${timestamp}_translated.md`;
-                    const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
-
-                    // Write markdown content
-                    const encoder = new TextEncoder();
-                    await vscode.workspace.fs.writeFile(exportedUri, encoder.encode(updatedMarkdown));
-
-                    console.log(`[OBS Export] ✓ Exported ${exportedName}`);
-
-                } catch (error) {
-                    console.error(`[OBS Export] Error exporting ${filePath}:`, error);
-                    reporter.fileMissing(
-                        basename(filePath),
-                        "error",
-                        error instanceof Error ? error.message : "Unknown error"
-                    );
-                }
+            // Check if this is an OBS file
+            const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
+            if (corpusMarker !== 'obs') {
+                console.warn(`[OBS Export] Skipping ${fileName} - not imported with OBS importer (corpusMarker: ${corpusMarker})`);
+                reporter.fileMissing(fileName, "error", "not imported with OBS importer");
+                continue;
             }
+
+            // Get the stored OBS story structure
+            let obsStoryJson = (codexNotebook.metadata as any)?.obsStory;
+
+            // If obsStory is not in metadata, reconstruct it from cells
+            if (!obsStoryJson) {
+                console.warn(`[OBS Export] No OBS story structure in metadata for ${fileName}, reconstructing from cells...`);
+
+                const { extractObsStoryFromCells } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/obs/obsExporter");
+                const reconstructedStory = extractObsStoryFromCells(codexNotebook.cells);
+                obsStoryJson = JSON.stringify(reconstructedStory);
+
+                console.log('[OBS Export] Reconstructed story structure from cells');
+            } else {
+                console.log('[OBS Export] Retrieved OBS story structure from metadata');
+            }
+
+            const storyParsed = typeof obsStoryJson === "string" ? JSON.parse(obsStoryJson) : obsStoryJson;
+
+            let updatedMarkdown: string;
+            if (obsStoryHasSourceSpans(storyParsed)) {
+                const originalFileNameForRead =
+                    (codexNotebook.metadata as any)?.originalFileName ||
+                    (codexNotebook.metadata as any)?.originalName ||
+                    `${fileName.split(".")[0]}.md`;
+                const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileNameForRead);
+                const originalBytes = await vscode.workspace.fs.readFile(originalFileUri);
+                const originalText = new TextDecoder("utf-8").decode(originalBytes);
+                const translationMap = collectObsTranslationsFromCells(codexNotebook.cells as never);
+                updatedMarkdown = exportObsWithTranslationsFromOriginal(originalText, storyParsed, translationMap);
+                console.log("[OBS Export] Used span-based patch from saved original, length:", updatedMarkdown.length);
+            } else {
+                updatedMarkdown = await exportObsWithTranslations(
+                    codexNotebook.cells,
+                    obsStoryJson
+                );
+                console.log("[OBS Export] Used structure reconstruction, length:", updatedMarkdown.length);
+            }
+
+            // Determine output filename
+            const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                (codexNotebook.metadata as any)?.originalName ||
+                `${fileName.split('.')[0]}.md`;
+            const baseFileName = originalFileName.replace(/\.md$/i, '');
+
+            // Create timestamped filename
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-").split('T')[0]; // YYYY-MM-DD format
+            const exportedName = `${baseFileName}_${timestamp}_translated.md`;
+            const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
+
+            // Write markdown content
+            const encoder = new TextEncoder();
+            await vscode.workspace.fs.writeFile(exportedUri, encoder.encode(updatedMarkdown));
+
+            console.log(`[OBS Export] ✓ Exported ${exportedName}`);
+
+        } catch (error) {
+            console.error(`[OBS Export] Error exporting ${filePath}:`, error);
+            reporter.fileMissing(
+                basename(filePath),
+                "error",
+                error instanceof Error ? error.message : "Unknown error"
+            );
+        }
+    }
 
     reporter.complete({
         exportPath: userSelectedPath,
@@ -937,48 +970,48 @@ async function exportCodexContentAsMarkdownRoundtrip(
             current: index + 1,
             total: filesToExport.length,
         });
-                try {
-                    const file = vscode.Uri.file(filePath);
-                    const fileName = basename(file.fsPath);
+        try {
+            const file = vscode.Uri.file(filePath);
+            const fileName = basename(file.fsPath);
 
-                    const codexNotebook = await readCodexNotebookFromUri(file);
-                    const corpusMarker = (codexNotebook.metadata as { corpusMarker?: string; }).corpusMarker;
-                    const importerType = (codexNotebook.metadata as { importerType?: string; }).importerType;
-                    if (corpusMarker !== "markdown" && importerType !== "markdown") {
-                        console.warn(
-                            `[Markdown Export] Skipping ${fileName} - not markdown importer (corpusMarker: ${corpusMarker}, importerType: ${importerType})`
-                        );
-                        reporter.fileMissing(fileName, "error", "not imported as Markdown");
-                        continue;
-                    }
-
-                    const originalFileName =
-                        (codexNotebook.metadata as { originalFileName?: string; }).originalFileName ||
-                        (codexNotebook.metadata as { originalName?: string; }).originalName ||
-                        `${fileName.split(".")[0]}.md`;
-
-                    const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
-                    const fileBytes = await vscode.workspace.fs.readFile(originalFileUri);
-                    const canonicalSource = new TextDecoder("utf-8").decode(fileBytes);
-
-                    const updated = exportMarkdownWithTranslations(canonicalSource, codexNotebook.cells as never);
-
-                    const baseFileName = originalFileName.replace(/\.(md|markdown)$/i, "");
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").split("T")[0];
-                    const exportedName = `${baseFileName}_${timestamp}_translated.md`;
-                    const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
-                    await vscode.workspace.fs.writeFile(exportedUri, new TextEncoder().encode(updated));
-
-                    console.log(`[Markdown Export] ✓ Exported ${exportedName}`);
-                } catch (error) {
-                    console.error(`[Markdown Export] Error exporting ${filePath}:`, error);
-                    reporter.fileMissing(
-                        basename(filePath),
-                        "error",
-                        error instanceof Error ? error.message : "Unknown error"
-                    );
-                }
+            const codexNotebook = await readCodexNotebookFromUri(file);
+            const corpusMarker = (codexNotebook.metadata as { corpusMarker?: string; }).corpusMarker;
+            const importerType = (codexNotebook.metadata as { importerType?: string; }).importerType;
+            if (corpusMarker !== "markdown" && importerType !== "markdown") {
+                console.warn(
+                    `[Markdown Export] Skipping ${fileName} - not markdown importer (corpusMarker: ${corpusMarker}, importerType: ${importerType})`
+                );
+                reporter.fileMissing(fileName, "error", "not imported as Markdown");
+                continue;
             }
+
+            const originalFileName =
+                (codexNotebook.metadata as { originalFileName?: string; }).originalFileName ||
+                (codexNotebook.metadata as { originalName?: string; }).originalName ||
+                `${fileName.split(".")[0]}.md`;
+
+            const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
+            const fileBytes = await vscode.workspace.fs.readFile(originalFileUri);
+            const canonicalSource = new TextDecoder("utf-8").decode(fileBytes);
+
+            const updated = exportMarkdownWithTranslations(canonicalSource, codexNotebook.cells as never);
+
+            const baseFileName = originalFileName.replace(/\.(md|markdown)$/i, "");
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-").split("T")[0];
+            const exportedName = `${baseFileName}_${timestamp}_translated.md`;
+            const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
+            await vscode.workspace.fs.writeFile(exportedUri, new TextEncoder().encode(updated));
+
+            console.log(`[Markdown Export] ✓ Exported ${exportedName}`);
+        } catch (error) {
+            console.error(`[Markdown Export] Error exporting ${filePath}:`, error);
+            reporter.fileMissing(
+                basename(filePath),
+                "error",
+                error instanceof Error ? error.message : "Unknown error"
+            );
+        }
+    }
 
     reporter.complete({
         exportPath: userSelectedPath,
@@ -1017,172 +1050,172 @@ async function exportCodexContentAsUsfmRoundtrip(
             current: index + 1,
             total: filesToExport.length,
         });
+        try {
+            const file = vscode.Uri.file(filePath);
+            const fileName = basename(file.fsPath);
+            const bookCode = fileName.split(".")[0] || "";
+
+            console.log(`[USFM Export] Processing ${fileName} using USFM round-trip exporter`);
+
+            // Read codex notebook
+            const codexNotebook = await readCodexNotebookFromUri(file);
+
+            // Check if this is a USFM file (experimental or standalone)
+            const {
+                importerType,
+                corpusMarker,
+                structureMetadata: metaStructure,
+                originalFileName: metaOriginalFileName,
+                originalName: metaOriginalName_,
+            } = codexNotebook.metadata;
+            const hasStructureMetadata = !!metaStructure?.originalUsfmContent;
+            const metaOriginalName: string = metaOriginalFileName || metaOriginalName_ || '';
+            const hasUsfmExtension = /\.(usfm|sfm)$/i.test(metaOriginalName);
+
+            const isUsfmFile =
+                importerType === 'usfm-experimental' ||
+                importerType === 'usfm' ||
+                corpusMarker === 'usfm' ||
+                hasStructureMetadata ||
+                ((corpusMarker === 'NT' || corpusMarker === 'OT') && hasUsfmExtension) ||
+                hasUsfmExtension;
+
+            if (!isUsfmFile) {
+                console.warn(`[USFM Export] Skipping ${fileName} - not imported with USFM importer (importerType: ${importerType}, corpusMarker: ${corpusMarker})`);
+                reporter.fileMissing(fileName, "error", "not imported with USFM importer");
+                continue;
+            }
+
+            // Get original file name from metadata with fallback
+            // Try multiple sources: codex metadata, source notebook metadata, or construct from bookCode
+            let metadataOriginalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                (codexNotebook.metadata as any)?.originalName;
+            const metadataBookCode = (codexNotebook.metadata as any)?.bookCode;
+            const finalBookCode = metadataBookCode || bookCode;
+
+            // If not found in codex metadata, try source notebook metadata
+            if (!metadataOriginalFileName) {
                 try {
-                    const file = vscode.Uri.file(filePath);
-                    const fileName = basename(file.fsPath);
-                    const bookCode = fileName.split(".")[0] || "";
-
-                    console.log(`[USFM Export] Processing ${fileName} using USFM round-trip exporter`);
-
-                    // Read codex notebook
-                    const codexNotebook = await readCodexNotebookFromUri(file);
-
-                    // Check if this is a USFM file (experimental or standalone)
-                    const {
-                        importerType,
-                        corpusMarker,
-                        structureMetadata: metaStructure,
-                        originalFileName: metaOriginalFileName,
-                        originalName: metaOriginalName_,
-                    } = codexNotebook.metadata;
-                    const hasStructureMetadata = !!metaStructure?.originalUsfmContent;
-                    const metaOriginalName: string = metaOriginalFileName || metaOriginalName_ || '';
-                    const hasUsfmExtension = /\.(usfm|sfm)$/i.test(metaOriginalName);
-
-                    const isUsfmFile =
-                        importerType === 'usfm-experimental' ||
-                        importerType === 'usfm' ||
-                        corpusMarker === 'usfm' ||
-                        hasStructureMetadata ||
-                        ((corpusMarker === 'NT' || corpusMarker === 'OT') && hasUsfmExtension) ||
-                        hasUsfmExtension;
-
-                    if (!isUsfmFile) {
-                        console.warn(`[USFM Export] Skipping ${fileName} - not imported with USFM importer (importerType: ${importerType}, corpusMarker: ${corpusMarker})`);
-                        reporter.fileMissing(fileName, "error", "not imported with USFM importer");
-                        continue;
-                    }
-
-                    // Get original file name from metadata with fallback
-                    // Try multiple sources: codex metadata, source notebook metadata, or construct from bookCode
-                    let metadataOriginalFileName = (codexNotebook.metadata as any)?.originalFileName ||
-                        (codexNotebook.metadata as any)?.originalName;
-                    const metadataBookCode = (codexNotebook.metadata as any)?.bookCode;
-                    const finalBookCode = metadataBookCode || bookCode;
-
-                    // If not found in codex metadata, try source notebook metadata
-                    if (!metadataOriginalFileName) {
-                        try {
-                            const sourceFileName = fileName.replace('.codex', '.source');
-                            const sourceFileUri = vscode.Uri.joinPath(
-                                workspaceFolders[0].uri,
-                                ".project",
-                                "sourceTexts",
-                                sourceFileName
-                            );
-                            const sourceNotebook = await readCodexNotebookFromUri(sourceFileUri);
-                            metadataOriginalFileName = (sourceNotebook.metadata as any)?.originalFileName ||
-                                (sourceNotebook.metadata as any)?.originalName;
-                            if (metadataOriginalFileName) {
-                                console.log(`[USFM Export] Found originalFileName in source notebook: ${metadataOriginalFileName}`);
-                            }
-                        } catch (error) {
-                            // Source notebook not found or error reading it, continue with fallbacks
-                            console.log(`[USFM Export] Could not read source notebook for originalFileName`);
-                        }
-                    }
-
-                    // Try common USFM file extensions
-                    const possibleExtensions = ['.usfm', '.sfm', '.USFM', '.SFM'];
-                    let originalFileName = metadataOriginalFileName;
-
-                    // If no originalFileName, try to find it in originals folder (attachments/files/originals or legacy attachments/originals)
-                    let originalFileUri: vscode.Uri;
-                    if (!originalFileName && finalBookCode) {
-                        const possibleNames = possibleExtensions.map(ext => `${finalBookCode}${ext}`);
-                        const found = await findOriginalFileByPossibleNames(workspaceFolders[0], possibleNames);
-                        if (found) {
-                            originalFileName = found.fileName;
-                            originalFileUri = found.uri;
-                            console.log(`[USFM Export] Found original file: ${originalFileName}`);
-                        } else {
-                            originalFileName = `${finalBookCode}.usfm`;
-                            console.log(`[USFM Export] Using fallback filename: ${originalFileName}`);
-                            originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
-                        }
-                    } else {
-                        if (!originalFileName) {
-                            originalFileName = `${finalBookCode}.usfm`;
-                            console.log(`[USFM Export] Using fallback filename: ${originalFileName}`);
-                        }
-                        originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
-                    }
-
-                    let originalUsfmContent: string;
-                    try {
-                        const originalFileData = await vscode.workspace.fs.readFile(originalFileUri);
-                        originalUsfmContent = new TextDecoder('utf-8').decode(originalFileData);
-                        console.log(`[USFM Export] Loaded original USFM file: ${originalFileName}`);
-                    } catch (error) {
-                        // Fallback: try to get from structureMetadata if available
-                        const structureMetadata = (codexNotebook.metadata as any)?.structureMetadata;
-                        if (structureMetadata?.originalUsfmContent) {
-                            originalUsfmContent = structureMetadata.originalUsfmContent;
-                            console.log(`[USFM Export] Using original USFM content from metadata (file not found at ${originalFileUri.fsPath})`);
-                        } else {
-                            throw new Error(`Original USFM file not found at ${originalFileUri.fsPath} and no original content in metadata`);
-                        }
-                    }
-
-                    // Build codex cells array
-                    // Include id property if it exists (some cells have id at top level, others in metadata.id)
-                    const codexCells = codexNotebook.cells.map(cell => {
-                        const cellData: any = {
-                            kind: cell.kind,
-                            value: cell.value,
-                            metadata: cell.metadata,
-                        };
-                        // Include id if it exists at top level (for ProcessedCell structure)
-                        if ((cell as any).id) {
-                            cellData.id = (cell as any).id;
-                        }
-                        return cellData;
-                    });
-
-                    // Get lineMappings from structureMetadata if available (for standalone exporter)
-                    const structureMetadata = (codexNotebook.metadata as any)?.structureMetadata;
-                    const lineMappings = structureMetadata?.lineMappings;
-
-                    // Debug: Log structureMetadata and lineMappings
-                    if (lineMappings) {
-                        console.log(`[USFM Export] Found lineMappings: ${lineMappings.length} entries`);
-                        const sampleMapping = lineMappings.find((m: any) => m.cellId);
-                        console.log(`[USFM Export] Sample mapping with cellId:`, sampleMapping);
-                        console.log(`[USFM Export] Mappings with cellId count:`, lineMappings.filter((m: any) => m.cellId && m.cellId !== '').length);
-                    } else {
-                        console.warn(`[USFM Export] No lineMappings found in structureMetadata`);
-                        console.log(`[USFM Export] structureMetadata keys:`, structureMetadata ? Object.keys(structureMetadata) : 'null');
-                    }
-
-                    // Export USFM with translations
-                    // If we have lineMappings, use them for precise round-trip export
-                    let updatedUsfmContent: string;
-                    if (lineMappings) {
-                        updatedUsfmContent = await exportUsfmRoundtrip(originalUsfmContent, lineMappings, codexCells);
-                    } else {
-                        // Use backward-compatible signature (no lineMappings - fallback mode)
-                        updatedUsfmContent = await exportUsfmRoundtrip(originalUsfmContent, codexCells);
-                    }
-
-                    // Save to export folder
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const exportedName = originalFileName.replace(/\.(usfm|sfm|USFM|SFM)$/i, `_${timestamp}_translated.$1`);
-                    const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
-
-                    const encoder = new TextEncoder();
-                    await vscode.workspace.fs.writeFile(exportedUri, encoder.encode(updatedUsfmContent));
-
-                    console.log(`[USFM Export] ✓ Exported ${exportedName}`);
-
-                } catch (error) {
-                    console.error(`[USFM Export] Error exporting ${filePath}:`, error);
-                    reporter.fileMissing(
-                        basename(filePath),
-                        "error",
-                        error instanceof Error ? error.message : "Unknown error"
+                    const sourceFileName = fileName.replace('.codex', '.source');
+                    const sourceFileUri = vscode.Uri.joinPath(
+                        workspaceFolders[0].uri,
+                        ".project",
+                        "sourceTexts",
+                        sourceFileName
                     );
+                    const sourceNotebook = await readCodexNotebookFromUri(sourceFileUri);
+                    metadataOriginalFileName = (sourceNotebook.metadata as any)?.originalFileName ||
+                        (sourceNotebook.metadata as any)?.originalName;
+                    if (metadataOriginalFileName) {
+                        console.log(`[USFM Export] Found originalFileName in source notebook: ${metadataOriginalFileName}`);
+                    }
+                } catch (error) {
+                    // Source notebook not found or error reading it, continue with fallbacks
+                    console.log(`[USFM Export] Could not read source notebook for originalFileName`);
                 }
             }
+
+            // Try common USFM file extensions
+            const possibleExtensions = ['.usfm', '.sfm', '.USFM', '.SFM'];
+            let originalFileName = metadataOriginalFileName;
+
+            // If no originalFileName, try to find it in originals folder (attachments/files/originals or legacy attachments/originals)
+            let originalFileUri: vscode.Uri;
+            if (!originalFileName && finalBookCode) {
+                const possibleNames = possibleExtensions.map(ext => `${finalBookCode}${ext}`);
+                const found = await findOriginalFileByPossibleNames(workspaceFolders[0], possibleNames);
+                if (found) {
+                    originalFileName = found.fileName;
+                    originalFileUri = found.uri;
+                    console.log(`[USFM Export] Found original file: ${originalFileName}`);
+                } else {
+                    originalFileName = `${finalBookCode}.usfm`;
+                    console.log(`[USFM Export] Using fallback filename: ${originalFileName}`);
+                    originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
+                }
+            } else {
+                if (!originalFileName) {
+                    originalFileName = `${finalBookCode}.usfm`;
+                    console.log(`[USFM Export] Using fallback filename: ${originalFileName}`);
+                }
+                originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
+            }
+
+            let originalUsfmContent: string;
+            try {
+                const originalFileData = await vscode.workspace.fs.readFile(originalFileUri);
+                originalUsfmContent = new TextDecoder('utf-8').decode(originalFileData);
+                console.log(`[USFM Export] Loaded original USFM file: ${originalFileName}`);
+            } catch (error) {
+                // Fallback: try to get from structureMetadata if available
+                const structureMetadata = (codexNotebook.metadata as any)?.structureMetadata;
+                if (structureMetadata?.originalUsfmContent) {
+                    originalUsfmContent = structureMetadata.originalUsfmContent;
+                    console.log(`[USFM Export] Using original USFM content from metadata (file not found at ${originalFileUri.fsPath})`);
+                } else {
+                    throw new Error(`Original USFM file not found at ${originalFileUri.fsPath} and no original content in metadata`);
+                }
+            }
+
+            // Build codex cells array
+            // Include id property if it exists (some cells have id at top level, others in metadata.id)
+            const codexCells = codexNotebook.cells.map(cell => {
+                const cellData: any = {
+                    kind: cell.kind,
+                    value: cell.value,
+                    metadata: cell.metadata,
+                };
+                // Include id if it exists at top level (for ProcessedCell structure)
+                if ((cell as any).id) {
+                    cellData.id = (cell as any).id;
+                }
+                return cellData;
+            });
+
+            // Get lineMappings from structureMetadata if available (for standalone exporter)
+            const structureMetadata = (codexNotebook.metadata as any)?.structureMetadata;
+            const lineMappings = structureMetadata?.lineMappings;
+
+            // Debug: Log structureMetadata and lineMappings
+            if (lineMappings) {
+                console.log(`[USFM Export] Found lineMappings: ${lineMappings.length} entries`);
+                const sampleMapping = lineMappings.find((m: any) => m.cellId);
+                console.log(`[USFM Export] Sample mapping with cellId:`, sampleMapping);
+                console.log(`[USFM Export] Mappings with cellId count:`, lineMappings.filter((m: any) => m.cellId && m.cellId !== '').length);
+            } else {
+                console.warn(`[USFM Export] No lineMappings found in structureMetadata`);
+                console.log(`[USFM Export] structureMetadata keys:`, structureMetadata ? Object.keys(structureMetadata) : 'null');
+            }
+
+            // Export USFM with translations
+            // If we have lineMappings, use them for precise round-trip export
+            let updatedUsfmContent: string;
+            if (lineMappings) {
+                updatedUsfmContent = await exportUsfmRoundtrip(originalUsfmContent, lineMappings, codexCells);
+            } else {
+                // Use backward-compatible signature (no lineMappings - fallback mode)
+                updatedUsfmContent = await exportUsfmRoundtrip(originalUsfmContent, codexCells);
+            }
+
+            // Save to export folder
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+            const exportedName = originalFileName.replace(/\.(usfm|sfm|USFM|SFM)$/i, `_${timestamp}_translated.$1`);
+            const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
+
+            const encoder = new TextEncoder();
+            await vscode.workspace.fs.writeFile(exportedUri, encoder.encode(updatedUsfmContent));
+
+            console.log(`[USFM Export] ✓ Exported ${exportedName}`);
+
+        } catch (error) {
+            console.error(`[USFM Export] Error exporting ${filePath}:`, error);
+            reporter.fileMissing(
+                basename(filePath),
+                "error",
+                error instanceof Error ? error.message : "Unknown error"
+            );
+        }
+    }
 
     reporter.complete({
         exportPath: userSelectedPath,
@@ -1222,112 +1255,112 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
             current: index + 1,
             total: filesToExport.length,
         });
+        try {
+            const file = vscode.Uri.file(filePath);
+            const fileName = basename(file.fsPath);
+
+            console.log(`[Spreadsheet Export] Processing ${fileName}`);
+
+            // Read codex notebook
+            const codexNotebook = await readCodexNotebookFromUri(file);
+
+            // Check if this is a spreadsheet file
+            const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
+            const importerType = (codexNotebook.metadata as any)?.importerType;
+            const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                (codexNotebook.metadata as any)?.originalName ||
+                '';
+
+            // Check for any spreadsheet importer type
+            const isSpreadsheet =
+                importerType === 'spreadsheet' ||
+                importerType === 'spreadsheet-csv' ||
+                importerType === 'spreadsheet-tsv' ||
+                corpusMarker === 'spreadsheet' ||
+                corpusMarker === 'spreadsheet-csv' ||
+                corpusMarker === 'spreadsheet-tsv';
+
+            if (!isSpreadsheet) {
+                console.warn(`[Spreadsheet Export] Skipping ${fileName} - not imported with spreadsheet importer (importerType: ${importerType}, corpusMarker: ${corpusMarker})`);
+                reporter.fileMissing(fileName, "error", "not imported with spreadsheet importer");
+                continue;
+            }
+
+            // Get importer type and delimiter
+            const notebookImporterType = (codexNotebook.metadata as any)?.importerType;
+            const delimiter = getDelimiterFromMetadata(codexNotebook.metadata);
+            const extension = getSpreadsheetExtension(originalFileName, delimiter, notebookImporterType);
+            const columnHeaders = (codexNotebook.metadata as any)?.columnHeaders;
+            const sourceColumnIndex = (codexNotebook.metadata as any)?.sourceColumnIndex;
+
+            console.log(`[Spreadsheet Export] Processing ${fileName}`);
+            console.log(`[Spreadsheet Export] - importerType: ${notebookImporterType}`);
+            console.log(`[Spreadsheet Export] - originalFileName: ${originalFileName}`);
+            console.log(`[Spreadsheet Export] - extension: ${extension}`);
+            console.log(`[Spreadsheet Export] - sourceColumnIndex: ${sourceColumnIndex}`);
+            console.log(`[Spreadsheet Export] - columnHeaders: ${columnHeaders ? columnHeaders.join(', ') : 'none'}`);
+
+            // Get original file content from metadata (stored during import)
+            let originalFileContent: string | undefined = (codexNotebook.metadata as any)?.originalFileContent;
+
+            if (originalFileContent) {
+                console.log(`[Spreadsheet Export] ✓ Found originalFileContent in metadata (${originalFileContent.length} chars)`);
+                console.log(`[Spreadsheet Export] First 200 chars: ${originalFileContent.substring(0, 200)}`);
+            } else {
+                console.log(`[Spreadsheet Export] No originalFileContent in metadata, trying file system...`);
+
+                // Fallback: try to read from attachments (files/originals or legacy originals)
+                const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
+                console.log(`[Spreadsheet Export] Looking for original file at: ${originalFileUri.fsPath}`);
+
                 try {
-                    const file = vscode.Uri.file(filePath);
-                    const fileName = basename(file.fsPath);
-
-                    console.log(`[Spreadsheet Export] Processing ${fileName}`);
-
-                    // Read codex notebook
-                    const codexNotebook = await readCodexNotebookFromUri(file);
-
-                    // Check if this is a spreadsheet file
-                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
-                    const importerType = (codexNotebook.metadata as any)?.importerType;
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
-                        (codexNotebook.metadata as any)?.originalName ||
-                        '';
-
-                    // Check for any spreadsheet importer type
-                    const isSpreadsheet =
-                        importerType === 'spreadsheet' ||
-                        importerType === 'spreadsheet-csv' ||
-                        importerType === 'spreadsheet-tsv' ||
-                        corpusMarker === 'spreadsheet' ||
-                        corpusMarker === 'spreadsheet-csv' ||
-                        corpusMarker === 'spreadsheet-tsv';
-
-                    if (!isSpreadsheet) {
-                        console.warn(`[Spreadsheet Export] Skipping ${fileName} - not imported with spreadsheet importer (importerType: ${importerType}, corpusMarker: ${corpusMarker})`);
-                        reporter.fileMissing(fileName, "error", "not imported with spreadsheet importer");
-                        continue;
-                    }
-
-                    // Get importer type and delimiter
-                    const notebookImporterType = (codexNotebook.metadata as any)?.importerType;
-                    const delimiter = getDelimiterFromMetadata(codexNotebook.metadata);
-                    const extension = getSpreadsheetExtension(originalFileName, delimiter, notebookImporterType);
-                    const columnHeaders = (codexNotebook.metadata as any)?.columnHeaders;
-                    const sourceColumnIndex = (codexNotebook.metadata as any)?.sourceColumnIndex;
-
-                    console.log(`[Spreadsheet Export] Processing ${fileName}`);
-                    console.log(`[Spreadsheet Export] - importerType: ${notebookImporterType}`);
-                    console.log(`[Spreadsheet Export] - originalFileName: ${originalFileName}`);
-                    console.log(`[Spreadsheet Export] - extension: ${extension}`);
-                    console.log(`[Spreadsheet Export] - sourceColumnIndex: ${sourceColumnIndex}`);
-                    console.log(`[Spreadsheet Export] - columnHeaders: ${columnHeaders ? columnHeaders.join(', ') : 'none'}`);
-
-                    // Get original file content from metadata (stored during import)
-                    let originalFileContent: string | undefined = (codexNotebook.metadata as any)?.originalFileContent;
-
-                    if (originalFileContent) {
-                        console.log(`[Spreadsheet Export] ✓ Found originalFileContent in metadata (${originalFileContent.length} chars)`);
-                        console.log(`[Spreadsheet Export] First 200 chars: ${originalFileContent.substring(0, 200)}`);
-                    } else {
-                        console.log(`[Spreadsheet Export] No originalFileContent in metadata, trying file system...`);
-
-                        // Fallback: try to read from attachments (files/originals or legacy originals)
-                        const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
-                        console.log(`[Spreadsheet Export] Looking for original file at: ${originalFileUri.fsPath}`);
-
-                        try {
-                            const fileData = await vscode.workspace.fs.readFile(originalFileUri);
-                            originalFileContent = Buffer.from(fileData).toString('utf-8');
-                            console.log(`[Spreadsheet Export] ✓ Loaded original file (${originalFileContent.length} chars)`);
-                        } catch (err) {
-                            console.warn(`[Spreadsheet Export] ✗ Could not find original file. Will use fallback reconstruction.`);
-                        }
-                    }
-
-                    console.log(`[Spreadsheet Export] Metadata: importerType="${notebookImporterType}", delimiter="${delimiter === '\t' ? 'TAB' : delimiter}", sourceColumnIndex=${sourceColumnIndex}, hasOriginalContent=${!!originalFileContent}`);
-
-                    // Export with translations - true round-trip using original file content
-                    const exportedContent = exportSpreadsheetWithTranslations(
-                        codexNotebook.cells as any,
-                        {
-                            delimiter,
-                            originalFileName,
-                            originalFileContent,
-                            columnHeaders,
-                            sourceColumnIndex,
-                            importerType: notebookImporterType,
-                        }
-                    );
-
-                    // Generate output filename
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const baseName = originalFileName
-                        ? originalFileName.replace(/\.(csv|tsv)$/i, '')
-                        : fileName.replace(/\.codex$/i, '');
-                    const outputFileName = `${baseName}_translated_${timestamp}.${extension}`;
-                    const outputUri = vscode.Uri.joinPath(exportFolder, outputFileName);
-
-                    // Write the file
-                    await vscode.workspace.fs.writeFile(
-                        outputUri,
-                        Buffer.from(exportedContent, 'utf-8')
-                    );
-
-                    console.log(`[Spreadsheet Export] ✓ Exported ${outputFileName}`);
-                } catch (error) {
-                    console.error(`[Spreadsheet Export] Error exporting ${filePath}:`, error);
-                    reporter.fileMissing(
-                        basename(filePath),
-                        "error",
-                        error instanceof Error ? error.message : "Unknown error"
-                    );
+                    const fileData = await vscode.workspace.fs.readFile(originalFileUri);
+                    originalFileContent = Buffer.from(fileData).toString('utf-8');
+                    console.log(`[Spreadsheet Export] ✓ Loaded original file (${originalFileContent.length} chars)`);
+                } catch (err) {
+                    console.warn(`[Spreadsheet Export] ✗ Could not find original file. Will use fallback reconstruction.`);
                 }
             }
+
+            console.log(`[Spreadsheet Export] Metadata: importerType="${notebookImporterType}", delimiter="${delimiter === '\t' ? 'TAB' : delimiter}", sourceColumnIndex=${sourceColumnIndex}, hasOriginalContent=${!!originalFileContent}`);
+
+            // Export with translations - true round-trip using original file content
+            const exportedContent = exportSpreadsheetWithTranslations(
+                codexNotebook.cells as any,
+                {
+                    delimiter,
+                    originalFileName,
+                    originalFileContent,
+                    columnHeaders,
+                    sourceColumnIndex,
+                    importerType: notebookImporterType,
+                }
+            );
+
+            // Generate output filename
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+            const baseName = originalFileName
+                ? originalFileName.replace(/\.(csv|tsv)$/i, '')
+                : fileName.replace(/\.codex$/i, '');
+            const outputFileName = `${baseName}_translated_${timestamp}.${extension}`;
+            const outputUri = vscode.Uri.joinPath(exportFolder, outputFileName);
+
+            // Write the file
+            await vscode.workspace.fs.writeFile(
+                outputUri,
+                Buffer.from(exportedContent, 'utf-8')
+            );
+
+            console.log(`[Spreadsheet Export] ✓ Exported ${outputFileName}`);
+        } catch (error) {
+            console.error(`[Spreadsheet Export] Error exporting ${filePath}:`, error);
+            reporter.fileMissing(
+                basename(filePath),
+                "error",
+                error instanceof Error ? error.message : "Unknown error"
+            );
+        }
+    }
 
     reporter.complete({
         exportPath: userSelectedPath,
@@ -1367,97 +1400,97 @@ async function exportCodexContentAsTmsRoundtrip(
             current: index + 1,
             total: filesToExport.length,
         });
-                try {
-                    const file = vscode.Uri.file(filePath);
-                    const fileName = basename(file.fsPath);
+        try {
+            const file = vscode.Uri.file(filePath);
+            const fileName = basename(file.fsPath);
 
-                    console.log(`[TMS Export] Processing ${fileName} using TMS exporter`);
+            console.log(`[TMS Export] Processing ${fileName} using TMS exporter`);
 
-                    // Read codex notebook
-                    const codexNotebook = await readCodexNotebookFromUri(file);
+            // Read codex notebook
+            const codexNotebook = await readCodexNotebookFromUri(file);
 
-                    // Check if this is a TMS file - check both corpusMarker and fileFormat for backwards compatibility
-                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
-                    const fileFormat = (codexNotebook.metadata as any)?.fileFormat || corpusMarker; // Fallback to corpusMarker for old files
-                    const fileType = (codexNotebook.metadata as any)?.fileType; // Direct file type field (tmx or xliff)
-                    // Get original filename - points to deduplicated file in attachments/files/originals (or legacy attachments/originals)
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
-                        (codexNotebook.metadata as any)?.originalName;
+            // Check if this is a TMS file - check both corpusMarker and fileFormat for backwards compatibility
+            const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
+            const fileFormat = (codexNotebook.metadata as any)?.fileFormat || corpusMarker; // Fallback to corpusMarker for old files
+            const fileType = (codexNotebook.metadata as any)?.fileType; // Direct file type field (tmx or xliff)
+            // Get original filename - points to deduplicated file in attachments/files/originals (or legacy attachments/originals)
+            const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                (codexNotebook.metadata as any)?.originalName;
 
-                    if (corpusMarker !== 'tms' && fileFormat !== 'tms-tmx' && fileFormat !== 'tms-xliff') {
-                        console.warn(`[TMS Export] Skipping ${fileName} - not imported with TMS importer (corpusMarker: ${corpusMarker}, fileFormat: ${fileFormat})`);
-                        reporter.fileMissing(fileName, "error", "not imported with TMS importer");
-                        continue;
-                    }
-
-                    // Determine file type with multiple fallback strategies:
-                    // 1. Use fileType metadata if available (new imports)
-                    // 2. Check fileFormat metadata (tms-tmx or tms-xliff)
-                    // 3. Extract from originalFileName if available (most reliable for old imports)
-                    // 4. Default to tmx
-                    let determinedFileType: 'tmx' | 'xliff';
-                    if (fileType) {
-                        determinedFileType = fileType;
-                    } else if (originalFileName) {
-                        // Extract extension from original filename
-                        const lowerFileName = originalFileName.toLowerCase();
-                        if (lowerFileName.endsWith('.xliff') || lowerFileName.endsWith('.xlf')) {
-                            determinedFileType = 'xliff';
-                        } else if (lowerFileName.endsWith('.tmx')) {
-                            determinedFileType = 'tmx';
-                        } else {
-                            determinedFileType = (fileFormat === 'tms-tmx' ? 'tmx' : 'xliff');
-                        }
-                    } else if (fileFormat === 'tms-tmx' || fileFormat === 'tmx') {
-                        determinedFileType = 'tmx';
-                    } else {
-                        determinedFileType = 'xliff';
-                    }
-
-                    const fileExtension = determinedFileType === 'tmx' ? '.tmx' : '.xliff';
-
-                    // Use originalFileName from metadata, or construct fallback
-                    const finalOriginalFileName = originalFileName || `${fileName.split('.')[0]}${fileExtension}`;
-                    const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], finalOriginalFileName);
-
-                    // Load original TMS file
-                    const tmsData = await vscode.workspace.fs.readFile(originalFileUri);
-                    const originalTmsContent = new TextDecoder('utf-8').decode(tmsData);
-
-                    console.log(`[TMS Export] Loaded original ${determinedFileType.toUpperCase()} file:`, finalOriginalFileName, 'length:', originalTmsContent.length);
-
-                    // Export with translations
-                    const updatedTmsContent = await exportTmsWithTranslations(
-                        originalTmsContent,
-                        codexNotebook.cells,
-                        determinedFileType
-                    );
-
-                    console.log(`[TMS Export] Generated ${determinedFileType.toUpperCase()} with translations, length:`, updatedTmsContent.length);
-
-                    // Determine output filename
-                    const baseFileName = finalOriginalFileName.replace(/\.(tmx|xliff|xlf)$/i, '');
-
-                    // Create timestamped filename
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").split('T')[0]; // YYYY-MM-DD format
-                    const exportedName = `${baseFileName}_${timestamp}_translated${fileExtension}`;
-                    const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
-
-                    // Write TMS content
-                    const encoder = new TextEncoder();
-                    await vscode.workspace.fs.writeFile(exportedUri, encoder.encode(updatedTmsContent));
-
-                    console.log(`[TMS Export] ✓ Exported ${exportedName}`);
-
-                } catch (error) {
-                    console.error(`[TMS Export] Error exporting ${filePath}:`, error);
-                    reporter.fileMissing(
-                        basename(filePath),
-                        "error",
-                        error instanceof Error ? error.message : "Unknown error"
-                    );
-                }
+            if (corpusMarker !== 'tms' && fileFormat !== 'tms-tmx' && fileFormat !== 'tms-xliff') {
+                console.warn(`[TMS Export] Skipping ${fileName} - not imported with TMS importer (corpusMarker: ${corpusMarker}, fileFormat: ${fileFormat})`);
+                reporter.fileMissing(fileName, "error", "not imported with TMS importer");
+                continue;
             }
+
+            // Determine file type with multiple fallback strategies:
+            // 1. Use fileType metadata if available (new imports)
+            // 2. Check fileFormat metadata (tms-tmx or tms-xliff)
+            // 3. Extract from originalFileName if available (most reliable for old imports)
+            // 4. Default to tmx
+            let determinedFileType: 'tmx' | 'xliff';
+            if (fileType) {
+                determinedFileType = fileType;
+            } else if (originalFileName) {
+                // Extract extension from original filename
+                const lowerFileName = originalFileName.toLowerCase();
+                if (lowerFileName.endsWith('.xliff') || lowerFileName.endsWith('.xlf')) {
+                    determinedFileType = 'xliff';
+                } else if (lowerFileName.endsWith('.tmx')) {
+                    determinedFileType = 'tmx';
+                } else {
+                    determinedFileType = (fileFormat === 'tms-tmx' ? 'tmx' : 'xliff');
+                }
+            } else if (fileFormat === 'tms-tmx' || fileFormat === 'tmx') {
+                determinedFileType = 'tmx';
+            } else {
+                determinedFileType = 'xliff';
+            }
+
+            const fileExtension = determinedFileType === 'tmx' ? '.tmx' : '.xliff';
+
+            // Use originalFileName from metadata, or construct fallback
+            const finalOriginalFileName = originalFileName || `${fileName.split('.')[0]}${fileExtension}`;
+            const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], finalOriginalFileName);
+
+            // Load original TMS file
+            const tmsData = await vscode.workspace.fs.readFile(originalFileUri);
+            const originalTmsContent = new TextDecoder('utf-8').decode(tmsData);
+
+            console.log(`[TMS Export] Loaded original ${determinedFileType.toUpperCase()} file:`, finalOriginalFileName, 'length:', originalTmsContent.length);
+
+            // Export with translations
+            const updatedTmsContent = await exportTmsWithTranslations(
+                originalTmsContent,
+                codexNotebook.cells,
+                determinedFileType
+            );
+
+            console.log(`[TMS Export] Generated ${determinedFileType.toUpperCase()} with translations, length:`, updatedTmsContent.length);
+
+            // Determine output filename
+            const baseFileName = finalOriginalFileName.replace(/\.(tmx|xliff|xlf)$/i, '');
+
+            // Create timestamped filename
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-").split('T')[0]; // YYYY-MM-DD format
+            const exportedName = `${baseFileName}_${timestamp}_translated${fileExtension}`;
+            const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
+
+            // Write TMS content
+            const encoder = new TextEncoder();
+            await vscode.workspace.fs.writeFile(exportedUri, encoder.encode(updatedTmsContent));
+
+            console.log(`[TMS Export] ✓ Exported ${exportedName}`);
+
+        } catch (error) {
+            console.error(`[TMS Export] Error exporting ${filePath}:`, error);
+            reporter.fileMissing(
+                basename(filePath),
+                "error",
+                error instanceof Error ? error.message : "Unknown error"
+            );
+        }
+    }
 
     reporter.complete({
         exportPath: userSelectedPath,
@@ -1488,111 +1521,111 @@ async function exportCodexContentAsRebuild(
 
     reporter.report({ stage: "preparing", message: "Analyzing file types..." });
 
-            // Analyze each file's corpusMarker
-            for (const filePath of filesToExport) {
-                try {
-                    const file = vscode.Uri.file(filePath);
-                    const codexNotebook = await readCodexNotebookFromUri(file);
-                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker ? String((codexNotebook.metadata as any).corpusMarker).trim() : '';
-                    const importerType = (codexNotebook.metadata as any)?.importerType ? String((codexNotebook.metadata as any).importerType).trim() : '';
-                    const fileType = (codexNotebook.metadata as any)?.fileType ? String((codexNotebook.metadata as any).fileType).trim() : '';
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName
-                        ? String((codexNotebook.metadata as any).originalFileName).trim()
-                        : (codexNotebook.metadata as any)?.originalName
-                            ? String((codexNotebook.metadata as any).originalName).trim()
-                            : '';
+    // Analyze each file's corpusMarker
+    for (const filePath of filesToExport) {
+        try {
+            const file = vscode.Uri.file(filePath);
+            const codexNotebook = await readCodexNotebookFromUri(file);
+            const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker ? String((codexNotebook.metadata as any).corpusMarker).trim() : '';
+            const importerType = (codexNotebook.metadata as any)?.importerType ? String((codexNotebook.metadata as any).importerType).trim() : '';
+            const fileType = (codexNotebook.metadata as any)?.fileType ? String((codexNotebook.metadata as any).fileType).trim() : '';
+            const originalFileName = (codexNotebook.metadata as any)?.originalFileName
+                ? String((codexNotebook.metadata as any).originalFileName).trim()
+                : (codexNotebook.metadata as any)?.originalName
+                    ? String((codexNotebook.metadata as any).originalName).trim()
+                    : '';
 
-                    console.log(`[Rebuild Export] File: ${basename(filePath)}, corpusMarker: "${corpusMarker}", importerType: "${importerType}", fileType: "${fileType}"`);
+            console.log(`[Rebuild Export] File: ${basename(filePath)}, corpusMarker: "${corpusMarker}", importerType: "${importerType}", fileType: "${fileType}"`);
 
-                    // Group by supported types
-                    if (corpusMarker === 'docx' || corpusMarker === 'docx-roundtrip') {
-                        filesByType['docx'] = filesByType['docx'] || [];
-                        filesByType['docx'].push(filePath);
-                    } else if (
-                        corpusMarker === 'biblica' ||
-                        corpusMarker === 'biblica-idml' ||
-                        corpusMarker === 'reach4life' ||
-                        corpusMarker === 'reach4life-idml' ||
-                        corpusMarker === 'idml-roundtrip' ||
-                        (corpusMarker && corpusMarker.startsWith('idml-')) ||
-                        importerType === 'biblica' ||
-                        fileType === 'biblica' ||
-                        importerType === 'reach4life' ||
-                        fileType === 'reach4life' ||
-                        importerType === 'biblica-experimental' || // Backward compatibility
-                        fileType === 'biblica-experimental' // Backward compatibility
-                    ) {
-                        // Biblica/Reach4Life files and IDML files both use the IDML exporter
-                        filesByType['idml'] = filesByType['idml'] || [];
-                        filesByType['idml'].push(filePath);
-                    } else if (
-                        corpusMarker === 'pdf' ||
-                        corpusMarker === 'pdf-importer' ||  // Backward compatibility
-                        corpusMarker === 'pdf-sentence' ||  // Backward compatibility
-                        importerType === 'pdf' ||
-                        fileType === 'pdf' ||
-                        (originalFileName && /\.pdf$/i.test(originalFileName)) // Fallback: check filename extension
-                    ) {
-                        // PDF files use the PDF exporter (DOCX exporter + docx2pdf conversion)
-                        console.log(`[Rebuild Export] ✓ Detected PDF file: ${basename(filePath)} (corpusMarker: "${corpusMarker}", importerType: "${importerType}", fileType: "${fileType}")`);
-                        filesByType['pdf'] = filesByType['pdf'] || [];
-                        filesByType['pdf'].push(filePath);
-                    } else if (corpusMarker === 'obs' || importerType === 'obs') {
-                        // OBS (Open Bible Stories) markdown files use the OBS exporter
-                        // Fallback: also detect by importerType for older files
-                        filesByType['obs'] = filesByType['obs'] || [];
-                        filesByType['obs'].push(filePath);
-                    } else if (corpusMarker === 'markdown' || importerType === 'markdown') {
-                        filesByType['markdown'] = filesByType['markdown'] || [];
-                        filesByType['markdown'].push(filePath);
-                    } else if (
-                        corpusMarker === 'tms' || // New: Unified TMS corpus marker
-                        corpusMarker === 'tms-tmx' || // Legacy: Backwards compatibility
-                        corpusMarker === 'tms-xliff' || // Legacy: Backwards compatibility
-                        // Fallback detection for TMS files without corpusMarker
-                        (importerType === 'tms') || // New: Check importerType
-                        (importerType === 'translation' && (fileType === 'tmx' || fileType === 'xliff')) ||
-                        (originalFileName && (originalFileName.endsWith('.tmx') || originalFileName.endsWith('.xliff') || originalFileName.endsWith('.xlf')))
-                    ) {
-                        // TMS (Translation Memory System) files use the TMS exporter
-                        filesByType['tms'] = filesByType['tms'] || [];
-                        filesByType['tms'].push(filePath);
-                    } else if (
-                        corpusMarker === 'usfm' ||
-                        importerType === 'usfm-experimental' ||
-                        importerType === 'usfm' ||
-                        // Also check for NT/OT corpus markers with USFM file extensions (Bible books imported as USFM)
-                        ((corpusMarker === 'NT' || corpusMarker === 'OT') &&
-                            originalFileName &&
-                            (originalFileName.endsWith('.usfm') || originalFileName.endsWith('.sfm') || originalFileName.endsWith('.USFM') || originalFileName.endsWith('.SFM'))) ||
-                        (originalFileName && (originalFileName.endsWith('.usfm') || originalFileName.endsWith('.sfm') || originalFileName.endsWith('.USFM') || originalFileName.endsWith('.SFM')))
-                    ) {
-                        // USFM files use the USFM round-trip exporter
-                        filesByType['usfm'] = filesByType['usfm'] || [];
-                        filesByType['usfm'].push(filePath);
-                    } else if (
-                        corpusMarker === 'spreadsheet' ||
-                        corpusMarker === 'spreadsheet-csv' ||
-                        corpusMarker === 'spreadsheet-tsv' ||
-                        importerType === 'spreadsheet' ||
-                        importerType === 'spreadsheet-csv' ||
-                        importerType === 'spreadsheet-tsv' ||
-                        (originalFileName && /\.(csv|tsv)$/i.test(originalFileName))
-                    ) {
-                        // Spreadsheet files (CSV/TSV) use the spreadsheet round-trip exporter
-                        console.log(`[Rebuild Export] ✓ Detected Spreadsheet file: ${basename(filePath)} (corpusMarker: "${corpusMarker}", importerType: "${importerType}")`);
-                        filesByType['spreadsheet'] = filesByType['spreadsheet'] || [];
-                        filesByType['spreadsheet'].push(filePath);
-                    } else {
-                        // Log what we detected for debugging
-                        console.log(`[Rebuild Export] Unsupported file detected: ${basename(filePath)}, corpusMarker: ${corpusMarker}, importerType: ${importerType}, fileType: ${fileType}, originalFileName: ${originalFileName}`);
-                        unsupportedFiles.push({ file: basename(filePath), marker: corpusMarker || importerType || fileType || 'unknown' });
-                    }
-                } catch (error) {
-                    console.error(`[Rebuild Export] Error analyzing ${filePath}:`, error);
-                    unsupportedFiles.push({ file: basename(filePath), marker: 'error' });
-                }
+            // Group by supported types
+            if (corpusMarker === 'docx' || corpusMarker === 'docx-roundtrip') {
+                filesByType['docx'] = filesByType['docx'] || [];
+                filesByType['docx'].push(filePath);
+            } else if (
+                corpusMarker === 'biblica' ||
+                corpusMarker === 'biblica-idml' ||
+                corpusMarker === 'reach4life' ||
+                corpusMarker === 'reach4life-idml' ||
+                corpusMarker === 'idml-roundtrip' ||
+                (corpusMarker && corpusMarker.startsWith('idml-')) ||
+                importerType === 'biblica' ||
+                fileType === 'biblica' ||
+                importerType === 'reach4life' ||
+                fileType === 'reach4life' ||
+                importerType === 'biblica-experimental' || // Backward compatibility
+                fileType === 'biblica-experimental' // Backward compatibility
+            ) {
+                // Biblica/Reach4Life files and IDML files both use the IDML exporter
+                filesByType['idml'] = filesByType['idml'] || [];
+                filesByType['idml'].push(filePath);
+            } else if (
+                corpusMarker === 'pdf' ||
+                corpusMarker === 'pdf-importer' ||  // Backward compatibility
+                corpusMarker === 'pdf-sentence' ||  // Backward compatibility
+                importerType === 'pdf' ||
+                fileType === 'pdf' ||
+                (originalFileName && /\.pdf$/i.test(originalFileName)) // Fallback: check filename extension
+            ) {
+                // PDF files use the PDF exporter (DOCX exporter + docx2pdf conversion)
+                console.log(`[Rebuild Export] ✓ Detected PDF file: ${basename(filePath)} (corpusMarker: "${corpusMarker}", importerType: "${importerType}", fileType: "${fileType}")`);
+                filesByType['pdf'] = filesByType['pdf'] || [];
+                filesByType['pdf'].push(filePath);
+            } else if (corpusMarker === 'obs' || importerType === 'obs') {
+                // OBS (Open Bible Stories) markdown files use the OBS exporter
+                // Fallback: also detect by importerType for older files
+                filesByType['obs'] = filesByType['obs'] || [];
+                filesByType['obs'].push(filePath);
+            } else if (corpusMarker === 'markdown' || importerType === 'markdown') {
+                filesByType['markdown'] = filesByType['markdown'] || [];
+                filesByType['markdown'].push(filePath);
+            } else if (
+                corpusMarker === 'tms' || // New: Unified TMS corpus marker
+                corpusMarker === 'tms-tmx' || // Legacy: Backwards compatibility
+                corpusMarker === 'tms-xliff' || // Legacy: Backwards compatibility
+                // Fallback detection for TMS files without corpusMarker
+                (importerType === 'tms') || // New: Check importerType
+                (importerType === 'translation' && (fileType === 'tmx' || fileType === 'xliff')) ||
+                (originalFileName && (originalFileName.endsWith('.tmx') || originalFileName.endsWith('.xliff') || originalFileName.endsWith('.xlf')))
+            ) {
+                // TMS (Translation Memory System) files use the TMS exporter
+                filesByType['tms'] = filesByType['tms'] || [];
+                filesByType['tms'].push(filePath);
+            } else if (
+                corpusMarker === 'usfm' ||
+                importerType === 'usfm-experimental' ||
+                importerType === 'usfm' ||
+                // Also check for NT/OT corpus markers with USFM file extensions (Bible books imported as USFM)
+                ((corpusMarker === 'NT' || corpusMarker === 'OT') &&
+                    originalFileName &&
+                    (originalFileName.endsWith('.usfm') || originalFileName.endsWith('.sfm') || originalFileName.endsWith('.USFM') || originalFileName.endsWith('.SFM'))) ||
+                (originalFileName && (originalFileName.endsWith('.usfm') || originalFileName.endsWith('.sfm') || originalFileName.endsWith('.USFM') || originalFileName.endsWith('.SFM')))
+            ) {
+                // USFM files use the USFM round-trip exporter
+                filesByType['usfm'] = filesByType['usfm'] || [];
+                filesByType['usfm'].push(filePath);
+            } else if (
+                corpusMarker === 'spreadsheet' ||
+                corpusMarker === 'spreadsheet-csv' ||
+                corpusMarker === 'spreadsheet-tsv' ||
+                importerType === 'spreadsheet' ||
+                importerType === 'spreadsheet-csv' ||
+                importerType === 'spreadsheet-tsv' ||
+                (originalFileName && /\.(csv|tsv)$/i.test(originalFileName))
+            ) {
+                // Spreadsheet files (CSV/TSV) use the spreadsheet round-trip exporter
+                console.log(`[Rebuild Export] ✓ Detected Spreadsheet file: ${basename(filePath)} (corpusMarker: "${corpusMarker}", importerType: "${importerType}")`);
+                filesByType['spreadsheet'] = filesByType['spreadsheet'] || [];
+                filesByType['spreadsheet'].push(filePath);
+            } else {
+                // Log what we detected for debugging
+                console.log(`[Rebuild Export] Unsupported file detected: ${basename(filePath)}, corpusMarker: ${corpusMarker}, importerType: ${importerType}, fileType: ${fileType}, originalFileName: ${originalFileName}`);
+                unsupportedFiles.push({ file: basename(filePath), marker: corpusMarker || importerType || fileType || 'unknown' });
             }
+        } catch (error) {
+            console.error(`[Rebuild Export] Error analyzing ${filePath}:`, error);
+            unsupportedFiles.push({ file: basename(filePath), marker: 'error' });
+        }
+    }
 
     // Report analysis results
     const typeCount = Object.keys(filesByType).length;
@@ -1768,6 +1801,9 @@ export async function exportCodexContent(
             break;
         case CodexExportFormat.SUBTITLES_VTT_WITHOUT_STYLES:
             exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, childReporter, options, false));
+            break;
+        case CodexExportFormat.SUBTITLES_VTT_WITH_CUE_SPLITTING:
+            exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, childReporter, options, false, true));
             break;
         case CodexExportFormat.SUBTITLES_SRT:
             exportPromises.push(exportCodexContentAsSubtitlesSrt(formatPath, filesToExport, childReporter, options));
@@ -1984,7 +2020,8 @@ export const exportCodexContentAsSubtitlesVtt = async (
     filesToExport: string[],
     reporter: ExportProgressReporter,
     options?: ExportOptions,
-    includeStyles: boolean = true
+    includeStyles: boolean = true,
+    cueSplitting: boolean = false
 ) => {
     try {
         debug("Starting exportCodexContentAsSubtitlesVtt function");
@@ -2023,7 +2060,7 @@ export const exportCodexContentAsSubtitlesVtt = async (
             totalCells += cells.length;
             debug(`File has ${cells.length} active cells`);
 
-            const vttContent = generateVttData(cells, includeStyles, file.fsPath);
+            const vttContent = generateVttData(cells, includeStyles, cueSplitting, file.fsPath);
             debug({ vttContent, cells, includeStyles });
 
             const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -2216,143 +2253,143 @@ async function exportCodexContentAsDelimited(
                     continue;
                 }
 
-                        const codexData = await vscode.workspace.fs.readFile(file);
+                const codexData = await vscode.workspace.fs.readFile(file);
 
-                        const sourceNotebook = JSON.parse(
-                            Buffer.from(sourceData).toString()
-                        ) as CodexNotebookAsJSONData;
-                        const codexNotebook = JSON.parse(
-                            Buffer.from(codexData).toString()
-                        ) as CodexNotebookAsJSONData;
+                const sourceNotebook = JSON.parse(
+                    Buffer.from(sourceData).toString()
+                ) as CodexNotebookAsJSONData;
+                const codexNotebook = JSON.parse(
+                    Buffer.from(codexData).toString()
+                ) as CodexNotebookAsJSONData;
 
-                        debug(`File has ${codexNotebook.cells.length} cells`);
+                debug(`File has ${codexNotebook.cells.length} cells`);
 
-                        // Create maps for quick lookup of cells by ID
-                        const sourceCellsMap = new Map(
-                            sourceNotebook.cells
-                                .filter((cell) => {
-                                    const metadata = cell.metadata;
-                                    return (cell.kind === 2 || cell.kind === 1) &&
-                                        cell.metadata?.id &&
-                                        isContentCellType(cell.metadata?.type) &&
-                                        !metadata?.data?.merged;
-                                })
-                                .map((cell) => [cell.metadata.id, cell])
-                        );
+                // Create maps for quick lookup of cells by ID
+                const sourceCellsMap = new Map(
+                    sourceNotebook.cells
+                        .filter((cell) => {
+                            const metadata = cell.metadata;
+                            return (cell.kind === 2 || cell.kind === 1) &&
+                                cell.metadata?.id &&
+                                isContentCellType(cell.metadata?.type) &&
+                                !metadata?.data?.merged;
+                        })
+                        .map((cell) => [cell.metadata.id, cell])
+                );
 
-                        const codexCellsMap = new Map(
-                            codexNotebook.cells
-                                .filter((cell) => {
-                                    const metadata = cell.metadata;
-                                    return (cell.kind === 2 || cell.kind === 1) &&
-                                        cell.metadata?.id &&
-                                        isContentCellType(cell.metadata?.type) &&
-                                        !metadata?.data?.merged;
-                                })
-                                .map((cell) => [cell.metadata.id, cell])
-                        );
+                const codexCellsMap = new Map(
+                    codexNotebook.cells
+                        .filter((cell) => {
+                            const metadata = cell.metadata;
+                            return (cell.kind === 2 || cell.kind === 1) &&
+                                cell.metadata?.id &&
+                                isContentCellType(cell.metadata?.type) &&
+                                !metadata?.data?.merged;
+                        })
+                        .map((cell) => [cell.metadata.id, cell])
+                );
 
-                        // First pass: collect all possible metadata fields (excluding edits)
-                        const allMetadataFields = new Set<string>();
-                        for (const [cellId, codexCell] of codexCellsMap) {
-                            const cellMetadata = codexCell.metadata as { type: string; id: string; data?: any; cellLabel?: string; };
-                            if (cellMetadata.data && typeof cellMetadata.data === 'object') {
-                                Object.keys(cellMetadata.data).forEach(field => {
-                                    if (field !== 'edits') {
-                                        allMetadataFields.add(field);
-                                    }
-                                });
+                // First pass: collect all possible metadata fields (excluding edits)
+                const allMetadataFields = new Set<string>();
+                for (const [cellId, codexCell] of codexCellsMap) {
+                    const cellMetadata = codexCell.metadata as { type: string; id: string; data?: any; cellLabel?: string; };
+                    if (cellMetadata.data && typeof cellMetadata.data === 'object') {
+                        Object.keys(cellMetadata.data).forEach(field => {
+                            if (field !== 'edits') {
+                                allMetadataFields.add(field);
                             }
-                        }
-                        allMetadataFields.add('cellLabel');
+                        });
+                    }
+                }
+                allMetadataFields.add('cellLabel');
 
-                        // Sort metadata fields for consistent column order
-                        const sortedMetadataFields = Array.from(allMetadataFields).sort();
+                // Sort metadata fields for consistent column order
+                const sortedMetadataFields = Array.from(allMetadataFields).sort();
 
-                        // Collect all verse data with metadata, preserving original cell order
-                        const verseData: Array<{
-                            id: string;
-                            source: string;
-                            target: string;
-                            metadata: { [key: string]: any; };
-                        }> = [];
+                // Collect all verse data with metadata, preserving original cell order
+                const verseData: Array<{
+                    id: string;
+                    source: string;
+                    target: string;
+                    metadata: { [key: string]: any; };
+                }> = [];
 
-                        // Process cells in their original order from the notebook
-                        for (const codexCell of codexNotebook.cells) {
-                            if (codexCell.kind === 2 || codexCell.kind === 1) { // vscode.NotebookCellKind.Code
-                                const cellMetadata = codexCell.metadata as { type: string; id: string; data?: any; cellLabel?: string; };
+                // Process cells in their original order from the notebook
+                for (const codexCell of codexNotebook.cells) {
+                    if (codexCell.kind === 2 || codexCell.kind === 1) { // vscode.NotebookCellKind.Code
+                        const cellMetadata = codexCell.metadata as { type: string; id: string; data?: any; cellLabel?: string; };
 
-                                if (isContentCellType(cellMetadata.type) &&
-                                    cellMetadata.id &&
-                                    !cellMetadata?.data?.merged) {
-                                    totalCells++;
-                                    const sourceCell = sourceCellsMap.get(cellMetadata.id);
+                        if (isContentCellType(cellMetadata.type) &&
+                            cellMetadata.id &&
+                            !cellMetadata?.data?.merged) {
+                            totalCells++;
+                            const sourceCell = sourceCellsMap.get(cellMetadata.id);
 
-                                    // Include the verse even if source is missing (will be empty)
-                                    const sourceContent = sourceCell?.value || "";
-                                    const targetContent = codexCell.value || "";
+                            // Include the verse even if source is missing (will be empty)
+                            const sourceContent = sourceCell?.value || "";
+                            const targetContent = codexCell.value || "";
 
-                                    // Extract metadata (excluding edits)
-                                    const metadata: { [key: string]: any; } = {};
-                                    if (cellMetadata.data && typeof cellMetadata.data === 'object') {
-                                        for (const field of sortedMetadataFields) {
-                                            metadata[field] = cellMetadata.data[field] || "";
-                                        }
-                                    }
-                                    metadata['cellLabel'] = cellMetadata.cellLabel ?? '';
-
-                                    verseData.push({
-                                        id: cellMetadata.id,
-                                        source: sourceContent,
-                                        target: targetContent,
-                                        metadata: metadata
-                                    });
-
-                                    totalVerses++;
+                            // Extract metadata (excluding edits)
+                            const metadata: { [key: string]: any; } = {};
+                            if (cellMetadata.data && typeof cellMetadata.data === 'object') {
+                                for (const field of sortedMetadataFields) {
+                                    metadata[field] = cellMetadata.data[field] || "";
                                 }
                             }
+                            metadata['cellLabel'] = cellMetadata.cellLabel ?? '';
+
+                            verseData.push({
+                                id: cellMetadata.id,
+                                source: sourceContent,
+                                target: targetContent,
+                                metadata: metadata
+                            });
+
+                            totalVerses++;
                         }
+                    }
+                }
 
-                        // Skip empty files
-                        if (verseData.length === 0) {
-                            debug(`Skipping file with no verses: ${file.fsPath}`);
-                            skippedFiles++;
-                            continue;
-                        }
+                // Skip empty files
+                if (verseData.length === 0) {
+                    debug(`Skipping file with no verses: ${file.fsPath}`);
+                    skippedFiles++;
+                    continue;
+                }
 
-                        // Data is already in correct order from original notebook
+                // Data is already in correct order from original notebook
 
-                        // Generate delimited content with metadata columns
-                        const metadataHeaders = sortedMetadataFields.map(field => field).join(delimiter);
-                        const headerRow = metadataHeaders
-                            ? `ID${delimiter}Source${delimiter}Target${delimiter}${metadataHeaders}\n`
-                            : `ID${delimiter}Source${delimiter}Target\n`;
-                        let content = headerRow;
+                // Generate delimited content with metadata columns
+                const metadataHeaders = sortedMetadataFields.map(field => field).join(delimiter);
+                const headerRow = metadataHeaders
+                    ? `ID${delimiter}Source${delimiter}Target${delimiter}${metadataHeaders}\n`
+                    : `ID${delimiter}Source${delimiter}Target\n`;
+                let content = headerRow;
 
-                        for (const verse of verseData) {
-                            const escapedId = escapeFunction(verse.id);
-                            const escapedSource = escapeFunction(verse.source);
-                            const escapedTarget = escapeFunction(verse.target);
+                for (const verse of verseData) {
+                    const escapedId = escapeFunction(verse.id);
+                    const escapedSource = escapeFunction(verse.source);
+                    const escapedTarget = escapeFunction(verse.target);
 
-                            // Add metadata values with proper timestamp formatting
-                            const metadataValues = sortedMetadataFields.map(field => {
-                                const value = verse.metadata[field];
-                                const formattedValue = formatTimestampField(field, value);
-                                return escapeFunction(formattedValue);
-                            }).join(delimiter);
+                    // Add metadata values with proper timestamp formatting
+                    const metadataValues = sortedMetadataFields.map(field => {
+                        const value = verse.metadata[field];
+                        const formattedValue = formatTimestampField(field, value);
+                        return escapeFunction(formattedValue);
+                    }).join(delimiter);
 
-                            const row = metadataValues
-                                ? `${escapedId}${delimiter}${escapedSource}${delimiter}${escapedTarget}${delimiter}${metadataValues}\n`
-                                : `${escapedId}${delimiter}${escapedSource}${delimiter}${escapedTarget}\n`;
+                    const row = metadataValues
+                        ? `${escapedId}${delimiter}${escapedSource}${delimiter}${escapedTarget}${delimiter}${metadataValues}\n`
+                        : `${escapedId}${delimiter}${escapedSource}${delimiter}${escapedTarget}\n`;
 
-                            content += row;
-                        }
+                    content += row;
+                }
 
-                        // Write file
-                        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                        const exportFileName = `${currentBookCode}_${timestamp}.${fileExtension}`;
-                        const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
-                        await vscode.workspace.fs.writeFile(exportFile, Buffer.from(content));
+                // Write file
+                const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                const exportFileName = `${currentBookCode}_${timestamp}.${fileExtension}`;
+                const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
+                await vscode.workspace.fs.writeFile(exportFile, Buffer.from(content));
 
                 exportedFiles++;
                 debug(`${formatName} file created: ${exportFile.fsPath} with ${verseData.length} verses`);

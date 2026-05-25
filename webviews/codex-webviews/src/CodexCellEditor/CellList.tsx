@@ -3,6 +3,7 @@ import {
     EditorPostMessages,
     QuillCellContent,
     MilestoneIndex,
+    CustomNotebookMetadata,
 } from "../../../../types";
 import React, {
     useMemo,
@@ -30,6 +31,8 @@ import CommentsBadge from "./CommentsBadge";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { sanitizeQuillHtml } from "./utils";
 import { compareHtmlStructure, getStructureMismatchDescription } from "./utils/htmlStructureValidator";
+import type { ReactPlayerRef } from "./types/reactPlayerTypes";
+import type { AudioAvailability } from "./utils/audioViewMode";
 
 export interface CellListProps {
     translationUnits: QuillCellContent[];
@@ -50,14 +53,7 @@ export interface CellListProps {
     cellsInAutocompleteQueue?: string[]; // Cells queued for autocompletion
     successfulCompletions?: Set<string>; // Cells that completed successfully
     audioAttachments?: {
-        [cellId: string]:
-            | "available"
-            | "available-local"
-            | "available-pointer"
-            | "available-cached"
-            | "deletedOnly"
-            | "none"
-            | "missing";
+        [cellId: string]: AudioAvailability;
     }; // Cells that have audio attachments
     isSaving?: boolean;
     saveError?: boolean; // Whether there was a save error/timeout
@@ -84,6 +80,15 @@ export interface CellListProps {
     currentSubsectionIndex?: number;
     cellsPerPage?: number;
     onInspectSimilarWording?: (cellId: string, targetContent: string) => void;
+    // Video player props
+    playerRef?: React.RefObject<ReactPlayerRef>;
+    shouldShowVideoPlayer?: boolean;
+    videoUrl?: string;
+    muteVideoAudioDuringPlayback?: boolean;
+    setMuteVideoAudioDuringPlayback?: (value: boolean) => void;
+    // Audio playback state from other webview type
+    isOtherTypeAudioPlaying?: boolean;
+    metadata?: CustomNotebookMetadata;
 }
 
 const DEBUG_ENABLED = false;
@@ -130,10 +135,17 @@ const CellList: React.FC<CellListProps> = ({
     isAuthenticated = false,
     enforceHtmlStructure = false,
     milestoneIndex = null,
+    playerRef,
+    shouldShowVideoPlayer = false,
+    videoUrl,
+    muteVideoAudioDuringPlayback = true,
+    setMuteVideoAudioDuringPlayback,
     currentMilestoneIndex = 0,
     currentSubsectionIndex = 0,
     cellsPerPage = 50,
     onInspectSimilarWording,
+    isOtherTypeAudioPlaying = false,
+    metadata,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -790,6 +802,7 @@ const CellList: React.FC<CellListProps> = ({
                     cellChanged: true,
                     cellLabel: cellToOpen.cellLabel,
                     timestamps: cellToOpen.timestamps,
+                    cellAudioTimestamps: cellToOpen.audioTimestamps,
                 } as EditorCellContent);
                 vscode.postMessage({
                     command: "setCurrentIdToGlobalState",
@@ -932,6 +945,7 @@ const CellList: React.FC<CellListProps> = ({
                 cellChanged: true,
                 cellLabel: cellToOpen.cellLabel,
                 timestamps: cellToOpen.timestamps,
+                cellAudioTimestamps: cellToOpen.audioTimestamps,
             } as EditorCellContent);
 
             vscode.postMessage({
@@ -1006,6 +1020,7 @@ const CellList: React.FC<CellListProps> = ({
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
                                 htmlStructureError={htmlStructureErrors.get(cellMarkers[0])}
+                                isOtherTypeAudioPlaying={isOtherTypeAudioPlaying}
                             />
                         </span>
                     );
@@ -1093,6 +1108,10 @@ const CellList: React.FC<CellListProps> = ({
                             cellTimestamps={timestamps}
                             prevEndTime={workingTranslationUnits[i - 1]?.timestamps?.endTime}
                             nextStartTime={workingTranslationUnits[i + 1]?.timestamps?.startTime}
+                            prevCellId={workingTranslationUnits[i - 1]?.cellMarkers[0]}
+                            prevStartTime={workingTranslationUnits[i - 1]?.timestamps?.startTime}
+                            nextCellId={workingTranslationUnits[i + 1]?.cellMarkers[0]}
+                            nextEndTime={workingTranslationUnits[i + 1]?.timestamps?.endTime}
                             contentBeingUpdated={contentBeingUpdated}
                             setContentBeingUpdated={setContentBeingUpdated}
                             handleCloseEditor={handleCloseEditor}
@@ -1112,6 +1131,12 @@ const CellList: React.FC<CellListProps> = ({
                             isSourceText={isSourceText}
                             isAuthenticated={isAuthenticated}
                             onInspectSimilarWording={onInspectSimilarWording}
+                            playerRef={playerRef}
+                            videoUrl={videoUrl}
+                            shouldShowVideoPlayer={shouldShowVideoPlayer}
+                            metadata={metadata}
+                            muteVideoAudioDuringPlayback={muteVideoAudioDuringPlayback}
+                            setMuteVideoAudioDuringPlayback={setMuteVideoAudioDuringPlayback}
                         />
                     </span>
                 );
@@ -1162,7 +1187,7 @@ const CellList: React.FC<CellListProps> = ({
                                 allTranslationsComplete={successfulCompletions.size > 0}
                                 handleCellTranslation={handleCellTranslation}
                                 handleCellClick={openCellById}
-                                audioAttachments={audioAttachments as any}
+                                audioAttachments={audioAttachments}
                                 footnoteOffset={calculateFootnoteOffset(i)}
                                 isCorrectionEditorMode={isCorrectionEditorMode}
                                 translationUnits={workingTranslationUnits}
@@ -1176,6 +1201,7 @@ const CellList: React.FC<CellListProps> = ({
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
                                 htmlStructureError={htmlStructureErrors.get(cellMarkers[0])}
+                                isOtherTypeAudioPlaying={isOtherTypeAudioPlaying}
                             />
                         </span>
                     );
@@ -1223,6 +1249,12 @@ const CellList: React.FC<CellListProps> = ({
         isAudioOnly,
         isAuthenticated,
         onInspectSimilarWording,
+        muteVideoAudioDuringPlayback,
+        setMuteVideoAudioDuringPlayback,
+        metadata,
+        playerRef,
+        shouldShowVideoPlayer,
+        videoUrl,
     ]);
 
     // Fetch comments count for all visible cells (batched)
