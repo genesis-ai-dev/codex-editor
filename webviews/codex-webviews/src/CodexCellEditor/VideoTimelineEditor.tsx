@@ -10,6 +10,7 @@ type AudioAttachmentState =
     | "available"
     | "available-local"
     | "available-pointer"
+    | "available-cached"
     | "deletedOnly"
     | "none"
     | "missing";

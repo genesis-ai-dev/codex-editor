@@ -19,6 +19,7 @@ type AudioAttachmentState =
     | "available"
     | "available-local"
     | "available-pointer"
+    | "available-cached"
     | "deletedOnly"
     | "none"
     | "missing";
@@ -401,11 +402,16 @@ export function useMultiCellAudioPlayback({
                     }
                     : cell.timestamps);
 
-            // Check if cell has audio available
+            // Check if cell has audio available.
+            // "available-cached" is the post-download state for LFS-pointer audio
+            // (Stream Only mode); without it, audio downloaded via "Play Video"
+            // never gets an audio element built here and the native video Play
+            // button plays the video alone with no cell-audio overlay.
             const hasAudio =
                 audioState === "available" ||
                 audioState === "available-local" ||
-                audioState === "available-pointer";
+                audioState === "available-pointer" ||
+                audioState === "available-cached";
 
             // Check if cell has timestamps
             const hasTimestamps = timestamps?.startTime !== undefined;
