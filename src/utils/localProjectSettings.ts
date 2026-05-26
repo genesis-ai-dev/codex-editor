@@ -57,8 +57,6 @@ export interface LocalProjectSettings {
      * Cleared after the switch is applied on project open.
      */
     keepFilesOnStreamAndSave?: boolean;
-    /** When true, the editor will download/stream audio as soon as a cell opens */
-    autoDownloadAudioOnOpen?: boolean;
     /** When true, AI Metrics view shows detailed technical metrics instead of simple mode */
     detailedAIMetrics?: boolean;
     /** Track in-progress update for restart-safe cleanup */
@@ -212,7 +210,6 @@ async function writeLocalProjectSettingsInternal(
             mediaFileStrategySwitchStarted: settings.mediaFileStrategySwitchStarted ?? false,
             keepFilesOnStreamAndSave: settings.keepFilesOnStreamAndSave,
             forceCloseAfterSuccessfulSwap: settings.forceCloseAfterSuccessfulSwap,
-            autoDownloadAudioOnOpen: settings.autoDownloadAudioOnOpen ?? false,
             detailedAIMetrics: settings.detailedAIMetrics,
             lfsSourceRemoteUrl: settings.lfsSourceRemoteUrl,
             updateState: settings.updateState,
@@ -360,27 +357,12 @@ export async function ensureLocalProjectSettingsExists(
         lastMediaFileStrategyRun: "auto-download",
         changesApplied: true,
         mediaFileStrategyApplyState: "applied",
-        autoDownloadAudioOnOpen: false,
         mediaFileStrategySwitchStarted: false,
         autoSyncEnabled: true,
         syncDelayMinutes: 5,
         ...(defaults || {}),
     };
     await writeLocalProjectSettings(def, workspaceFolderUri);
-}
-
-export async function getAutoDownloadAudioOnOpen(workspaceFolderUri?: vscode.Uri): Promise<boolean> {
-    const settings = await readLocalProjectSettings(workspaceFolderUri);
-    return !!settings.autoDownloadAudioOnOpen;
-}
-
-export async function setAutoDownloadAudioOnOpen(
-    value: boolean,
-    workspaceFolderUri?: vscode.Uri
-): Promise<void> {
-    const settings = await readLocalProjectSettings(workspaceFolderUri);
-    settings.autoDownloadAudioOnOpen = !!value;
-    await writeLocalProjectSettings(settings, workspaceFolderUri);
 }
 
 /**

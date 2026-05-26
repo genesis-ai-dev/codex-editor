@@ -13,9 +13,11 @@ const debug = DEBUG
     ? (...args: unknown[]) => console.log("[globalUserSettings]", ...args)
     : () => { };
 
+const AUTO_DOWNLOAD_AUDIO_ON_OPEN_KEY = "codex.audio.autoDownloadAudioOnOpen";
 const AUTO_RECORD_ON_MIC_CLICK_KEY = "codex.audio.autoRecordOnMicClick";
 const RECORDING_COUNTDOWN_SECONDS_KEY = "codex.audio.recordingCountdownSeconds";
 
+const DEFAULT_AUTO_DOWNLOAD_AUDIO_ON_OPEN = false;
 const DEFAULT_AUTO_RECORD_ON_MIC_CLICK = false;
 const DEFAULT_RECORDING_COUNTDOWN_SECONDS = 3;
 const MAX_RECORDING_COUNTDOWN_SECONDS = 3;
@@ -44,6 +46,21 @@ function sanitizeCountdownSeconds(value: unknown): number {
         return DEFAULT_RECORDING_COUNTDOWN_SECONDS;
     }
     return Math.min(Math.round(value), MAX_RECORDING_COUNTDOWN_SECONDS);
+}
+
+export function getAutoDownloadAudioOnOpen(): boolean {
+    if (!extensionContext) {
+        return DEFAULT_AUTO_DOWNLOAD_AUDIO_ON_OPEN;
+    }
+    return !!extensionContext.globalState.get<boolean>(
+        AUTO_DOWNLOAD_AUDIO_ON_OPEN_KEY,
+        DEFAULT_AUTO_DOWNLOAD_AUDIO_ON_OPEN
+    );
+}
+
+export async function setAutoDownloadAudioOnOpen(value: boolean): Promise<void> {
+    const ctx = requireContext("setAutoDownloadAudioOnOpen");
+    await ctx.globalState.update(AUTO_DOWNLOAD_AUDIO_ON_OPEN_KEY, !!value);
 }
 
 export function getAutoRecordOnMicClick(): boolean {
@@ -80,10 +97,11 @@ export async function setRecordingCountdownSeconds(value: number): Promise<void>
 
 /**
  * One-time-per-project migration: if `.project/localProjectSettings.json`
- * still holds the legacy `autoRecordOnMicClick` or `recordingCountdownSeconds`
- * keys, copy them into the per-user `globalState` (only when globalState
- * has no value yet, so the first project opened "wins"), then strip the
- * keys from the JSON so they stop syncing via git.
+ * still holds the legacy `autoDownloadAudioOnOpen`, `autoRecordOnMicClick`,
+ * or `recordingCountdownSeconds` keys, copy them into the per-user
+ * `globalState` (only when globalState has no value yet, so the first
+ * project opened "wins"), then strip the keys from the JSON so they stop
+ * syncing via git.
  *
  * Idempotent: a no-op once the keys have been removed.
  */
@@ -115,6 +133,10 @@ export async function migrateAudioSettingsFromLocalProject(
         return;
     }
 
+    const hasAutoDownload = Object.prototype.hasOwnProperty.call(
+        raw,
+        "autoDownloadAudioOnOpen"
+    );
     const hasAutoRecord = Object.prototype.hasOwnProperty.call(
         raw,
         "autoRecordOnMicClick"
@@ -123,8 +145,27 @@ export async function migrateAudioSettingsFromLocalProject(
         raw,
         "recordingCountdownSeconds"
     );
-    if (!hasAutoRecord && !hasCountdown) {
+    if (!hasAutoDownload && !hasAutoRecord && !hasCountdown) {
         return;
+    }
+
+    if (hasAutoDownload) {
+        const existingAutoDownload =
+            extensionContext.globalState.get<boolean | undefined>(
+                AUTO_DOWNLOAD_AUDIO_ON_OPEN_KEY,
+                undefined
+            );
+        if (existingAutoDownload === undefined) {
+            await extensionContext.globalState.update(
+                AUTO_DOWNLOAD_AUDIO_ON_OPEN_KEY,
+                !!raw["autoDownloadAudioOnOpen"]
+            );
+            debug(
+                "Migrated autoDownloadAudioOnOpen from local project settings:",
+                raw["autoDownloadAudioOnOpen"]
+            );
+        }
+        delete raw["autoDownloadAudioOnOpen"];
     }
 
     if (hasAutoRecord) {

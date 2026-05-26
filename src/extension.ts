@@ -352,9 +352,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
     initToolPreferences(context);
 
-    // Per-user audio recording preferences (autoRecordOnMicClick,
-    // recordingCountdownSeconds) live in globalState. Initialize before any
-    // provider reads them; the per-workspace migration runs lazily below.
+    // Per-user audio preferences (autoDownloadAudioOnOpen,
+    // autoRecordOnMicClick, recordingCountdownSeconds) live in globalState.
+    // Initialize before any provider reads them; the per-workspace migration
+    // runs lazily below.
     initializeGlobalUserSettings(context);
 
     // Construct the singleton cellId state store (file-backed under

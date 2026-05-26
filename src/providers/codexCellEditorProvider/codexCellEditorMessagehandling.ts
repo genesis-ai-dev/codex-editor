@@ -383,9 +383,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         try {
             const typed = event as any;
             const value = !!typed?.content?.value;
-            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-            const { setAutoDownloadAudioOnOpen } = await import("../../utils/localProjectSettings");
-            await setAutoDownloadAudioOnOpen(value, ws?.uri);
+            const { setAutoDownloadAudioOnOpen } = await import("../../utils/globalUserSettings");
+            await setAutoDownloadAudioOnOpen(value);
             // Debounce broadcast so rapid toggles coalesce
             pendingAutoDownloadValue = value;
             if (autoDownloadBroadcastTimer) {
