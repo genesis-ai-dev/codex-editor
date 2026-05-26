@@ -414,9 +414,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         try {
             const typed = event as any;
             const value = !!typed?.content?.value;
-            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-            const { setAutoRecordOnMicClick } = await import("../../utils/localProjectSettings");
-            await setAutoRecordOnMicClick(value, ws?.uri);
+            const { setAutoRecordOnMicClick } = await import("../../utils/globalUserSettings");
+            await setAutoRecordOnMicClick(value);
             pendingAutoRecordValue = value;
             if (autoRecordBroadcastTimer) {
                 clearTimeout(autoRecordBroadcastTimer);
@@ -449,11 +448,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 Number.isFinite(numeric) && numeric >= 0
                     ? Math.min(Math.round(numeric), 3)
                     : 3;
-            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
             const { setRecordingCountdownSeconds } = await import(
-                "../../utils/localProjectSettings"
+                "../../utils/globalUserSettings"
             );
-            await setRecordingCountdownSeconds(sanitized, ws?.uri);
+            await setRecordingCountdownSeconds(sanitized);
             pendingRecordingCountdownValue = sanitized;
             if (recordingCountdownBroadcastTimer) {
                 clearTimeout(recordingCountdownBroadcastTimer);

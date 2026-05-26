@@ -1134,10 +1134,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Also send updated metadata plus project-level flags
             try {
                 const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-                const { getAutoDownloadAudioOnOpen, getAutoRecordOnMicClick, getRecordingCountdownSeconds } = await import("../../utils/localProjectSettings");
+                const { getAutoDownloadAudioOnOpen } = await import("../../utils/localProjectSettings");
+                const { getAutoRecordOnMicClick, getRecordingCountdownSeconds } = await import("../../utils/globalUserSettings");
                 const autoFlag = await getAutoDownloadAudioOnOpen(ws?.uri);
-                const autoRecordFlag = await getAutoRecordOnMicClick(ws?.uri);
-                const countdownSeconds = await getRecordingCountdownSeconds(ws?.uri);
+                const autoRecordFlag = getAutoRecordOnMicClick();
+                const countdownSeconds = getRecordingCountdownSeconds();
                 this.postMessageToWebview(webviewPanel, {
                     type: "providerUpdatesNotebookMetadataForWebview",
                     content: { ...notebookData.metadata, autoDownloadAudioOnOpen: !!autoFlag, autoRecordOnMicClick: !!autoRecordFlag, recordingCountdownSeconds: countdownSeconds },
