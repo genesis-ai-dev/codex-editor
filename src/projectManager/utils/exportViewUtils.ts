@@ -52,20 +52,27 @@ export interface NotebookAudioStats {
      */
     noneSelectedCount: number;
     /**
-     * Human-readable labels for the cells in each non-ready bucket. Used by
-     * the Step 1 drill-down popover so the user can see WHICH cells are
-     * affected, not just how many. Labels match the format the export
-     * progress reporter uses, so the wizard's pre-flight and the actual
-     * export speak the same identifiers.
+     * Cells in each non-ready bucket. Used by the Step 1 drill-down popover
+     * so the user can see WHICH cells are affected, not just how many.
+     * `label` matches the format the export progress reporter uses, so the
+     * wizard's pre-flight and the actual export speak the same identifiers.
+     * `cellId` is the cell's `metadata.id` — the popover uses it to deep-link
+     * the user straight into the affected cell in the codex editor.
      *
      * Cells without a presentable identifier (no globalReferences, no
      * cellLabel, no text content) are intentionally omitted — same rule
      * `audioExporter.ts` applies, so the counts here match what the export
      * would actually surface.
      */
-    noAudioRecordedCells: string[];
-    selectionMissingCells: string[];
-    noneSelectedCells: string[];
+    noAudioRecordedCells: AudioStatsCellEntry[];
+    selectionMissingCells: AudioStatsCellEntry[];
+    noneSelectedCells: AudioStatsCellEntry[];
+}
+
+/** Per-cell entry surfaced by the Step 1 drill-down popover. */
+export interface AudioStatsCellEntry {
+    label: string;
+    cellId: string;
 }
 
 export interface FileGroupEntry {
@@ -165,9 +172,9 @@ export function analyzeNotebookAudioStats(
 ): NotebookAudioStats {
     let eligibleCellCount = 0;
     let audioReadyCount = 0;
-    const noAudioRecordedCells: string[] = [];
-    const selectionMissingCells: string[] = [];
-    const noneSelectedCells: string[] = [];
+    const noAudioRecordedCells: AudioStatsCellEntry[] = [];
+    const selectionMissingCells: AudioStatsCellEntry[] = [];
+    const noneSelectedCells: AudioStatsCellEntry[] = [];
 
     for (const cell of notebook.cells) {
         if (!isExportableCell(cell)) continue;
@@ -187,12 +194,13 @@ export function analyzeNotebookAudioStats(
         // `formatCellDisplayLabel`'s null contract, but defending here keeps
         // the array contents consistent with the counts even if those drift.
         if (!label) continue;
+        const entry: AudioStatsCellEntry = { label, cellId };
         if (state === "selection-missing") {
-            selectionMissingCells.push(label);
+            selectionMissingCells.push(entry);
         } else if (state === "none-selected") {
-            noneSelectedCells.push(label);
+            noneSelectedCells.push(entry);
         } else {
-            noAudioRecordedCells.push(label);
+            noAudioRecordedCells.push(entry);
         }
     }
 

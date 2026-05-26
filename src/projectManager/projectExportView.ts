@@ -9,6 +9,8 @@ import { readCodexNotebookFromUri } from "../exportHandler/exportHandlerUtils";
 import { compareHtmlStructure } from "../../sharedUtils/htmlStructureUtils";
 import { getMediaFilesStrategy } from "../utils/localProjectSettings";
 import { AudioAttachmentsMigrator } from "../utils/audioAttachmentsMigrationUtils";
+import { openCodexDocumentWithSourcePair } from "../utils/openCodexDocumentWithSourcePair";
+import { jumpToCellInNotebook } from "../utils";
 
 const LAST_EXPORT_FOLDER_KEY = "projectExport.lastFolder";
 
@@ -293,6 +295,27 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
             case "closeExportView":
                 panel.dispose();
                 break;
+            case "openCellInEditor": {
+                // Deep-link from the Step 1 audio-stats popover into the
+                // affected cell. Same UX as the navigation sidebar: open
+                // the .source + .codex pair, then publish the cellId via
+                // workspace state so the codex editor's cellToJumpTo
+                // listener scrolls to it. We do NOT dispose the export
+                // panel — the user may want to come back to it after
+                // fixing the cell.
+                const cellId = message.cellId as string | undefined;
+                const filePath = message.filePath as string | undefined;
+                if (!cellId || !filePath) break;
+                try {
+                    const codexUri = vscode.Uri.file(filePath);
+                    const wsFolderUri = vscode.workspace.getWorkspaceFolder(codexUri)?.uri;
+                    await openCodexDocumentWithSourcePair(codexUri, wsFolderUri);
+                    await jumpToCellInNotebook(context, codexUri.fsPath, cellId);
+                } catch (error) {
+                    console.error("Failed to open cell from export popover:", error);
+                }
+                break;
+            }
             case "checkHtmlStructure": {
                 const mismatchResults = await checkHtmlStructureMismatches(
                     message.filesToExport as string[]
@@ -810,86 +833,6 @@ function getWebviewContent(
                     text-overflow: ellipsis;
                     white-space: nowrap;
                 }
-                .export-tier-card {
-                    border: 1px solid var(--vscode-input-border);
-                    background-color: var(--vscode-input-background);
-                    border-radius: 4px;
-                    padding: 12px;
-                    font-size: 0.9em;
-                }
-                .export-tier-card + .export-tier-card { margin-top: 8px; }
-                .export-tier-card summary {
-                    cursor: pointer;
-                    font-weight: 600;
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    list-style: none;
-                    color: var(--vscode-descriptionForeground);
-                }
-                .export-tier-card summary::-webkit-details-marker { display: none; }
-                .export-tier-card summary .tier-chevron {
-                    display: inline-flex;
-                    width: 14px;
-                    transition: transform 0.15s ease;
-                }
-                .export-tier-card[open] summary .tier-chevron { transform: rotate(90deg); }
-                .export-tier-card summary .tier-icon { font-size: 14px; }
-                .export-tier-card[open] summary { margin-bottom: 8px; }
-                .export-tier-card ul {
-                    list-style: none;
-                    padding: 0;
-                    margin: 0;
-                    max-height: 260px;
-                    overflow-y: auto;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 2px;
-                }
-                .export-tier-card li {
-                    padding: 3px 4px;
-                    font-size: 0.95em;
-                    display: flex;
-                    flex-wrap: wrap;
-                    align-items: baseline;
-                    gap: 6px;
-                    border-radius: 3px;
-                }
-                .export-tier-card li:hover { background-color: var(--vscode-list-hoverBackground); }
-                .export-tier-card li .tier-row-label { font-weight: 500; }
-                .export-tier-card li .tier-row-reason {
-                    font-size: 0.8em;
-                    padding: 1px 6px;
-                    border-radius: 8px;
-                    background-color: var(--vscode-badge-background);
-                    color: var(--vscode-badge-foreground);
-                    opacity: 0.75;
-                }
-                .export-tier-card li .tier-row-detail {
-                    font-size: 0.8em;
-                    color: var(--vscode-descriptionForeground);
-                    opacity: 0.85;
-                    flex-basis: 100%;
-                    margin-left: 24px;
-                }
-                /* Tier 3: hard error */
-                .export-tier-card.tier-error {
-                    border-color: rgba(220, 38, 38, 0.4);
-                    background-color: rgba(220, 38, 38, 0.08);
-                }
-                .export-tier-card.tier-error summary { color: var(--vscode-errorForeground, #dc2626); }
-                /* Tier 2: soft warning */
-                .export-tier-card.tier-warn {
-                    border-color: rgba(202, 138, 4, 0.35);
-                    background-color: rgba(202, 138, 4, 0.08);
-                }
-                .export-tier-card.tier-warn summary { color: var(--vscode-charts-yellow, #ca8a04); }
-                /* Tier 1: informational */
-                .export-tier-card.tier-info {
-                    border-color: var(--vscode-input-border);
-                    background-color: var(--vscode-input-background);
-                }
-                .export-tier-card.tier-info summary { color: var(--vscode-descriptionForeground); }
                 .export-output-path {
                     font-size: 0.85em;
                     color: var(--vscode-descriptionForeground);
@@ -960,7 +903,7 @@ function getWebviewContent(
                     outline: 1px solid var(--vscode-focusBorder, #2563eb);
                     outline-offset: 1px;
                 }
-                /* Tier 3 — error: red tint, matches .tier-error styling */
+                /* Tier 3 — error: red tint */
                 .file-audio-stats .stat-pill.stat-error {
                     color: var(--vscode-errorForeground, #dc2626);
                     background-color: rgba(220, 38, 38, 0.10);
@@ -970,7 +913,7 @@ function getWebviewContent(
                     background-color: rgba(220, 38, 38, 0.18);
                     border-color: rgba(220, 38, 38, 0.50);
                 }
-                /* Tier 2 — warn: yellow tint, matches .tier-warn styling */
+                /* Tier 2 — warn: yellow tint */
                 .file-audio-stats .stat-pill.stat-warn {
                     color: var(--vscode-charts-yellow, #ca8a04);
                     background-color: rgba(202, 138, 4, 0.10);
@@ -1095,6 +1038,49 @@ function getWebviewContent(
                 }
                 .cell-list-popover-item + .cell-list-popover-item {
                     border-top: 1px solid var(--vscode-panel-border, rgba(0,0,0,0.04));
+                }
+                /*
+                 * Clickable variant — rendered as a <button> so it picks up
+                 * keyboard focus + Enter/Space activation for free. We
+                 * strip the UA chrome so it visually matches the static
+                 * <div> rows alongside it.
+                 */
+                button.cell-list-popover-item {
+                    width: 100%;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    text-align: left;
+                    font-family: inherit;
+                    background: transparent;
+                    border: none;
+                    cursor: pointer;
+                    -webkit-appearance: none;
+                    appearance: none;
+                }
+                button.cell-list-popover-item .cell-list-popover-item-label {
+                    flex: 1;
+                    min-width: 0;
+                }
+                button.cell-list-popover-item .cell-list-popover-item-icon {
+                    flex-shrink: 0;
+                    font-size: 0.85em;
+                    opacity: 0.55;
+                    transition: transform 80ms ease, opacity 80ms ease;
+                }
+                button.cell-list-popover-item:hover,
+                button.cell-list-popover-item:focus-visible {
+                    background-color: var(--vscode-list-hoverBackground, rgba(0,0,0,0.04));
+                    color: var(--vscode-list-hoverForeground, var(--vscode-foreground));
+                    outline: none;
+                }
+                button.cell-list-popover-item:hover .cell-list-popover-item-icon,
+                button.cell-list-popover-item:focus-visible .cell-list-popover-item-icon {
+                    opacity: 1;
+                    transform: translateX(2px);
+                }
+                button.cell-list-popover-item:focus-visible {
+                    box-shadow: inset 0 0 0 1px var(--vscode-focusBorder, transparent);
                 }
                 .cell-list-popover-empty {
                     padding: 12px 16px;
@@ -1355,35 +1341,6 @@ function getWebviewContent(
 
                             <div class="export-current-file" id="exportCurrentFile" style="display:none;"></div>
 
-                            <div id="exportTierContainer">
-                                <details class="export-tier-card tier-error" id="exportTierError" style="display:none;" open>
-                                    <summary>
-                                        <span class="tier-chevron"><i class="codicon codicon-chevron-right"></i></span>
-                                        <i class="codicon codicon-error tier-icon"></i>
-                                        <span id="exportTierErrorSummary">0 errors</span>
-                                    </summary>
-                                    <ul id="exportTierErrorList"></ul>
-                                </details>
-
-                                <details class="export-tier-card tier-warn" id="exportTierWarn" style="display:none;" open>
-                                    <summary>
-                                        <span class="tier-chevron"><i class="codicon codicon-chevron-right"></i></span>
-                                        <i class="codicon codicon-warning tier-icon"></i>
-                                        <span id="exportTierWarnSummary">0 warnings</span>
-                                    </summary>
-                                    <ul id="exportTierWarnList"></ul>
-                                </details>
-
-                                <details class="export-tier-card tier-info" id="exportTierInfo" style="display:none;">
-                                    <summary>
-                                        <span class="tier-chevron"><i class="codicon codicon-chevron-right"></i></span>
-                                        <i class="codicon codicon-info tier-icon"></i>
-                                        <span id="exportTierInfoSummary">0 informational</span>
-                                    </summary>
-                                    <ul id="exportTierInfoList"></ul>
-                                </details>
-                            </div>
-
                             <div class="export-extra-messages" id="exportExtraMessages" style="display:none;"></div>
 
                             <div class="export-output-path" id="exportOutputPath" style="display:none;"></div>
@@ -1584,7 +1541,7 @@ function getWebviewContent(
                     }
                 };
 
-                function openCellListPopover(anchorEl, title, severity, cells, memoryKey) {
+                function openCellListPopover(anchorEl, title, severity, cells, memoryKey, filePath) {
                     const root = document.getElementById('cellListPopover');
                     const backdrop = document.getElementById('cellListPopoverBackdrop');
                     const titleEl = document.getElementById('cellListPopoverTitle');
@@ -1599,8 +1556,30 @@ function getWebviewContent(
                     if (cells.length === 0) {
                         bodyEl.innerHTML = '<div class="cell-list-popover-empty">No cells in this bucket.</div>';
                     } else {
+                        // Entries are { label, cellId } now (see
+                        // analyzeNotebookAudioStats). When cellId + filePath
+                        // are both present we render a clickable button that
+                        // deep-links into the editor; otherwise we fall back
+                        // to a static row so older payload shapes don't
+                        // crash the popover.
                         bodyEl.innerHTML = cells
-                            .map(label => '<div class="cell-list-popover-item">' + escapeHtml(label) + '</div>')
+                            .map(entry => {
+                                const label = (entry && typeof entry === 'object') ? entry.label : entry;
+                                const cellId = (entry && typeof entry === 'object') ? entry.cellId : '';
+                                const clickable = !!(cellId && filePath);
+                                if (clickable) {
+                                    return [
+                                        '<button type="button" class="cell-list-popover-item is-clickable"',
+                                        ' data-cell-id="' + escapeHtml(String(cellId)) + '"',
+                                        ' data-file-path="' + escapeHtml(String(filePath)) + '"',
+                                        ' title="Open this cell in the editor">',
+                                        '<span class="cell-list-popover-item-label">' + escapeHtml(String(label || '')) + '</span>',
+                                        '<i class="codicon codicon-arrow-right cell-list-popover-item-icon" aria-hidden="true"></i>',
+                                        '</button>'
+                                    ].join('');
+                                }
+                                return '<div class="cell-list-popover-item">' + escapeHtml(String(label || '')) + '</div>';
+                            })
                             .join('');
                     }
                     footerEl.textContent = cells.length === 1
@@ -1725,6 +1704,25 @@ function getWebviewContent(
                         const target = event.target;
                         if (!target || !target.closest) return;
 
+                        // Clickable cell row inside the popover — deep-link
+                        // into the codex editor. Handled BEFORE the outside-
+                        // click check below so the popover closes cleanly.
+                        const cellRow = target.closest('button.cell-list-popover-item.is-clickable');
+                        if (cellRow) {
+                            const cellId = cellRow.getAttribute('data-cell-id');
+                            const filePath = cellRow.getAttribute('data-file-path');
+                            if (cellId && filePath) {
+                                vscode.postMessage({
+                                    command: 'openCellInEditor',
+                                    cellId: cellId,
+                                    filePath: filePath,
+                                });
+                                closeCellListPopover();
+                                event.stopPropagation();
+                                return;
+                            }
+                        }
+
                         const trigger = target.closest('[data-popover-trigger="cellList"]');
                         if (trigger) {
                             const gIdx = Number(trigger.getAttribute('data-group-idx'));
@@ -1742,7 +1740,8 @@ function getWebviewContent(
                             // and other in-place re-renders don't blow
                             // away the user's scroll position.
                             const memoryKey = (file && file.path ? file.path : ('g' + gIdx + '-f' + fIdx)) + '|' + bucket;
-                            openCellListPopover(trigger, title, severity, cells, memoryKey);
+                            const filePath = (file && file.path) ? file.path : '';
+                            openCellListPopover(trigger, title, severity, cells, memoryKey, filePath);
                             event.stopPropagation();
                             return;
                         }
@@ -2232,7 +2231,6 @@ function getWebviewContent(
                     finished: false,
                     succeeded: false,
                     stageIndex: -1,
-                    missingFiles: [],
                     extraMessages: [],
                     outputPath: null,
                     lastTitle: 'Exporting...',
@@ -2244,7 +2242,6 @@ function getWebviewContent(
                     exportState.finished = false;
                     exportState.succeeded = false;
                     exportState.stageIndex = -1;
-                    exportState.missingFiles = [];
                     exportState.extraMessages = [];
                     exportState.outputPath = null;
                     exportState.lastTitle = 'Exporting...';
@@ -2268,15 +2265,6 @@ function getWebviewContent(
                     const currentFile = document.getElementById('exportCurrentFile');
                     if (currentFile) { currentFile.style.display = 'none'; currentFile.textContent = ''; }
 
-                    ['Error', 'Warn', 'Info'].forEach(t => {
-                        const card = document.getElementById('exportTier' + t);
-                        const list = document.getElementById('exportTier' + t + 'List');
-                        const summary = document.getElementById('exportTier' + t + 'Summary');
-                        if (card) card.style.display = 'none';
-                        if (list) list.innerHTML = '';
-                        if (summary) summary.textContent = '0';
-                    });
-
                     const extras = document.getElementById('exportExtraMessages');
                     if (extras) { extras.style.display = 'none'; extras.innerHTML = ''; }
 
@@ -2285,44 +2273,6 @@ function getWebviewContent(
 
                     const actionRow = document.getElementById('exportActionRow');
                     if (actionRow) actionRow.style.display = 'none';
-                }
-
-                // Severity & display-label helpers (mirror src/exportHandler/exportProgress.ts)
-                function severityForReason(reason) {
-                    switch (reason) {
-                        case 'no-audio-recorded':
-                        case 'no-text-recorded':
-                            return 'info';
-                        case 'no-audio-selected':
-                        case 'pointer-corrupt':
-                        case 'source-not-found':
-                            return 'warn';
-                        // audio-file-missing is Tier 3 (error): the user
-                        // approved this take and the resolver could not fetch
-                        // it from anywhere — genuinely unrecoverable.
-                        case 'audio-file-missing':
-                        case 'download-failed':
-                        case 'transcode-failed':
-                        case 'write-failed':
-                        case 'error':
-                        default:
-                            return 'error';
-                    }
-                }
-
-                function reasonChipLabel(reason) {
-                    switch (reason) {
-                        case 'no-audio-recorded': return 'no audio recorded';
-                        case 'no-text-recorded': return 'no text recorded';
-                        case 'no-audio-selected': return 'audio available, none selected';
-                        case 'audio-file-missing': return 'selected audio is missing';
-                        case 'pointer-corrupt': return 'audio file unreadable';
-                        case 'source-not-found': return 'source missing';
-                        case 'download-failed': return 'download failed';
-                        case 'transcode-failed': return 'transcode failed';
-                        case 'write-failed': return 'write failed';
-                        default: return 'error';
-                    }
                 }
 
                 function escapeHtml(s) {
@@ -2391,83 +2341,6 @@ function getWebviewContent(
                     }
                 }
 
-                function appendMissingFile(file, reason, detail) {
-                    if (!file) return;
-                    const severity = severityForReason(reason);
-                    exportState.missingFiles.push({ file: file, reason: reason, detail: detail, severity: severity });
-
-                    const tierSuffix = severity === 'error' ? 'Error' : severity === 'warn' ? 'Warn' : 'Info';
-                    const card = document.getElementById('exportTier' + tierSuffix);
-                    const list = document.getElementById('exportTier' + tierSuffix + 'List');
-                    const summary = document.getElementById('exportTier' + tierSuffix + 'Summary');
-                    if (!card || !list || !summary) return;
-
-                    const li = document.createElement('li');
-                    const labelHtml = '<span class="tier-row-label">' + escapeHtml(file) + '</span>';
-                    const reasonHtml = '<span class="tier-row-reason">' + escapeHtml(reasonChipLabel(reason)) + '</span>';
-                    const detailHtml = detail ? '<span class="tier-row-detail">' + escapeHtml(detail) + '</span>' : '';
-                    li.innerHTML = labelHtml + reasonHtml + detailHtml;
-                    list.appendChild(li);
-                    card.style.display = 'block';
-
-                    const counts = countTierEntries();
-                    summary.textContent = formatTierSummaryText(severity, counts[severity]);
-                }
-
-                function countTierEntries() {
-                    const counts = { info: 0, warn: 0, error: 0 };
-                    for (const mf of exportState.missingFiles) {
-                        counts[mf.severity] = (counts[mf.severity] || 0) + 1;
-                    }
-                    return counts;
-                }
-
-                function formatTierSummaryText(severity, n) {
-                    if (severity === 'error') {
-                        return n + (n === 1 ? ' error reported' : ' errors reported');
-                    }
-                    if (severity === 'warn') {
-                        return n + (n === 1 ? ' cell needs attention' : ' cells need attention');
-                    }
-                    return n + (n === 1 ? ' informational note' : ' informational notes');
-                }
-
-                /**
-                 * Builds the post-export subtitle, ordered by severity. Examples:
-                 *   - clean: "1 file exported • 993 audio files copied"
-                 *   - warn-only: "993 audio exported • 12 cells without recorded audio"
-                 *   - error: "988 audio exported • 5 download failures • 12 cells with selected audio missing"
-                 */
-                function buildSummarySubtitle(summary) {
-                    const counts = countTierEntries();
-                    const parts = [];
-                    if (typeof summary.filesExported === 'number' && (typeof summary.audioCopied !== 'number')) {
-                        parts.push(summary.filesExported + ' file' + (summary.filesExported === 1 ? '' : 's') + ' exported');
-                    }
-                    if (typeof summary.audioCopied === 'number') {
-                        parts.push(summary.audioCopied + ' audio file' + (summary.audioCopied === 1 ? '' : 's') + ' copied');
-                    }
-                    // Tier 3 first
-                    const errorReasons = {};
-                    const warnReasons = {};
-                    const infoReasons = {};
-                    for (const mf of exportState.missingFiles) {
-                        const bucket = mf.severity === 'error' ? errorReasons : mf.severity === 'warn' ? warnReasons : infoReasons;
-                        bucket[mf.reason] = (bucket[mf.reason] || 0) + 1;
-                    }
-                    if (errorReasons['audio-file-missing']) parts.push(errorReasons['audio-file-missing'] + ' cell' + (errorReasons['audio-file-missing'] === 1 ? '' : 's') + ' with selected audio missing');
-                    if (errorReasons['download-failed']) parts.push(errorReasons['download-failed'] + ' download failure' + (errorReasons['download-failed'] === 1 ? '' : 's'));
-                    if (errorReasons['transcode-failed']) parts.push(errorReasons['transcode-failed'] + ' transcode failure' + (errorReasons['transcode-failed'] === 1 ? '' : 's'));
-                    if (errorReasons['write-failed']) parts.push(errorReasons['write-failed'] + ' write failure' + (errorReasons['write-failed'] === 1 ? '' : 's'));
-                    if (errorReasons['error']) parts.push(errorReasons['error'] + ' error' + (errorReasons['error'] === 1 ? '' : 's'));
-                    if (warnReasons['pointer-corrupt']) parts.push(warnReasons['pointer-corrupt'] + ' unreadable audio file' + (warnReasons['pointer-corrupt'] === 1 ? '' : 's'));
-                    if (warnReasons['no-audio-selected']) parts.push(warnReasons['no-audio-selected'] + ' cell' + (warnReasons['no-audio-selected'] === 1 ? '' : 's') + ' with audio, none selected');
-                    if (warnReasons['source-not-found']) parts.push(warnReasons['source-not-found'] + ' source file' + (warnReasons['source-not-found'] === 1 ? '' : 's') + ' missing');
-                    if (infoReasons['no-audio-recorded']) parts.push(infoReasons['no-audio-recorded'] + ' cell' + (infoReasons['no-audio-recorded'] === 1 ? '' : 's') + ' without recorded audio');
-                    if (infoReasons['no-text-recorded']) parts.push(infoReasons['no-text-recorded'] + ' book' + (infoReasons['no-text-recorded'] === 1 ? '' : 's') + ' without text');
-                    return parts.join(' \u2022 ');
-                }
-
                 function showExtraMessages(messages) {
                     if (!messages || messages.length === 0) return;
                     exportState.extraMessages.push(...messages);
@@ -2501,35 +2374,23 @@ function getWebviewContent(
                         }
                     });
 
-                    const counts = countTierEntries();
+                    // Icon and title now key off the success flag only. Any
+                    // nuance (warnings, partial success, etc.) is surfaced via
+                    // the single comma-summary message the exporters push
+                    // through extraMessages.
                     const icon = document.getElementById('exportProgressIcon');
                     if (icon) {
                         icon.classList.remove('export-spinner', 'success', 'error', 'warn');
-                        if (!success) {
-                            icon.classList.add('error');
-                            icon.innerHTML = '<i class="codicon codicon-error"></i>';
-                        } else if (counts.error > 0) {
-                            icon.classList.add('error');
-                            icon.innerHTML = '<i class="codicon codicon-error"></i>';
-                        } else if (counts.warn > 0) {
-                            icon.classList.add('warn');
-                            icon.innerHTML = '<i class="codicon codicon-warning"></i>';
-                        } else {
+                        if (success) {
                             icon.classList.add('success');
                             icon.innerHTML = '<i class="codicon codicon-check"></i>';
+                        } else {
+                            icon.classList.add('error');
+                            icon.innerHTML = '<i class="codicon codicon-error"></i>';
                         }
                     }
 
-                    let title;
-                    if (!success) {
-                        title = 'Export failed';
-                    } else if (counts.error > 0) {
-                        title = 'Export complete with errors';
-                    } else if (counts.warn > 0) {
-                        title = 'Export complete';
-                    } else {
-                        title = 'Export complete';
-                    }
+                    const title = success ? 'Export complete' : 'Export failed';
                     setExportTitle(title, summaryText || (success
                         ? 'Your project has been exported successfully.'
                         : 'Something went wrong during the export.'));
@@ -2619,25 +2480,20 @@ function getWebviewContent(
                         return;
                     }
                     if (message.command === 'exportFileMissing') {
-                        appendMissingFile(message.file, message.reason, message.detail);
+                        // Per-cell missing/info events are intentionally ignored
+                        // in the UI now. Each exporter rolls these counts up
+                        // into its single extraMessages summary line (see
+                        // audioExporter.ts, htmlExporter.ts, etc.), which we
+                        // render via showExtraMessages on completion.
                         return;
                     }
                     if (message.command === 'exportCompleted') {
                         const summary = message.summary || {};
                         if (summary.exportPath) showOutputPath(summary.exportPath);
-                        if (summary.missingFiles && summary.missingFiles.length > 0) {
-                            for (const mf of summary.missingFiles) {
-                                // Avoid duplicating entries the streaming events already added
-                                if (!exportState.missingFiles.some(existing => existing.file === mf.file && existing.reason === mf.reason)) {
-                                    appendMissingFile(mf.file, mf.reason, mf.detail);
-                                }
-                            }
-                        }
                         if (summary.extraMessages && summary.extraMessages.length > 0) {
                             showExtraMessages(summary.extraMessages);
                         }
-                        const subtitle = buildSummarySubtitle(summary);
-                        showExportFinished(true, subtitle);
+                        showExportFinished(true);
                         return;
                     }
                     if (message.command === 'exportError') {

@@ -2520,4 +2520,5 @@ export type MessagesFromProjectExportView =
     | { command: "checkHtmlStructure"; filesToExport: string[]; }
     | { command: "openExportFolder"; path: string; }
     | { command: "closeExportView"; }
+    | { command: "openCellInEditor"; cellId: string; filePath: string; }
     | { command: "cancel"; };
