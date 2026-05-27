@@ -3,24 +3,9 @@ import { CustomWaveformCanvas } from "./CustomWaveformCanvas.tsx";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { MessageCircle, Copy, Loader2, Trash2, History, Mic } from "lucide-react";
-import ValidationStatusIcon from "./AudioValidationStatusIcon.tsx";
 import type { ValidationStatusIconProps } from "./AudioValidationStatusIcon.tsx";
-import type { QuillCellContent } from "../../../../types";
-import { processValidationQueue, enqueueValidation } from "./validationQueue";
-import ValidatorPopover from "./components/ValidatorPopover";
-import { audioPopoverTracker } from "./validationUtils";
-import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
-
-interface AudioValidationPopoverProps {
-    cellId: string;
-    cell: QuillCellContent;
-    vscode: any;
-    isSourceText: boolean;
-    currentUsername?: string | null;
-    requiredAudioValidations?: number;
-    disabled?: boolean;
-    disabledReason?: string;
-}
+import { AudioValidationBadge } from "./AudioValidationBadge.tsx";
+import type { AudioValidationPopoverProps } from "./AudioValidationBadge.tsx";
 
 interface AudioWaveformWithTranscriptionProps {
     audioUrl: string;
@@ -37,10 +22,12 @@ interface AudioWaveformWithTranscriptionProps {
     disabled?: boolean;
     onRequestRemove?: () => void;
     onShowHistory?: () => void;
-    historyCount?: number;
     onShowRecorder?: () => void;
     audioValidationPopoverProps: AudioValidationPopoverProps;
     validationStatusProps: ValidationStatusIconProps;
+    author?: string;
+    targetDurationSeconds?: number | null;
+    audioDurationSeconds?: number | null;
     targetDuration?: number | null; // Target duration (in seconds) derived from cell timestamps.
 }
 
@@ -55,55 +42,16 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     disabled = false,
     onRequestRemove,
     onShowHistory,
-    historyCount,
     onShowRecorder,
     validationStatusProps,
     audioValidationPopoverProps,
+    targetDurationSeconds,
+    audioDurationSeconds,
     targetDuration,
+    author,
 }) => {
     const [audioSrc, setAudioSrc] = useState<string>("");
     const [audioDuration, setAudioDuration] = useState<number | null>(null);
-    // State for hover popover of audio validators
-    const [showValidatorsPopover, setShowValidatorsPopover] = useState(false);
-    const validationContainerRef = React.useRef<HTMLDivElement>(null);
-    const popoverCloseTimerRef = React.useRef<number | null>(null);
-    const cancelCloseTimer = () => {
-        if (popoverCloseTimerRef.current != null) {
-            clearTimeout(popoverCloseTimerRef.current);
-            popoverCloseTimerRef.current = null;
-        }
-    };
-    const scheduleCloseTimer = (cb: () => void, delay = 100) => {
-        cancelCloseTimer();
-        popoverCloseTimerRef.current = window.setTimeout(cb, delay);
-    };
-
-    // Stabilize frequently used popover values for hook dependencies
-    const popoverCurrentUsername = audioValidationPopoverProps?.currentUsername;
-    const popoverCell = audioValidationPopoverProps?.cell;
-    const popoverCellId = audioValidationPopoverProps?.cellId;
-    const isSourceTextPopover = audioValidationPopoverProps?.isSourceText;
-    const hasPopover = Boolean(audioValidationPopoverProps);
-    const uniqueId = React.useRef(
-        `audio-validation-${popoverCellId ?? "unknown"}-${Math.random()
-            .toString(36)
-            .substring(2, 11)}`
-    );
-
-    // Derive validators via shared hook (deduped latest per user)
-    const { validators: uniqueValidationUsers } = useAudioValidationStatus({
-        cell: (popoverCell as any) || ({} as any),
-        currentUsername: popoverCurrentUsername || null,
-        requiredAudioValidations:
-            audioValidationPopoverProps &&
-            audioValidationPopoverProps.requiredAudioValidations !== undefined &&
-            audioValidationPopoverProps.requiredAudioValidations !== null
-                ? audioValidationPopoverProps.requiredAudioValidations
-                : null,
-        isSourceText: Boolean(isSourceTextPopover),
-        disabled: false,
-        displayValidationText: false,
-    });
 
     // Prefer the provided URL (can be blob: or data:). Fall back to creating an object URL from the blob.
     useEffect(() => {
@@ -161,100 +109,6 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
         };
     }, [audioBlob, targetDuration]);
 
-    const handleValidation = (e: React.MouseEvent<HTMLButtonElement>) => {
-        e.stopPropagation();
-        // Add to audio validation queue for sequential processing
-        enqueueValidation(audioValidationPopoverProps.cellId, true, true)
-            .then(() => {})
-            .catch((error) => {
-                console.error("Audio validation queue error:", error);
-            });
-        processValidationQueue(audioValidationPopoverProps.vscode, true).catch((error) => {
-            console.error("Audio validation queue processing error:", error);
-        });
-    };
-
-    const handleAudioValidationMouseEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
-        e.stopPropagation();
-        e.preventDefault();
-        cancelCloseTimer();
-        setShowValidatorsPopover(true);
-        audioPopoverTracker.setActivePopover(uniqueId.current);
-    };
-
-    const handleAudioValidationMouseLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
-        e.stopPropagation();
-        e.preventDefault();
-        scheduleCloseTimer(() => {
-            setShowValidatorsPopover(false);
-            if (audioPopoverTracker.getActivePopover() === uniqueId.current) {
-                audioPopoverTracker.setActivePopover(null);
-            }
-        }, 100);
-    };
-
-    const renderValidationButton = () => {
-        const { currentValidations, requiredValidations, isValidatedByCurrentUser } =
-            validationStatusProps;
-        const isFullyValidated = currentValidations >= requiredValidations;
-
-        if (currentValidations === 0) {
-            return (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="static h-6 px-2 rounded-full text-sm bg-[var(--vscode-badge-background)] text-[var(--vscode-badge-foreground)] border border-[var(--vscode-panel-border)]/40 hover:opacity-90"
-                    onClick={handleValidation}
-                    onMouseEnter={handleAudioValidationMouseEnter}
-                    onMouseLeave={handleAudioValidationMouseLeave}
-                >
-                    <i
-                        className="codicon codicon-circle-outline"
-                        style={{
-                            fontSize: "14px",
-                            color: "var(--vscode-descriptionForeground)",
-                        }}
-                    ></i>
-                    <span className="ml-1">Validate</span>
-                </Button>
-            );
-        }
-
-        if (currentValidations > 0 && !isFullyValidated && !isValidatedByCurrentUser) {
-            return (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="static h-6 px-2 rounded-full text-sm bg-[var(--vscode-badge-background)] text-[var(--vscode-badge-foreground)] border border-[var(--vscode-panel-border)]/40 hover:opacity-90"
-                    onClick={handleValidation}
-                    onMouseEnter={handleAudioValidationMouseEnter}
-                    onMouseLeave={handleAudioValidationMouseLeave}
-                >
-                    <i
-                        className="codicon codicon-circle-filled"
-                        style={{
-                            fontSize: "14px",
-                            color: "var(--vscode-descriptionForeground)",
-                        }}
-                    ></i>
-                    {<span className="ml-1">Validated by other user(s)</span>}
-                </Button>
-            );
-        }
-
-        return (
-            <Button
-                variant="outline"
-                size="sm"
-                className="static h-6 px-2 rounded-full text-sm bg-[var(--vscode-badge-background)] text-[var(--vscode-badge-foreground)] border border-[var(--vscode-panel-border)]/40 hover:opacity-90"
-                onMouseEnter={handleAudioValidationMouseEnter}
-                onMouseLeave={handleAudioValidationMouseLeave}
-            >
-                <ValidationStatusIcon {...validationStatusProps} />
-            </Button>
-        );
-    };
-
     return (
         <div className="bg-[var(--vscode-editor-background)] flex flex-col gap-y-3 p-3 sm:p-4 rounded-md shadow w-full relative">
             {/* Transcription Section */}
@@ -304,7 +158,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
             </>
 
             {/* Waveform */}
-            <div className="bg-[var(--vscode-editor-background)]">
+            <div>
                 {audioSrc ? (
                     <CustomWaveformCanvas
                         audioUrl={audioSrc}
@@ -312,6 +166,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                         height={48}
                         showControls={true}
                         showDebugInfo={false}
+                        author={author}
                     />
                 ) : (
                     <div className="flex items-center justify-center h-16 text-[var(--vscode-foreground)] text-sm">
@@ -323,102 +178,46 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
 
             {/* Validate badge overlay in the top-right corner of the card */}
             {validationStatusProps && (
-                <div
-                    className="absolute -top-2 -right-2 z-50"
-                    ref={validationContainerRef}
-                    onMouseEnter={(e) => {
-                        e.stopPropagation();
-                        cancelCloseTimer();
-                        setShowValidatorsPopover(true);
-                        audioPopoverTracker.setActivePopover(uniqueId.current);
-                    }}
-                    onMouseLeave={(e) => {
-                        e.stopPropagation();
-                        scheduleCloseTimer(() => {
-                            setShowValidatorsPopover(false);
-                            if (audioPopoverTracker.getActivePopover() === uniqueId.current) {
-                                audioPopoverTracker.setActivePopover(null);
-                            }
-                        }, 100);
-                    }}
-                >
-                    <div
-                        className="relative inline-flex items-center justify-center"
-                        style={{
-                            filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.15))",
-                        }}
-                    >
-                        {renderValidationButton()}
-                    </div>
-                    {showValidatorsPopover &&
-                        audioValidationPopoverProps &&
-                        uniqueValidationUsers.length > 0 && (
-                            <ValidatorPopover
-                                anchorRef={validationContainerRef}
-                                show={showValidatorsPopover}
-                                setShow={setShowValidatorsPopover}
-                                validators={uniqueValidationUsers}
-                                currentUsername={popoverCurrentUsername || null}
-                                uniqueId={uniqueId.current}
-                                onRemoveSelf={() => {
-                                    enqueueValidation(popoverCellId!, false, true)
-                                        .then(() => {})
-                                        .catch((error) =>
-                                            console.error("Audio validation queue error:", error)
-                                        );
-                                    processValidationQueue(
-                                        audioValidationPopoverProps!.vscode,
-                                        true
-                                    ).catch((error) =>
-                                        console.error(
-                                            "Audio validation queue processing error:",
-                                            error
-                                        )
-                                    );
-                                }}
-                                cancelCloseTimer={cancelCloseTimer}
-                                scheduleCloseTimer={scheduleCloseTimer}
-                            />
-                        )}
+                <div className="absolute -top-2 -right-2 z-50">
+                    <AudioValidationBadge
+                        validationStatusProps={validationStatusProps}
+                        popoverProps={audioValidationPopoverProps}
+                    />
                 </div>
             )}
 
-            {/* Timestamp length comparison bar (actual recorded audio vs. target from cell timestamps) */}
-            {targetDuration &&
-                targetDuration > 0 &&
-                (() => {
-                    const actual = audioDuration && audioDuration > 0 ? audioDuration : 0;
-                    const rawPercentage = actual > 0 ? (actual / targetDuration) * 100 : 0;
-                    const progressPercentage = Math.min(100, rawPercentage);
-                    const shouldStopFilling = rawPercentage >= 100;
-                    const barColor =
-                        rawPercentage <= 90
-                            ? "rgb(34, 197, 94)" // green-500
-                            : rawPercentage <= 100
-                            ? "rgb(234, 179, 8)" // yellow-500
-                            : "rgb(239, 68, 68)"; // red-500
-
-                    return (
-                        <div className="w-full space-y-2 px-2">
-                            <div className="relative w-full h-3 bg-blue-200/60 rounded-full overflow-hidden">
-                                <div
-                                    className="h-full rounded-full transition-all duration-100"
-                                    style={{
-                                        width: `${shouldStopFilling ? 100 : progressPercentage}%`,
-                                        backgroundColor: barColor,
-                                    }}
-                                />
-                            </div>
-                            <div className="flex justify-between text-xs text-muted-foreground">
-                                <span>
-                                    {audioDuration !== null ? `${actual.toFixed(2)}s` : "—"}
-                                </span>
-                                <span>Timestamp Length</span>
-                                <span>{targetDuration.toFixed(2)}s</span>
-                            </div>
+            {/* Target duration bar (e.g. subtitle cells): audio length vs allotted timestamp length */}
+            {targetDurationSeconds != null &&
+                targetDurationSeconds > 0 &&
+                audioDurationSeconds != null &&
+                audioDurationSeconds >= 0 && (
+                    <div className="w-full space-y-2">
+                        <div className="relative w-full h-3 bg-blue-200/60 rounded-full overflow-hidden">
+                            <div
+                                className="h-full rounded-full transition-all duration-100"
+                                style={{
+                                    width: `${Math.min(
+                                        100,
+                                        (audioDurationSeconds / targetDurationSeconds) * 100
+                                    )}%`,
+                                    backgroundColor:
+                                        audioDurationSeconds > targetDurationSeconds
+                                            ? "rgb(239, 68, 68)" // red: over allotted
+                                            : (audioDurationSeconds / targetDurationSeconds) *
+                                                  100 >=
+                                              90
+                                            ? "rgb(34, 197, 94)" // green: within 90%+
+                                            : "rgb(234, 179, 8)", // yellow: under 90%
+                                }}
+                            />
                         </div>
-                    );
-                })()}
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>{audioDurationSeconds.toFixed(3)}s</span>
+                            <span>Timestamp Length</span>
+                            <span>{targetDurationSeconds.toFixed(3)}s</span>
+                        </div>
+                    </div>
+                )}
 
             {/* Action buttons at bottom */}
             <div className="flex flex-wrap items-center justify-center gap-2 px-2">
@@ -439,10 +238,10 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     size="sm"
                     className="h-8 px-2 text-xs"
                     onClick={() => onRequestRemove?.()}
-                    title="Remove Audio"
+                    title="Delete Audio"
                 >
                     <Trash2 className="h-3 w-3" />
-                    <span className="ml-1">Remove</span>
+                    <span className="ml-1">Delete</span>
                 </Button>
                 <Button
                     variant="outline"
@@ -453,24 +252,6 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                 >
                     <History className="h-3 w-3" />
                     <span className="ml-1">History</span>
-                    {typeof (historyCount as any) === "number" && (historyCount as any) > 0 && (
-                        <span
-                            className="ml-2 inline-flex items-center justify-center rounded-full"
-                            style={{
-                                minWidth: "1.5rem",
-                                height: "1.25rem",
-                                padding: "0 6px",
-                                backgroundColor: "var(--vscode-badge-background)",
-                                color: "var(--vscode-badge-foreground)",
-                                border: "1px solid var(--vscode-panel-border)",
-                                fontSize: "0.75rem",
-                                fontWeight: 700,
-                                lineHeight: 1,
-                            }}
-                        >
-                            {historyCount as any}
-                        </span>
-                    )}
                 </Button>
                 <Button
                     variant="outline"
