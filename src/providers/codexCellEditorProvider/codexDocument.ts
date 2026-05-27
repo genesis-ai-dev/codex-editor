@@ -1438,8 +1438,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const currentTimestamp = Date.now();
 
         // Track which fields are editable (exclude system fields like id, sourceFsPath, etc.)
-        // Note: autoDownloadAudioOnOpen is excluded as it's a project-level setting stored in localProjectSettings.json,
-        // not a file-level metadata field
+        // Note: autoDownloadAudioOnOpen is excluded as it's a per-user setting stored in
+        // globalState (see src/utils/globalUserSettings.ts), not a file-level metadata field
         const editableFields = [
             "videoUrl",
             "textDirection",
