@@ -460,6 +460,7 @@ const CodexCellEditor: React.FC = () => {
                         endpoint: string;
                         authToken?: string;
                         language?: { code: string; name: string; };
+                        languageMode?: "project" | "auto";
                     }>((resolve, reject) => {
                         let resolved = false;
                         const onMsg = (ev: MessageEvent) => {
@@ -562,10 +563,14 @@ const CodexCellEditor: React.FC = () => {
                                 next.add(cellId);
                                 return next;
                             });
+                            const isAutoMode = asrConfig.languageMode === "auto";
+                            const languageHint = isAutoMode
+                                ? "auto"
+                                : asrConfig.language?.code || undefined;
                             const result = await client.transcribe(
                                 blob,
                                 60000,
-                                asrConfig.language?.code
+                                languageHint
                             );
                             const text = (result.text || "").trim();
                             if (text) {

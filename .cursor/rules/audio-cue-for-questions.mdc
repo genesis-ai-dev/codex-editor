@@ -1,0 +1,31 @@
+---
+description: Play an audio cue while AskQuestion's orange UI is on screen
+alwaysApply: true
+---
+
+# Audio cue before AskQuestion
+
+The user has a hook-based setup that plays an audio loop while a multiple-choice question is waiting for their input. `AskQuestion` is invisible to Cursor hooks, so the loop must be started **explicitly** by you.
+
+## Rule
+
+**Immediately before every `AskQuestion` tool call**, run this shell command:
+
+```bash
+bash ~/.cursor/hooks/before-question.sh
+```
+
+Place it in the same response as the `AskQuestion` call, with no other tool calls between the two. The script is fast, non-blocking after a brief startup, and self-cleans via a 10-minute safety timeout.
+
+## When to skip
+
+- The script does not exist (e.g., on a different machine). If `~/.cursor/hooks/before-question.sh` is missing, just call `AskQuestion` normally.
+- The user has explicitly said to skip the audio cue in this session.
+
+## What stops it
+
+You do not need to stop the sound — it's killed automatically by:
+
+- The next `preToolUse` (any tool you call afterwards)
+- `beforeSubmitPrompt` when the user types a message
+- A "Stop" button in the macOS dialog that pops alongside the sound

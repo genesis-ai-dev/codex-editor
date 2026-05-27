@@ -37,6 +37,13 @@ Authorization: Bearer <token>  (optional if token in query)
 
 - `source` (required): `"codex"` or `"langquest"`
 - `token` (optional): JWT token if not in Authorization header
+- `lang` (optional): Language hint for the upstream ASR model.
+    - Concrete value: an **ISO 639-3** code (e.g. `eng`, `fra`, `swh`). The proxy should pass this through to the MMS adapter loader (`set_target_lang` / `load_adapter`).
+    - Special value `auto`: requests **server-side language identification (LID)** before transcription. The proxy should:
+        1. Run an MMS LID model (e.g. `facebook/mms-lid-1024` or `mms-lid-4017`) on the audio.
+        2. Use the predicted ISO 639-3 code as the ASR adapter.
+        3. Return the detected code in the response so the client can surface it to the user.
+    - Omitted: the proxy may default to English (current behavior) or run LID — the client treats either as best-effort.
 
 ### Request Body
 
@@ -48,7 +55,12 @@ Authorization: Bearer <token>  (optional if token in query)
 ### Example Request
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/asr/transcribe?source=codex&token=JWT_TOKEN" \
+# Explicit language (Swahili)
+curl -X POST "http://localhost:8000/api/v1/asr/transcribe?source=codex&token=JWT_TOKEN&lang=swh" \
+  -F "file=@audio.wav"
+
+# Server-side language identification (LID)
+curl -X POST "http://localhost:8000/api/v1/asr/transcribe?source=codex&token=JWT_TOKEN&lang=auto" \
   -F "file=@audio.wav"
 ```
 
@@ -60,9 +72,12 @@ curl -X POST "http://localhost:8000/api/v1/asr/transcribe?source=codex&token=JWT
 {
   "text": "This is the transcribed text",
   "duration_s": 4.94,
-  "inference_s": 1.72
+  "inference_s": 1.72,
+  "language": "swh"
 }
 ```
+
+The `language` field is **required when the client sent `lang=auto`** so it can show the detected language to the user. It is optional otherwise.
 
 ### Error Response (4xx/5xx)
 

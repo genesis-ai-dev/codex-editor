@@ -489,6 +489,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             let authToken: string | undefined;
             let language: { code: string; name: string; } | undefined;
+            // languageMode controls which value the webview will send to the
+            // ASR proxy: "project" → the resolved ISO 639-3 code, "auto" →
+            // the literal string "auto" (server-side LID).
+            const languageMode = config.get<"project" | "auto">("asrLanguageMode", "project");
 
             // Try to get authenticated endpoint from FrontierAPI
             try {
@@ -553,7 +557,18 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     name?: { [k: string]: string; };
                 }>(isSourceDoc ? "sourceLanguage" : "targetLanguage");
                 if (lang) {
-                    const code = lang.iso1 || lang.tag?.split("-")[0] || lang.iso2t || "";
+                    // Prefer 3-letter ISO 639-3 codes because the ASR proxy
+                    // backend (MMS) is keyed by ISO 639-3 adapters. Fall back
+                    // to the 2-letter form only as a last resort, even though
+                    // it won't directly match an MMS adapter — at least we
+                    // surface *something* and the proxy can decide what to do.
+                    const tagPart = lang.tag?.split("-")[0];
+                    const code =
+                        (tagPart && tagPart.length === 3 ? tagPart : undefined) ||
+                        lang.iso2t ||
+                        (tagPart && tagPart.length === 2 ? tagPart : undefined) ||
+                        lang.iso1 ||
+                        "";
                     const friendlyName =
                         lang.refName ||
                         lang.name?.["en"] ||
@@ -567,10 +582,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 console.debug("[getAsrConfig] Could not resolve project language:", langError);
             }
 
-            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}, language=${language?.name ?? "(none)"}`);
+            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}, language=${language?.name ?? "(none)"}, mode=${languageMode}`);
             safePostMessageToPanel(webviewPanel, {
                 type: "asrConfig",
-                content: { endpoint, authToken, language }
+                content: { endpoint, authToken, language, languageMode }
             });
         } catch (error) {
             console.error("Error sending ASR config:", error);
@@ -581,8 +596,29 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 content: {
                     endpoint: fallbackEndpoint,
                     authToken: undefined,
+                    languageMode: "project",
                 }
             });
+        }
+    },
+
+    setAsrLanguageMode: async (ctx) => {
+        const typedEvent = ctx.event as Extract<
+            EditorPostMessages,
+            { command: "setAsrLanguageMode"; }
+        >;
+        const mode = typedEvent.content?.mode === "auto" ? "auto" : "project";
+        try {
+            const config = vscode.workspace.getConfiguration("codex-editor-extension");
+            await config.update(
+                "asrLanguageMode",
+                mode,
+                vscode.ConfigurationTarget.Workspace
+            );
+            // Re-send config so the webview picks up the new mode immediately.
+            await messageHandlers.getAsrConfig(ctx);
+        } catch (err) {
+            console.error("[setAsrLanguageMode] Failed to persist mode:", err);
         }
     },
 

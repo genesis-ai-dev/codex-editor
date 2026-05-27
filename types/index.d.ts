@@ -581,6 +581,10 @@ export type EditorPostMessages =
     }
     | { command: "getAsrConfig"; }
     | {
+        command: "setAsrLanguageMode";
+        content: { mode: "project" | "auto"; };
+    }
+    | {
         command: "mergeCellWithPrevious";
         content: {
             currentCellId: string;
@@ -2150,7 +2154,20 @@ type EditorReceiveMessages =
         milestoneIndex?: number;
         subsectionIndex?: number;
     }
-    | { type: "asrConfig"; content: { endpoint: string; authToken?: string; language?: { code: string; name: string; }; }; }
+    | {
+        type: "asrConfig";
+        content: {
+            endpoint: string;
+            authToken?: string;
+            language?: { code: string; name: string; };
+            /**
+             * How the webview should hint the language to the ASR proxy:
+             *  - "project" → send the resolved ISO 639-3 code (or omit if unresolved)
+             *  - "auto"    → send `lang=auto` so the proxy can run LID first
+             */
+            languageMode?: "project" | "auto";
+        };
+    }
     | { type: "startBatchTranscription"; content: { count: number; }; }
     | {
         type: "providerConfirmsBacktranslationSet";

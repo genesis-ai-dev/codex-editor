@@ -500,6 +500,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
         // Language resolved from project metadata for this editor (target language for codex, source for source files).
         // `code` is an ISO code passed as the ?lang= hint; `name` is the friendly display name used by the UI.
         language?: { code: string; name: string; };
+        // Whether the user wants to send the project language or let the server detect it.
+        languageMode?: "project" | "auto";
     } | null>(null);
 
     // Helper to smoothly center the editor. Coalesces multiple calls and
@@ -3072,8 +3074,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 setTranscriptionStatus(`Error: ${error}`);
             };
 
-            // Perform transcription, hinting the ASR with the project's language when known.
-            const result = await client.transcribe(audioBlob, 60000, asrConfig?.language?.code);
+            // Perform transcription. When the user picks "Auto Detect" we send
+            // `lang=auto` so the proxy can run server-side LID. Otherwise we
+            // send the project's language code (if resolved). Omitting it
+            // entirely also works but matches today's English-default behavior.
+            const isAutoMode = asrConfig?.languageMode === "auto";
+            const languageHint = isAutoMode
+                ? "auto"
+                : asrConfig?.language?.code || undefined;
+            const result = await client.transcribe(audioBlob, 60000, languageHint);
 
             // Success - save transcription but don't automatically insert
             const transcribedText = result.text.trim();
@@ -5479,6 +5488,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     onInsertTranscription={
                                                         handleInsertTranscription
                                                     }
+                                                    asrLanguageName={asrConfig?.language?.name}
+                                                    asrLanguageMode={
+                                                        asrConfig?.languageMode ?? "project"
+                                                    }
+                                                    onChangeAsrLanguageMode={(mode) => {
+                                                        window.vscodeApi.postMessage({
+                                                            command: "setAsrLanguageMode",
+                                                            content: { mode },
+                                                        } as EditorPostMessages);
+                                                    }}
                                                     onRequestRemove={() => {
                                                         setConfirmingDiscard(true);
                                                         scrollEditorBottomIntoView();

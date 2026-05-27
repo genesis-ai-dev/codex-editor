@@ -2,7 +2,16 @@ import React, { useEffect, useState } from "react";
 import { CustomWaveformCanvas } from "./CustomWaveformCanvas.tsx";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { MessageCircle, Copy, Loader2, Trash2, History, Mic } from "lucide-react";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuLabel,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu";
+import { MessageCircle, Copy, Loader2, Trash2, History, Mic, ChevronDown } from "lucide-react";
 import type { ValidationStatusIconProps } from "./AudioValidationStatusIcon.tsx";
 import { AudioValidationBadge } from "./AudioValidationBadge.tsx";
 import type { AudioValidationPopoverProps } from "./AudioValidationBadge.tsx";
@@ -29,6 +38,11 @@ interface AudioWaveformWithTranscriptionProps {
     targetDurationSeconds?: number | null;
     audioDurationSeconds?: number | null;
     targetDuration?: number | null; // Target duration (in seconds) derived from cell timestamps.
+    // ASR language hint shown next to the Transcribe button and toggleable
+    // between the project language and server-side auto-detect (LID).
+    asrLanguageName?: string; // friendly name of the project's language (e.g. "Swahili"). Falls back to "Auto Detect".
+    asrLanguageMode?: "project" | "auto";
+    onChangeAsrLanguageMode?: (mode: "project" | "auto") => void;
 }
 
 const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionProps> = ({
@@ -49,6 +63,9 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     audioDurationSeconds,
     targetDuration,
     author,
+    asrLanguageName,
+    asrLanguageMode = "project",
+    onChangeAsrLanguageMode,
 }) => {
     const [audioSrc, setAudioSrc] = useState<string>("");
     const [audioDuration, setAudioDuration] = useState<number | null>(null);
@@ -232,18 +249,75 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
 
             {/* Action buttons at bottom */}
             <div className="flex flex-wrap items-center justify-center gap-2 px-2">
-                {!transcription && !isTranscribing && (
-                    <Button
-                        onClick={onTranscribe}
-                        disabled={disabled || (!audioUrl && !audioBlob)}
-                        variant="outline"
-                        className="h-8 px-2 text-xs text-[var(--vscode-button-background)] border-[var(--vscode-button-background)]/20 hover:bg-[var(--vscode-button-background)]/10"
-                        title="Transcribe Audio"
-                    >
-                        <MessageCircle className="h-3 w-3" />
-                        <span className="ml-1">Transcribe</span>
-                    </Button>
-                )}
+                {!transcription && !isTranscribing && (() => {
+                    const transcribeDisabled = disabled || (!audioUrl && !audioBlob);
+                    const isAuto = asrLanguageMode === "auto";
+                    // The label shows what will actually happen on click — the
+                    // resolved project language name, or "Auto Detect" when
+                    // either the user opted into auto-detect or we couldn't
+                    // resolve a project language to send.
+                    const effectiveLabel =
+                        !isAuto && asrLanguageName ? asrLanguageName : "Auto Detect";
+                    const sharedBtnClass =
+                        "h-8 px-2 text-xs text-[var(--vscode-button-background)] border-[var(--vscode-button-background)]/20 hover:bg-[var(--vscode-button-background)]/10";
+                    return (
+                        <div className="inline-flex items-stretch">
+                            <Button
+                                onClick={onTranscribe}
+                                disabled={transcribeDisabled}
+                                variant="outline"
+                                className={`${sharedBtnClass} rounded-r-none border-r-0`}
+                                title={`Transcribe Audio (${effectiveLabel})`}
+                            >
+                                <MessageCircle className="h-3 w-3" />
+                                <span className="ml-1">Transcribe</span>
+                            </Button>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        disabled={transcribeDisabled}
+                                        className={`${sharedBtnClass} rounded-l-none gap-1 pl-2 pr-1.5`}
+                                        title={`Language: ${effectiveLabel}. Click to change.`}
+                                        aria-label={`Change transcription language. Current: ${effectiveLabel}`}
+                                    >
+                                        <span className="max-w-[10ch] truncate">
+                                            {effectiveLabel}
+                                        </span>
+                                        <ChevronDown className="h-3 w-3 opacity-70" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="min-w-[12rem]">
+                                    <DropdownMenuLabel>Transcription language</DropdownMenuLabel>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuRadioGroup
+                                        value={
+                                            !asrLanguageName
+                                                ? "auto"
+                                                : asrLanguageMode
+                                        }
+                                        onValueChange={(v) =>
+                                            onChangeAsrLanguageMode?.(
+                                                v === "auto" ? "auto" : "project"
+                                            )
+                                        }
+                                    >
+                                        <DropdownMenuRadioItem
+                                            value="project"
+                                            disabled={!asrLanguageName}
+                                        >
+                                            {asrLanguageName || "Project language (unset)"}
+                                        </DropdownMenuRadioItem>
+                                        <DropdownMenuRadioItem value="auto">
+                                            Auto Detect
+                                        </DropdownMenuRadioItem>
+                                    </DropdownMenuRadioGroup>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
+                    );
+                })()}
                 <Button
                     variant="outline"
                     size="sm"

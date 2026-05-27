@@ -895,6 +895,20 @@
                         "default": "eng",
                         "description": "Language code for transcription. MMS requires ISO-639-3 (e.g., eng, fra, spa). 2-letter codes will be mapped where possible."
                     },
+                    "codex-editor-extension.asrLanguageMode": {
+                        "title": "ASR Language Mode",
+                        "type": "string",
+                        "enum": [
+                            "project",
+                            "auto"
+                        ],
+                        "enumDescriptions": [
+                            "Use the project's source/target language (recommended).",
+                            "Let the ASR service detect the language (sends language=auto, requires server-side LID support)."
+                        ],
+                        "default": "project",
+                        "description": "How the transcription button should hint the language to the ASR service. Toggleable from the Transcribe button in the cell editor."
+                    },
                     "codex-editor-extension.asrPhonetic": {
                         "title": "Return Phonetic (IPA)",
                         "type": "boolean",

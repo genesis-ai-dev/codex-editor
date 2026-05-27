@@ -26,6 +26,12 @@ export class WhisperTranscriptionClient {
             if (this.authToken) {
                 url.searchParams.set("token", this.authToken);
             }
+            // Language hint for the ASR proxy. Concrete values are ISO 639-3
+            // codes (e.g. "eng", "swh", "fra") which the proxy uses to pick
+            // the MMS adapter. The special value "auto" requests language
+            // identification (LID) on the proxy side before transcription.
+            // Omitting the param entirely is equivalent to today's behavior
+            // (server picks a default, typically English).
             if (language) {
                 url.searchParams.set("lang", language);
             }
