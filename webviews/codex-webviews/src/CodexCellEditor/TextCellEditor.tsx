@@ -22,6 +22,7 @@ import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
 import { AudioValidationBadge } from "./AudioValidationBadge";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
+import { useAudioInputDevices } from "./hooks/useAudioInputDevices";
 import SourceTextDisplay from "./SourceTextDisplay";
 import { AudioHistoryViewer } from "./AudioHistoryViewer";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
@@ -531,6 +532,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
             (window as any)?.initialData?.validationCountAudio ??
             undefined,
     };
+
+    // Microphone detection — drives the disabled state and warning under the
+    // recorder. Updates live via `devicechange`, so unplugging or plugging in
+    // a mic flips the UI immediately. See `hooks/useAudioInputDevices.ts` for
+    // the debug flag used to simulate "no microphone" on dev machines.
+    const {
+        hasAudioInput,
+        isChecking: isCheckingAudioDevices,
+        isSupported: isAudioDeviceApiSupported,
+    } = useAudioInputDevices();
+    const noMicDetected =
+        isAudioDeviceApiSupported && !isCheckingAudioDevices && !hasAudioInput;
 
     const centerEditor = useCallback(() => {
         const el = cellEditorRef.current;
@@ -5680,6 +5693,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             : "idle";
                                     const recorderTitle = isCellLocked
                                         ? "Cannot record: cell is locked"
+                                        : noMicDetected
+                                        ? "No microphone detected"
                                         : isRecording
                                         ? "Stop Recording"
                                         : countdown !== null
@@ -5699,7 +5714,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     ? stopRecording
                                                                     : startRecording
                                                             }
-                                                            disabled={isCellLocked}
+                                                            disabled={
+                                                                isCellLocked || noMicDetected
+                                                            }
                                                             title={recorderTitle}
                                                         />
 
@@ -5769,6 +5786,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     auto-trimmed
                                                                 </span>
                                                             </div>
+                                                        )}
+                                                        {noMicDetected && (
+                                                            <span
+                                                                role="alert"
+                                                                className="text-xs text-muted-foreground inline-flex items-center gap-1"
+                                                            >
+                                                                <AlertTriangle
+                                                                    className="h-3 w-3"
+                                                                    style={{
+                                                                        color: "var(--vscode-errorForeground)",
+                                                                    }}
+                                                                />
+                                                                No microphone detected. Connect an
+                                                                input device to record.
+                                                            </span>
                                                         )}
                                                         {hint && (
                                                             <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
