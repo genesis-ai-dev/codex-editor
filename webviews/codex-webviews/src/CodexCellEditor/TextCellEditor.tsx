@@ -481,6 +481,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isAudioLoading, setIsAudioLoading] = useState(false);
     const [isPlayAudioLoading, setIsPlayAudioLoading] = useState(false);
     const [hasAudioHistory, setHasAudioHistory] = useState<boolean>(false);
+    const [audioHistoryCount, setAudioHistoryCount] = useState<number>(0);
     const [audioWarning, setAudioWarning] = useState<string | null>(null);
     const [currentSelectedAudioId, setCurrentSelectedAudioId] = useState<string | null>(null);
 
@@ -3311,6 +3312,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
     useEffect(() => {
         const cellId = cellMarkers[0];
         setCurrentSelectedAudioId(null);
+        // Reset history flags so a stale count/visibility from the previous
+        // cell doesn't briefly render before the new audioHistoryReceived
+        // response arrives for this cell.
+        setHasAudioHistory(false);
+        setAudioHistoryCount(0);
         window.vscodeApi.postMessage({
             command: "getAudioHistory",
             content: { cellId },
@@ -3866,6 +3872,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             ) {
                 const history = message.content.audioHistory || [];
                 setHasAudioHistory(history.length > 0);
+                setAudioHistoryCount(history.length);
 
                 // Initialize or correct currentSelectedAudioId from the provider's
                 // authoritative currentAttachmentId.  If it differs from what we
@@ -5449,6 +5456,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 >
                                                     <History className="h-3 w-3 mr-1" />
                                                     History
+                                                    {audioHistoryCount > 0 && (
+                                                        <span
+                                                            className="ml-2 inline-flex items-center justify-center rounded-full"
+                                                            style={{
+                                                                minWidth: "1rem",
+                                                                height: "1rem",
+                                                                padding: "0 4px",
+                                                                backgroundColor:
+                                                                    "var(--vscode-badge-background)",
+                                                                color: "var(--vscode-badge-foreground)",
+                                                                fontSize: "0.6rem",
+                                                                fontWeight: 700,
+                                                                lineHeight: 1,
+                                                            }}
+                                                            aria-label={`${audioHistoryCount} audio recording${audioHistoryCount === 1 ? "" : "s"} in history`}
+                                                        >
+                                                            {audioHistoryCount}
+                                                        </span>
+                                                    )}
                                                 </Button>
                                             )}
 
@@ -5483,6 +5509,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         scrollEditorBottomIntoView();
                                                     }}
                                                     onShowHistory={() => setShowAudioHistory(true)}
+                                                    historyCount={audioHistoryCount}
                                                     onShowRecorder={() => {
                                                         setShowRecorder(true);
                                                         setCountdown(null);
