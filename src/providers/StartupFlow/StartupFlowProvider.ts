@@ -6182,7 +6182,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             currentMediaFilesStrategy: mediaStrategy,
                             lastMediaFileStrategyRun: mediaStrategy,
                             mediaFileStrategyApplyState: "applied",
-                            autoDownloadAudioOnOpen: false,
                         });
                         debugLog(`Wrote localProjectSettings.json with strategy: ${mediaStrategy} BEFORE cloning`);
                     }
