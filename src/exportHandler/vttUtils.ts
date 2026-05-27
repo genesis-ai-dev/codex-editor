@@ -72,7 +72,8 @@ export const generateVttData = (
     cells: CodexNotebookAsJSONData["cells"],
     includeStyles: boolean,
     cueSplitting: boolean,
-    filePath: string
+    filePath: string,
+    excludeLabels: boolean = false
 ): string => {
     if (!cells.length) return "";
 
@@ -96,7 +97,7 @@ export const generateVttData = (
             const text = includeStyles ? processVttContent(unit.value) : removeHtmlTags(unit.value);
             const finalText = ensureDialogueLineBreaks(text);
 
-            const rawLabel = unit.metadata?.cellLabel?.trim();
+            const rawLabel = excludeLabels ? undefined : unit.metadata?.cellLabel?.trim();
             const payload = rawLabel
                 ? `<v ${escapeVoiceName(rawLabel)}>${finalText}</v>`
                 : finalText;

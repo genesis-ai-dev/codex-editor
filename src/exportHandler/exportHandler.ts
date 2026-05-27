@@ -250,6 +250,7 @@ export interface ExportOptions {
     removeIds?: boolean;
     includeAudio?: boolean;
     includeTimestamps?: boolean;
+    excludeLabels?: boolean;
 }
 
 // IDML Round-trip export: Uses idmlExporter or biblicaExporter based on filename
@@ -2066,7 +2067,13 @@ export const exportCodexContentAsSubtitlesVtt = async (
                     debug(`File has ${cells.length} active cells`);
 
                     // Generate VTT content
-                    const vttContent = generateVttData(cells, includeStyles, cueSplitting, file.fsPath); // Include styles for VTT
+                    const vttContent = generateVttData(
+                        cells,
+                        includeStyles,
+                        cueSplitting,
+                        file.fsPath,
+                        options?.excludeLabels === true
+                    );
                     debug({ vttContent, cells, includeStyles });
 
                     // Write file
