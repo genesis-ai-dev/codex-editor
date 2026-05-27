@@ -255,6 +255,7 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             scrollSyncEnabled: true,
             currentUsername: "test-user",
             requiredValidations: 1,
+            highlightedGlobalReferences: [],
         };
 
         const { container } = render(<CellList {...mockProps} />);
@@ -458,6 +459,7 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             scrollSyncEnabled: true,
             currentUsername: "test-user",
             requiredValidations: 1,
+            highlightedGlobalReferences: [],
         };
 
         render(<CellList {...mockProps} />);
@@ -566,6 +568,7 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             scrollSyncEnabled: true,
             currentUsername: "test-user",
             requiredValidations: 1,
+            highlightedGlobalReferences: [],
         };
 
         render(<CellList {...cellListProps} />);

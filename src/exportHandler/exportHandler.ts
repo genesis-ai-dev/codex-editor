@@ -5,8 +5,7 @@ import * as fs from "fs";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { removeHtmlTags, generateSrtData } from "./subtitleUtils";
-import { generateVttData } from "./vttUtils";
-
+import { generateVttData, hasOverlappingCues } from "./vttUtils";
 // import { exportRtfWithPandoc } from "../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
 
 const execAsync = promisify(exec);
@@ -43,6 +42,39 @@ function debug(...args: any[]) {
     if (DEBUG) {
         console.log("[DEBUG]", ...args);
     }
+}
+
+const SUBTITLE_OVERLAP_WARNING =
+    "Some selected files have overlapping subtitle timestamps. To split overlapping cues so they appear at different times, use the WebVTT with Cue Splitting option. Do you want to export anyway?";
+
+/**
+ * Checks selected files for overlapping VTT/SRT cues. If any file has overlaps, shows a warning
+ * and asks the user to confirm. Returns true if export should proceed, false to cancel.
+ */
+export async function checkSubtitleOverlapsAndConfirm(filesToExport: string[]): Promise<boolean> {
+    let hasOverlaps = false;
+    for (const filePath of filesToExport) {
+        try {
+            const codexData = await readCodexNotebookFromUri(vscode.Uri.file(filePath));
+            const cells = getActiveCells(codexData.cells);
+            if (hasOverlappingCues(cells)) {
+                hasOverlaps = true;
+                break;
+            }
+        } catch (err) {
+            console.warn(
+                `[checkSubtitleOverlapsAndConfirm] Failed to inspect ${filePath} for overlaps:`,
+                err
+            );
+        }
+    }
+    if (!hasOverlaps) return true;
+    const choice = await vscode.window.showWarningMessage(
+        SUBTITLE_OVERLAP_WARNING,
+        { modal: true },
+        "Export anyway"
+    );
+    return choice === "Export anyway";
 }
 
 /**
@@ -205,6 +237,7 @@ export enum CodexExportFormat {
     SUBTITLES_SRT = "subtitles-srt",
     SUBTITLES_VTT_WITH_STYLES = "subtitles-vtt-with-styles",
     SUBTITLES_VTT_WITHOUT_STYLES = "subtitles-vtt-without-styles",
+    SUBTITLES_VTT_WITH_CUE_SPLITTING = "subtitles-vtt-with-cue-splitting",
     XLIFF = "xliff",
     CSV = "csv",
     TSV = "tsv",
@@ -1784,6 +1817,9 @@ export async function exportCodexContent(
         case CodexExportFormat.SUBTITLES_VTT_WITHOUT_STYLES:
             exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, options, false));
             break;
+        case CodexExportFormat.SUBTITLES_VTT_WITH_CUE_SPLITTING:
+            exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, options, false, true));
+            break;
         case CodexExportFormat.SUBTITLES_SRT:
             exportPromises.push(exportCodexContentAsSubtitlesSrt(formatPath, filesToExport, options));
             break;
@@ -1981,7 +2017,8 @@ export const exportCodexContentAsSubtitlesVtt = async (
     userSelectedPath: string,
     filesToExport: string[],
     options?: ExportOptions,
-    includeStyles: boolean = true
+    includeStyles: boolean = true,
+    cueSplitting: boolean = false
 ) => {
     try {
         debug("Starting exportCodexContentAsSubtitlesVtt function");
@@ -2029,7 +2066,7 @@ export const exportCodexContentAsSubtitlesVtt = async (
                     debug(`File has ${cells.length} active cells`);
 
                     // Generate VTT content
-                    const vttContent = generateVttData(cells, includeStyles, file.fsPath); // Include styles for VTT
+                    const vttContent = generateVttData(cells, includeStyles, cueSplitting, file.fsPath); // Include styles for VTT
                     debug({ vttContent, cells, includeStyles });
 
                     // Write file

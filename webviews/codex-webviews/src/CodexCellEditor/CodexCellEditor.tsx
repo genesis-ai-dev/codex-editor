@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useContext, useCallback } from "react";
-import ReactPlayer from "react-player";
 import Quill from "quill";
+import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import {
     QuillCellContent,
     EditorPostMessages,
@@ -21,8 +21,8 @@ import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
-import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
+import type { AudioAvailability } from "./utils/audioViewMode";
 
 import {
     getCellValueData,
@@ -36,6 +36,7 @@ import { getVSCodeAPI } from "../shared/vscodeApi";
 import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import { clearCachedAudio } from "../lib/audioCache";
 import { createCacheHelpers, createProgressCacheHelpers } from "./utils";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import { FloatingSearchBar, SearchMatch } from "./FloatingSearchBar";
@@ -162,6 +163,7 @@ const CodexCellEditor: React.FC = () => {
     );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
+    const [isOtherTypeAudioPlaying, setIsOtherTypeAudioPlaying] = useState<boolean>(false);
 
     // Track if user has manually navigated away from the highlighted chapter in source files
     const [hasManuallyNavigatedAway, setHasManuallyNavigatedAway] = useState<boolean>(false);
@@ -172,8 +174,9 @@ const CodexCellEditor: React.FC = () => {
         videoUrl: "", // FIXME: use attachments instead of videoUrl
     } as CustomNotebookMetadata);
     const [videoUrl, setVideoUrl] = useState<string>("");
-    const playerRef = useRef<ReactPlayer>(null);
+    const playerRef = useRef<ReactPlayerRef>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
+    const [muteVideoAudioDuringPlayback, setMuteVideoAudioDuringPlayback] = useState(true);
     const { setSourceCellMap } = useContext(SourceCellContext);
     const { setContentToScrollTo } = useContext(ScrollToContentContext);
     const { setUnsavedChanges } = useContext(UnsavedChangesContext);
@@ -345,14 +348,17 @@ const CodexCellEditor: React.FC = () => {
 
     // Add audio attachments state
     const [audioAttachments, setAudioAttachments] = useState<{
-        [cellId: string]:
-            | "available"
-            | "available-local"
-            | "available-pointer"
-            | "deletedOnly"
-            | "none"
-            | "missing";
+        [cellId: string]: AudioAvailability;
     }>({});
+
+    // Webview-level snapshot of the last `selectedAudioId` seen per cell on a
+    // `providerSendsAudioAttachments` broadcast.  Used by the cache-bust handler
+    // below to drop stale entries from the module-scoped `audioDataUrlCache`
+    // even when the affected cell isn't currently rendered (e.g. paginated
+    // off).  Per-cell `AudioPlayButton`/`TextCellEditor` listeners also do
+    // their own local cleanup; this ref closes the gap for cells with no
+    // mounted React component to react to the broadcast.
+    const lastKnownAudioSelectionsRef = useRef<Map<string, string | null>>(new Map());
 
     // Add cells per page configuration
     const [cellsPerPage] = useState<number>((window as any).initialData?.cellsPerPage || 50);
@@ -388,6 +394,58 @@ const CodexCellEditor: React.FC = () => {
 
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
+
+    // Webview-level audio cache invalidator.
+    //
+    // The per-cell `AudioPlayButton` and `TextCellEditor` listeners only run
+    // for cells whose React components are currently mounted — i.e. the cells
+    // on the active page plus the open editor cell.  Cells outside the current
+    // paginated page have no listener to receive the broadcast, so if a sync
+    // changes their `selectedAudioId` the module-scoped `audioDataUrlCache`
+    // can keep serving the *previous* attachment's bytes the next time the
+    // user paginates back to that cell.
+    //
+    // This handler closes that gap: it runs for the lifetime of the codex
+    // webview (CodexCellEditor is the always-mounted root), tracks the last
+    // known selection per cell, and clears the `cellId`-keyed audio cache
+    // whenever a broadcast carries a different selection.  Per-cell handlers
+    // continue to manage their own React state and may also call
+    // `clearCachedAudio` for the cell they own; the duplicate work is
+    // harmless because `clearCachedAudio` is an idempotent `Map.delete`.
+    useMessageHandler(
+        "codexCellEditor-audioSelectionCacheBust",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type !== "providerSendsAudioAttachments") return;
+            const selections = (message as any).selections as
+                | Record<string, string | null>
+                | undefined;
+            if (!selections) return;
+
+            const map = lastKnownAudioSelectionsRef.current;
+            for (const [cellId, incoming] of Object.entries(selections)) {
+                const hadPrevious = map.has(cellId);
+                const previous = map.get(cellId);
+                map.set(cellId, incoming);
+                // Sentinel: skip the first-ever broadcast for a cell so we
+                // don't wipe a cache entry that was just hydrated by an
+                // in-flight `requestAudioForCell` response.
+                if (!hadPrevious) continue;
+                if (previous === incoming) continue;
+                // Treat "" and null as equivalent (cleared selection) to
+                // avoid a spurious bust on the first broadcast after a
+                // `clearAudioSelection`.
+                if (
+                    (previous === null || previous === "") &&
+                    (incoming === null || incoming === "")
+                ) {
+                    continue;
+                }
+                clearCachedAudio(cellId);
+            }
+        },
+        []
+    );
 
     // Batch transcription handler
     useMessageHandler(
@@ -1349,6 +1407,93 @@ const CodexCellEditor: React.FC = () => {
         [milestoneIndex, refreshProgressForMilestone]
     );
 
+    // Per-cell version stamps for audio selection broadcasts. The provider stamps
+    // every audio selection broadcast with `cell.metadata.selectionTimestamp`;
+    // we track the latest applied per cellId and discard stale broadcasts so a
+    // slow/out-of-order message cannot overwrite a fresher selection.
+    const lastAudioSelectionTsRef = useRef<Map<string, number>>(new Map());
+
+    // Keep cell.metadata.selectedAudioId in sync with provider-side selection changes so the
+    // cell list (AudioValidationButton, etc.) recomputes validators against the newly
+    // selected recording. Without this, translationUnits holds stale metadata and the
+    // validator count/users shown in the list reflect the previously selected audio.
+    useMessageHandler(
+        "codexCellEditor-audioSelectionSync",
+        (event: MessageEvent) => {
+            const message = event.data;
+
+            let targetCellId: string | undefined;
+            let nextSelectedAudioId: string | undefined;
+            let incomingTs: number | undefined;
+
+            if (
+                message?.type === "audioAttachmentSelected" &&
+                message.content?.success &&
+                typeof message.content.cellId === "string"
+            ) {
+                targetCellId = message.content.cellId;
+                // audioId is the new explicit selection; null/undefined means deselect
+                nextSelectedAudioId =
+                    typeof message.content.audioId === "string" && message.content.audioId
+                        ? message.content.audioId
+                        : "";
+                if (typeof message.content.selectionTimestamp === "number") {
+                    incomingTs = message.content.selectionTimestamp;
+                }
+            } else if (
+                message?.type === "providerUpdatesAudioValidationState" &&
+                typeof message.content?.cellId === "string" &&
+                typeof message.content?.selectedAudioId === "string"
+            ) {
+                targetCellId = message.content.cellId;
+                nextSelectedAudioId = message.content.selectedAudioId;
+                if (typeof message.content.selectionTimestamp === "number") {
+                    incomingTs = message.content.selectionTimestamp;
+                }
+            }
+
+            if (!targetCellId || nextSelectedAudioId === undefined) return;
+
+            // Discard out-of-order updates. If `selectionTimestamp` is missing
+            // (older provider build), fall through to the apply path so the
+            // contract stays additive.
+            if (typeof incomingTs === "number") {
+                const last = lastAudioSelectionTsRef.current.get(targetCellId) ?? 0;
+                if (incomingTs < last) return;
+                lastAudioSelectionTsRef.current.set(targetCellId, incomingTs);
+            }
+
+            const cellId = targetCellId;
+            const newSelectedId = nextSelectedAudioId;
+            const stampForUnit = typeof incomingTs === "number" ? incomingTs : Date.now();
+
+            const patchUnit = (unit: QuillCellContent): QuillCellContent => {
+                if (unit.cellMarkers?.[0] !== cellId) return unit;
+                const currentSelected = (unit.metadata as any)?.selectedAudioId ?? "";
+                if (currentSelected === newSelectedId) return unit;
+                return {
+                    ...unit,
+                    metadata: {
+                        ...(unit.metadata || {}),
+                        selectedAudioId: newSelectedId,
+                        selectionTimestamp: stampForUnit,
+                    } as typeof unit.metadata,
+                };
+            };
+
+            setTranslationUnits((prev) => prev.map(patchUnit));
+            setAllCellsInCurrentMilestone((prev) => prev.map(patchUnit));
+
+            cellsCacheRef.current.forEach((cells, key) => {
+                cellsCacheRef.current.set(key, cells.map(patchUnit));
+            });
+            milestoneCellsCacheRef.current.forEach((cells, key) => {
+                milestoneCellsCacheRef.current.set(key, cells.map(patchUnit));
+            });
+        },
+        []
+    );
+
     useVSCodeMessageHandler({
         setContent: (
             content: QuillCellContent[],
@@ -1580,7 +1725,7 @@ const CodexCellEditor: React.FC = () => {
             setTextDirection(direction);
         },
         updateNotebookMetadata: (newMetadata) => {
-            setMetadata(newMetadata);
+            setMetadata((prev) => ({ ...prev, ...newMetadata }));
             // Clear temporary font size when metadata updates to ensure new font size takes effect
             setTempFontSize(null);
             // Update text direction when metadata changes (for global text direction updates)
@@ -1615,7 +1760,7 @@ const CodexCellEditor: React.FC = () => {
             }
             setChapterNumber(chapter);
         },
-        setAudioAttachments: setAudioAttachments,
+        setAudioAttachments,
         showABTestVariants: (data) => {
             const { variants, cellId, testId, testName, names, abProbability } = data as any;
             const count = Array.isArray(variants) ? variants.length : 0;
@@ -1831,6 +1976,14 @@ const CodexCellEditor: React.FC = () => {
                         ...prev,
                         cellLabel: match.cellLabel ?? prev.cellLabel,
                         cellTimestamps: match.timestamps ?? prev.cellTimestamps,
+                        // Reconcile audio timestamps too. Otherwise a staged value
+                        // (from auto-init at TextCellEditor.tsx:1192 or a save whose
+                        // clearing race didn't complete) keeps masking the freshly
+                        // synced cell.audioTimestamps, since the slider reads
+                        // staged ?? persisted. Without this, the user has to close
+                        // and reopen the editor to see synced audio range changes.
+                        cellAudioTimestamps:
+                            match.audioTimestamps ?? prev.cellAudioTimestamps,
                     };
                 });
             } else {
@@ -1862,6 +2015,29 @@ const CodexCellEditor: React.FC = () => {
         });
         return () => window.removeEventListener("focus", () => {});
     }, []);
+
+    // Listen for audio state changes from other webview types
+    useMessageHandler(
+        "codexCellEditor-audioStateChanged",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (
+                message.command === "audioStateChanged" &&
+                message.destination === "webview" &&
+                message.content?.type === "audioPlaying"
+            ) {
+                const { webviewType, isPlaying } = message.content;
+                // If current webview is source and message indicates target is playing, or vice versa
+                if (
+                    (isSourceText && webviewType === "target") ||
+                    (!isSourceText && webviewType === "source")
+                ) {
+                    setIsOtherTypeAudioPlaying(isPlaying);
+                }
+            }
+        },
+        [isSourceText]
+    );
 
     const calculateTotalChapters = (units: QuillCellContent[]): number => {
         const sectionSet = new Set<string>();
@@ -2755,7 +2931,7 @@ const CodexCellEditor: React.FC = () => {
             const startTime = parseTimestampFromCellId(cellId);
             if (startTime !== null) {
                 debug("video", `Seeking to ${startTime} + ${OFFSET_SECONDS} seconds`);
-                playerRef.current.seekTo(startTime + OFFSET_SECONDS, "seconds");
+                playerRef.current.seekTo?.(startTime + OFFSET_SECONDS, "seconds");
             }
         }
     }, [contentBeingUpdated, OFFSET_SECONDS]);
@@ -2794,7 +2970,15 @@ const CodexCellEditor: React.FC = () => {
     const translationUnitsWithCurrentEditorContent = useMemo(() => {
         return translationUnitsForSection?.map((unit) => {
             if (unit.cellMarkers[0] === contentBeingUpdated.cellMarkers?.[0]) {
-                return { ...unit, cellContent: contentBeingUpdated.cellContent };
+                const updatedUnit: QuillCellContent = {
+                    ...unit,
+                    cellContent: contentBeingUpdated.cellContent,
+                };
+                // Merge audio timestamps if they exist in contentBeingUpdated
+                if (contentBeingUpdated.cellAudioTimestamps) {
+                    updatedUnit.audioTimestamps = contentBeingUpdated.cellAudioTimestamps;
+                }
+                return updatedUnit;
             }
             return unit;
         });
@@ -2814,11 +2998,8 @@ const CodexCellEditor: React.FC = () => {
 
     const handleSaveMetadata = () => {
         const updatedMetadata = { ...metadata };
-        if (tempVideoUrl) {
-            updatedMetadata.videoUrl = tempVideoUrl;
-            setVideoUrl(tempVideoUrl);
-            setTempVideoUrl("");
-        }
+        setVideoUrl(updatedMetadata.videoUrl || "");
+        setTempVideoUrl("");
         debug("metadata", "Saving metadata:", updatedMetadata);
         vscode.postMessage({
             command: "updateNotebookMetadata",
@@ -3362,6 +3543,8 @@ const CodexCellEditor: React.FC = () => {
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}
                             vscode={vscode}
                             playerRef={playerRef}
+                            audioAttachments={audioAttachments}
+                            muteVideoWhenPlayingAudio={muteVideoAudioDuringPlayback}
                         />
                     </div>
                 )}
@@ -3426,6 +3609,13 @@ const CodexCellEditor: React.FC = () => {
                             currentSubsectionIndex={currentSubsectionIndex}
                             cellsPerPage={cellsPerPage}
                             onInspectSimilarWording={handleInspectSimilarWording}
+                            playerRef={playerRef}
+                            shouldShowVideoPlayer={shouldShowVideoPlayer}
+                            videoUrl={videoUrl}
+                            isOtherTypeAudioPlaying={isOtherTypeAudioPlaying}
+                            metadata={metadata}
+                            muteVideoAudioDuringPlayback={muteVideoAudioDuringPlayback}
+                            setMuteVideoAudioDuringPlayback={setMuteVideoAudioDuringPlayback}
                         />
                     </div>
                 </div>

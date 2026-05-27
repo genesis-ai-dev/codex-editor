@@ -73,6 +73,11 @@ type GlobalContentType =
     | {
         type: "commentsFileChanged";
         timestamp: string;
+    }
+    | {
+        type: "audioPlaying";
+        webviewType: "source" | "target";
+        isPlaying: boolean;
     };
 
 interface GlobalMessage {
@@ -374,6 +379,7 @@ type EditorCellContent = {
     cellLabel?: string;
     uri?: string;
     cellTimestamps?: Timestamps;
+    cellAudioTimestamps?: Timestamps;
 };
 
 interface EditHistoryEntry {
@@ -413,6 +419,7 @@ export type EditorPostMessages =
     | { command: "getSourceText"; content: { cellId: string; }; }
     | { command: "searchSimilarCellIds"; content: { cellId: string; }; }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
+    | { command: "updateCellAudioTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
     | { command: "deleteCell"; content: { cellId: string; }; }
     | { command: "executeCommand"; content: { command: string; args: any[]; }; }
     | { command: "togglePrimarySidebar"; }
@@ -421,7 +428,7 @@ export type EditorPostMessages =
     | { command: "toggleSidebar"; content?: { isOpening: boolean; }; }
     | { command: "getEditorPosition"; }
     | { command: "validateCell"; content: { cellId: string; validate: boolean; }; }
-    | { command: "validateAudioCell"; content: { cellId: string; validate: boolean; }; }
+    | { command: "validateAudioCell"; content: { cellId: string; validate: boolean; attachmentId?: string; }; }
     | {
         command: "queueValidation";
         content: { cellId: string; validate: boolean; pending: boolean; };
@@ -496,6 +503,7 @@ export type EditorPostMessages =
     | { command: "triggerSync"; }
     // removed: requestAudioAttachments
     | { command: "requestAudioForCell"; content: { cellId: string; audioId?: string; }; }
+    | { command: "requestCellAudioTimestamps"; content: { cellId: string; }; }
     | { command: "getCommentsForCell"; content: { cellId: string; }; }
     | { command: "getCommentsForCells"; content: { cellIds: string[]; }; }
     | {
@@ -555,6 +563,12 @@ export type EditorPostMessages =
         content: {
             cellId: string;
             audioId: string;
+        };
+    }
+    | {
+        command: "deselectAudioAttachment";
+        content: {
+            cellId: string;
         };
     }
     | {
@@ -745,6 +759,8 @@ type CodexData = Timestamps & {
     originalText?: string;
     globalReferences?: string[]; // Array of cell IDs in original format (e.g., "GEN 1:1") used for header generation
     milestoneIndex?: number | null; // 0-based milestone index for O(1) lookup (null if no milestone)
+    audioStartTime?: number;
+    audioEndTime?: number;
 };
 
 type BaseCustomCellMetaData = {
@@ -813,6 +829,13 @@ export interface CustomNotebookMetadata {
     lineNumbersEnabledSource?: "global" | "local"; // Track whether line numbers visibility was set globally or locally
     /** When true, the editor will download/stream audio as soon as a cell opens */
     autoDownloadAudioOnOpen?: boolean;
+    /** When true, clicking the microphone icon in the cell list auto-starts recording */
+    autoRecordOnMicClick?: boolean;
+    /**
+     * Number of seconds to count down before recording begins. 0 disables
+     * the visible countdown but a 250ms click-debounce is still enforced.
+     */
+    recordingCountdownSeconds?: number;
     /** When true, backtranslations will be displayed inline below cells */
     showInlineBacktranslations?: boolean;
     fileDisplayName?: string;
@@ -969,6 +992,7 @@ interface QuillCellContent {
     cellType: CodexCellTypes;
     editHistory: Array<EditHistory>;
     timestamps?: Timestamps;
+    audioTimestamps?: Timestamps;
     cellLabel?: string;
     merged?: boolean;
     deleted?: boolean;
@@ -2185,6 +2209,12 @@ type EditorReceiveMessages =
             cellId: string;
             validatedBy: ValidationEntry[];
             selectedAudioId?: string;
+            attachmentId?: string;
+            // Monotonic per-cell version stamp from the document
+            // (`cell.metadata.selectionTimestamp`). The webview uses it to
+            // discard out-of-order updates so a slow/stale broadcast cannot
+            // overwrite a fresher selection.
+            selectionTimestamp?: number;
         };
     }
     | {
@@ -2224,13 +2254,36 @@ type EditorReceiveMessages =
     | {
         type: "providerSendsAudioAttachments";
         // Availability now distinguishes between real local files vs LFS pointer placeholders
-        attachments: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; };
+        attachments: { [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none"; };
+        /**
+         * Per-cell `selectedAudioId` snapshot, when known by the sender.
+         *
+         * Webviews use this to detect remote selection changes that arrive via sync.
+         * Locally-driven selection paths (`selectAudioAttachment`/`deselectAudioAttachment`)
+         * already fire `audioAttachmentSelected`, which handles cache invalidation; they
+         * don't need to populate this field. The post-sync broadcast (`refreshAudioAttachmentsAfterSync`)
+         * MUST populate this field so webviews can bust their `cellId`-keyed audio caches
+         * when a teammate's selection change arrives.
+         *
+         * Values:
+         *   - `string` — the explicit `selectedAudioId` for that cell
+         *   - `null`   — the cell has no explicit selection
+         *   - key absent — the sender doesn't know / didn't include; webview treats as "no info" (no-op)
+         */
+        selections?: { [cellId: string]: string | null; };
     }
     | {
         type: "providerSendsAudioData";
         content: {
             cellId: string;
             audioId: string;
+            /**
+             * The audioId the client explicitly asked for in its `requestAudioForCell` call.
+             * Undefined when the request had no explicit id (main-editor "fetch current") or when
+             * the message is a proactive provider push (e.g. after a save). The main editor uses
+             * this to distinguish history-viewer downloads from responses meant for the main waveform.
+             */
+            requestedAudioId?: string;
             audioUrl?: string; // URL to access the audio file
             audioData?: string; // base64 data if needed
             transcription?: {
@@ -2239,6 +2292,14 @@ type EditorReceiveMessages =
                 language?: string;
             };
             fileModified?: number; // File modification timestamp for cache validation
+            createdBy?: string;
+        };
+    }
+    | {
+        type: "providerSendsCellAudioTimestamps";
+        content: {
+            cellId: string;
+            audioTimestamps?: Timestamps;
         };
     }
     | {
@@ -2267,6 +2328,7 @@ type EditorReceiveMessages =
             audioId: string;
             success: boolean;
             error?: string;
+            updatedAvailability?: string;
         };
     }
     | {
@@ -2283,10 +2345,20 @@ type EditorReceiveMessages =
                     isDeleted: boolean;
                     isMissing?: boolean;
                     validatedBy?: ValidationEntry[];
+                    createdBy?: string;
+                    metadata?: {
+                        durationSec?: number;
+                        mimeType?: string;
+                        sizeBytes?: number;
+                        sampleRate?: number;
+                        channels?: number;
+                        bitrateKbps?: number;
+                    };
                 };
             }>;
             currentAttachmentId: string | null; // The ID of the currently selected/active attachment
             hasExplicitSelection: boolean; // Whether user made explicit selection vs automatic behavior
+            entryAvailability?: Record<string, string>; // Per-entry file availability (available-local, available-pointer, etc.)
         };
     }
     | {
@@ -2296,15 +2368,21 @@ type EditorReceiveMessages =
             audioId: string;
             success: boolean;
             error?: string;
+            updatedAvailability?: string;
         };
     }
     | {
         type: "audioAttachmentSelected";
         content: {
             cellId: string;
-            audioId: string;
+            audioId: string | null;
             success: boolean;
             error?: string;
+            updatedAvailability?: string;
+            // Monotonic per-cell version stamp from the document
+            // (`cell.metadata.selectionTimestamp`). See comment on
+            // `providerUpdatesAudioValidationState.selectionTimestamp`.
+            selectionTimestamp?: number;
         };
     }
     | {
@@ -2347,27 +2425,27 @@ export interface PlatformUnsupportedFlags {
 }
 
 export type MessagesToMissingToolsWarning =
-    | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; platformUnsupported?: PlatformUnsupportedFlags }
-    | { command: "updateWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; platformUnsupported?: PlatformUnsupportedFlags }
-    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; syncInProgress?: boolean; audioProcessingInProgress?: boolean; platformUnsupported?: PlatformUnsupportedFlags }
-    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; platformUnsupported?: PlatformUnsupportedFlags }
-    | { command: "audioModeChanged"; audioToolMode: AudioToolMode; ffmpeg: boolean }
-    | { command: "gitModeChanged"; gitToolMode: GitToolMode; git: boolean; nativeGitAvailable?: boolean }
-    | { command: "sqliteModeChanged"; sqliteToolMode: SqliteToolMode; sqlite: boolean; nativeSqliteAvailable?: boolean }
-    | { command: "operationStatusChanged"; syncInProgress: boolean; audioProcessingInProgress: boolean }
-    | { command: "showDeleteButtons" }
-    | { command: "showForceBuiltinButtons" }
-    | { command: "toolDeleted"; tool: "sqlite" | "git" | "ffmpeg" };
+    | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; platformUnsupported?: PlatformUnsupportedFlags; }
+    | { command: "updateWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; platformUnsupported?: PlatformUnsupportedFlags; }
+    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; syncInProgress?: boolean; audioProcessingInProgress?: boolean; platformUnsupported?: PlatformUnsupportedFlags; }
+    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; platformUnsupported?: PlatformUnsupportedFlags; }
+    | { command: "audioModeChanged"; audioToolMode: AudioToolMode; ffmpeg: boolean; }
+    | { command: "gitModeChanged"; gitToolMode: GitToolMode; git: boolean; nativeGitAvailable?: boolean; }
+    | { command: "sqliteModeChanged"; sqliteToolMode: SqliteToolMode; sqlite: boolean; nativeSqliteAvailable?: boolean; }
+    | { command: "operationStatusChanged"; syncInProgress: boolean; audioProcessingInProgress: boolean; }
+    | { command: "showDeleteButtons"; }
+    | { command: "showForceBuiltinButtons"; }
+    | { command: "toolDeleted"; tool: "sqlite" | "git" | "ffmpeg"; };
 
 export type MessagesFromMissingToolsWarning =
-    | { command: "retry" }
-    | { command: "continue" }
-    | { command: "openDownloadPage" }
-    | { command: "close" }
-    | { command: "downloadTool"; tool: "sqlite" | "git" | "ffmpeg" }
-    | { command: "toggleAudioMode" }
-    | { command: "toggleGitMode" }
-    | { command: "toggleSqliteMode" }
-    | { command: "deleteTool"; tool: "sqlite" | "git" | "ffmpeg" }
-    | { command: "forceBuiltinTool"; tool: "sqlite" | "git" | "ffmpeg" }
-    | { command: "reloadWindow" };
+    | { command: "retry"; }
+    | { command: "continue"; }
+    | { command: "openDownloadPage"; }
+    | { command: "close"; }
+    | { command: "downloadTool"; tool: "sqlite" | "git" | "ffmpeg"; }
+    | { command: "toggleAudioMode"; }
+    | { command: "toggleGitMode"; }
+    | { command: "toggleSqliteMode"; }
+    | { command: "deleteTool"; tool: "sqlite" | "git" | "ffmpeg"; }
+    | { command: "forceBuiltinTool"; tool: "sqlite" | "git" | "ffmpeg"; }
+    | { command: "reloadWindow"; };

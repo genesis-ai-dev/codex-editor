@@ -3,6 +3,7 @@ import { CodexCellDocument } from "./codexDocument";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 // Use type-only import to break circular dependency
 import type { CodexCellEditorProvider } from "./codexCellEditorProvider";
+import { resolveSelectedAttachmentState, checkAttachmentAvailabilityStandalone } from "./codexCellEditorProvider";
 import { GlobalMessage, EditorPostMessages, EditHistory } from "../../../types";
 import { EditMapUtils } from "../../utils/editMapUtils";
 import { EditType, CodexCellTypes } from "../../../types/enums";
@@ -68,6 +69,14 @@ export function clearAttentionCheck(testId: string): void {
 let autoDownloadBroadcastTimer: NodeJS.Timeout | undefined;
 let pendingAutoDownloadValue: boolean | undefined;
 
+// Debounce container for broadcasting auto-record flag updates
+let autoRecordBroadcastTimer: NodeJS.Timeout | undefined;
+let pendingAutoRecordValue: boolean | undefined;
+
+// Debounce container for broadcasting recording-countdown duration updates
+let recordingCountdownBroadcastTimer: NodeJS.Timeout | undefined;
+let pendingRecordingCountdownValue: number | undefined;
+
 
 // Helper to use VS Code FS API
 async function pathExists(filePath: string): Promise<boolean> {
@@ -77,6 +86,58 @@ async function pathExists(filePath: string): Promise<boolean> {
     } catch {
         return false;
     }
+}
+
+/**
+ * Sanitizes a name to be safe for use as a folder name.
+ * Removes invalid characters and normalizes the name.
+ */
+function sanitizeFolderName(name: string): string {
+    return (
+        name
+            .replace(/[<>:"/\\|?*]|^\.|\.$|\.lock$/g, "-") // Invalid/reserved chars
+            .replace(/\s+/g, "-") // Replace spaces with hyphens
+            .replace(/\.+/g, "-") // Replace periods with hyphens
+            .replace(/-+/g, "-") // Replace multiple hyphens with single hyphen
+            .replace(/^-|-$/g, "") // Remove leading/trailing hyphens
+        || "UNKNOWN" // Fallback if name becomes empty
+    );
+}
+
+/**
+ * Determines the document segment for attachment storage.
+ * Uses originalName from metadata (sanitized), falls back to first cell's cellId, 
+ * then corpusMarker, then "UNKNOWN".
+ */
+function getDocumentSegment(document: CodexCellDocument): string {
+    const metadata = document.getNotebookMetadata();
+
+    // First priority: use originalName from metadata (sanitized for folder name)
+    if (metadata?.originalName) {
+        const sanitized = sanitizeFolderName(metadata.originalName);
+        if (sanitized && sanitized !== "UNKNOWN") {
+            return sanitized;
+        }
+    }
+
+    // Fallback to first cell's cellId
+    const firstCell = document.getCellByIndex(0);
+    if (firstCell?.metadata?.id) {
+        const cellId = firstCell.metadata.id;
+        const segment = cellId.split(' ')[0];
+        if (segment) {
+            return segment;
+        }
+    }
+
+    // Fallback to corpusMarker
+    const corpusMarker = metadata?.corpusMarker;
+    if (corpusMarker) {
+        return corpusMarker;
+    }
+
+    // Final fallback
+    return "UNKNOWN";
 }
 
 // Get a reference to the provider
@@ -347,6 +408,78 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }, 150);
         } catch (e) {
             console.warn("Failed to set autoDownloadAudioOnOpen", e);
+        }
+    },
+    setAutoRecordOnMicClick: async ({ event, document, webviewPanel, provider }) => {
+        try {
+            const typed = event as any;
+            const value = !!typed?.content?.value;
+            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+            const { setAutoRecordOnMicClick } = await import("../../utils/localProjectSettings");
+            await setAutoRecordOnMicClick(value, ws?.uri);
+            pendingAutoRecordValue = value;
+            if (autoRecordBroadcastTimer) {
+                clearTimeout(autoRecordBroadcastTimer);
+            }
+            autoRecordBroadcastTimer = setTimeout(() => {
+                try {
+                    const panels = provider.getWebviewPanels();
+                    panels.forEach((panel) => {
+                        provider.postMessageToWebview(panel, {
+                            type: "providerUpdatesNotebookMetadataForWebview",
+                            content: { autoRecordOnMicClick: pendingAutoRecordValue },
+                        } as any);
+                    });
+                } catch (broadcastErr) {
+                    console.warn("Failed to broadcast autoRecordOnMicClick", broadcastErr);
+                } finally {
+                    autoRecordBroadcastTimer = undefined;
+                }
+            }, 150);
+        } catch (e) {
+            console.warn("Failed to set autoRecordOnMicClick", e);
+        }
+    },
+    setRecordingCountdownSeconds: async ({ event, document, provider }) => {
+        try {
+            const typed = event as any;
+            const raw = typed?.content?.value;
+            const numeric = typeof raw === "number" ? raw : Number(raw);
+            const sanitized =
+                Number.isFinite(numeric) && numeric >= 0
+                    ? Math.min(Math.round(numeric), 3)
+                    : 3;
+            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+            const { setRecordingCountdownSeconds } = await import(
+                "../../utils/localProjectSettings"
+            );
+            await setRecordingCountdownSeconds(sanitized, ws?.uri);
+            pendingRecordingCountdownValue = sanitized;
+            if (recordingCountdownBroadcastTimer) {
+                clearTimeout(recordingCountdownBroadcastTimer);
+            }
+            recordingCountdownBroadcastTimer = setTimeout(() => {
+                try {
+                    const panels = provider.getWebviewPanels();
+                    panels.forEach((panel) => {
+                        provider.postMessageToWebview(panel, {
+                            type: "providerUpdatesNotebookMetadataForWebview",
+                            content: {
+                                recordingCountdownSeconds: pendingRecordingCountdownValue,
+                            },
+                        } as any);
+                    });
+                } catch (broadcastErr) {
+                    console.warn(
+                        "Failed to broadcast recordingCountdownSeconds",
+                        broadcastErr
+                    );
+                } finally {
+                    recordingCountdownBroadcastTimer = undefined;
+                }
+            }, 150);
+        } catch (e) {
+            console.warn("Failed to set recordingCountdownSeconds", e);
         }
     },
     getAsrConfig: async ({ webviewPanel }) => {
@@ -818,7 +951,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
-    getContent: ({ updateWebview }) => {
+    getContent: ({ updateWebview, document, provider }) => {
+        // getContent is only sent when the webview mounts (useEffect on initial render).
+        // Reset tracked state so updateWebview treats this as an initial load and sends
+        // full content (milestoneIndex, cells, etc.) instead of a refreshCurrentPage.
+        const docUri = document.uri.toString();
+        provider.resetPositionForReload(docUri);
         updateWebview();
     },
 
@@ -1195,6 +1333,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         document.updateCellTimestamps(typedEvent.content.cellId, typedEvent.content.timestamps);
     },
 
+    updateCellAudioTimestamps: ({ event, document }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellAudioTimestamps"; }>;
+        console.log("updateCellAudioTimestamps message received", { event });
+        document.updateCellAudioTimestamps(typedEvent.content.cellId, typedEvent.content.timestamps);
+    },
+
     updateCellLabel: ({ event, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellLabel"; }>;
         debug("updateCellLabel message received", { event });
@@ -1314,8 +1458,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const newMetadata = typedEvent.content;
         await document.updateNotebookMetadata(newMetadata);
         await document.save(new vscode.CancellationTokenSource().token);
+
         vscode.window.showInformationMessage("Notebook details updated.");
-        provider.refreshWebview(webviewPanel, document);
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerUpdatesNotebookMetadataForWebview",
+            content: await document.getNotebookMetadata(),
+        });
     },
 
     pickVideoFile: async ({ document, webviewPanel, provider }) => {
@@ -1324,15 +1472,100 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             canSelectMany: false,
             openLabel: "Select Video File",
             filters: {
-                Videos: ["mp4", "mkv", "avi", "mov"],
+                Videos: ["mp4", "mkv", "avi", "mov", "webm"],
             },
         });
         const fileUri = result?.[0];
         if (fileUri) {
-            const videoUrl = fileUri.toString();
-            await document.updateNotebookMetadata({ videoUrl });
-            await document.save(new vscode.CancellationTokenSource().token);
-            provider.refreshWebview(webviewPanel, document);
+            try {
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (!workspaceFolder) {
+                    throw new Error("No workspace folder found");
+                }
+
+                // Read the video file content
+                const fileData = await vscode.workspace.fs.readFile(fileUri);
+
+                // Enforce a reasonable max size (e.g., 600 MB) for video files
+                const MAX_BYTES = 600 * 1024 * 1024;
+                if (fileData.length > MAX_BYTES) {
+                    throw new Error("Video file exceeds maximum allowed size (500 MB)");
+                }
+
+                // Determine document segment
+                const documentSegment = getDocumentSegment(document);
+
+                // Generate safe filename from original file
+                const originalFileName = path.basename(fileUri.fsPath);
+                const ext = path.extname(originalFileName).toLowerCase().slice(1); // Remove leading dot
+                const allowedExtensions = new Set(["mp4", "mkv", "avi", "mov", "webm", "m4v"]);
+                const safeExt = allowedExtensions.has(ext) ? ext : "mp4";
+
+                // Sanitize filename (keep base name, replace unsafe chars)
+                const baseName = path.basename(originalFileName, path.extname(originalFileName));
+                const sanitizedBaseName = baseName.replace(/[^a-zA-Z0-9._-]/g, "-");
+                const fileName = `${sanitizedBaseName}.${safeExt}`;
+
+                // Create directory paths
+                const pointersDir = path.join(
+                    workspaceFolder.uri.fsPath,
+                    ".project",
+                    "attachments",
+                    "pointers",
+                    documentSegment
+                );
+                const filesDir = path.join(
+                    workspaceFolder.uri.fsPath,
+                    ".project",
+                    "attachments",
+                    "files",
+                    documentSegment
+                );
+
+                // Create directories if they don't exist
+                await vscode.workspace.fs.createDirectory(vscode.Uri.file(pointersDir));
+                await vscode.workspace.fs.createDirectory(vscode.Uri.file(filesDir));
+
+                const pointersPath = path.join(pointersDir, fileName);
+                const filesPath = path.join(filesDir, fileName);
+
+                // Atomic write helper (write to temp then rename)
+                const writeFileAtomically = async (finalFsPath: string, data: Uint8Array): Promise<void> => {
+                    const tmpPath = `${finalFsPath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                    const tmpUri = vscode.Uri.file(tmpPath);
+                    const finalUri = vscode.Uri.file(finalFsPath);
+                    await vscode.workspace.fs.writeFile(tmpUri, data);
+                    await vscode.workspace.fs.rename(tmpUri, finalUri, { overwrite: true });
+                    // Optional sanity check to ensure size matches
+                    try {
+                        const stat = await vscode.workspace.fs.stat(finalUri);
+                        if (typeof stat.size === 'number' && stat.size !== data.length) {
+                            console.warn("Size mismatch after write for", finalFsPath, { expected: data.length, actual: stat.size });
+                        }
+                    } catch {
+                        // ignore stat issues
+                    }
+                };
+
+                // Write actual file (primary). Pointer write is best-effort.
+                await writeFileAtomically(filesPath, fileData);
+                try {
+                    await writeFileAtomically(pointersPath, fileData);
+                } catch (pointerErr) {
+                    console.warn("Pointer write failed; proceeding with saved file only", pointerErr);
+                }
+
+                // Store the files path in metadata (relative path from workspace root)
+                const relativePath = toPosixPath(path.relative(workspaceFolder.uri.fsPath, filesPath));
+                await document.updateNotebookMetadata({ videoUrl: relativePath });
+                await document.save(new vscode.CancellationTokenSource().token);
+                provider.refreshWebview(webviewPanel, document);
+            } catch (error) {
+                console.error("Error saving video file:", error);
+                vscode.window.showErrorMessage(
+                    `Failed to save video file: ${error instanceof Error ? error.message : "Unknown error"}`
+                );
+            }
         }
     },
 
@@ -1574,7 +1807,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             await provider.enqueueAudioValidation(
                 typedEvent.content.cellId,
                 document,
-                typedEvent.content.validate
+                typedEvent.content.validate,
+                typedEvent.content.attachmentId
             );
         }
     },
@@ -1959,21 +2193,31 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 debug("Successfully streamed file from LFS");
                             }
 
-                            // If strategy is "stream-and-save", replace pointer with actual file
+                            // Inform webview the audio is now available — but only if the
+                            // attachment isn't deleted (deleted audio is played from history
+                            // and shouldn't change cell-level availability).
+                            if (!targetAttachment.isDeleted && mediaStrategy === "stream-only") {
+                                try {
+                                    safePostMessageToPanel(webviewPanel, {
+                                        type: "providerSendsAudioAttachments",
+                                        attachments: { [cellId]: "available-cached" as const }
+                                    });
+                                } catch { /* non-fatal */ }
+                            }
                             if (mediaStrategy === "stream-and-save") {
                                 try {
                                     await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), fileData);
                                     debug("Saved streamed file to disk (stream-and-save mode)");
-                                    // Immediately inform webview this cell now has a local file
-                                    try {
-                                        safePostMessageToPanel(webviewPanel, {
-                                            type: "providerSendsAudioAttachments",
-                                            attachments: { [cellId]: "available-local" as const }
-                                        });
-                                    } catch { /* non-fatal */ }
+                                    if (!targetAttachment.isDeleted) {
+                                        try {
+                                            safePostMessageToPanel(webviewPanel, {
+                                                type: "providerSendsAudioAttachments",
+                                                attachments: { [cellId]: "available-local" as const }
+                                            });
+                                        } catch { /* non-fatal */ }
+                                    }
                                 } catch (saveError) {
                                     console.warn("Failed to save streamed file:", saveError);
-                                    // Don't fail the whole operation if save fails
                                 }
                             }
                         } else {
@@ -1991,6 +2235,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             content: {
                                 cellId: cellId,
                                 audioId: targetAttachmentId,
+                                requestedAudioId: audioId || undefined,
                                 audioData: null,
                                 error: errorMessage,
                                 transcription: targetAttachment.transcription || null
@@ -2008,9 +2253,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         content: {
                             cellId: cellId,
                             audioId: targetAttachmentId,
+                            requestedAudioId: audioId || undefined,
                             audioData: base64Data,
                             transcription: targetAttachment.transcription || null,
-                            fileModified: fileStats.mtime
+                            fileModified: fileStats.mtime,
+                            createdBy: targetAttachment.createdBy || undefined,
                         }
                     });
 
@@ -2081,25 +2328,23 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 );
                             }
 
-                            // If stream-and-save, write file bytes to files path
                             if (mediaStrategy === "stream-and-save") {
                                 try {
                                     await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(fullPath)));
                                     await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), lfsData);
-                                    // Targeted availability update for this cell
-                                    try {
-                                        safePostMessageToPanel(webviewPanel, {
-                                            type: "providerSendsAudioAttachments",
-                                            attachments: { [cellId]: "available-local" as const }
-                                        });
-                                    } catch { /* non-fatal */ }
+                                    if (!targetAttachment.isDeleted) {
+                                        try {
+                                            safePostMessageToPanel(webviewPanel, {
+                                                type: "providerSendsAudioAttachments",
+                                                attachments: { [cellId]: "available-local" as const }
+                                            });
+                                        } catch { /* non-fatal */ }
+                                    }
                                 } catch (e) {
                                     console.warn("Failed to save streamed file in fallback:", e);
                                 }
                             } else if (mediaStrategy === "stream-only") {
-                                // Ensure files/ contains pointer for consistency (avoid repeated "not found")
                                 try {
-                                    // Derive relative path under pointers/
                                     const relFromPointers = pointerFullPath.split("/.project/attachments/pointers/").pop() ||
                                         pointerFullPath.split(".project/attachments/pointers/").pop();
                                     if (relFromPointers) {
@@ -2107,6 +2352,14 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                     }
                                 } catch (e) {
                                     // Non-fatal
+                                }
+                                if (!targetAttachment.isDeleted) {
+                                    try {
+                                        safePostMessageToPanel(webviewPanel, {
+                                            type: "providerSendsAudioAttachments",
+                                            attachments: { [cellId]: "available-cached" as const }
+                                        });
+                                    } catch { /* non-fatal */ }
                                 }
                             }
 
@@ -2120,9 +2373,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 content: {
                                     cellId: cellId,
                                     audioId: targetAttachmentId,
+                                    requestedAudioId: audioId || undefined,
                                     audioData: base64Data,
                                     transcription: targetAttachment.transcription || null,
                                     fileModified: pointerStats.mtime,
+                                    createdBy: targetAttachment.createdBy || undefined,
                                 }
                             });
 
@@ -2141,6 +2396,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     content: {
                         cellId: cellId,
                         audioId: null,
+                        requestedAudioId: audioId || undefined,
                         audioData: null
                     }
                 });
@@ -2190,6 +2446,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             content: {
                                 cellId: cellId,
                                 audioId: audioFile.replace(/\.[^/.]+$/, ""),
+                                requestedAudioId: audioId || undefined,
                                 audioData: base64Data
                             }
                         });
@@ -2209,9 +2466,55 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             content: {
                 cellId: cellId,
                 audioId: audioId || null,
+                requestedAudioId: audioId || undefined,
                 audioData: null
             }
         });
+    },
+
+    requestCellAudioTimestamps: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "requestCellAudioTimestamps"; }>;
+        const cellId = typedEvent.content.cellId;
+
+        try {
+            const cell = document.getCellContent(cellId);
+            if (!cell) {
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsCellAudioTimestamps",
+                    content: {
+                        cellId,
+                        audioTimestamps: undefined,
+                    },
+                });
+                return;
+            }
+
+            // Get audio timestamps from the cell
+            const audioTimestamps = cell.audioTimestamps ??
+                (cell.data?.audioStartTime !== undefined || cell.data?.audioEndTime !== undefined
+                    ? {
+                        startTime: cell.data.audioStartTime,
+                        endTime: cell.data.audioEndTime,
+                    }
+                    : undefined);
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsCellAudioTimestamps",
+                content: {
+                    cellId,
+                    audioTimestamps,
+                },
+            });
+        } catch (error) {
+            console.error("Error fetching cell audio timestamps:", error);
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsCellAudioTimestamps",
+                content: {
+                    cellId,
+                    audioTimestamps: undefined,
+                },
+            });
+        }
     },
 
     saveAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
@@ -2475,7 +2778,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             cellId: typedEvent.content.cellId,
                             audioId: sanitizedAudioId,
                             audioData: base64Now,
-                            fileModified: Date.now()
+                            fileModified: Date.now(),
+                            createdBy,
                         }
                     } as any);
                 }
@@ -2503,17 +2807,33 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         // Soft delete the attachment (set isDeleted: true) instead of hard deleting files
         await document.softDeleteCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId);
 
+        const cellId = typedEvent.content.cellId;
+
+        // Compute availability once and include in both messages
+        const explicitSelection = document.getExplicitAudioSelection(cellId);
+        let updatedState: string;
+        if (explicitSelection) {
+            updatedState = "available-local";
+        } else {
+            const history = document.getAttachmentHistory(cellId, "audio");
+            const hasNonDeleted = history.some((h: any) => !h.attachment?.isDeleted);
+            updatedState = hasNonDeleted ? "unselected" : (history.length > 0 ? "deletedOnly" : "none");
+        }
+
         provider.postMessageToWebview(webviewPanel, {
             type: "audioAttachmentDeleted",
             content: {
-                cellId: typedEvent.content.cellId,
+                cellId,
                 audioId: typedEvent.content.audioId,
-                success: true
+                success: true,
+                updatedAvailability: updatedState
             }
         });
 
-        // The modal will handle refreshing its own history, and the main UI will 
-        // update when the user navigates away and back or when the document is saved
+        safePostMessageToPanel(webviewPanel, {
+            type: "providerSendsAudioAttachments",
+            attachments: { [cellId]: updatedState }
+        });
 
         debug("Audio attachment soft deleted successfully");
     },
@@ -2521,28 +2841,53 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     getAudioHistory: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getAudioHistory"; }>;
 
-        // Clean up any invalid audio selections (safe to do now that document is loaded)
-        document.cleanupInvalidAudioSelections();
-
         const audioHistory = document.getAttachmentHistory(typedEvent.content.cellId, "audio") || [];
-
-        // Get the current attachment to know which one is actually selected
-        const currentAttachment = document.getCurrentAttachment(typedEvent.content.cellId, "audio");
-
-        // Check if there's an explicit selection or if we're using automatic behavior
         const explicitSelection = document.getExplicitAudioSelection(typedEvent.content.cellId);
+
+        // A dangling explicit selection (id not present in attachments, or pointing to a
+        // deleted/non-audio attachment) is treated as "nothing selected" for the viewer.
+        // `selectedAudioId` is never auto-mutated on disk — this is a read-side UI decision
+        // that matches `deriveAudioAvailability` and `resolveSelectedAttachmentState`.
+        const resolves = !!explicitSelection && audioHistory.some(
+            (e) => e.attachmentId === explicitSelection && !e.attachment?.isDeleted
+        );
+        const currentAttachmentId = resolves ? explicitSelection : null;
+        const hasExplicitSelection = resolves;
+
+        // Compute per-entry availability so the history viewer shows correct Play/Download.
+        // Each probe is an independent fs.stat — run them in parallel so total latency
+        // is ~one stat instead of N.  Order doesn't matter; the result is keyed by id.
+        const entryAvailability: Record<string, string> = {};
+        try {
+            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+            if (ws) {
+                const wsPath = ws.uri.fsPath;
+                const pairs = await Promise.all(
+                    audioHistory.map(async (entry) =>
+                        [
+                            entry.attachmentId,
+                            await checkAttachmentAvailabilityStandalone(
+                                entry.attachment as any, wsPath, true
+                            ),
+                        ] as const
+                    )
+                );
+                for (const [id, state] of pairs) entryAvailability[id] = state;
+            }
+        } catch { /* best-effort */ }
 
         provider.postMessageToWebview(webviewPanel, {
             type: "audioHistoryReceived",
             content: {
                 cellId: typedEvent.content.cellId,
                 audioHistory: audioHistory,
-                currentAttachmentId: currentAttachment?.attachmentId ?? null,
-                hasExplicitSelection: explicitSelection !== null
+                currentAttachmentId,
+                hasExplicitSelection,
+                entryAvailability,
             }
         });
 
-        debug("Audio history sent successfully:", { cellId: typedEvent.content.cellId, count: audioHistory.length, currentId: currentAttachment?.attachmentId });
+        debug("Audio history sent successfully:", { cellId: typedEvent.content.cellId, count: audioHistory.length, currentId: currentAttachmentId });
     },
 
     restoreAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
@@ -2552,20 +2897,40 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             audioId: typedEvent.content.audioId
         });
 
-        // Restore the attachment (set isDeleted: false)
         await document.restoreCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId);
+
+        const cellId = typedEvent.content.cellId;
+
+        let updatedState: string = "unselected";
+        try {
+            const documentText = document.getText();
+            const notebookData = documentText.trim().length > 0 ? JSON.parse(documentText) : {};
+            const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
+            const targetCell = cells.find((c: any) => c?.metadata?.id === cellId);
+            if (targetCell) {
+                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (ws) {
+                    updatedState = await resolveSelectedAttachmentState(
+                        targetCell, "available-local", ws.uri.fsPath
+                    );
+                }
+            }
+        } catch { /* best-effort — falls back to "unselected" */ }
 
         provider.postMessageToWebview(webviewPanel, {
             type: "audioAttachmentRestored",
             content: {
-                cellId: typedEvent.content.cellId,
+                cellId,
                 audioId: typedEvent.content.audioId,
-                success: true
+                success: true,
+                updatedAvailability: updatedState
             }
         });
 
-        // The modal will handle refreshing its own history, and the main UI will 
-        // update when the user navigates away and back or when the document is saved
+        safePostMessageToPanel(webviewPanel, {
+            type: "providerSendsAudioAttachments",
+            attachments: { [cellId]: updatedState }
+        });
 
         debug("Audio attachment restored successfully");
     },
@@ -2578,19 +2943,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
 
         try {
-            // Select the audio attachment
             await document.selectAudioAttachment(typedEvent.content.cellId, typedEvent.content.audioId);
 
-            provider.postMessageToWebview(webviewPanel, {
-                type: "audioAttachmentSelected",
-                content: {
-                    cellId: typedEvent.content.cellId,
-                    audioId: typedEvent.content.audioId,
-                    success: true
-                }
-            });
-
-            // Send targeted audio attachment update instead of full refresh to preserve tab state
             const documentText = document.getText();
             let notebookData: any = {};
             if (documentText.trim().length > 0) {
@@ -2602,87 +2956,79 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-            const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {} as any;
-            let validatedByArray: ValidationEntry[] = [];
 
-            for (const cell of cells) {
-                const cellId = cell?.metadata?.id;
-                if (!cellId) continue;
-                let hasAvailable = false;
-                let hasAvailablePointer = false;
-                let hasMissing = false;
-                let hasDeleted = false;
-                const atts = cell?.metadata?.attachments || {};
+            // Compute targeted availability for the affected cell. Derive a base
+            // state from in-memory metadata first (no FS access required) so the
+            // broadcast is always meaningful even when no workspace folder is
+            // resolvable (e.g. test environments). Then refine with FS probes
+            // (LFS pointer / cache) when a workspace is available.
+            const targetCell = cells.find((c: any) => c?.metadata?.id === typedEvent.content.cellId);
+            const selectedAtt: any = targetCell?.metadata?.attachments?.[typedEvent.content.audioId];
 
-                for (const key of Object.keys(atts)) {
-                    const att: any = (atts as any)[key];
-                    if (att && att.type === "audio") {
-                        if (att.isDeleted) {
-                            hasDeleted = true;
-                        } else if (att.isMissing) {
-                            hasMissing = true;
-                        } else {
-                            // Differentiate pointer vs real file by inspecting attachments/files path
-                            try {
-                                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-                                const url = String(att.url || "");
-                                if (ws && url) {
-                                    const filesPath = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-                                    const abs = path.join(ws.uri.fsPath, filesPath);
-                                    const { isPointerFile } = await import("../../utils/lfsHelpers");
-                                    const isPtr = await isPointerFile(abs).catch(() => false);
-                                    if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
-                                } else {
-                                    hasAvailable = true;
-                                }
-                            } catch {
-                                hasAvailable = true;
-                            }
-                        }
-                    }
-
-                    if (cellId === typedEvent.content.cellId && key === cell?.metadata?.selectedAudioId) {
-                        const validatedBy = Array.isArray(att?.validatedBy) ? att.validatedBy : [];
-                        validatedByArray = [...validatedBy];
-                    }
-                }
-                // If the user's selected audio is missing, show missing icon regardless of other attachments.
-                const selectedId = cell?.metadata?.selectedAudioId;
-                const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
-                const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
-
-                if (selectedIsMissing) {
-                    availability[cellId] = "missing";
-                } else if (hasAvailable) {
-                    availability[cellId] = "available-local";
-                } else if (hasAvailablePointer) {
-                    availability[cellId] = "available-pointer";
-                } else if (hasMissing) {
-                    availability[cellId] = "missing";
-                } else if (hasDeleted) {
-                    availability[cellId] = "deletedOnly";
-                } else {
-                    availability[cellId] = "none";
-                }
+            let quickState: string;
+            if (selectedAtt?.type === "audio" && selectedAtt?.isMissing) {
+                quickState = "missing";
+            } else if (selectedAtt?.type === "audio" && !selectedAtt?.isDeleted) {
+                quickState = "available-local";
+            } else {
+                const atts = (targetCell?.metadata?.attachments || {}) as Record<string, any>;
+                const hasUsable = Object.values(atts).some(
+                    (a: any) => a?.type === "audio" && !a.isDeleted && !a.isMissing
+                );
+                quickState = hasUsable ? "unselected" : "none";
             }
+
+            try {
+                if (targetCell) {
+                    const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                    if (ws) {
+                        quickState = await resolveSelectedAttachmentState(
+                            targetCell, quickState, ws.uri.fsPath
+                        );
+                    }
+                }
+            } catch { /* keep in-memory base state */ }
+
+            // Per-cell monotonic version stamp set by `document.selectAudioAttachment`.
+            // The webview uses it to discard out-of-order updates so a slow/stale
+            // broadcast cannot overwrite a fresher selection.
+            const selectionTimestamp = document.getSelectionTimestamp(typedEvent.content.cellId);
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "audioAttachmentSelected",
+                content: {
+                    cellId: typedEvent.content.cellId,
+                    audioId: typedEvent.content.audioId,
+                    success: true,
+                    updatedAvailability: quickState,
+                    selectionTimestamp,
+                }
+            });
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerSendsAudioAttachments",
-                attachments: availability as any,
+                attachments: { [typedEvent.content.cellId]: quickState } as any,
             });
+
+            // Read validators directly off the targeted attachment. The previous
+            // implementation iterated every cell in the chapter with `await isPointerFile`
+            // probes, which suspended this handler long enough for a deselect to interleave
+            // and made the broadcast below leak a stale `selectedAudioId` captured from the
+            // closure. A single-cell read keeps the broadcast burst contiguous and removes
+            // N file-system probes per select.
+            const validatedByArray: ValidationEntry[] = Array.isArray(selectedAtt?.validatedBy)
+                ? [...selectedAtt.validatedBy]
+                : [];
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerUpdatesAudioValidationState",
                 content: {
                     cellId: typedEvent.content.cellId,
                     selectedAudioId: typedEvent.content.audioId,
-                    validatedBy: validatedByArray
+                    validatedBy: validatedByArray,
+                    selectionTimestamp,
                 },
             });
-
-
-
-            // Save the changes to the document
 
             await document.save(new vscode.CancellationTokenSource().token);
 
@@ -2698,6 +3044,61 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     error: error instanceof Error ? error.message : String(error)
                 }
             });
+        }
+    },
+
+    deselectAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "deselectAudioAttachment"; }>;
+        const cellId = typedEvent.content.cellId;
+        debug("deselectAudioAttachment message received", { cellId });
+
+        try {
+            document.clearAudioSelection(cellId);
+
+            // Per-cell monotonic version stamp set by `document.clearAudioSelection`.
+            // See `selectAudioAttachment` for usage rationale.
+            const selectionTimestamp = document.getSelectionTimestamp(cellId);
+
+            const history = document.getAttachmentHistory(cellId, "audio");
+            const hasUsable = history.some((h: any) => !h.attachment?.isDeleted && !h.attachment?.isMissing);
+            const hasMissing = history.some((h: any) => h.attachment?.isMissing && !h.attachment?.isDeleted);
+            const hasDeleted = history.some((h: any) => h.attachment?.isDeleted);
+            const updatedState = hasUsable
+                ? "unselected"
+                : hasMissing
+                    ? "missing"
+                    : hasDeleted
+                        ? "unselected"
+                        : "none";
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "audioAttachmentSelected",
+                content: { cellId, audioId: null, success: true, updatedAvailability: updatedState, selectionTimestamp }
+            });
+
+            safePostMessageToPanel(webviewPanel, {
+                type: "providerSendsAudioAttachments",
+                attachments: { [cellId]: updatedState }
+            });
+
+            // Per-attachment-selected rule: with no selection, the cell has no
+            // current validators. Broadcast the cleared state so the cell-list
+            // AudioValidationButton refreshes immediately rather than waiting
+            // for the document re-broadcast to arrive.
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerUpdatesAudioValidationState",
+                content: {
+                    cellId,
+                    selectedAudioId: "",
+                    validatedBy: [],
+                    selectionTimestamp,
+                },
+            });
+
+            await document.save(new vscode.CancellationTokenSource().token);
+            debug("Audio attachment deselected successfully");
+        } catch (error) {
+            console.error("Error deselecting audio attachment:", error);
         }
     },
 
