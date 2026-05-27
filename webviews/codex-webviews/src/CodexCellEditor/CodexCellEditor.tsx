@@ -458,11 +458,8 @@ const CodexCellEditor: React.FC = () => {
                     // Fetch ASR config
                     const asrConfig = await new Promise<{
                         endpoint: string;
-                        provider: string;
-                        model: string;
-                        language: string;
-                        phonetic: boolean;
                         authToken?: string;
+                        language?: { code: string; name: string; };
                     }>((resolve, reject) => {
                         let resolved = false;
                         const onMsg = (ev: MessageEvent) => {
@@ -493,25 +490,6 @@ const CodexCellEditor: React.FC = () => {
                             }
                         }, 5000);
                     });
-
-                    const toIso3 = (code?: string) => {
-                        const ISO2_TO_ISO3: Record<string, string> = {
-                            en: "eng",
-                            fr: "fra",
-                            es: "spa",
-                            de: "deu",
-                            pt: "por",
-                            it: "ita",
-                            nl: "nld",
-                            ru: "rus",
-                            zh: "zho",
-                            ja: "jpn",
-                            ko: "kor",
-                        };
-                        if (!code) return "eng";
-                        const norm = code.toLowerCase();
-                        return norm.length === 2 ? ISO2_TO_ISO3[norm] ?? "eng" : norm;
-                    };
 
                     const wsEndpoint =
                         asrConfig.endpoint ||
@@ -584,7 +562,11 @@ const CodexCellEditor: React.FC = () => {
                                 next.add(cellId);
                                 return next;
                             });
-                            const result = await client.transcribe(blob);
+                            const result = await client.transcribe(
+                                blob,
+                                60000,
+                                asrConfig.language?.code
+                            );
                             const text = (result.text || "").trim();
                             if (text) {
                                 vscode.postMessage({
@@ -592,7 +574,7 @@ const CodexCellEditor: React.FC = () => {
                                     content: {
                                         cellId,
                                         transcribedText: text,
-                                        language: "unknown",
+                                        language: asrConfig.language?.name || "",
                                     },
                                 } as unknown as EditorPostMessages);
 

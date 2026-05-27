@@ -482,12 +482,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             console.warn("Failed to set recordingCountdownSeconds", e);
         }
     },
-    getAsrConfig: async ({ webviewPanel }) => {
+    getAsrConfig: async ({ webviewPanel, document }) => {
         try {
             const config = vscode.workspace.getConfiguration("codex-editor-extension");
             let endpoint = config.get<string>("asrEndpoint", "http://localhost:8000/api/v1/asr/transcribe");
 
             let authToken: string | undefined;
+            let language: { code: string; name: string; } | undefined;
 
             // Try to get authenticated endpoint from FrontierAPI
             try {
@@ -539,10 +540,37 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 console.error(`[getAsrConfig] This will cause transcription to fail. Please check authentication status.`);
             }
 
-            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}`);
+            // Resolve language for this editor from project metadata.
+            // Source-file editors transcribe in the project's source language; codex (target) editors in the target language.
+            try {
+                const isSourceDoc = document.uri.fsPath.endsWith(".source");
+                const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
+                const lang = projectConfig.get<{
+                    tag?: string;
+                    refName?: string;
+                    iso1?: string;
+                    iso2t?: string;
+                    name?: { [k: string]: string; };
+                }>(isSourceDoc ? "sourceLanguage" : "targetLanguage");
+                if (lang) {
+                    const code = lang.iso1 || lang.tag?.split("-")[0] || lang.iso2t || "";
+                    const friendlyName =
+                        lang.refName ||
+                        lang.name?.["en"] ||
+                        (lang.name ? Object.values(lang.name)[0] : undefined) ||
+                        code;
+                    if (code && friendlyName) {
+                        language = { code, name: friendlyName };
+                    }
+                }
+            } catch (langError) {
+                console.debug("[getAsrConfig] Could not resolve project language:", langError);
+            }
+
+            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}, language=${language?.name ?? "(none)"}`);
             safePostMessageToPanel(webviewPanel, {
                 type: "asrConfig",
-                content: { endpoint, authToken }
+                content: { endpoint, authToken, language }
             });
         } catch (error) {
             console.error("Error sending ASR config:", error);
@@ -552,11 +580,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 type: "asrConfig",
                 content: {
                     endpoint: fallbackEndpoint,
-                    provider: "mms",
-                    model: "facebook/mms-1b-all",
-                    language: "eng",
-                    phonetic: false,
-                    authToken: undefined
+                    authToken: undefined,
                 }
             });
         }
@@ -577,7 +601,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 ...(attachment || {}),
                 transcription: {
                     content: transcribedText,
-                    language: language || "unknown",
+                    // Friendly language name (e.g. "English"); empty string when unknown.
+                    language: language || "",
                     timestamp: Date.now(),
                 },
                 updatedAt: Date.now(),

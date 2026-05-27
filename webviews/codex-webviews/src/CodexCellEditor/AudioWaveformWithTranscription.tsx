@@ -139,11 +139,22 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                             >
                                 {transcription.content}
                             </p>
-                            {transcription.language && (
-                                <Badge variant="secondary" className="text-xs">
-                                    {transcription.language}
-                                </Badge>
-                            )}
+                            {(() => {
+                                // `language` is the friendly display name (e.g. "English") resolved from
+                                // the project's source/target language at transcription time. Treat empty/
+                                // missing values and the legacy "unknown" sentinel as no-known-language so
+                                // the user can tell the transcription happened without a language hint.
+                                const lang = transcription.language?.trim();
+                                const hasKnownLanguage = !!lang && lang.toLowerCase() !== "unknown";
+                                return (
+                                    <Badge
+                                        variant="secondary"
+                                        className={hasKnownLanguage ? "text-xs" : "text-[10px]"}
+                                    >
+                                        {hasKnownLanguage ? lang : "Transcription Language Unknown"}
+                                    </Badge>
+                                );
+                            })()}
                         </div>
                         <Button
                             onClick={onInsertTranscription}

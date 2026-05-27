@@ -496,11 +496,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const transcriptionClientRef = useRef<WhisperTranscriptionClient | null>(null);
     const [asrConfig, setAsrConfig] = useState<{
         endpoint: string;
-        provider: string;
-        model: string;
-        language: string; // ISO-639-3 expected by MMS; may be ISO-639-1 and mapped
-        phonetic: boolean;
         authToken?: string;
+        // Language resolved from project metadata for this editor (target language for codex, source for source files).
+        // `code` is an ISO code passed as the ?lang= hint; `name` is the friendly display name used by the UI.
+        language?: { code: string; name: string; };
     } | null>(null);
 
     // Helper to smoothly center the editor. Coalesces multiple calls and
@@ -3073,8 +3072,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 setTranscriptionStatus(`Error: ${error}`);
             };
 
-            // Perform transcription
-            const result = await client.transcribe(audioBlob);
+            // Perform transcription, hinting the ASR with the project's language when known.
+            const result = await client.transcribe(audioBlob, 60000, asrConfig?.language?.code);
 
             // Success - save transcription but don't automatically insert
             const transcribedText = result.text.trim();
@@ -3082,9 +3081,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 // Save transcription to cell metadata
                 const audioId = sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
                 if (audioId) {
+                    const languageName = asrConfig?.language?.name || "";
                     const transcriptionData = {
                         content: transcribedText,
                         timestamp: Date.now(),
+                        language: languageName,
                     };
 
                     // Save to cell metadata via provider
@@ -3093,7 +3094,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         content: {
                             cellId: cellMarkers[0],
                             transcribedText: transcribedText,
-                            language: "unknown",
+                            language: languageName,
                         },
                     };
                     window.vscodeApi.postMessage(messageContent);

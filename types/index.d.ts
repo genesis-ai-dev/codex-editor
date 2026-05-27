@@ -2150,7 +2150,7 @@ type EditorReceiveMessages =
         milestoneIndex?: number;
         subsectionIndex?: number;
     }
-    | { type: "asrConfig"; content: { endpoint: string; authToken?: string; }; }
+    | { type: "asrConfig"; content: { endpoint: string; authToken?: string; language?: { code: string; name: string; }; }; }
     | { type: "startBatchTranscription"; content: { count: number; }; }
     | {
         type: "providerConfirmsBacktranslationSet";
