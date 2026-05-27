@@ -3018,6 +3018,13 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
         // ids in parent.metadata.data.mergedChildIds so the merge survives git sync (where
         // deleted-only-on-our-side cells would otherwise be re-added by the codex merge
         // resolver, causing the next migration run to double the parent's content).
+        //
+        // The merge loop only mutates in-memory state per child; the parent's value and
+        // mergedChildIds edits are emitted ONCE per parent after the loop completes (see
+        // the post-loop emission block). This is load-bearing for sync survival: pushing one
+        // edit per child inside the loop produced same-millisecond edits whose tie-break in
+        // `resolveMetadataConflictsUsingEditHistory` is stable-first, so on every sync the
+        // resolver would pick the first (partial) cumulative value and lose later children.
         const contentForMerge: Array<{ cell: any; parsed: ParsedVerseRef; }> = [];
         for (const cell of cells) {
             const md = cell?.metadata || {};
@@ -3039,6 +3046,16 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
             const id = contentForMerge[i].cell.metadata?.id;
             if (id) idToContentIndex.set(id, i);
         }
+
+        // Per-parent accumulator: tracks which parents had their value or mergedChildIds
+        // touched by this run so we can emit a single consolidated edit per path after
+        // the loop, rather than one edit per child (which collided on `Date.now()`).
+        const touchedParents = new Map<string, {
+            parent: { cell: any; parsed: ParsedVerseRef; };
+            valueChanged: boolean;
+            idsChanged: boolean;
+        }>();
+
         for (let i = 0; i < contentForMerge.length; i++) {
             const childMd = contentForMerge[i].cell.metadata || {};
             const parentId = childMd.parentId;
@@ -3083,33 +3100,31 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
                 alreadyTrackedById ||
                 (childValue.length > 0 && (parent.cell.value || "").endsWith(childValue));
 
+            let didAppend = false;
+            let didTrack = false;
+
             if (!skipAppend) {
                 parent.cell.value = (parent.cell.value || "") + childValue;
-                const parentEdits: any[] = parentMd.edits || (parentMd.edits = []);
-                parentEdits.push({
-                    editMap: EditMapUtils.value(),
-                    value: parent.cell.value,
-                    timestamp: Date.now(),
-                    type: EditType.MIGRATION,
-                    author: "system",
-                    validatedBy: [],
-                });
+                didAppend = true;
                 hasChanges = true;
             }
 
             if (typeof childId === "string" && !existingMergedIds.includes(childId)) {
                 existingMergedIds.push(childId);
                 parentData.mergedChildIds = existingMergedIds;
-                const parentEdits: any[] = parentMd.edits || (parentMd.edits = []);
-                parentEdits.push({
-                    editMap: ["metadata", "data", "mergedChildIds"],
-                    value: existingMergedIds.slice(),
-                    timestamp: Date.now(),
-                    type: EditType.MIGRATION,
-                    author: "system",
-                    validatedBy: [],
-                });
+                didTrack = true;
                 hasChanges = true;
+            }
+
+            if (didAppend || didTrack) {
+                const accum = touchedParents.get(parentId) || {
+                    parent,
+                    valueChanged: false,
+                    idsChanged: false,
+                };
+                if (didAppend) accum.valueChanged = true;
+                if (didTrack) accum.idsChanged = true;
+                touchedParents.set(parentId, accum);
             }
 
             if (!childAlreadyDeleted) {
@@ -3126,6 +3141,43 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
                     validatedBy: [],
                 });
                 hasChanges = true;
+            }
+        }
+
+        // Emit one consolidated MIGRATION edit per touched parent per path. Per-parent
+        // single edits avoid the same-timestamp tie-break in
+        // `resolveMetadataConflictsUsingEditHistory`: with one edit per path, there is no
+        // tie for the resolver to mis-pick. Different parents are different cells, so they
+        // share no edit list and cannot collide.
+        const mergePhaseTimestamp = Date.now();
+        for (const { parent, valueChanged, idsChanged } of touchedParents.values()) {
+            const parentMd: any = parent.cell.metadata || (parent.cell.metadata = {});
+            const parentData: any = parentMd.data || (parentMd.data = {});
+            const parentEdits: any[] = parentMd.edits || (parentMd.edits = []);
+
+            if (valueChanged) {
+                parentEdits.push({
+                    editMap: EditMapUtils.value(),
+                    value: parent.cell.value,
+                    timestamp: mergePhaseTimestamp,
+                    type: EditType.MIGRATION,
+                    author: "system",
+                    validatedBy: [],
+                });
+            }
+
+            if (idsChanged) {
+                const finalIds: string[] = Array.isArray(parentData.mergedChildIds)
+                    ? parentData.mergedChildIds.slice()
+                    : [];
+                parentEdits.push({
+                    editMap: ["metadata", "data", "mergedChildIds"],
+                    value: finalIds,
+                    timestamp: mergePhaseTimestamp + 1,
+                    type: EditType.MIGRATION,
+                    author: "system",
+                    validatedBy: [],
+                });
             }
         }
 

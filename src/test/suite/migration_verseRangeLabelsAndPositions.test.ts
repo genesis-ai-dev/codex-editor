@@ -957,4 +957,212 @@ suite("migrateVerseRangeLabelsAndPositionsForFile", () => {
             "Parent value must not be doubled across sync + re-migration"
         );
     });
+
+    test("multi-child merge emits exactly one value and one mergedChildIds edit per parent", async () => {
+        const milestoneId = randomUUID();
+        const parentId = randomUUID();
+        const child1Id = randomUUID();
+        const child2Id = randomUUID();
+        const child3Id = randomUUID();
+
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 50",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: "<span>P.</span>",
+                metadata: {
+                    id: parentId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-15"),
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>C1.</span>",
+                metadata: {
+                    id: child1Id,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-15"),
+                    parentId,
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>C2.</span>",
+                metadata: {
+                    id: child2Id,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-15"),
+                    parentId,
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>C3.</span>",
+                metadata: {
+                    id: child3Id,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-15"),
+                    parentId,
+                    edits: [],
+                },
+            },
+        ]);
+        testFiles.push(uri);
+
+        const wasMigrated = await migrateVerseRangeLabelsAndPositionsForFile(uri);
+        assert.strictEqual(wasMigrated, true);
+
+        const data = await readNotebookFile(uri);
+        const parent = data.cells.find((c: any) => c.metadata?.id === parentId);
+        assert.strictEqual(
+            parent.value,
+            "<span>P.</span><span>C1.</span><span>C2.</span><span>C3.</span>"
+        );
+        assert.deepStrictEqual(parent.metadata?.data?.mergedChildIds, [
+            child1Id,
+            child2Id,
+            child3Id,
+        ]);
+
+        const parentEdits: any[] = parent.metadata?.edits || [];
+        const valueEdits = parentEdits.filter((e) => e.editMap?.join(".") === "value");
+        const trackingEdits = parentEdits.filter(
+            (e) => e.editMap?.join(".") === "metadata.data.mergedChildIds"
+        );
+
+        // Exactly one consolidated edit per path, regardless of how many children
+        // were merged in. Multiple same-timestamp edits would let the resolver
+        // tie-break pick a partial cumulative value on the next sync.
+        assert.strictEqual(
+            valueEdits.length,
+            1,
+            "Multi-child parent should have exactly one value migration edit"
+        );
+        assert.strictEqual(
+            trackingEdits.length,
+            1,
+            "Multi-child parent should have exactly one mergedChildIds edit"
+        );
+
+        // The single value edit must carry the FINAL cumulative value (not any
+        // intermediate state). Same for the mergedChildIds edit.
+        assert.strictEqual(
+            valueEdits[0].value,
+            "<span>P.</span><span>C1.</span><span>C2.</span><span>C3.</span>"
+        );
+        assert.deepStrictEqual(trackingEdits[0].value, [child1Id, child2Id, child3Id]);
+    });
+
+    test("multi-child merge survives a sync round-trip without losing children's content", async () => {
+        const milestoneId = randomUUID();
+        const parentId = randomUUID();
+        const child1Id = randomUUID();
+        const child2Id = randomUUID();
+        const child3Id = randomUUID();
+
+        // User A's clone, freshly imported and pre-migration.
+        const uri = await createTempNotebookFile(".codex", [
+            {
+                value: "Genesis 50",
+                languageId: "html",
+                metadata: { id: milestoneId, type: CodexCellTypes.MILESTONE, edits: [] },
+            },
+            {
+                value: "<span>P.</span>",
+                metadata: {
+                    id: parentId,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-15"),
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>C1.</span>",
+                metadata: {
+                    id: child1Id,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-15"),
+                    parentId,
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>C2.</span>",
+                metadata: {
+                    id: child2Id,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-15"),
+                    parentId,
+                    edits: [],
+                },
+            },
+            {
+                value: "<span>C3.</span>",
+                metadata: {
+                    id: child3Id,
+                    type: CodexCellTypes.TEXT,
+                    ...ref("GEN 50:12-15"),
+                    parentId,
+                    edits: [],
+                },
+            },
+        ]);
+        testFiles.push(uri);
+
+        // User A runs the migration locally.
+        await migrateVerseRangeLabelsAndPositionsForFile(uri);
+        const oursText = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8");
+
+        // User B's clone never ran the migration: parent still at "P." with the three
+        // children as live sibling cells.
+        const theirs: any = JSON.parse(oursText);
+        for (const c of theirs.cells) {
+            const id = c.metadata?.id;
+            if (id === parentId) {
+                c.value = "<span>P.</span>";
+                c.metadata.edits = [];
+                if (c.metadata.data) {
+                    delete c.metadata.data.mergedChildIds;
+                }
+            }
+            if (id === child1Id || id === child2Id || id === child3Id) {
+                if (c.metadata?.data) {
+                    delete c.metadata.data.deleted;
+                }
+                c.metadata.edits = [];
+            }
+        }
+        const theirsText = JSON.stringify(theirs);
+
+        // Pull: merge User A's migrated content (ours) against User B's pre-migration
+        // copy (theirs). The merged file must keep all three children in the parent.value.
+        const merged = await resolveCodexCustomMerge(oursText, theirsText);
+        const mergedNotebook = JSON.parse(merged);
+        const mergedParent = mergedNotebook.cells.find((c: any) => c.metadata?.id === parentId);
+
+        assert.strictEqual(
+            mergedParent.value,
+            "<span>P.</span><span>C1.</span><span>C2.</span><span>C3.</span>",
+            "After sync, the merged parent value must contain every merged child's content"
+        );
+        assert.deepStrictEqual(
+            mergedParent.metadata?.data?.mergedChildIds,
+            [child1Id, child2Id, child3Id],
+            "After sync, mergedChildIds tracking must list every merged child"
+        );
+
+        // Children must remain soft-deleted on User A's side of the merge.
+        for (const cid of [child1Id, child2Id, child3Id]) {
+            const c = mergedNotebook.cells.find((x: any) => x.metadata?.id === cid);
+            assert.strictEqual(
+                c?.metadata?.data?.deleted,
+                true,
+                `Child ${cid} must remain soft-deleted after the sync round-trip`
+            );
+        }
+    });
 });
