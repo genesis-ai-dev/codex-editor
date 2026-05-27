@@ -49,6 +49,10 @@ import { openCodexMigrationTool } from "./codexMigrationTool/codexMigrationTool"
 import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/codexCellEditorProvider";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
 import { initializeStateStore } from "./stateStore";
+import {
+    initializeGlobalUserSettings,
+    migrateAudioSettingsFromLocalProject,
+} from "./utils/globalUserSettings";
 import { runOnce } from "./utils/oneTimeMigrations";
 import { fileExists } from "./utils/webviewUtils";
 import { checkIfProjectIsInitialized } from "./projectManager/utils/projectUtils";
@@ -348,6 +352,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
     initToolPreferences(context);
 
+    // Per-user audio preferences (autoDownloadAudioOnOpen,
+    // autoRecordOnMicClick, recordingCountdownSeconds) live in globalState.
+    // Initialize before any provider reads them; the per-workspace migration
+    // runs lazily below.
+    initializeGlobalUserSettings(context);
+
     // Construct the singleton cellId state store (file-backed under
     // globalStorageUri). Must run before providers register so that any
     // subsequent initializeStateStore() calls inside providers reuse the
@@ -356,6 +366,21 @@ export async function activate(context: vscode.ExtensionContext) {
         await initializeStateStore(context);
     } catch (e) {
         console.error("[Extension] Failed to initialize cellId state store:", e);
+    }
+
+    // Issue #984: copy legacy per-user audio prefs from the git-synced
+    // localProjectSettings.json into per-user globalState (first project
+    // wins per machine) and strip the keys so they stop syncing.
+    try {
+        const folders = vscode.workspace.workspaceFolders ?? [];
+        for (const folder of folders) {
+            await migrateAudioSettingsFromLocalProject(folder.uri);
+        }
+    } catch (e) {
+        console.warn(
+            "[Extension] Failed to migrate per-user audio settings from local project settings:",
+            e
+        );
     }
 
     // One-shot cleanup of orphaned rows inside the project-accelerate.shared-state-store
