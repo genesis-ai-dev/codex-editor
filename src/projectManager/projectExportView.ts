@@ -619,6 +619,8 @@ function getWebviewContent(
                     border: 1px solid rgba(202, 138, 4, 0.25);
                     border-radius: 4px;
                     font-size: 0.9em;
+                    max-height: 40vh;
+                    overflow-y: auto;
                 }
                 .popup-file-list div { padding: 2px 0; }
             </style>
