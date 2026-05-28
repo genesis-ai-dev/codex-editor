@@ -85,10 +85,30 @@ export interface LocalProjectSettings {
     syncDelayMinutes?: number;
     /** Cached display name from GitLab API, persisted locally so it survives offline/orphaned states */
     displayedProjectName?: string;
+    /**
+     * Per-machine version of the audio metadata schema this project's local
+     * .codex files have been migrated to. Bumped whenever a new one-shot audio
+     * migration ships; the migrator runs every step from `currentVersion + 1`
+     * through `CURRENT_AUDIO_SCHEMA_VERSION` and persists the new value here
+     * on success. Stored locally (this file is gitignored) so each machine
+     * processes its own .codex files regardless of CRDT sync ordering.
+     *
+     * Versions:
+     *   1 — backfill `selectedAudioId` + `selectionTimestamp` on legacy cells
+     *       (pre-Aug-18-2025) that have at least one valid audio attachment
+     *       (not deleted, not missing) and no explicit selection.
+     */
+    audioSchemaVersion?: number;
     // Legacy keys (read and mirrored for backward compatibility)
     mediaFilesStrategy?: MediaFilesStrategy;
     lastModeRun?: MediaFilesStrategy;
 }
+
+/**
+ * Current target audio metadata schema version. Increment when adding a new
+ * one-shot audio migration step in `AudioAttachmentsMigrator.runAudioSchemaMigrations`.
+ */
+export const CURRENT_AUDIO_SCHEMA_VERSION = 1;
 
 const SETTINGS_FILE_NAME = "localProjectSettings.json";
 
@@ -363,6 +383,33 @@ export async function ensureLocalProjectSettingsExists(
         ...(defaults || {}),
     };
     await writeLocalProjectSettings(def, workspaceFolderUri);
+}
+
+/**
+ * Returns the audio metadata schema version this machine has already migrated
+ * this project to. Defaults to 0 when the key is absent (e.g., never migrated,
+ * or fresh clone on a new machine).
+ */
+export async function getAudioSchemaVersion(
+    workspaceFolderUri?: vscode.Uri
+): Promise<number> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    return typeof settings.audioSchemaVersion === "number" ? settings.audioSchemaVersion : 0;
+}
+
+/**
+ * Persists the completed audio metadata schema version for this machine.
+ * Called by `AudioAttachmentsMigrator.runAudioSchemaMigrations` only after
+ * every chained migration step succeeds, so an interrupted run can resume
+ * on the next activation.
+ */
+export async function setAudioSchemaVersion(
+    version: number,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    settings.audioSchemaVersion = version;
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
 }
 
 /**
