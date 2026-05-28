@@ -1483,10 +1483,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 // Read the video file content
                 const fileData = await vscode.workspace.fs.readFile(fileUri);
 
-                // Enforce a reasonable max size (e.g., 600 MB) for video files
-                const MAX_BYTES = 600 * 1024 * 1024;
+                // Enforce a reasonable max size (e.g., 900 MB) for video files
+                const MAX_BYTES = 900 * 1024 * 1024;
                 if (fileData.length > MAX_BYTES) {
-                    throw new Error("Video file exceeds maximum allowed size (500 MB)");
+                    throw new Error("Video file exceeds maximum allowed size 900 MB)");
                 }
 
                 // Determine document segment
