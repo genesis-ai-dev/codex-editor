@@ -493,6 +493,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // ASR proxy: "project" → the resolved ISO 639-3 code, "auto" →
             // the literal string "auto" (server-side LID).
             const languageMode = config.get<"project" | "auto">("asrLanguageMode", "project");
+            // When enabled, the webview asks the proxy to also return a
+            // phonetic (IPA) transcription alongside the orthographic text.
+            const phonetic = config.get<boolean>("asrPhonetic", false);
 
             // Try to get authenticated endpoint from FrontierAPI
             try {
@@ -582,10 +585,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 console.debug("[getAsrConfig] Could not resolve project language:", langError);
             }
 
-            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}, language=${language?.name ?? "(none)"}, mode=${languageMode}`);
+            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}, language=${language?.name ?? "(none)"}, mode=${languageMode}, phonetic=${phonetic}`);
             safePostMessageToPanel(webviewPanel, {
                 type: "asrConfig",
-                content: { endpoint, authToken, language, languageMode }
+                content: { endpoint, authToken, language, languageMode, phonetic }
             });
         } catch (error) {
             console.error("Error sending ASR config:", error);
@@ -597,6 +600,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     endpoint: fallbackEndpoint,
                     authToken: undefined,
                     languageMode: "project",
+                    phonetic: false,
                 }
             });
         }
@@ -619,6 +623,26 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             await messageHandlers.getAsrConfig(ctx);
         } catch (err) {
             console.error("[setAsrLanguageMode] Failed to persist mode:", err);
+        }
+    },
+
+    setAsrPhonetic: async (ctx) => {
+        const typedEvent = ctx.event as Extract<
+            EditorPostMessages,
+            { command: "setAsrPhonetic"; }
+        >;
+        const enabled = !!typedEvent.content?.enabled;
+        try {
+            const config = vscode.workspace.getConfiguration("codex-editor-extension");
+            await config.update(
+                "asrPhonetic",
+                enabled,
+                vscode.ConfigurationTarget.Workspace
+            );
+            // Re-send config so the webview reflects the new value.
+            await messageHandlers.getAsrConfig(ctx);
+        } catch (err) {
+            console.error("[setAsrPhonetic] Failed to persist value:", err);
         }
     },
 

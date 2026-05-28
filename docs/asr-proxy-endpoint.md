@@ -44,6 +44,7 @@ Authorization: Bearer <token>  (optional if token in query)
         2. Use the predicted ISO 639-3 code as the ASR adapter.
         3. Return the detected code in the response so the client can surface it to the user.
     - Omitted: the proxy may default to English (current behavior) or run LID — the client treats either as best-effort.
+- `phonetic` (optional): When set to a truthy value (e.g. `1`, `true`), the proxy should also return a phonetic (IPA) transcription **alongside** the orthographic text. Recommended approach: run a phoneme recognition model (e.g. `facebook/wav2vec2-lv-60-espeak-cv-ft`) over the same audio in addition to the regular ASR pass, and populate the `phonetic` field in the response. If the proxy can't honor the request, it should still return the orthographic text and simply omit `phonetic` from the JSON.
 
 ### Request Body
 
@@ -62,6 +63,10 @@ curl -X POST "http://localhost:8000/api/v1/asr/transcribe?source=codex&token=JWT
 # Server-side language identification (LID)
 curl -X POST "http://localhost:8000/api/v1/asr/transcribe?source=codex&token=JWT_TOKEN&lang=auto" \
   -F "file=@audio.wav"
+
+# Orthographic + phonetic (IPA)
+curl -X POST "http://localhost:8000/api/v1/asr/transcribe?source=codex&token=JWT_TOKEN&lang=swh&phonetic=1" \
+  -F "file=@audio.wav"
 ```
 
 ## Response Protocol
@@ -73,11 +78,14 @@ curl -X POST "http://localhost:8000/api/v1/asr/transcribe?source=codex&token=JWT
   "text": "This is the transcribed text",
   "duration_s": 4.94,
   "inference_s": 1.72,
-  "language": "swh"
+  "language": "swh",
+  "phonetic": "ðɪs ɪz ðə trænskraɪbd tɛkst"
 }
 ```
 
 The `language` field is **required when the client sent `lang=auto`** so it can show the detected language to the user. It is optional otherwise.
+
+The `phonetic` field is **populated when the client sent `phonetic=1`** and the proxy was able to produce an IPA transcription. If the proxy doesn't support phoneme recognition, it should omit the field rather than failing the request.
 
 ### Error Response (4xx/5xx)
 

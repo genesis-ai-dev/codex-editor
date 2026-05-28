@@ -12,8 +12,9 @@ export class WhisperTranscriptionClient {
     async transcribe(
         audioBlob: Blob,
         timeoutMs: number = 60000,
-        language?: string
-    ): Promise<{ text: string; }> {
+        language?: string,
+        phonetic?: boolean
+    ): Promise<{ text: string; phonetic?: string; }> {
         try {
             // Create FormData with audio file
             const formData = new FormData();
@@ -34,6 +35,12 @@ export class WhisperTranscriptionClient {
             // (server picks a default, typically English).
             if (language) {
                 url.searchParams.set("lang", language);
+            }
+            // When set, ask the proxy to also return a phonetic (IPA)
+            // transcription alongside the orthographic text. The proxy is
+            // expected to populate `phonetic` in the JSON response.
+            if (phonetic) {
+                url.searchParams.set("phonetic", "1");
             }
 
             // Prepare headers
@@ -93,7 +100,11 @@ export class WhisperTranscriptionClient {
 
                 // Parse response
                 const result = await response.json();
-                return { text: result.text || "" };
+                const phoneticText =
+                    typeof result.phonetic === "string" && result.phonetic.trim()
+                        ? result.phonetic
+                        : undefined;
+                return { text: result.text || "", phonetic: phoneticText };
             } catch (error) {
                 clearTimeout(timeoutId);
 

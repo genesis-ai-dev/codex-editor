@@ -502,6 +502,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
         language?: { code: string; name: string; };
         // Whether the user wants to send the project language or let the server detect it.
         languageMode?: "project" | "auto";
+        // Whether the user has opted in to receiving a phonetic (IPA) transcription
+        // alongside the orthographic one.
+        phonetic?: boolean;
     } | null>(null);
 
     // Helper to smoothly center the editor. Coalesces multiple calls and
@@ -3082,7 +3085,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
             const languageHint = isAutoMode
                 ? "auto"
                 : asrConfig?.language?.code || undefined;
-            const result = await client.transcribe(audioBlob, 60000, languageHint);
+            const includePhonetic = !!asrConfig?.phonetic;
+            const result = await client.transcribe(
+                audioBlob,
+                60000,
+                languageHint,
+                includePhonetic
+            );
 
             // Success - save transcription but don't automatically insert
             const transcribedText = result.text.trim();
@@ -5496,6 +5505,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         window.vscodeApi.postMessage({
                                                             command: "setAsrLanguageMode",
                                                             content: { mode },
+                                                        } as EditorPostMessages);
+                                                    }}
+                                                    asrPhonetic={!!asrConfig?.phonetic}
+                                                    onChangeAsrPhonetic={(enabled) => {
+                                                        window.vscodeApi.postMessage({
+                                                            command: "setAsrPhonetic",
+                                                            content: { enabled },
                                                         } as EditorPostMessages);
                                                     }}
                                                     onRequestRemove={() => {

@@ -11,7 +11,19 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
-import { MessageCircle, Copy, Loader2, Trash2, History, Mic, ChevronDown } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
+import { Switch } from "../components/ui/switch";
+import { Label } from "../components/ui/label";
+import {
+    MessageCircle,
+    Copy,
+    Loader2,
+    Trash2,
+    History,
+    Mic,
+    ChevronDown,
+    Settings,
+} from "lucide-react";
 import type { ValidationStatusIconProps } from "./AudioValidationStatusIcon.tsx";
 import { AudioValidationBadge } from "./AudioValidationBadge.tsx";
 import type { AudioValidationPopoverProps } from "./AudioValidationBadge.tsx";
@@ -43,6 +55,9 @@ interface AudioWaveformWithTranscriptionProps {
     asrLanguageName?: string; // friendly name of the project's language (e.g. "Swahili"). Falls back to "Auto Detect".
     asrLanguageMode?: "project" | "auto";
     onChangeAsrLanguageMode?: (mode: "project" | "auto") => void;
+    // Persistent ASR preferences exposed via the Transcribe-row gear popover.
+    asrPhonetic?: boolean;
+    onChangeAsrPhonetic?: (enabled: boolean) => void;
 }
 
 const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionProps> = ({
@@ -66,6 +81,8 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     asrLanguageName,
     asrLanguageMode = "project",
     onChangeAsrLanguageMode,
+    asrPhonetic = false,
+    onChangeAsrPhonetic,
 }) => {
     const [audioSrc, setAudioSrc] = useState<string>("");
     const [audioDuration, setAudioDuration] = useState<number | null>(null);
@@ -315,6 +332,53 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                                     </DropdownMenuRadioGroup>
                                 </DropdownMenuContent>
                             </DropdownMenu>
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        disabled={transcribeDisabled}
+                                        className={`${sharedBtnClass} rounded-l-none border-l-0 px-1.5 -ml-px`}
+                                        title="Transcription preferences"
+                                        aria-label="Transcription preferences"
+                                    >
+                                        <Settings className="h-3 w-3" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent align="end" className="w-72 p-3">
+                                    <div className="space-y-3">
+                                        <div className="space-y-1">
+                                            <p className="text-sm font-medium leading-none">
+                                                Transcription preferences
+                                            </p>
+                                            <p className="text-xs text-muted-foreground">
+                                                Applies to all cells in this project.
+                                            </p>
+                                        </div>
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="flex flex-col">
+                                                <Label
+                                                    htmlFor="asr-phonetic-switch"
+                                                    className="text-sm"
+                                                >
+                                                    Include phonetic (IPA)
+                                                </Label>
+                                                <span className="text-xs text-muted-foreground mt-0.5">
+                                                    Also return an IPA rendering of the
+                                                    audio when supported by the server.
+                                                </span>
+                                            </div>
+                                            <Switch
+                                                id="asr-phonetic-switch"
+                                                checked={!!asrPhonetic}
+                                                onCheckedChange={(checked) =>
+                                                    onChangeAsrPhonetic?.(!!checked)
+                                                }
+                                            />
+                                        </div>
+                                    </div>
+                                </PopoverContent>
+                            </Popover>
                         </div>
                     );
                 })()}

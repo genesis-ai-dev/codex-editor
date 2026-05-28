@@ -585,6 +585,10 @@ export type EditorPostMessages =
         content: { mode: "project" | "auto"; };
     }
     | {
+        command: "setAsrPhonetic";
+        content: { enabled: boolean; };
+    }
+    | {
         command: "mergeCellWithPrevious";
         content: {
             currentCellId: string;
@@ -2166,6 +2170,12 @@ type EditorReceiveMessages =
              *  - "auto"    → send `lang=auto` so the proxy can run LID first
              */
             languageMode?: "project" | "auto";
+            /**
+             * When true, the webview should ask the ASR proxy to also return a
+             * phonetic (IPA) transcription alongside the orthographic text.
+             * Surfaced via `?phonetic=1` and persists as a workspace setting.
+             */
+            phonetic?: boolean;
         };
     }
     | { type: "startBatchTranscription"; content: { count: number; }; }

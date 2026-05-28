@@ -461,6 +461,7 @@ const CodexCellEditor: React.FC = () => {
                         authToken?: string;
                         language?: { code: string; name: string; };
                         languageMode?: "project" | "auto";
+                        phonetic?: boolean;
                     }>((resolve, reject) => {
                         let resolved = false;
                         const onMsg = (ev: MessageEvent) => {
@@ -567,10 +568,12 @@ const CodexCellEditor: React.FC = () => {
                             const languageHint = isAutoMode
                                 ? "auto"
                                 : asrConfig.language?.code || undefined;
+                            const includePhonetic = !!asrConfig.phonetic;
                             const result = await client.transcribe(
                                 blob,
                                 60000,
-                                languageHint
+                                languageHint,
+                                includePhonetic
                             );
                             const text = (result.text || "").trim();
                             if (text) {
