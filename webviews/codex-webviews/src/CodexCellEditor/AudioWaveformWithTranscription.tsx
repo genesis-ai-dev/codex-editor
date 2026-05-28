@@ -295,13 +295,10 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                                         type="button"
                                         variant="outline"
                                         disabled={transcribeDisabled}
-                                        className={`${sharedBtnClass} rounded-l-none gap-1 pl-2 pr-1.5`}
+                                        className={`${sharedBtnClass} rounded-l-none px-1.5`}
                                         title={`Language: ${effectiveLabel}. Click to change.`}
                                         aria-label={`Change transcription language. Current: ${effectiveLabel}`}
                                     >
-                                        <span className="max-w-[10ch] truncate">
-                                            {effectiveLabel}
-                                        </span>
                                         <ChevronDown className="h-3 w-3 opacity-70" />
                                     </Button>
                                 </DropdownMenuTrigger>
