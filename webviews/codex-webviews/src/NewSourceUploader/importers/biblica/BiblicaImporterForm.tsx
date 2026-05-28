@@ -49,6 +49,22 @@ function buildInlineHTMLFromRanges(
 /**
  * Create cells from Study Bible stories (source notes only; verses inform globalReferences).
  */
+/**
+ * Compute the chapter-range milestone label for a note section.
+ * - "Preface" if no verses have been scanned in this book yet.
+ * - "3" if only chapter 3 was scanned since the last note section.
+ * - "1-2" if chapters 1 through 2 were scanned since the last note section.
+ */
+function computeChapterRangeLabel(
+    firstChapter: string | null,
+    lastChapter: string | null,
+    hasEncounteredVerses: boolean
+): string {
+    if (!hasEncounteredVerses || !firstChapter) return "Preface";
+    if (!lastChapter || firstChapter === lastChapter) return firstChapter;
+    return `${firstChapter}-${lastChapter}`;
+}
+
 async function createCellsFromStories(
     stories: unknown[],
     htmlRepresentation: { stories?: { id: string }[]; originalHash?: string },
@@ -59,7 +75,21 @@ async function createCellsFromStories(
     let currentChapter = "1";
     let currentVerseArray: string[] = [];
     let hasEncounteredVerses = false;
-    let hasEncounteredNotesSinceLastVerse = false;
+
+    // Chapter-range tracking for milestone labels.
+    // firstChapterInRange: first chapter seen in verse paragraphs since last note section.
+    // lastChapterInRange: latest chapter seen since last note section.
+    let firstChapterInRange: string | null = null;
+    let lastChapterInRange: string | null = null;
+    // The computed label for the current note section (set once when we enter notes).
+    let currentMilestoneLabel: string | null = null;
+
+    const updateChapterRange = (chapter: string) => {
+        if (!firstChapterInRange) {
+            firstChapterInRange = chapter;
+        }
+        lastChapterInRange = chapter;
+    };
 
     for (const story of stories as Array<{
         id: string;
@@ -97,120 +127,45 @@ async function createCellsFromStories(
                   }
                 | undefined;
 
-            let chapterDetectedFromVerse = false;
-
+            // --- Update currentChapter from verse data ---
             if (verseSegments && Array.isArray(verseSegments) && verseSegments.length > 0) {
-                const firstVerse = verseSegments[0];
-                const verseChapter = firstVerse.chapterNumber;
-                if (verseChapter) {
-                    if (verseChapter !== currentChapter && hasEncounteredNotesSinceLastVerse) {
-                        currentVerseArray = [];
-                    }
-                    currentChapter = verseChapter;
-                    chapterDetectedFromVerse = true;
-                    hasEncounteredNotesSinceLastVerse = false;
-                }
-            } else if (isPartOfSpanningVerse && spanningVerseInfo) {
-                const spanningVerseChapter = spanningVerseInfo.chapterNumber;
-                if (spanningVerseChapter) {
-                    if (
-                        spanningVerseChapter !== currentChapter &&
-                        hasEncounteredNotesSinceLastVerse
-                    ) {
-                        currentVerseArray = [];
-                    }
-                    currentChapter = spanningVerseChapter;
-                    chapterDetectedFromVerse = true;
-                    hasEncounteredNotesSinceLastVerse = false;
-                }
+                const verseChapter = verseSegments[0].chapterNumber;
+                if (verseChapter) currentChapter = verseChapter;
+            } else if (isPartOfSpanningVerse && spanningVerseInfo?.chapterNumber) {
+                currentChapter = spanningVerseInfo.chapterNumber;
             }
 
+            // --- Detect new book ---
             if (paragraph.metadata?.bookAbbreviation) {
-                currentBook = paragraph.metadata.bookAbbreviation as string;
-            }
-            if (paragraph.metadata?.lastChapterNumber) {
-                const newChapter = paragraph.metadata.lastChapterNumber as string;
-                if (!chapterDetectedFromVerse && newChapter !== currentChapter) {
-                    if (hasEncounteredNotesSinceLastVerse) {
-                        currentVerseArray = [];
-                    }
-                    currentChapter = newChapter;
-                } else if (chapterDetectedFromVerse && newChapter !== currentChapter) {
-                    if (hasEncounteredNotesSinceLastVerse) {
-                        currentVerseArray = [];
-                    }
-                    currentChapter = newChapter;
+                const newBook = paragraph.metadata.bookAbbreviation as string;
+                if (newBook !== currentBook) {
+                    currentBook = newBook;
+                    currentVerseArray = [];
+                    currentChapter = "1";
+                    hasEncounteredVerses = false;
+                    firstChapterInRange = null;
+                    lastChapterInRange = null;
+                    currentMilestoneLabel = null;
                 }
             }
 
+            // --- Update currentChapter from paragraph metadata ---
+            if (paragraph.metadata?.lastChapterNumber) {
+                currentChapter = paragraph.metadata.lastChapterNumber as string;
+            }
+
+            // --- Fallback book detection from paragraph content ---
             if (!currentBook) {
                 const validBookCodes = [
-                    "GEN",
-                    "EXO",
-                    "LEV",
-                    "NUM",
-                    "DEU",
-                    "JOS",
-                    "JDG",
-                    "RUT",
-                    "1SA",
-                    "2SA",
-                    "1KI",
-                    "2KI",
-                    "1CH",
-                    "2CH",
-                    "EZR",
-                    "NEH",
-                    "EST",
-                    "JOB",
-                    "PSA",
-                    "PRO",
-                    "ECC",
-                    "SNG",
-                    "ISA",
-                    "JER",
-                    "LAM",
-                    "EZK",
-                    "DAN",
-                    "HOS",
-                    "JOL",
-                    "AMO",
-                    "OBA",
-                    "JON",
-                    "MIC",
-                    "NAM",
-                    "HAB",
-                    "ZEP",
-                    "HAG",
-                    "ZEC",
-                    "MAL",
-                    "MAT",
-                    "MRK",
-                    "LUK",
-                    "JHN",
-                    "ACT",
-                    "ROM",
-                    "1CO",
-                    "2CO",
-                    "GAL",
-                    "EPH",
-                    "PHP",
-                    "COL",
-                    "1TH",
-                    "2TH",
-                    "1TI",
-                    "2TI",
-                    "TIT",
-                    "PHM",
-                    "HEB",
-                    "JAS",
-                    "1PE",
-                    "2PE",
-                    "1JN",
-                    "2JN",
-                    "3JN",
-                    "JUD",
-                    "REV",
+                    "GEN", "EXO", "LEV", "NUM", "DEU", "JOS", "JDG", "RUT",
+                    "1SA", "2SA", "1KI", "2KI", "1CH", "2CH", "EZR", "NEH",
+                    "EST", "JOB", "PSA", "PRO", "ECC", "SNG", "ISA", "JER",
+                    "LAM", "EZK", "DAN", "HOS", "JOL", "AMO", "OBA", "JON",
+                    "MIC", "NAM", "HAB", "ZEP", "HAG", "ZEC", "MAL", "MAT",
+                    "MRK", "LUK", "JHN", "ACT", "ROM", "1CO", "2CO", "GAL",
+                    "EPH", "PHP", "COL", "1TH", "2TH", "1TI", "2TI", "TIT",
+                    "PHM", "HEB", "JAS", "1PE", "2PE", "1JN", "2JN", "3JN",
+                    "JUD", "REV",
                 ];
                 const paragraphContent =
                     paragraph.characterStyleRanges
@@ -223,29 +178,33 @@ async function createCellsFromStories(
                 }
             }
 
+            // --- Update currentChapter from chapter number markers (cv:dc or meta:c) ---
+            // JOB uses cv:dc ("1", "2", …), Psalms uses meta:c ("1:", "2:", …)
             const characterRanges = paragraph.characterStyleRanges || [];
             for (const range of characterRanges) {
                 const style = range.appliedCharacterStyle || "";
                 if (style.includes("cv%3adc") || style.includes("cv:dc")) {
-                    const chapterNum = range.content.trim();
+                    const chapterNum = (range.content || "").trim();
                     if (chapterNum && /^\d+$/.test(chapterNum)) {
-                        if (!chapterDetectedFromVerse && currentChapter !== chapterNum) {
-                            if (hasEncounteredNotesSinceLastVerse) {
-                                currentVerseArray = [];
-                            }
-                            currentChapter = chapterNum;
-                        } else if (chapterDetectedFromVerse && chapterNum !== currentChapter) {
-                            if (hasEncounteredNotesSinceLastVerse) {
-                                currentVerseArray = [];
-                            }
-                            currentChapter = chapterNum;
-                        }
+                        currentChapter = chapterNum;
+                        break;
+                    }
+                }
+                if (style.includes("meta%3ac") || style.includes("meta:c")) {
+                    const metaCMatch = (range.content || "").trim().match(/^(\d+)/);
+                    if (metaCMatch) {
+                        currentChapter = metaCMatch[1];
                         break;
                     }
                 }
             }
 
+            // --- Handle verse paragraphs (skip, but track chapter range) ---
             if (verseSegments && Array.isArray(verseSegments) && verseSegments.length > 0) {
+                // Entering a verse section resets the milestone label so the
+                // next note section gets a fresh computation.
+                currentMilestoneLabel = null;
+
                 for (const verse of verseSegments) {
                     const { bookAbbreviation, chapterNumber, verseNumber } = verse;
                     const finalVerseBook = bookAbbreviation || currentBook;
@@ -254,26 +213,30 @@ async function createCellsFromStories(
                         const verseRef = `${finalVerseBook} ${finalVerseChapter}:${verseNumber}`;
                         if (!currentVerseArray.includes(verseRef)) {
                             currentVerseArray.push(verseRef);
-                            hasEncounteredVerses = true;
                         }
+                        updateChapterRange(finalVerseChapter);
+                        hasEncounteredVerses = true;
                     }
                 }
                 continue;
             }
 
             if (isPartOfSpanningVerse && spanningVerseInfo) {
+                currentMilestoneLabel = null;
                 const { bookAbbreviation, chapterNumber, verseNumber } = spanningVerseInfo;
                 const spanningVerseBook = bookAbbreviation || currentBook;
-                const spanningVerseChapter = chapterNumber;
-                if (spanningVerseBook && spanningVerseChapter && verseNumber) {
-                    const verseRef = `${spanningVerseBook} ${spanningVerseChapter}:${verseNumber}`;
+                if (spanningVerseBook && chapterNumber && verseNumber) {
+                    const verseRef = `${spanningVerseBook} ${chapterNumber}:${verseNumber}`;
                     if (!currentVerseArray.includes(verseRef)) {
                         currentVerseArray.push(verseRef);
-                        hasEncounteredVerses = true;
                     }
+                    updateChapterRange(chapterNumber);
+                    hasEncounteredVerses = true;
                 }
                 continue;
             }
+
+            // --- From here on, this is a non-verse paragraph (note / intro / meta) ---
 
             const content = paragraph.paragraphStyleRange.content;
             const ranges = paragraph.characterStyleRanges || [];
@@ -291,7 +254,35 @@ async function createCellsFromStories(
                 continue;
             }
 
-            hasEncounteredNotesSinceLastVerse = true;
+            // Chapter label headings (head:cl) like "Psalm 2" introduce a new
+            // chapter. Force a new milestone so the heading and any following
+            // descriptions (head:d_h) are grouped with the upcoming chapter,
+            // not the previous one.
+            const isChapterHeading =
+                paragraphStyle.includes("head%3acl") || paragraphStyle.includes("head:cl");
+            if (isChapterHeading) {
+                const chapterMatch = contentWithoutBreaks.match(/(\d+)\s*$/);
+                if (chapterMatch) {
+                    currentMilestoneLabel = chapterMatch[1];
+                    firstChapterInRange = null;
+                    lastChapterInRange = null;
+                    currentVerseArray = [];
+                }
+            }
+
+            // First note paragraph after a verse section: compute the milestone label
+            // for this note group and freeze it until the next verse section.
+            if (currentMilestoneLabel === null) {
+                currentMilestoneLabel = computeChapterRangeLabel(
+                    firstChapterInRange,
+                    lastChapterInRange,
+                    hasEncounteredVerses
+                );
+                // Reset range tracking so the next verse section starts fresh.
+                firstChapterInRange = null;
+                lastChapterInRange = null;
+                currentVerseArray = [];
+            }
 
             const contentWithBreaks = combinedContent.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
             const segments = contentWithBreaks.split("\n");
@@ -361,23 +352,8 @@ async function createCellsFromStories(
                 const htmlContent = `<p class="biblica-paragraph" data-paragraph-style="${paragraphStyle}" data-story-id="${story.id}" data-segment-index="${segmentIndex}" data-is-last-segment="${isLastSegment}">${inlineHTML}</p>`;
 
                 let noteGlobalReferences: string[] = [];
-                if (hasEncounteredVerses && currentVerseArray.length > 0) {
-                    noteGlobalReferences = [...currentVerseArray];
-                } else if (currentBook) {
+                if (currentBook) {
                     noteGlobalReferences = [currentBook];
-                }
-
-                let chapterNumberMeta: string | undefined;
-                if (noteGlobalReferences.length > 0) {
-                    const firstRef = noteGlobalReferences[0];
-                    const match = firstRef.match(/\s+(\d+):/);
-                    if (match) {
-                        chapterNumberMeta = match[1];
-                    } else if (currentChapter) {
-                        chapterNumberMeta = currentChapter;
-                    }
-                } else if (currentChapter) {
-                    chapterNumberMeta = currentChapter;
                 }
 
                 const { cellId, metadata: cellMetadata } = createNoteCellMetadata({
@@ -395,7 +371,7 @@ async function createCellsFromStories(
                     segmentIndex,
                     totalSegments: finalSegments.length,
                     isLastSegment,
-                    chapterNumber: chapterNumberMeta,
+                    chapterNumber: currentMilestoneLabel ?? undefined,
                 });
 
                 const cell = createProcessedCell(
