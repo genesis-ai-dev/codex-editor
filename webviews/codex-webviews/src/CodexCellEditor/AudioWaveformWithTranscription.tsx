@@ -263,7 +263,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
 
             {/* Action buttons at bottom */}
             <div className="flex flex-wrap items-center justify-center gap-2 px-2">
-                {!transcription && !isTranscribing && (() => {
+                {!isTranscribing && (() => {
                     const transcribeDisabled = disabled || (!audioUrl && !audioBlob);
                     const isAuto = asrLanguageMode === "auto";
                     // The label shows what will actually happen on click — the
@@ -272,6 +272,16 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     // resolve a project language to send.
                     const effectiveLabel =
                         !isAuto && asrLanguageName ? asrLanguageName : "Auto Detect";
+                    // Once a transcription exists, the same control becomes a
+                    // "Re-transcribe" affordance — same flow, just relabeled so
+                    // users know they're about to overwrite the saved result.
+                    const hasExistingTranscription = !!transcription;
+                    const transcribeButtonLabel = hasExistingTranscription
+                        ? "Re-transcribe"
+                        : "Transcribe";
+                    const transcribeTitle = hasExistingTranscription
+                        ? `Re-transcribe Audio (${effectiveLabel})`
+                        : `Transcribe Audio (${effectiveLabel})`;
                     const sharedBtnClass =
                         "h-8 px-2 text-xs text-[var(--vscode-button-background)] border-[var(--vscode-button-background)]/20 hover:bg-[var(--vscode-button-background)]/10";
                     return (
@@ -281,10 +291,10 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                                 disabled={transcribeDisabled}
                                 variant="outline"
                                 className={`${sharedBtnClass} rounded-r-none border-r-0`}
-                                title={`Transcribe Audio (${effectiveLabel})`}
+                                title={transcribeTitle}
                             >
                                 <MessageCircle className="h-3 w-3" />
-                                <span className="ml-1">Transcribe</span>
+                                <span className="ml-1">{transcribeButtonLabel}</span>
                             </Button>
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
