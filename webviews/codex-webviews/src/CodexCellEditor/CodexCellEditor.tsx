@@ -577,12 +577,18 @@ const CodexCellEditor: React.FC = () => {
                             );
                             const text = (result.text || "").trim();
                             if (text) {
+                                // Reflect what was actually sent on the wire so
+                                // the post-transcription badge can distinguish
+                                // project-language runs from auto-detect runs.
+                                const languageLabel = isAutoMode
+                                    ? "Auto Detect"
+                                    : asrConfig.language?.name || "";
                                 vscode.postMessage({
                                     command: "updateCellAfterTranscription",
                                     content: {
                                         cellId,
                                         transcribedText: text,
-                                        language: asrConfig.language?.name || "",
+                                        language: languageLabel,
                                     },
                                 } as unknown as EditorPostMessages);
 

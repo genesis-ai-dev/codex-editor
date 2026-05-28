@@ -3099,11 +3099,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 // Save transcription to cell metadata
                 const audioId = sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
                 if (audioId) {
-                    const languageName = asrConfig?.language?.name || "";
+                    // Reflect what we actually sent on the wire, not the project
+                    // language. In auto mode the badge should say "Auto Detect"
+                    // so the user can tell which mode produced this output.
+                    const languageLabel = isAutoMode
+                        ? "Auto Detect"
+                        : asrConfig?.language?.name || "";
                     const transcriptionData = {
                         content: transcribedText,
                         timestamp: Date.now(),
-                        language: languageName,
+                        language: languageLabel,
                     };
 
                     // Save to cell metadata via provider
@@ -3112,7 +3117,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         content: {
                             cellId: cellMarkers[0],
                             transcribedText: transcribedText,
-                            language: languageName,
+                            language: languageLabel,
                         },
                     };
                     window.vscodeApi.postMessage(messageContent);
