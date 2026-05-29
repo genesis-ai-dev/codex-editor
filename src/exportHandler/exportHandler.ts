@@ -1833,7 +1833,7 @@ export async function exportCodexContent(
     if (includeAudio) {
         const { exportAudioAttachments } = await import("./audioExporter");
         exportPromises.push(
-            exportAudioAttachments(audioPath, filesToExport, {
+            exportAudioAttachments(audioPath, filesToExport, childReporter, {
                 includeTimestamps: options?.includeTimestamps,
                 selectedMilestonesByFile: options?.selectedMilestonesByFile,
             })
