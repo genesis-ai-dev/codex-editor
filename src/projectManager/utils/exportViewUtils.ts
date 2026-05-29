@@ -1,11 +1,12 @@
 import * as vscode from "vscode";
-import { CodexNotebookAsJSONData } from "../../../types";
+import { CodexNotebookAsJSONData, MilestoneInfo } from "../../../types";
 import {
     getCellAudioState,
     isExportableCell,
     isLabelableCell,
 } from "../../exportHandler/audioAttachmentUtils";
 import { formatCellDisplayLabel } from "../../exportHandler/cellLabelUtils";
+import { extractMilestonesFromCells } from "../../../sharedUtils/milestoneIndexUtils";
 
 export {
     EXPORT_OPTIONS_BY_FILE_TYPE,
@@ -82,7 +83,11 @@ export interface FileGroupEntry {
     hasTranslations: boolean;
     hasAudio: boolean;
     audioStats?: NotebookAudioStats;
+    milestones: MilestoneInfo[];
 }
+
+/** File types that support milestone selection during bible audio export */
+export const BIBLE_MILESTONE_EXPORT_GROUP_KEYS = new Set(["usfm", "ebible", "paratext"]);
 
 export interface FileGroup {
     groupKey: string;
@@ -389,6 +394,7 @@ export async function groupCodexFilesByImporterType(
             const audioStats = hasAudio
                 ? analyzeNotebookAudioStats(notebook, bookCode)
                 : undefined;
+            const milestones = extractMilestonesFromCells(notebook.cells);
 
             if (!groupsMap.has(groupKey)) {
                 groupsMap.set(groupKey, []);
@@ -400,6 +406,7 @@ export async function groupCodexFilesByImporterType(
                 hasTranslations,
                 hasAudio,
                 audioStats,
+                milestones,
             });
         } catch {
             const name = uri.fsPath.split(/[/\\]/).pop() || "";
@@ -412,6 +419,7 @@ export async function groupCodexFilesByImporterType(
                 displayName: name.replace(/\.codex$/i, "") || name,
                 hasTranslations: false,
                 hasAudio: false,
+                milestones: [{ index: 0, cellIndex: 0, value: "1", cellCount: 0 }],
             });
         }
     }

@@ -4,7 +4,7 @@ import * as fs from "fs";
 import * as vscode from "vscode";
 import { safePostMessageToPanel } from "../utils/webviewUtils";
 import { EXPORT_OPTIONS_BY_FILE_TYPE } from "../../sharedUtils/exportOptionsEligibility";
-import { groupCodexFilesByImporterType, type FileGroup } from "./utils/exportViewUtils";
+import { groupCodexFilesByImporterType, type FileGroup, BIBLE_MILESTONE_EXPORT_GROUP_KEYS } from "./utils/exportViewUtils";
 import { readCodexNotebookFromUri } from "../exportHandler/exportHandlerUtils";
 import { compareHtmlStructure } from "../../sharedUtils/htmlStructureUtils";
 import { getMediaFilesStrategy } from "../utils/localProjectSettings";
@@ -365,6 +365,7 @@ function getWebviewContent(
     const groupsJson = JSON.stringify(fileGroups);
     const exportOptionsConfigJson = JSON.stringify(EXPORT_OPTIONS_BY_FILE_TYPE);
     const initialExportFolderJson = JSON.stringify(initialExportFolder);
+    const bibleMilestoneGroupKeysJson = JSON.stringify([...BIBLE_MILESTONE_EXPORT_GROUP_KEYS]);
 
     return `<!DOCTYPE html>
     <html>
@@ -479,6 +480,45 @@ function getWebviewContent(
                     padding: 12px;
                     background-color: var(--vscode-editor-background);
                     border-top: 1px solid var(--vscode-input-border);
+                }
+                .milestone-file-group {
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 4px;
+                    margin-bottom: 12px;
+                    overflow: hidden;
+                }
+                .milestone-file-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 12px;
+                    background-color: var(--vscode-editor-inactiveSelectionBackground);
+                }
+                .milestone-file-header h4 {
+                    margin: 0;
+                    flex: 1;
+                    font-size: 0.95em;
+                }
+                .milestone-list {
+                    padding: 8px 12px 12px 32px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                    background-color: var(--vscode-editor-background);
+                    border-top: 1px solid var(--vscode-input-border);
+                }
+                .milestone-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+                .milestone-item label {
+                    cursor: pointer;
+                    user-select: none;
+                }
+                .milestone-select-all {
+                    font-size: 0.85em;
+                    color: var(--vscode-descriptionForeground);
                 }
                 .file-item {
                     display: flex;
@@ -1282,8 +1322,19 @@ function getWebviewContent(
                     </div>
                 </div>
 
-                <!-- STEP 3: Export Location -->
+                <!-- STEP 3: Milestone Selection (bible audio export) -->
                 <div id="step3" class="step-panel">
+                    <div class="step-content">
+                        <h3>Select Milestones</h3>
+                        <p style="color: var(--vscode-descriptionForeground); margin-bottom: 16px;">
+                            Choose which chapters (milestones) to include in the audio export. All milestones are selected by default.
+                        </p>
+                        <div id="milestoneGroupsContainer"></div>
+                    </div>
+                </div>
+
+                <!-- STEP 4: Export Location -->
+                <div id="step4" class="step-panel">
                     <div class="step-content">
                         <h3>Select Export Location</h3>
                         <p style="color: var(--vscode-descriptionForeground); margin-bottom: 16px;">
@@ -1372,10 +1423,13 @@ function getWebviewContent(
                         <div class="progress-circle" id="progressCircle2">2</div>
                         <div class="progress-line" id="progressLine2"></div>
                         <div class="progress-circle" id="progressCircle3">3</div>
+                        <div class="progress-line" id="progressLine3"></div>
+                        <div class="progress-circle" id="progressCircle4">4</div>
                     </div>
                     <div class="bottom-bar-right">
                         <button class="step-btn visible" id="nextStep1" disabled onclick="goToStep2()"><span class="btn-text">Next Step</span><i class="codicon codicon-arrow-right"></i></button>
                         <button class="step-btn" id="nextStep2" disabled onclick="advanceFromStep2()"><span class="btn-text">Next Step</span><i class="codicon codicon-arrow-right"></i></button>
+                        <button class="step-btn" id="nextStep3" disabled onclick="goToStep4()"><span class="btn-text">Next Step</span><i class="codicon codicon-arrow-right"></i></button>
                         <button class="step-btn" id="exportButton" disabled onclick="exportProject()"><span class="btn-text">Export</span><i class="codicon codicon-arrow-down"></i></button>
                     </div>
                 </div>
@@ -1458,6 +1512,7 @@ function getWebviewContent(
                 const vscode = acquireVsCodeApi();
                 const fileGroups = ${groupsJson};
                 const exportOptionsConfig = ${exportOptionsConfigJson};
+                const bibleMilestoneGroupKeys = new Set(${bibleMilestoneGroupKeysJson});
                 const isStreamOnly = ${JSON.stringify(isStreamOnly)};
                 let currentStep = 1;
                 let selectedFormat = null;
@@ -1465,6 +1520,153 @@ function getWebviewContent(
                 let exportPath = ${initialExportFolderJson};
                 let selectedFiles = new Set();
                 let selectedGroupKey = null;
+                /** @type {Record<string, Set<number>>} */
+                let selectedMilestonesByFile = {};
+
+                function shouldShowMilestoneStep() {
+                    if (!selectedAudioMode) return false;
+                    if (!selectedGroupKey || !bibleMilestoneGroupKeys.has(selectedGroupKey)) return false;
+                    for (const path of selectedFiles) {
+                        const f = fileLookup[path];
+                        if (f && f.milestones && f.milestones.length > 0) return true;
+                    }
+                    return false;
+                }
+
+                function getTotalStepCount() {
+                    return shouldShowMilestoneStep() ? 4 : 3;
+                }
+
+                function getProgressDisplayStep(step) {
+                    if (!shouldShowMilestoneStep() && step === 4) return 3;
+                    return step;
+                }
+
+                /** @type {string[]} Maps milestone UI file index to codex path */
+                let milestoneFilePaths = [];
+
+                function initMilestoneSelection() {
+                    selectedMilestonesByFile = {};
+                    milestoneFilePaths = [];
+                    for (const path of selectedFiles) {
+                        const f = fileLookup[path];
+                        if (f && f.milestones && f.milestones.length > 0) {
+                            selectedMilestonesByFile[path] = new Set(f.milestones.map(m => m.index));
+                            milestoneFilePaths.push(path);
+                        }
+                    }
+                    renderMilestoneSelection();
+                    updateStep3Button();
+                }
+
+                function renderMilestoneSelection() {
+                    const container = document.getElementById('milestoneGroupsContainer');
+                    if (!container) return;
+                    if (milestoneFilePaths.length === 0) {
+                        container.innerHTML = '<p style="color: var(--vscode-descriptionForeground);">No milestones found in the selected files.</p>';
+                        return;
+                    }
+                    container.innerHTML = milestoneFilePaths.map((filePath, fileIdx) => {
+                        const f = fileLookup[filePath];
+                        const selectedSet = selectedMilestonesByFile[filePath] || new Set();
+                        const allSelected = f.milestones.every(m => selectedSet.has(m.index));
+                        const selectAllId = 'milestone-select-all-' + fileIdx;
+                        const milestonesHtml = f.milestones.map((m, mIdx) => {
+                            const cbId = 'milestone-' + fileIdx + '-' + mIdx;
+                            const checked = selectedSet.has(m.index) ? 'checked' : '';
+                            const label = ((m.value || String(m.index + 1)).replace(/<[^>]*>/g, '').trim()) || String(m.index + 1);
+                            return \`
+                                <div class="milestone-item">
+                                    <input type="checkbox" id="\${cbId}" data-file-idx="\${fileIdx}" data-milestone-index="\${m.index}" \${checked}
+                                        onchange="onMilestoneCheckboxChange(\${fileIdx}, \${m.index})">
+                                    <label for="\${cbId}">\${label}</label>
+                                </div>
+                            \`;
+                        }).join('');
+                        return \`
+                            <div class="milestone-file-group" data-file-idx="\${fileIdx}">
+                                <div class="milestone-file-header">
+                                    <h4><i class="codicon codicon-file"></i> \${f.displayName}</h4>
+                                    <label class="milestone-select-all" onclick="event.stopPropagation()">
+                                        <input type="checkbox" id="\${selectAllId}" data-file-idx="\${fileIdx}" \${allSelected ? 'checked' : ''}
+                                            onchange="onMilestoneSelectAllChange(\${fileIdx})"> Select all
+                                    </label>
+                                </div>
+                                <div class="milestone-list">\${milestonesHtml}</div>
+                            </div>
+                        \`;
+                    }).join('');
+                }
+
+                function onMilestoneCheckboxChange(fileIdx, milestoneIndex) {
+                    const filePath = milestoneFilePaths[fileIdx];
+                    if (!filePath) return;
+                    if (!selectedMilestonesByFile[filePath]) {
+                        selectedMilestonesByFile[filePath] = new Set();
+                    }
+                    const cb = document.querySelector('input[data-file-idx="' + fileIdx + '"][data-milestone-index="' + milestoneIndex + '"]');
+                    if (cb && cb.checked) {
+                        selectedMilestonesByFile[filePath].add(milestoneIndex);
+                    } else {
+                        selectedMilestonesByFile[filePath].delete(milestoneIndex);
+                    }
+                    syncMilestoneSelectAllCheckbox(fileIdx);
+                    updateStep3Button();
+                }
+
+                function onMilestoneSelectAllChange(fileIdx) {
+                    const filePath = milestoneFilePaths[fileIdx];
+                    const f = filePath ? fileLookup[filePath] : null;
+                    if (!f || !f.milestones) return;
+                    const selectAllCb = document.querySelector('.milestone-file-group[data-file-idx="' + fileIdx + '"] input[data-file-idx]:not([data-milestone-index])');
+                    const shouldSelectAll = selectAllCb && selectAllCb.checked;
+                    if (!selectedMilestonesByFile[filePath]) {
+                        selectedMilestonesByFile[filePath] = new Set();
+                    }
+                    if (shouldSelectAll) {
+                        f.milestones.forEach(m => selectedMilestonesByFile[filePath].add(m.index));
+                    } else {
+                        selectedMilestonesByFile[filePath].clear();
+                    }
+                    renderMilestoneSelection();
+                    updateStep3Button();
+                }
+
+                function syncMilestoneSelectAllCheckbox(fileIdx) {
+                    const filePath = milestoneFilePaths[fileIdx];
+                    const f = filePath ? fileLookup[filePath] : null;
+                    if (!f || !f.milestones) return;
+                    const selectedSet = selectedMilestonesByFile[filePath] || new Set();
+                    const allSelected = f.milestones.every(m => selectedSet.has(m.index));
+                    const selectAllCb = document.querySelector('.milestone-file-group[data-file-idx="' + fileIdx + '"] input[data-file-idx]:not([data-milestone-index])');
+                    if (selectAllCb) selectAllCb.checked = allSelected;
+                }
+
+                function updateStep3Button() {
+                    const btn = document.getElementById('nextStep3');
+                    if (!btn) return;
+                    let anySelected = false;
+                    for (const path of selectedFiles) {
+                        const set = selectedMilestonesByFile[path];
+                        if (set && set.size > 0) {
+                            anySelected = true;
+                            break;
+                        }
+                    }
+                    btn.disabled = !anySelected;
+                }
+
+                function buildSelectedMilestonesPayload() {
+                    if (!shouldShowMilestoneStep()) return undefined;
+                    const payload = {};
+                    for (const path of selectedFiles) {
+                        const set = selectedMilestonesByFile[path];
+                        if (set && set.size > 0) {
+                            payload[path] = Array.from(set).sort((a, b) => a - b);
+                        }
+                    }
+                    return Object.keys(payload).length > 0 ? payload : undefined;
+                }
 
                 // Build a path→file lookup so Step 2 can check audio-only status
                 const fileLookup = {};
@@ -2149,6 +2351,7 @@ function getWebviewContent(
                     const back = document.getElementById('btnBack');
                     const next1 = document.getElementById('nextStep1');
                     const next2 = document.getElementById('nextStep2');
+                    const next3 = document.getElementById('nextStep3');
                     const exportBtn = document.getElementById('exportButton');
                     if (currentStep === 1) {
                         if (cancel) cancel.classList.add('visible');
@@ -2158,39 +2361,95 @@ function getWebviewContent(
                         if (next2) next2.classList.add('visible');
                     } else if (currentStep === 3) {
                         if (back) back.classList.add('visible');
+                        if (next3) next3.classList.add('visible');
+                    } else if (currentStep === 4) {
+                        if (back) back.classList.add('visible');
                         if (exportBtn) exportBtn.classList.add('visible');
                     }
                 }
 
+                function updateProgressBarVisuals(activeStep) {
+                    const showMilestones = shouldShowMilestoneStep();
+                    const circle3 = document.getElementById('progressCircle3');
+                    const circle4 = document.getElementById('progressCircle4');
+                    const line3 = document.getElementById('progressLine3');
+                    if (circle4) circle4.style.display = showMilestones ? '' : 'none';
+                    if (line3) line3.style.display = showMilestones ? '' : 'none';
+
+                    const resetCircle = (circle, label) => {
+                        if (!circle) return;
+                        circle.classList.remove('active', 'completed');
+                        circle.textContent = String(label);
+                    };
+
+                    resetCircle(document.getElementById('progressCircle1'), 1);
+                    resetCircle(document.getElementById('progressCircle2'), 2);
+                    resetCircle(circle3, showMilestones ? 3 : 3);
+                    resetCircle(circle4, 4);
+
+                    const setCircleState = (circleId, state) => {
+                        const circle = document.getElementById(circleId);
+                        if (!circle) return;
+                        circle.classList.remove('active', 'completed');
+                        if (state === 'completed') {
+                            circle.classList.add('completed');
+                            circle.innerHTML = '<i class="codicon codicon-check"></i>';
+                        } else if (state === 'active') {
+                            circle.classList.add('active');
+                        }
+                    };
+
+                    if (showMilestones) {
+                        for (let step = 1; step <= 4; step++) {
+                            const state = step < activeStep ? 'completed' : (step === activeStep ? 'active' : 'idle');
+                            if (state !== 'idle') setCircleState('progressCircle' + step, state);
+                        }
+                        document.querySelectorAll('[id^="progressLine"]').forEach((line, i) => {
+                            line.classList.remove('completed');
+                            if (i + 1 < activeStep) line.classList.add('completed');
+                        });
+                    } else {
+                        const circleSteps = [
+                            { circle: 1, step: 1 },
+                            { circle: 2, step: 2 },
+                            { circle: 3, step: 4 },
+                        ];
+                        for (const { circle, step } of circleSteps) {
+                            const state = step < activeStep ? 'completed' : (step === activeStep ? 'active' : 'idle');
+                            if (state !== 'idle') setCircleState('progressCircle' + circle, state);
+                        }
+                        const line1 = document.getElementById('progressLine1');
+                        const line2 = document.getElementById('progressLine2');
+                        if (line1) line1.classList.toggle('completed', activeStep > 1);
+                        if (line2) line2.classList.toggle('completed', activeStep >= 4);
+                    }
+
+                    const compact = document.getElementById('progressCompact');
+                    if (compact) {
+                        compact.textContent = 'Step ' + getProgressDisplayStep(activeStep) + ' of ' + getTotalStepCount();
+                    }
+                }
+
                 function goBack() {
-                    goToStep(currentStep - 1);
+                    if (currentStep === 4) {
+                        goToStep(shouldShowMilestoneStep() ? 3 : 2);
+                    } else {
+                        goToStep(currentStep - 1);
+                    }
                 }
 
                 function goToStep(n) {
                     const prevStep = currentStep;
                     document.querySelectorAll('.step-panel').forEach(p => p.classList.remove('active'));
                     document.getElementById('step' + n).classList.add('active');
-                    document.querySelectorAll('[id^="progressCircle"]').forEach((circle, i) => {
-                        circle.classList.remove('active', 'completed');
-                        if (i + 1 < n) {
-                            circle.classList.add('completed');
-                            circle.innerHTML = '<i class="codicon codicon-check"></i>';
-                        } else {
-                            circle.textContent = String(i + 1);
-                            if (i + 1 === n) circle.classList.add('active');
-                        }
-                    });
-                    document.querySelectorAll('[id^="progressLine"]').forEach((line, i) => {
-                        line.classList.remove('completed');
-                        if (i + 1 < n) line.classList.add('completed');
-                    });
-                    const compact = document.getElementById('progressCompact');
-                    if (compact) compact.textContent = 'Step ' + n + ' of 3';
+                    updateProgressBarVisuals(n);
                     currentStep = n;
                     updateButtonVisibility();
                     if (n === 2) {
                         initStep2Options(prevStep === 1);
-                    } else if (n === 3) {
+                    } else if (n === 3 && shouldShowMilestoneStep()) {
+                        initMilestoneSelection();
+                    } else if (n === 4) {
                         updateExportButton();
                     }
                 }
@@ -2198,6 +2457,11 @@ function getWebviewContent(
                 function goToStep1() { goToStep(1); }
                 function goToStep2() { goToStep(2); }
                 function goToStep3() { goToStep(3); }
+                function goToStep4() { goToStep(4); }
+
+                function advanceToNextStepAfterFormat() {
+                    goToStep(shouldShowMilestoneStep() ? 3 : 4);
+                }
 
                 function updateStep2Button() {
                     const btn = document.getElementById('nextStep2');
@@ -2448,8 +2712,11 @@ function getWebviewContent(
                         });
                         return;
                     }
-                    goToStep(3);
+                    advanceToNextStepAfterFormat();
                 }
+
+                window.onMilestoneCheckboxChange = onMilestoneCheckboxChange;
+                window.onMilestoneSelectAllChange = onMilestoneSelectAllChange;
 
                 window.addEventListener('message', event => {
                     const message = event.data;
@@ -2504,7 +2771,7 @@ function getWebviewContent(
                         pendingSubtitleOverlapCheck = false;
                         updateStep2Button();
                         if (message.proceed) {
-                            goToStep(3);
+                            advanceToNextStepAfterFormat();
                         }
                     }
                 });
@@ -2513,6 +2780,7 @@ function getWebviewContent(
                     renderFileGroups();
                     setupCellListPopover();
                     updateStep1Button();
+                    updateProgressBarVisuals(1);
                     if (exportPath) {
                         const pathEl = document.getElementById('exportPath');
                         if (pathEl) pathEl.textContent = exportPath;
@@ -2674,6 +2942,10 @@ function getWebviewContent(
                     if (selectedAudioMode) {
                         options.includeAudio = true;
                         options.includeTimestamps = selectedAudioMode === 'audio-timestamps';
+                    }
+                    const selectedMilestones = buildSelectedMilestonesPayload();
+                    if (selectedMilestones) {
+                        options.selectedMilestonesByFile = selectedMilestones;
                     }
                     // Optimistically switch UI to the in-panel exporting screen so
                     // the user does not see Cancel / Back / Export anymore. The host

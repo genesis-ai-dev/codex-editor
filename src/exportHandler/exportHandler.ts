@@ -255,6 +255,8 @@ export interface ExportOptions {
     removeIds?: boolean;
     includeAudio?: boolean;
     includeTimestamps?: boolean;
+    /** Per-file list of 0-based milestone indices to include when exporting audio */
+    selectedMilestonesByFile?: Record<string, number[]>;
 }
 
 // IDML Round-trip export: Uses idmlExporter or biblicaExporter based on filename
@@ -1793,7 +1795,10 @@ export async function exportCodexContent(
             break;
         case CodexExportFormat.AUDIO: {
             const { exportAudioAttachments } = await import("./audioExporter");
-            exportPromises.push(exportAudioAttachments(wrapperPath, filesToExport, childReporter, { includeTimestamps: options?.includeTimestamps }));
+            exportPromises.push(exportAudioAttachments(wrapperPath, filesToExport, childReporter, {
+                includeTimestamps: options?.includeTimestamps,
+                selectedMilestonesByFile: options?.selectedMilestonesByFile,
+            }));
             break;
         }
         case CodexExportFormat.SUBTITLES_VTT_WITH_STYLES:
@@ -1828,8 +1833,9 @@ export async function exportCodexContent(
     if (includeAudio) {
         const { exportAudioAttachments } = await import("./audioExporter");
         exportPromises.push(
-            exportAudioAttachments(audioPath, filesToExport, childReporter, {
+            exportAudioAttachments(audioPath, filesToExport, {
                 includeTimestamps: options?.includeTimestamps,
+                selectedMilestonesByFile: options?.selectedMilestonesByFile,
             })
         );
     }

@@ -13,6 +13,10 @@ import type { ExportProgressReporter, ExportMissingReason } from "./exportProgre
 import { pickAudioAttachment, isExportableCell, type AudioPick, type AudioPickOutcome } from "./audioAttachmentUtils";
 import { formatCellDisplayLabel } from "./cellLabelUtils";
 import { CodexCellTypes } from "../../types/enums";
+import {
+    advanceMilestoneIndexForCell,
+    effectiveMilestoneIndex,
+} from "../../sharedUtils/milestoneIndexUtils";
 
 const execAsync = promisify(exec);
 
@@ -32,6 +36,7 @@ function debug(...args: any[]) {
 
 type ExportAudioOptions = {
     includeTimestamps?: boolean;
+    selectedMilestonesByFile?: Record<string, number[]>;
 };
 
 type AudioCellData = {
@@ -698,17 +703,13 @@ export async function exportAudioAttachments(
         const dialogueMap = computeDialogueLineNumbers(notebook.cells);
         debug(`Processing notebook with ${notebook.cells.length} cells`);
 
-        // Build milestone folder mapping: cellId -> milestone folder name
-        const cellMilestoneFolder = buildCellMilestoneMap(notebook.cells);
+        const milestoneFilter = options?.selectedMilestonesByFile?.[file.fsPath];
+        let currentMilestoneIndex = -1;
 
-        // Count audio cells for per-book progress. Paratext and
-        // milestone cells (e.g. chapter headers, intros) are not
-        // recording targets, so they're filtered out by
-        // `isExportableCell` — they would otherwise show up under
-        // "no audio recorded" purely as noise.
-        const audioCells: Array<{ cell: any; cellId: string; pick: AudioPick; }> = [];
-                for (const cell of notebook.cells) {
-                    if (!isExportableCell(cell)) continue;
+        for (const cell of notebook.cells) {
+            currentMilestoneIndex = advanceMilestoneIndexForCell(cell, currentMilestoneIndex);
+
+            if (!isExportableCell(cell)) continue;
             const cellId: string | undefined = cell?.metadata?.id;
             if (!cellId) continue;
             const outcome = pickAudioAttachmentForCell(cell);
@@ -720,6 +721,13 @@ export async function exportAudioAttachments(
             if (!label) {
                 // No identifier we can present to the user — omit
                 // entirely rather than reporting a row they can't act on.
+                continue;
+            }
+            if (
+                milestoneFilter &&
+                milestoneFilter.length > 0 &&
+                !milestoneFilter.includes(effectiveMilestoneIndex(currentMilestoneIndex))
+            ) {
                 continue;
             }
             if (outcome.state === "selection-missing") {
@@ -812,11 +820,11 @@ export async function exportAudioAttachments(
                 ? vscode.Uri.file(srcPath)
                 : vscode.Uri.joinPath(workspaceFolder.uri, srcPath);
 
-                    const timeFromCell = (cell?.metadata?.data || {}) as AudioCellData;
-                    // Use ?? so a literal 0 for audioStartTime/audioEndTime is preferred
-                    // over the cell timestamps, instead of falling through.
-                    const start = timeFromCell.audioStartTime ?? timeFromCell.startTime;
-                    const end = timeFromCell.audioEndTime ?? timeFromCell.endTime;
+            const timeFromCell = (cell?.metadata?.data || {}) as AudioCellData;
+            // Use ?? so a literal 0 for audioStartTime/audioEndTime is preferred
+            // over the cell timestamps, instead of falling through.
+            const start = timeFromCell.audioStartTime ?? timeFromCell.startTime;
+            const end = timeFromCell.audioEndTime ?? timeFromCell.endTime;
             const originalExt = extname(absoluteSrc.fsPath) || ".wav";
             const labelRaw = cell?.metadata?.cellLabel || "unlabeled";
             const label = sanitizeFileComponent(String(labelRaw).toLowerCase());
@@ -854,17 +862,17 @@ export async function exportAudioAttachments(
 
             const cellLabel = formatCellDisplayLabel(cell, cellId, bookCode);
 
-                    tasks.push({
-                        cellId,
-                        attachmentId: pick.id,
-                        cellLabel,
-                        absoluteSrc,
-                        destUri,
-                        targetFolder,
-                        originalExt,
-                        start,
-                        end,
-                    });
+            tasks.push({
+                cellId,
+                attachmentId: pick.id,
+                cellLabel,
+                absoluteSrc,
+                destUri,
+                targetFolder,
+                originalExt,
+                start,
+                end,
+            });
         }
 
         // Pre-create all target directories in parallel
