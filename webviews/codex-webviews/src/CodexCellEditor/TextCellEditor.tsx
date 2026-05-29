@@ -5457,23 +5457,23 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     <History className="h-3 w-3 mr-1" />
                                                     History
                                                     {audioHistoryCount > 0 && (
-                                                        <span
-                                                            className="ml-2 inline-flex items-center justify-center rounded-full"
+                                                        <Badge
+                                                            variant="secondary"
+                                                            className="ml-1 justify-center leading-none"
                                                             style={{
-                                                                minWidth: "1rem",
-                                                                height: "1rem",
-                                                                padding: "0 4px",
+                                                                minWidth: "1.5em",
+                                                                height: "1.5em",
+                                                                padding: "0 0.35em",
+                                                                fontSize: "0.85em",
+                                                                fontWeight: 700,
                                                                 backgroundColor:
                                                                     "var(--vscode-badge-background)",
                                                                 color: "var(--vscode-badge-foreground)",
-                                                                fontSize: "0.6rem",
-                                                                fontWeight: 700,
-                                                                lineHeight: 1,
                                                             }}
                                                             aria-label={`${audioHistoryCount} audio recording${audioHistoryCount === 1 ? "" : "s"} in history`}
                                                         >
                                                             {audioHistoryCount}
-                                                        </span>
+                                                        </Badge>
                                                     )}
                                                 </Button>
                                             )}
