@@ -1351,8 +1351,8 @@ function getWebviewContent(
                     </div>
                 </div>
 
-                <!-- STEP 4: Exporting -->
-                <div id="step4" class="step-panel">
+                <!-- Export progress (shown when export starts; not a numbered wizard step) -->
+                <div id="stepExporting" class="step-panel">
                     <div class="step-content">
                         <div class="export-progress-card">
                             <div class="export-progress-header">
@@ -2673,9 +2673,8 @@ function getWebviewContent(
                     exportState.started = true;
                     document.body.classList.add('exporting');
                     document.querySelectorAll('.step-panel').forEach(p => p.classList.remove('active'));
-                    const step4 = document.getElementById('step4');
-                    if (step4) step4.classList.add('active');
-                    currentStep = 4;
+                    const stepExporting = document.getElementById('stepExporting');
+                    if (stepExporting) stepExporting.classList.add('active');
                     setStageState('preparing', 'active');
                     exportState.stageIndex = 0;
                 }
