@@ -5714,9 +5714,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     ? stopRecording
                                                                     : startRecording
                                                             }
-                                                            disabled={
-                                                                isCellLocked || noMicDetected
-                                                            }
+                                                            disabled={isCellLocked}
+                                                            unavailable={noMicDetected}
                                                             title={recorderTitle}
                                                         />
 
@@ -5788,19 +5787,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             </div>
                                                         )}
                                                         {noMicDetected && (
-                                                            <span
-                                                                role="alert"
-                                                                className="text-xs text-muted-foreground inline-flex items-center gap-1"
-                                                            >
-                                                                <AlertTriangle
-                                                                    className="h-3 w-3"
-                                                                    style={{
-                                                                        color: "var(--vscode-errorForeground)",
-                                                                    }}
-                                                                />
-                                                                No microphone detected. Connect an
-                                                                input device to record.
-                                                            </span>
+                                                            <Alert className="w-fit border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
+                                                                <AlertCircle className="h-4 w-4 !text-yellow-600 dark:!text-yellow-400" />
+                                                                <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+                                                                    No microphone detected. Connect
+                                                                    an input device to record.
+                                                                </AlertDescription>
+                                                            </Alert>
                                                         )}
                                                         {hint && (
                                                             <span className="text-xs text-muted-foreground inline-flex items-center gap-1">

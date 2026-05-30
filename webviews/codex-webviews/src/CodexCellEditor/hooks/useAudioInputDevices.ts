@@ -54,6 +54,10 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
             return;
         }
 
+        // Capture the `mediaDevices` reference at mount so the cleanup path
+        // can always remove its own listener — even if something later swaps
+        // `navigator.mediaDevices` (tests, mocks, hot-reload).
+        const mediaDevices = navigator.mediaDevices;
         let cancelled = false;
 
         const checkDevices = async () => {
@@ -65,7 +69,7 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
                     }
                     return;
                 }
-                const devices = await navigator.mediaDevices.enumerateDevices();
+                const devices = await mediaDevices.enumerateDevices();
                 const audioInputs = devices.filter((d) => d.kind === "audioinput");
                 if (!cancelled) {
                     setHasAudioInput(audioInputs.length > 0);
@@ -90,11 +94,11 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
             checkDevices();
         };
 
-        navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
+        mediaDevices.addEventListener("devicechange", handleDeviceChange);
 
         return () => {
             cancelled = true;
-            navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+            mediaDevices.removeEventListener("devicechange", handleDeviceChange);
         };
     }, [isSupported]);
 

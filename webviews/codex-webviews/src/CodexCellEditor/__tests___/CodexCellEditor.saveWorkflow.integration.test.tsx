@@ -984,6 +984,74 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         (window as any).AudioContext = OriginalAudioContext;
     });
 
+    it("no microphone detected: disables record button, shows warning, and skips getUserMedia", async () => {
+        sessionStorage.setItem("preferred-editor-tab", "audio");
+
+        const props = {
+            cellMarkers: ["cell-1"],
+            cellContent: "<p>Test content</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-1"],
+                cellContent: "<p>Test content</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Test Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            audioAttachments: { "cell-1": "none" as const },
+        };
+
+        // Mock an unplugged-mic environment: `enumerateDevices` returns no
+        // audioinput entries. `getUserMedia` is still mocked so we can verify
+        // the disabled button doesn't reach it on click.
+        const getUserMediaSpy = vi.fn();
+        const fakeMediaDevices = new EventTarget() as EventTarget & {
+            enumerateDevices: ReturnType<typeof vi.fn>;
+            getUserMedia: ReturnType<typeof vi.fn>;
+        };
+        fakeMediaDevices.enumerateDevices = vi.fn().mockResolvedValue([]);
+        fakeMediaDevices.getUserMedia = getUserMediaSpy;
+        (navigator as any).mediaDevices = fakeMediaDevices;
+
+        render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        // The record button's title flips to the new state and it disables.
+        const startBtn = await screen.findByRole("button", {
+            name: /No microphone detected/i,
+        });
+        expect(startBtn.hasAttribute("disabled")).toBe(true);
+
+        // The inline warning row is rendered alongside the disabled button.
+        expect(
+            await screen.findByText(/Connect an input device to record/i)
+        ).toBeTruthy();
+
+        // Clicking the disabled button must not attempt to open a stream.
+        fireEvent.click(startBtn);
+        expect(getUserMediaSpy).not.toHaveBeenCalled();
+    });
+
     it("locked cell: should disable Start Recording and not call getUserMedia", async () => {
         sessionStorage.setItem("preferred-editor-tab", "audio");
 
