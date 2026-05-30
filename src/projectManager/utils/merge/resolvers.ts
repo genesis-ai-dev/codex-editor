@@ -22,6 +22,7 @@ import {
     buildCellPositionContextMap,
     insertUniqueCellsPreservingRelativePositions,
 } from "./utils/positionPreservationUtils";
+import { reorderVerseRangeCells } from "./utils/verseRangeReorder";
 
 const DEBUG_MODE = false;
 function debugLog(...args: any[]): void {
@@ -1282,12 +1283,22 @@ export async function resolveCodexCustomMerge(
         }
     }
 
+    // Re-apply verse-range reordering (and idempotent cellLabel/chapterNumber autofill) so
+    // that the migrated cell ordering survives git syncs regardless of which side is "ours".
+    // The helper:
+    //   - bails out as a no-op on files with no milestones and no verse-range cells;
+    //   - never adds edit-history entries;
+    //   - never soft-deletes cells (orphan paratext handling stays in the migration);
+    //   - skips cellLabel autofill on cells the user has hand-labeled.
+    const reordered = reorderVerseRangeCells(resultCells);
+    const finalCells = reordered.cells;
+
     // Return the full notebook structure with merged cells and metadata
     // (formatted consistently for `.codex`/`.source` file writes)
     return formatJsonForNotebookFile(
         {
             ...ourNotebook,
-            cells: resultCells,
+            cells: finalCells,
             metadata: mergedMetadata,
         }
     );

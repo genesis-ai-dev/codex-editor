@@ -13,12 +13,12 @@ import { generateCellIdFromHash, isUuidFormat } from "../../utils/uuidUtils";
 import { getCorrespondingSourceUri, getCorrespondingCodexUri } from "../../utils/codexNotebookUtils";
 import {
     parseVerseRef,
-    getSortKeyFromParsedRef,
-    stripCellIdSuffix,
     type ParsedVerseRef,
 } from "../../utils/verseRefUtils";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { resolveCodexCustomMerge, mergeDuplicateCellsUsingResolverLogic } from "./merge/resolvers";
+import { reorderVerseRangeCells } from "./merge/utils/verseRangeReorder";
+import { recoverMergedChildrenForFile } from "./recoveryUtils";
 import { atomicWriteUriText } from "../../utils/notebookSafeSaveUtils";
 import { normalizeNotebookFileText, formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
 
@@ -3010,86 +3010,61 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
         const cells: any[] = notebookData.cells || [];
         if (cells.length === 0) return false;
 
-        const milestones: Array<{ cell: any; chapter: number | null; }> = [];
-        const contentWithRef: Array<{
-            cell: any;
-            parsed: ParsedVerseRef;
-            sortKey: { book: string; chapter: number; verse: number; };
-        }> = [];
-        const contentWithoutRef: any[] = [];
-        const paratextByParentId = new Map<string, any[]>();
-        const styleOrOther: any[] = [];
-        let hadSuffixedRefs = false;
+        let hasChanges = false;
 
-        for (let i = 0; i < cells.length; i++) {
-            const cell = cells[i];
-            const md = cell.metadata || {};
+        // ---- Merge phase ---------------------------------------------------------------------
+        // Recombine split verse-range cells (child has parentId -> parent). Soft-deletes merged
+        // children (sets data.deleted=true with an edit-history entry) and tracks merged child
+        // ids in parent.metadata.data.mergedChildIds so the merge survives git sync (where
+        // deleted-only-on-our-side cells would otherwise be re-added by the codex merge
+        // resolver, causing the next migration run to double the parent's content).
+        //
+        // The merge loop only mutates in-memory state per child; the parent's value and
+        // mergedChildIds edits are emitted ONCE per parent after the loop completes (see
+        // the post-loop emission block). This is load-bearing for sync survival: pushing one
+        // edit per child inside the loop produced same-millisecond edits whose tie-break in
+        // `resolveMetadataConflictsUsingEditHistory` is stable-first, so on every sync the
+        // resolver would pick the first (partial) cumulative value and lose later children.
+        const contentForMerge: Array<{ cell: any; parsed: ParsedVerseRef; }> = [];
+        for (const cell of cells) {
+            const md = cell?.metadata || {};
             const cellType = md.type;
-            const cellId = md.id;
-
-            if (cellType === CodexCellTypes.MILESTONE) {
-                const milestoneValue = typeof cell?.value === "string" ? cell.value : "";
-                const chapter = extractChapterNumberFromMilestoneValue(milestoneValue);
-                milestones.push({ cell, chapter });
+            if (
+                cellType === CodexCellTypes.MILESTONE ||
+                cellType === CodexCellTypes.PARATEXT ||
+                cellType === CodexCellTypes.STYLE
+            ) {
                 continue;
-            }
-
-            if (cellType === CodexCellTypes.PARATEXT && cellId) {
-                const parentId = extractParentCellIdFromParatext(
-                    typeof cellId === "string" ? cellId : String(cellId),
-                    md
-                );
-                if (parentId) {
-                    if (!paratextByParentId.has(parentId)) paratextByParentId.set(parentId, []);
-                    paratextByParentId.get(parentId)!.push(cell);
-                } else {
-                    styleOrOther.push(cell);
-                }
-                continue;
-            }
-
-            if (cellType === CodexCellTypes.STYLE) {
-                styleOrOther.push(cell);
-                continue;
-            }
-
-            const rawRef = md.data?.globalReferences?.[0];
-            if (typeof rawRef === "string") {
-                const cleanedRef = stripCellIdSuffix(rawRef);
-                if (cleanedRef !== rawRef) {
-                    md.data.globalReferences = [cleanedRef];
-                    cell.metadata = md;
-                    hadSuffixedRefs = true;
-                }
             }
             const ref = md.data?.globalReferences?.[0];
             const parsed = typeof ref === "string" ? parseVerseRef(ref) : null;
-            if (parsed) {
-                const sortKey = getSortKeyFromParsedRef(parsed);
-                contentWithRef.push({ cell, parsed, sortKey });
-            } else {
-                contentWithoutRef.push(cell);
-            }
+            if (parsed) contentForMerge.push({ cell, parsed });
         }
 
-        let hasChanges = hadSuffixedRefs;
-
-        // Merge phase: recombine split verse-range cells (child has parentId -> parent)
         const idToContentIndex = new Map<string, number>();
-        for (let i = 0; i < contentWithRef.length; i++) {
-            const id = contentWithRef[i].cell.metadata?.id;
+        for (let i = 0; i < contentForMerge.length; i++) {
+            const id = contentForMerge[i].cell.metadata?.id;
             if (id) idToContentIndex.set(id, i);
         }
-        const mergedChildIndices = new Set<number>();
-        for (let i = 0; i < contentWithRef.length; i++) {
-            const childMd = contentWithRef[i].cell.metadata || {};
+
+        // Per-parent accumulator: tracks which parents had their value or mergedChildIds
+        // touched by this run so we can emit a single consolidated edit per path after
+        // the loop, rather than one edit per child (which collided on `Date.now()`).
+        const touchedParents = new Map<string, {
+            parent: { cell: any; parsed: ParsedVerseRef; };
+            valueChanged: boolean;
+            idsChanged: boolean;
+        }>();
+
+        for (let i = 0; i < contentForMerge.length; i++) {
+            const childMd = contentForMerge[i].cell.metadata || {};
             const parentId = childMd.parentId;
             if (!parentId) continue;
             const parentIdx = idToContentIndex.get(parentId);
             if (parentIdx === undefined) continue;
 
-            const parent = contentWithRef[parentIdx];
-            const child = contentWithRef[i];
+            const parent = contentForMerge[parentIdx];
+            const child = contentForMerge[i];
             const pRef = parent.parsed;
             const cRef = child.parsed;
             const sameRange =
@@ -3103,105 +3078,152 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
                         : false);
             if (!sameRange) continue;
 
-            parent.cell.value = (parent.cell.value || "") + (child.cell.value || "");
-            const parentEdits: any[] = parent.cell.metadata?.edits || [];
-            parentEdits.push({
-                editMap: ["value"],
-                value: parent.cell.value,
+            const childId = child.cell.metadata?.id;
+            const childValue = child.cell.value || "";
+            const childAlreadyDeleted = child.cell.metadata?.data?.deleted === true;
+
+            const parentMd: any = parent.cell.metadata || (parent.cell.metadata = {});
+            const parentData: any = parentMd.data || (parentMd.data = {});
+            const existingMergedIds: string[] = Array.isArray(parentData.mergedChildIds)
+                ? parentData.mergedChildIds.slice()
+                : [];
+            const alreadyTrackedById =
+                typeof childId === "string" && existingMergedIds.includes(childId);
+
+            // Idempotency guards (in priority order):
+            //  1. Child already soft-deleted -> previous run handled this; nothing to do.
+            //  2. Parent already lists this child id in mergedChildIds -> ensure soft-delete only.
+            //  3. Parent.value already endsWith child.value -> previous run merged but tracking
+            //     was lost (e.g. via sync); skip append, ensure soft-delete + tracking.
+            const skipAppend =
+                childAlreadyDeleted ||
+                alreadyTrackedById ||
+                (childValue.length > 0 && (parent.cell.value || "").endsWith(childValue));
+
+            let didAppend = false;
+            let didTrack = false;
+
+            if (!skipAppend) {
+                parent.cell.value = (parent.cell.value || "") + childValue;
+                didAppend = true;
+                hasChanges = true;
+            }
+
+            if (typeof childId === "string" && !existingMergedIds.includes(childId)) {
+                existingMergedIds.push(childId);
+                parentData.mergedChildIds = existingMergedIds;
+                didTrack = true;
+                hasChanges = true;
+            }
+
+            if (didAppend || didTrack) {
+                const accum = touchedParents.get(parentId) || {
+                    parent,
+                    valueChanged: false,
+                    idsChanged: false,
+                };
+                if (didAppend) accum.valueChanged = true;
+                if (didTrack) accum.idsChanged = true;
+                touchedParents.set(parentId, accum);
+            }
+
+            if (!childAlreadyDeleted) {
+                const cMd: any = child.cell.metadata || (child.cell.metadata = {});
+                const cData: any = cMd.data || (cMd.data = {});
+                cData.deleted = true;
+                const childEdits: any[] = cMd.edits || (cMd.edits = []);
+                childEdits.push({
+                    editMap: EditMapUtils.dataDeleted(),
+                    value: true,
+                    timestamp: Date.now(),
+                    type: EditType.MIGRATION,
+                    author: "system",
+                    validatedBy: [],
+                });
+                hasChanges = true;
+            }
+        }
+
+        // Emit one consolidated MIGRATION edit per touched parent per path. Per-parent
+        // single edits avoid the same-timestamp tie-break in
+        // `resolveMetadataConflictsUsingEditHistory`: with one edit per path, there is no
+        // tie for the resolver to mis-pick. Different parents are different cells, so they
+        // share no edit list and cannot collide.
+        const mergePhaseTimestamp = Date.now();
+        for (const { parent, valueChanged, idsChanged } of touchedParents.values()) {
+            const parentMd: any = parent.cell.metadata || (parent.cell.metadata = {});
+            const parentData: any = parentMd.data || (parentMd.data = {});
+            const parentEdits: any[] = parentMd.edits || (parentMd.edits = []);
+
+            if (valueChanged) {
+                parentEdits.push({
+                    editMap: EditMapUtils.value(),
+                    value: parent.cell.value,
+                    timestamp: mergePhaseTimestamp,
+                    type: EditType.MIGRATION,
+                    author: "system",
+                    validatedBy: [],
+                });
+            }
+
+            if (idsChanged) {
+                const finalIds: string[] = Array.isArray(parentData.mergedChildIds)
+                    ? parentData.mergedChildIds.slice()
+                    : [];
+                parentEdits.push({
+                    editMap: ["metadata", "data", "mergedChildIds"],
+                    value: finalIds,
+                    timestamp: mergePhaseTimestamp + 1,
+                    type: EditType.MIGRATION,
+                    author: "system",
+                    validatedBy: [],
+                });
+            }
+        }
+
+        // ---- Orphan paratext soft-delete -----------------------------------------------------
+        // Paratext cells whose parent verse cell is not present in this file are no longer
+        // meaningful content. Mark them deleted (idempotent) so they propagate to peers via
+        // edit-history replay. The reorder helper below leaves them in their original index;
+        // it never soft-deletes from the resolver path.
+        const idsInFile = new Set<string>();
+        for (const cell of cells) {
+            const id = cell?.metadata?.id;
+            if (typeof id === "string" && id.length > 0) idsInFile.add(id);
+        }
+        for (const cell of cells) {
+            const md = cell?.metadata;
+            if (md?.type !== CodexCellTypes.PARATEXT) continue;
+            const cellId = md?.id;
+            if (typeof cellId !== "string" || cellId.length === 0) continue;
+            const parentId = extractParentCellIdFromParatext(cellId, md);
+            const parentExists = typeof parentId === "string" && idsInFile.has(parentId);
+            if (parentExists) continue;
+            if (md.data?.deleted === true) continue;
+
+            const data: any = md.data || (md.data = {});
+            data.deleted = true;
+            const edits: any[] = md.edits || (md.edits = []);
+            edits.push({
+                editMap: EditMapUtils.dataDeleted(),
+                value: true,
                 timestamp: Date.now(),
                 type: EditType.MIGRATION,
                 author: "system",
                 validatedBy: [],
             });
-            parent.cell.metadata.edits = parentEdits;
-            mergedChildIndices.add(i);
+            cell.metadata = md;
             hasChanges = true;
         }
-        if (mergedChildIndices.size > 0) {
-            const filtered = contentWithRef.filter((_, idx) => !mergedChildIndices.has(idx));
-            contentWithRef.length = 0;
-            contentWithRef.push(...filtered);
-        }
 
-        // Partition content-with-ref by (book, chapter), sort each by verse
-        const contentByChapter = new Map<string, typeof contentWithRef>();
-        for (const item of contentWithRef) {
-            const key = `${item.sortKey.book}\t${item.sortKey.chapter}`;
-            if (!contentByChapter.has(key)) contentByChapter.set(key, []);
-            contentByChapter.get(key)!.push(item);
-        }
-        for (const arr of contentByChapter.values()) {
-            arr.sort((a, b) => a.sortKey.verse - b.sortKey.verse);
-        }
+        // ---- Reorder + relabel pass ----------------------------------------------------------
+        // Delegated to the shared helper so the codex merge resolver can run the same logic and
+        // keep the migrated ordering / cellLabel after every git sync.
+        const reordered = reorderVerseRangeCells(cells);
+        const newCells = reordered.cells;
+        const orderChanged = reordered.orderChanged;
+        if (reordered.mutated) hasChanges = true;
 
-        const newCells: any[] = [];
-
-        const emitContentCell = (item: (typeof contentWithRef)[0]) => {
-            const { cell, parsed } = item;
-            const md = cell.metadata || {};
-            const parentId = md.id;
-
-            if (parsed.kind === "range") {
-                if (md.cellLabel !== parsed.cellLabel) {
-                    md.cellLabel = parsed.cellLabel;
-                    hasChanges = true;
-                }
-                if (md.chapterNumber === undefined || md.chapterNumber === null) {
-                    md.chapterNumber = String(parsed.chapter);
-                    hasChanges = true;
-                }
-                cell.metadata = md;
-            }
-            newCells.push(cell);
-            if (parentId) {
-                const paratextCells = paratextByParentId.get(parentId);
-                if (paratextCells) {
-                    for (const pt of paratextCells) newCells.push(pt);
-                }
-            }
-        };
-
-        for (const { cell, chapter } of milestones) {
-            newCells.push(cell);
-            if (chapter != null) {
-                const keysToDelete: string[] = [];
-                for (const [key, items] of contentByChapter.entries()) {
-                    const [, chapStr] = key.split("\t");
-                    if (parseInt(chapStr, 10) === chapter) {
-                        for (const item of items) emitContentCell(item);
-                        keysToDelete.push(key);
-                    }
-                }
-                for (const k of keysToDelete) contentByChapter.delete(k);
-            }
-        }
-
-        // Emit remaining content-with-ref (chapter not matched to any milestone) in deterministic order
-        const remaining: typeof contentWithRef = [];
-        for (const items of contentByChapter.values()) remaining.push(...items);
-        remaining.sort(
-            (a, b) =>
-                a.sortKey.book.localeCompare(b.sortKey.book) ||
-                a.sortKey.chapter - b.sortKey.chapter ||
-                a.sortKey.verse - b.sortKey.verse
-        );
-        for (const item of remaining) emitContentCell(item);
-
-        for (const cell of contentWithoutRef) {
-            newCells.push(cell);
-            const parentId = cell.metadata?.id;
-            if (parentId) {
-                const paratextCells = paratextByParentId.get(parentId);
-                if (paratextCells) {
-                    for (const pt of paratextCells) newCells.push(pt);
-                }
-            }
-        }
-        for (const cell of styleOrOther) newCells.push(cell);
-
-        const oldIds = cells.map((c) => c.metadata?.id ?? "").join(",");
-        const newIds = newCells.map((c) => c.metadata?.id ?? "").join(",");
-        const orderChanged = oldIds !== newIds;
         if (orderChanged || hasChanges) {
             notebookData.cells = newCells;
             const updatedContent = await serializer.serializeNotebook(
@@ -3301,6 +3323,167 @@ export const migration_verseRangeLabelsAndPositions = async (): Promise<void> =>
         }
     } catch (error) {
         console.error("Error running verse range labels/positions migration:", error);
+        throw error;
+    }
+};
+
+/**
+ * Manual recovery: re-emerge soft-deleted merged-child content into the parent
+ * cell. Built to repair the data damage caused by a tie-break bug in the
+ * codex merge resolver (same-timestamp same-type edits could pick the wrong
+ * value, dropping merged children's text).
+ *
+ * Two-pass with a confirmation modal between passes:
+ *   1. Dry-run scan to count affected files / parents.
+ *   2. On user confirmation, re-iterate and apply edits in place.
+ *
+ * Idempotent: re-running after a successful recovery is a no-op because
+ * `recoverMergedChildrenForFile` only emits edits for parents whose value is
+ * still missing some soft-deleted child's content.
+ */
+export const migration_recoverMissingMergedChildren = async (): Promise<void> => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) return;
+
+        debug("Running missing merged children recovery scan...");
+        const workspaceFolder = workspaceFolders[0];
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+        const allFiles = [...codexFiles, ...sourceFiles];
+
+        if (allFiles.length === 0) return;
+
+        const affectedReports: Array<{
+            uri: vscode.Uri;
+            parentsRecovered: number;
+        }> = [];
+        let totalParentsToRecover = 0;
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Scanning for missing merged children",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+                    progress.report({
+                        message: path.basename(file.fsPath),
+                        increment: 100 / allFiles.length,
+                    });
+                    try {
+                        const report = await recoverMergedChildrenForFile(file, {
+                            dryRun: true,
+                        });
+                        if (report.changed && report.parentsRecovered > 0) {
+                            affectedReports.push({
+                                uri: file,
+                                parentsRecovered: report.parentsRecovered,
+                            });
+                            totalParentsToRecover += report.parentsRecovered;
+                        }
+                    } catch (error) {
+                        console.error(
+                            `Error scanning ${file.fsPath} for missing merged children:`,
+                            error
+                        );
+                    }
+                }
+            }
+        );
+
+        if (affectedReports.length === 0) {
+            await vscode.window.showInformationMessage(
+                "No missing merged children detected."
+            );
+            return;
+        }
+
+        const previewLimit = 10;
+        const previewLines = affectedReports
+            .slice(0, previewLimit)
+            .map((r) => `  • ${path.basename(r.uri.fsPath)} (${r.parentsRecovered})`)
+            .join("\n");
+        const moreLine =
+            affectedReports.length > previewLimit
+                ? `\n  …and ${affectedReports.length - previewLimit} more file(s)`
+                : "";
+        const detail = `Files:\n${previewLines}${moreLine}`;
+
+        const choice = await vscode.window.showWarningMessage(
+            `Found ${totalParentsToRecover} parent verse cell(s) across ${affectedReports.length} file(s) with missing merged children. Apply recovery?`,
+            { modal: true, detail },
+            "Apply",
+        );
+
+        if (choice !== "Apply") {
+            return;
+        }
+
+        const appliedFilePaths: string[] = [];
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Recovering missing merged children",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (let i = 0; i < affectedReports.length; i++) {
+                    const { uri } = affectedReports[i];
+                    progress.report({
+                        message: path.basename(uri.fsPath),
+                        increment: 100 / affectedReports.length,
+                    });
+                    try {
+                        const report = await recoverMergedChildrenForFile(uri, {
+                            dryRun: false,
+                        });
+                        if (report.changed) {
+                            appliedFilePaths.push(uri.fsPath);
+                        }
+                    } catch (error) {
+                        console.error(
+                            `Error recovering ${uri.fsPath}:`,
+                            error
+                        );
+                    }
+                }
+            }
+        );
+
+        if (appliedFilePaths.length > 0) {
+            try {
+                const { GlobalProvider } = await import("../../globalProvider");
+                const provider = GlobalProvider.getInstance().getProvider(
+                    "codex-cell-editor"
+                ) as {
+                    refreshWebviewsForFiles?: (
+                        paths: string[],
+                        options?: { isSourceAndCodexFiles?: boolean; }
+                    ) => Promise<void>;
+                };
+                if (provider?.refreshWebviewsForFiles) {
+                    await provider.refreshWebviewsForFiles(appliedFilePaths);
+                }
+            } catch (error) {
+                console.warn(
+                    "Failed to refresh webviews after merged-children recovery:",
+                    error
+                );
+            }
+        }
+
+        await vscode.window.showInformationMessage(
+            `Merged-children recovery complete: ${appliedFilePaths.length} file(s) updated.`
+        );
+    } catch (error) {
+        console.error("Error running missing merged children recovery:", error);
         throw error;
     }
 };
