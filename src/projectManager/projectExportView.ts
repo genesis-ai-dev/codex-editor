@@ -795,6 +795,7 @@ function getWebviewContent(
                     font-size: 0.9em;
                     flex: 0 1 auto;
                     min-height: 0;
+                    max-height: 26vh;
                     overflow-y: auto;
                 }
                 .popup-file-list div { padding: 2px 0; display: flex; align-items: center; }
