@@ -26,7 +26,11 @@ interface AudioWaveformWithTranscriptionProps {
     audioValidationPopoverProps: AudioValidationPopoverProps;
     validationStatusProps: ValidationStatusIconProps;
     author?: string;
+    targetDurationSeconds?: number | null;
+    audioDurationSeconds?: number | null;
     targetDuration?: number | null; // Target duration (in seconds) derived from cell timestamps.
+    /** Total number of audio recordings for the cell (including soft-deleted). When > 0, a count badge is rendered on the History button. */
+    historyCount?: number;
 }
 
 const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionProps> = ({
@@ -43,8 +47,11 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     onShowRecorder,
     validationStatusProps,
     audioValidationPopoverProps,
+    targetDurationSeconds,
+    audioDurationSeconds,
     targetDuration,
     author,
+    historyCount,
 }) => {
     const [audioSrc, setAudioSrc] = useState<string>("");
     const [audioDuration, setAudioDuration] = useState<number | null>(null);
@@ -182,42 +189,38 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                 </div>
             )}
 
-            {/* Timestamp length comparison bar (actual recorded audio vs. target from cell timestamps) */}
-            {targetDuration &&
-                targetDuration > 0 &&
-                (() => {
-                    const actual = audioDuration && audioDuration > 0 ? audioDuration : 0;
-                    const rawPercentage = actual > 0 ? (actual / targetDuration) * 100 : 0;
-                    const progressPercentage = Math.min(100, rawPercentage);
-                    const shouldStopFilling = rawPercentage >= 100;
-                    const barColor =
-                        rawPercentage <= 90
-                            ? "rgb(34, 197, 94)" // green-500
-                            : rawPercentage <= 100
-                            ? "rgb(234, 179, 8)" // yellow-500
-                            : "rgb(239, 68, 68)"; // red-500
-
-                    return (
-                        <div className="w-full space-y-2 px-2">
-                            <div className="relative w-full h-3 bg-blue-200/60 rounded-full overflow-hidden">
-                                <div
-                                    className="h-full rounded-full transition-all duration-100"
-                                    style={{
-                                        width: `${shouldStopFilling ? 100 : progressPercentage}%`,
-                                        backgroundColor: barColor,
-                                    }}
-                                />
-                            </div>
-                            <div className="flex justify-between text-xs text-muted-foreground">
-                                <span>
-                                    {audioDuration !== null ? `${actual.toFixed(2)}s` : "—"}
-                                </span>
-                                <span>Timestamp Length</span>
-                                <span>{targetDuration.toFixed(2)}s</span>
-                            </div>
+            {/* Target duration bar (e.g. subtitle cells): audio length vs allotted timestamp length */}
+            {targetDurationSeconds != null &&
+                targetDurationSeconds > 0 &&
+                audioDurationSeconds != null &&
+                audioDurationSeconds >= 0 && (
+                    <div className="w-full space-y-2">
+                        <div className="relative w-full h-3 bg-blue-200/60 rounded-full overflow-hidden">
+                            <div
+                                className="h-full rounded-full transition-all duration-100"
+                                style={{
+                                    width: `${Math.min(
+                                        100,
+                                        (audioDurationSeconds / targetDurationSeconds) * 100
+                                    )}%`,
+                                    backgroundColor:
+                                        audioDurationSeconds > targetDurationSeconds
+                                            ? "rgb(239, 68, 68)" // red: over allotted
+                                            : (audioDurationSeconds / targetDurationSeconds) *
+                                                  100 >=
+                                              90
+                                            ? "rgb(34, 197, 94)" // green: within 90%+
+                                            : "rgb(234, 179, 8)", // yellow: under 90%
+                                }}
+                            />
                         </div>
-                    );
-                })()}
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>{audioDurationSeconds.toFixed(3)}s</span>
+                            <span>Timestamp Length</span>
+                            <span>{targetDurationSeconds.toFixed(3)}s</span>
+                        </div>
+                    </div>
+                )}
 
             {/* Action buttons at bottom */}
             <div className="flex flex-wrap items-center justify-center gap-2 px-2">
@@ -252,6 +255,24 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                 >
                     <History className="h-3 w-3" />
                     <span className="ml-1">History</span>
+                    {typeof historyCount === "number" && historyCount > 0 && (
+                        <Badge
+                            variant="secondary"
+                            className="ml-1 justify-center leading-none"
+                            style={{
+                                minWidth: "1.5em",
+                                height: "1.5em",
+                                padding: "0 0.35em",
+                                fontSize: "0.85em",
+                                fontWeight: 700,
+                                backgroundColor: "var(--vscode-badge-background)",
+                                color: "var(--vscode-badge-foreground)",
+                            }}
+                            aria-label={`${historyCount} audio recording${historyCount === 1 ? "" : "s"} in history`}
+                        >
+                            {historyCount}
+                        </Badge>
+                    )}
                 </Button>
                 <Button
                     variant="outline"

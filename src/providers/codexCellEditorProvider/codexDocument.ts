@@ -1021,12 +1021,21 @@ export class CodexCellDocument implements vscode.CustomDocument {
         if (!cell) {
             return undefined;
         }
+        const audioTimestamps: Timestamps | undefined =
+            cell.metadata.data?.audioStartTime !== undefined || cell.metadata.data?.audioEndTime !== undefined
+                ? {
+                    startTime: cell.metadata.data.audioStartTime,
+                    endTime: cell.metadata.data.audioEndTime,
+                }
+                : undefined;
+
         return {
             cellMarkers: [cell.metadata.id],
             cellContent: cell.value,
             cellType: cell.metadata.type,
             editHistory: cell.metadata.edits || [],
             timestamps: cell.metadata.data,
+            audioTimestamps,
             cellLabel: cell.metadata.cellLabel,
             data: cell.metadata.data,
             attachments: cell.metadata.attachments || {},
@@ -1152,6 +1161,123 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, timestamps }],
+        });
+    }
+
+    public updateCellAudioTimestamps(cellId: string, timestamps: Timestamps) {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error("Could not find cell to update");
+        }
+
+        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+
+        // Block timestamp updates to locked cells
+        if (cellToUpdate.metadata?.isLocked) {
+            console.warn(`Attempted to update audio timestamps of locked cell ${cellId}. Operation blocked.`);
+            return;
+        }
+
+        // Capture previous values before updating so comparisons are correct
+        const previousAudioStartTime = cellToUpdate.metadata.data?.audioStartTime;
+        const previousAudioEndTime = cellToUpdate.metadata.data?.audioEndTime;
+
+        // Add edit to cell's edit history
+        if (!cellToUpdate.metadata.edits) {
+            cellToUpdate.metadata.edits = [];
+        }
+        const currentTimestamp = Date.now();
+
+        // Only add edit if audioStartTime is different from previous value
+        if (timestamps.startTime !== undefined && timestamps.startTime !== previousAudioStartTime) {
+            // Ensure initial import exists for audioStartTime
+            const hasInitialAudioStart = (cellToUpdate.metadata.edits || []).some((e) =>
+                e.type === EditType.INITIAL_IMPORT && EditMapUtils.equals(e.editMap, EditMapUtils.dataAudioStartTime())
+            );
+            if (!hasInitialAudioStart && previousAudioStartTime !== undefined) {
+                cellToUpdate.metadata.edits.push({
+                    editMap: EditMapUtils.dataAudioStartTime(),
+                    value: previousAudioStartTime,
+                    timestamp: currentTimestamp - 1000,
+                    type: EditType.INITIAL_IMPORT,
+                    author: this._author,
+                    validatedBy: [],
+                });
+            }
+            const audioStartTimeEditMap = EditMapUtils.dataAudioStartTime();
+            cellToUpdate.metadata.edits.push({
+                editMap: audioStartTimeEditMap,
+                value: timestamps.startTime,
+                timestamp: currentTimestamp,
+                type: EditType.USER_EDIT,
+                author: this._author,
+                validatedBy: [
+                    {
+                        username: this._author,
+                        creationTimestamp: currentTimestamp,
+                        updatedTimestamp: currentTimestamp,
+                        isDeleted: false,
+                    },
+                ],
+            });
+        }
+
+        // Only add edit if audioEndTime is different from previous value
+        if (timestamps.endTime !== undefined && timestamps.endTime !== previousAudioEndTime) {
+            // Ensure initial import exists for audioEndTime
+            const hasInitialAudioEnd = (cellToUpdate.metadata.edits || []).some((e) =>
+                e.type === EditType.INITIAL_IMPORT && EditMapUtils.equals(e.editMap, EditMapUtils.dataAudioEndTime())
+            );
+            if (!hasInitialAudioEnd && previousAudioEndTime !== undefined) {
+                cellToUpdate.metadata.edits.push({
+                    editMap: EditMapUtils.dataAudioEndTime(),
+                    value: previousAudioEndTime,
+                    timestamp: currentTimestamp - 1000,
+                    type: EditType.INITIAL_IMPORT,
+                    author: this._author,
+                    validatedBy: [],
+                });
+            }
+            const audioEndTimeEditMap = EditMapUtils.dataAudioEndTime();
+            cellToUpdate.metadata.edits.push({
+                editMap: audioEndTimeEditMap,
+                value: timestamps.endTime,
+                timestamp: currentTimestamp,
+                type: EditType.USER_EDIT,
+                author: this._author,
+                validatedBy: [
+                    {
+                        username: this._author,
+                        creationTimestamp: currentTimestamp,
+                        updatedTimestamp: currentTimestamp,
+                        isDeleted: false,
+                    },
+                ],
+            });
+        }
+
+        // Now apply the audio timestamp updates to the document data
+        cellToUpdate.metadata.data = {
+            ...cellToUpdate.metadata.data,
+            audioStartTime: timestamps.startTime,
+            audioEndTime: timestamps.endTime,
+        };
+
+        // Record the edit
+        this._edits.push({
+            type: "updateCellAudioTimestamps",
+            cellId,
+            timestamps,
+        });
+
+        // Set dirty flag and notify listeners about the change
+        this._isDirty = true;
+        this.markCellMutated(cellId);
+        this._onDidChangeForVsCodeAndWebview.fire({
+            edits: [{ cellId, audioTimestamps: timestamps }],
         });
     }
 
@@ -1312,8 +1438,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const currentTimestamp = Date.now();
 
         // Track which fields are editable (exclude system fields like id, sourceFsPath, etc.)
-        // Note: autoDownloadAudioOnOpen is excluded as it's a project-level setting stored in localProjectSettings.json,
-        // not a file-level metadata field
+        // Note: autoDownloadAudioOnOpen is excluded as it's a per-user setting stored in
+        // globalState (see src/utils/globalUserSettings.ts), not a file-level metadata field
         const editableFields = [
             "videoUrl",
             "textDirection",
@@ -3247,25 +3373,34 @@ export class CodexCellDocument implements vscode.CustomDocument {
             return null;
         }
 
-        // STEP 1: Check for explicit selection first
+        // STEP 1: Check for explicit selection first. We deliberately do NOT
+        // filter on `isMissing` — that flag is a stale hint from the last
+        // migration scan, and the resolver (audioRequest handler /
+        // resolveAudioBytes) attempts an end-to-end LFS fetch at access time.
+        // Filtering here would prematurely demote the user's explicit choice
+        // to a fallback that may not even be what they intended.
         if (cell.metadata?.selectedAudioId && attachmentType === "audio") {
             const selectedAttachment = cell.metadata.attachments?.[cell.metadata.selectedAudioId];
 
-            // Validate selection is still valid and the file isn't missing
             if (selectedAttachment &&
                 selectedAttachment.type === attachmentType &&
-                !selectedAttachment.isDeleted &&
-                !selectedAttachment.isMissing) {
+                !selectedAttachment.isDeleted) {
                 return {
                     attachmentId: cell.metadata.selectedAudioId,
                     attachment: selectedAttachment
                 };
             }
 
-            // Selection is invalid or missing — fall through to automatic resolution
+            // Selection is invalid (deleted or unknown id) — fall through to
+            // automatic resolution.
         }
 
-        // STEP 2: Fall back to newest non-deleted, non-missing attachment (prefer available files)
+        // STEP 2: Fall back to newest non-deleted attachment by createdAt. Same
+        // `isMissing` rationale as above — let the resolver decide what's
+        // actually playable rather than filter on a potentially-stale flag.
+        // Sort by `createdAt` (not `updatedAt`) so this matches the audio
+        // history viewer's "CURRENT" badge and doesn't bleed through from
+        // `updatedAt` bumps caused by `isMissing` migration scans.
         const attachments = Object.entries(cell.metadata.attachments)
             .filter(([_, attachment]: [string, any]) =>
                 attachment &&
@@ -3273,9 +3408,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 !attachment.isDeleted
             )
             .sort(([_, a]: [string, any], [__, b]: [string, any]) => {
-                const aMissing = a.isMissing ? 1 : 0;
-                const bMissing = b.isMissing ? 1 : 0;
-                if (aMissing !== bMissing) return aMissing - bMissing;
                 return (b.createdAt || 0) - (a.createdAt || 0);
             });
 

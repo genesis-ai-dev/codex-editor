@@ -2,8 +2,7 @@ import { useEffect, useRef } from "react";
 import { Dispatch, SetStateAction } from "react";
 import { QuillCellContent, MilestoneIndex } from "../../../../../types";
 import { CustomNotebookMetadata } from "../../../../../types";
-
-type AudioAvailability = "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "unselected" | "none";
+import type { AudioAvailability } from "../utils/audioViewMode";
 
 const PROTECTED_FROM_GENERIC = new Set<AudioAvailability>([
     "available-local", "available-pointer", "available-cached",
@@ -126,7 +125,7 @@ interface UseVSCodeMessageHandlerProps {
     singleCellTranslationCompleted?: () => void;
     singleCellTranslationFailed?: () => void;
     setChapterNumber?: (chapterNumber: number) => void;
-    setAudioAttachments: Dispatch<SetStateAction<{ [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "unselected" | "none"; }>>;
+    setAudioAttachments: Dispatch<SetStateAction<{ [cellId: string]: AudioAvailability; }>>;
 
     // A/B testing handlers
     showABTestVariants?: (data: { variants: string[]; cellId: string; testId: string; }) => void;

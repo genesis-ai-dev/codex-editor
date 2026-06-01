@@ -56,6 +56,18 @@ export class GlobalAudioController {
     getCurrent(): HTMLAudioElement | null {
         return this.currentAudio;
     }
+
+    /**
+     * Release an audio element from being considered "current" when it was stopped
+     * programmatically (e.g. via pause() in a timeupdate handler). Call this so
+     * that subsequent playback (e.g. VideoPlayer play) is not blocked by stale state.
+     */
+    release(audio: HTMLAudioElement | null): void {
+        if (audio && this.currentAudio === audio) {
+            this.currentAudio = null;
+            this.notifyStopped(audio);
+        }
+    }
 }
 
 export const globalAudioController = new GlobalAudioController();

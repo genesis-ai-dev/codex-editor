@@ -73,6 +73,11 @@ type GlobalContentType =
     | {
         type: "commentsFileChanged";
         timestamp: string;
+    }
+    | {
+        type: "audioPlaying";
+        webviewType: "source" | "target";
+        isPlaying: boolean;
     };
 
 interface GlobalMessage {
@@ -374,6 +379,7 @@ type EditorCellContent = {
     cellLabel?: string;
     uri?: string;
     cellTimestamps?: Timestamps;
+    cellAudioTimestamps?: Timestamps;
 };
 
 interface EditHistoryEntry {
@@ -413,6 +419,7 @@ export type EditorPostMessages =
     | { command: "getSourceText"; content: { cellId: string; }; }
     | { command: "searchSimilarCellIds"; content: { cellId: string; }; }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
+    | { command: "updateCellAudioTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
     | { command: "deleteCell"; content: { cellId: string; }; }
     | { command: "executeCommand"; content: { command: string; args: any[]; }; }
     | { command: "togglePrimarySidebar"; }
@@ -496,6 +503,7 @@ export type EditorPostMessages =
     | { command: "triggerSync"; }
     // removed: requestAudioAttachments
     | { command: "requestAudioForCell"; content: { cellId: string; audioId?: string; }; }
+    | { command: "requestCellAudioTimestamps"; content: { cellId: string; }; }
     | { command: "getCommentsForCell"; content: { cellId: string; }; }
     | { command: "getCommentsForCells"; content: { cellIds: string[]; }; }
     | {
@@ -751,6 +759,8 @@ type CodexData = Timestamps & {
     originalText?: string;
     globalReferences?: string[]; // Array of cell IDs in original format (e.g., "GEN 1:1") used for header generation
     milestoneIndex?: number | null; // 0-based milestone index for O(1) lookup (null if no milestone)
+    audioStartTime?: number;
+    audioEndTime?: number;
 };
 
 type BaseCustomCellMetaData = {
@@ -982,6 +992,7 @@ interface QuillCellContent {
     cellType: CodexCellTypes;
     editHistory: Array<EditHistory>;
     timestamps?: Timestamps;
+    audioTimestamps?: Timestamps;
     cellLabel?: string;
     merged?: boolean;
     deleted?: boolean;
@@ -2285,6 +2296,13 @@ type EditorReceiveMessages =
         };
     }
     | {
+        type: "providerSendsCellAudioTimestamps";
+        content: {
+            cellId: string;
+            audioTimestamps?: Timestamps;
+        };
+    }
+    | {
         type: "correctionEditorModeChanged";
         enabled: boolean;
     }
@@ -2431,3 +2449,76 @@ export type MessagesFromMissingToolsWarning =
     | { command: "deleteTool"; tool: "sqlite" | "git" | "ffmpeg"; }
     | { command: "forceBuiltinTool"; tool: "sqlite" | "git" | "ffmpeg"; }
     | { command: "reloadWindow"; };
+
+/**
+ * Project Export view: messages exchanged between the host
+ * (`src/projectManager/projectExportView.ts`) and its webview HTML/JS payload
+ * during the new in-panel "Exporting" experience.
+ */
+export type ExportProgressStage =
+    | "preparing"
+    | "processing"
+    | "downloading"
+    | "writing"
+    | "finalizing";
+
+export type ExportMissingFileReason =
+    // Tier 1 — informational
+    | "no-audio-recorded"
+    | "no-text-recorded"
+    // Tier 2 — soft warning
+    | "no-audio-selected"
+    | "audio-file-missing"
+    | "pointer-corrupt"
+    | "source-not-found"
+    // Tier 3 — hard error
+    | "download-failed"
+    | "transcode-failed"
+    | "write-failed"
+    | "error";
+
+export type ExportMissingFileSeverity = "info" | "warn" | "error";
+
+export interface ExportProgressEventPayload {
+    stage: ExportProgressStage;
+    message?: string;
+    file?: string;
+    current?: number;
+    total?: number;
+    increment?: number;
+}
+
+export interface ExportMissingFilePayload {
+    file: string;
+    reason: ExportMissingFileReason;
+    detail?: string;
+}
+
+export interface ExportSummaryPayload {
+    exportPath: string;
+    filesExported?: number;
+    audioCopied?: number;
+    audioMissing?: number;
+    audioFailed?: number;
+    missingFiles?: ExportMissingFilePayload[];
+    extraMessages?: string[];
+}
+
+export type MessagesToProjectExportView =
+    | { command: "updateExportPath"; path: string; }
+    | { command: "htmlStructureCheckResult"; mismatches: { totalMismatches: number; fileDetails: { file: string; count: number; }[]; }; }
+    | { command: "exportStarted"; }
+    | { command: "exportProgress"; event: ExportProgressEventPayload; }
+    | { command: "exportFileMissing"; file: string; reason: ExportMissingFileReason; detail?: string; }
+    | { command: "exportCompleted"; summary: ExportSummaryPayload; }
+    | { command: "exportError"; message: string; };
+
+export type MessagesFromProjectExportView =
+    | { command: "selectExportPath"; }
+    | { command: "openProjectSettings"; }
+    | { command: "export"; format: string; userSelectedPath: string; filesToExport: string[]; options?: Record<string, unknown>; }
+    | { command: "checkHtmlStructure"; filesToExport: string[]; }
+    | { command: "openExportFolder"; path: string; }
+    | { command: "closeExportView"; }
+    | { command: "openCellInEditor"; cellId: string; filePath: string; }
+    | { command: "cancel"; };
