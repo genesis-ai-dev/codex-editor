@@ -713,9 +713,13 @@ function getWebviewContent(
                     padding: 20px 24px;
                     max-width: 480px;
                     width: 90%;
+                    max-height: 85vh;
+                    display: flex;
+                    flex-direction: column;
                     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
                 }
                 .popup-header {
+                    flex-shrink: 0;
                     display: flex;
                     align-items: center;
                     gap: 8px;
@@ -737,7 +741,11 @@ function getWebviewContent(
                     font-size: 0.9em;
                     color: var(--vscode-editor-foreground);
                     line-height: 1.5;
+                    display: flex;
+                    flex-direction: column;
+                    min-height: 0;
                 }
+                .popup-body > p { flex-shrink: 0; }
                 .popup-file-list {
                     margin: 8px 0;
                     padding: 8px 12px;
@@ -745,8 +753,13 @@ function getWebviewContent(
                     border: 1px solid rgba(202, 138, 4, 0.25);
                     border-radius: 4px;
                     font-size: 0.9em;
+                    flex: 0 1 auto;
+                    min-height: 0;
+                    max-height: 26vh;
+                    overflow-y: auto;
                 }
-                .popup-file-list div { padding: 2px 0; }
+                .popup-file-list div { padding: 2px 0; display: flex; align-items: center; }
+                .popup-footer { display: flex; justify-content: flex-end; margin-top: 16px; flex-shrink: 0; }
 
                 /* Step 4: Exporting screen */
                 .export-progress-card {
@@ -1406,6 +1419,9 @@ function getWebviewContent(
                         <p style="margin-top: 8px; color: var(--vscode-descriptionForeground); font-size: 0.85em;">
                             The export will still proceed, but the listed files will produce empty output for the selected format.
                         </p>
+                    </div>
+                    <div class="popup-footer">
+                        <button onclick="closeContentMismatchPopup()">OK</button>
                     </div>
                 </div>
             </div>
