@@ -1682,6 +1682,11 @@ export class SyncManager {
                         return 'Uploading changes...';
                     }
                     if (stage.includes('Uploading media')) {
+                        // Surface connection/retry detail verbatim so the user
+                        // can see what's happening (e.g. "retrying in 9s").
+                        if (/retry|retrying|waiting|interrupted|stalled|connection/i.test(stage)) {
+                            return stage;
+                        }
                         const pctMatch = stage.match(/(\d+)%/);
                         if (pctMatch) {
                             return `Uploading media... ${pctMatch[1]}%`;
