@@ -467,6 +467,11 @@
                 "category": "Codex Maintenance"
             },
             {
+                "command": "codex-editor-extension.recoverMissingMergedChildren",
+                "title": "Codex: Recover Missing Merged Verses",
+                "category": "Codex Maintenance"
+            },
+            {
                 "command": "codex-editor-extension.runCommentsMigration",
                 "title": "Codex: Migrate Legacy Comments",
                 "category": "Codex Maintenance"
