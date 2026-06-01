@@ -1295,7 +1295,16 @@ export async function activate(context: vscode.ExtensionContext) {
                 // once the webview initializes and sends getCurrentCellId
                 commentsProvider.setPendingReloadData(options);
             }
-        })
+        }),
+        vscode.commands.registerCommand(
+            "codex-editor-extension.promptSystemMessageReview",
+            async (reason?: "sourceLanguageChanged" | "targetLanguageChanged" | "both") => {
+                const { openSystemMessageReview } = await import(
+                    "./copilotSettings/systemMessageReview"
+                );
+                await openSystemMessageReview(reason ?? "both");
+            }
+        )
     );
 
 
