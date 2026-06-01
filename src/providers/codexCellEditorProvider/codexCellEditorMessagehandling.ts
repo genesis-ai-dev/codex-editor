@@ -19,7 +19,7 @@ import { getAuthApi } from "@/extension";
 import { getCommentsFromFile } from "../../utils/fileUtils";
 import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
 import { toPosixPath } from "../../utils/pathUtils";
-import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
+import { revalidateCellMissingFlags, clearMissingFlagAfterSuccess } from "../../utils/audioMissingUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 
@@ -2242,6 +2242,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         return;
                     }
 
+                    // Resolution succeeded — repair a stale `isMissing=true`
+                    // flag if one was lingering from a previous migration scan,
+                    // so the next read of `getCurrentAttachment` reflects reality.
+                    clearMissingFlagAfterSuccess(document, cellId, targetAttachmentId);
+
                     // Convert to base64 and send to webview
                     const base64Data = `data:${mimeType};base64,${Buffer.from(fileData).toString('base64')}`;
 
@@ -2325,7 +2330,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 );
                             }
 
-                            if (mediaStrategy === "stream-and-save") {
+                            if (mediaStrategy === "stream-and-save" || mediaStrategy === "auto-download") {
+                                // Persist the just-downloaded bytes to `files/<X>` so the
+                                // next play of this cell reads from disk instead of
+                                // hitting LFS again. For auto-download this also lets
+                                // `reconcilePointersFilesystem` skip this OID when its
+                                // worker reaches it (it checks `files/<X>` existence
+                                // before issuing the HTTP request — see
+                                // GitService.ts Phase 3 worker), so the background
+                                // bulk-download doesn't redundantly re-fetch the same
+                                // bytes we just fetched here.
                                 try {
                                     await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(fullPath)));
                                     await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), lfsData);
@@ -2359,6 +2373,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                     } catch { /* non-fatal */ }
                                 }
                             }
+
+                            // Resolution succeeded via the pointer fallback —
+                            // repair any stale `isMissing=true` so the next
+                            // pre-flight scan / audio history modal reflects
+                            // reality without waiting for another migration.
+                            clearMissingFlagAfterSuccess(document, cellId, targetAttachmentId);
 
                             // Send to webview
                             const ext = path.extname(fullPath).toLowerCase();

@@ -30,7 +30,15 @@ suite('Audio Attachments Restoration', () => {
         await vscode.workspace.fs.stat(uri);
     }
 
-    test('restores missing pointers for files present under files/', async () => {
+    test('raw bytes in files/ → writes zero-byte recovery placeholder in pointers/', async () => {
+        // When `files/<X>` holds raw media bytes (auto-download cache, or a
+        // local-unsynced recording whose pointer got lost), we must NOT mirror
+        // those bytes into `pointers/<X>` — that would commit binary content
+        // into the LFS-tracked tree (LFS smudge/clean filters are disabled).
+        //
+        // Instead, write a zero-byte placeholder. The next sync push
+        // (`addAllWithLFS`) detects empty pointers and recovers bytes from
+        // `files/`, uploads to LFS, and rewrites with canonical pointer text.
         const { tmpProjectRoot, filesRoot, pointersRoot, wsFolder } = makeWorkspace();
         await vscode.workspace.fs.createDirectory(filesRoot);
         await vscode.workspace.fs.createDirectory(pointersRoot);
@@ -42,7 +50,7 @@ suite('Audio Attachments Restoration', () => {
         const srcFile = vscode.Uri.joinPath(srcDir, audioId);
         const dstFile = vscode.Uri.joinPath(dstDir, audioId);
 
-        // Arrange: place file only in files/ path
+        // Arrange: place RAW BYTES (not pointer text) only in files/
         await vscode.workspace.fs.createDirectory(srcDir);
         await vscode.workspace.fs.writeFile(srcFile, new Uint8Array([1, 2, 3, 4, 5]));
 
@@ -54,10 +62,49 @@ suite('Audio Attachments Restoration', () => {
         // Act: run migrator
         await migrateAudioAttachments(wsFolder);
 
-        // Assert: pointer now exists with same size
+        // Assert: pointer now exists, but as a ZERO-BYTE placeholder
         await waitForExists(dstFile);
         const stat = await vscode.workspace.fs.stat(dstFile);
-        assert.ok(stat.size >= 5, 'Restored pointer file should exist and have size');
+        assert.strictEqual(stat.size, 0, 'Pointer must be a zero-byte recovery placeholder, never raw bytes');
+
+        // Cleanup
+        try { await vscode.workspace.fs.delete(tmpProjectRoot, { recursive: true }); } catch { /* ignore */ }
+    });
+
+    test('LFS pointer text in files/ → mirrored verbatim into pointers/', async () => {
+        // In stream-only / stream-and-save projects, `files/<X>` legitimately
+        // holds an LFS pointer stub (post-`populateFilesWithPointers` from
+        // clone). If `pointers/<X>` is missing, we should mirror the pointer
+        // text verbatim — that's the canonical state, safe to commit.
+        const { tmpProjectRoot, filesRoot, pointersRoot, wsFolder } = makeWorkspace();
+        await vscode.workspace.fs.createDirectory(filesRoot);
+        await vscode.workspace.fs.createDirectory(pointersRoot);
+        const bookFolder = 'JUD';
+        const audioId = 'audio-pointer-only.webm';
+
+        const srcDir = vscode.Uri.joinPath(filesRoot, bookFolder);
+        const dstDir = vscode.Uri.joinPath(pointersRoot, bookFolder);
+        const srcFile = vscode.Uri.joinPath(srcDir, audioId);
+        const dstFile = vscode.Uri.joinPath(dstDir, audioId);
+
+        const pointerText =
+            'version https://git-lfs.github.com/spec/v1\n' +
+            'oid sha256:0000000000000000000000000000000000000000000000000000000000000001\n' +
+            'size 12345\n';
+        const pointerBytes = new TextEncoder().encode(pointerText);
+
+        await vscode.workspace.fs.createDirectory(srcDir);
+        await vscode.workspace.fs.writeFile(srcFile, pointerBytes);
+
+        // Act
+        await migrateAudioAttachments(wsFolder);
+
+        // Assert: pointer mirrored byte-for-byte
+        await waitForExists(dstFile);
+        const mirrored = await vscode.workspace.fs.readFile(dstFile);
+        assert.strictEqual(mirrored.byteLength, pointerBytes.byteLength, 'Mirrored pointer should match source size');
+        const mirroredText = new TextDecoder().decode(mirrored);
+        assert.strictEqual(mirroredText, pointerText, 'Mirrored pointer should match source bytes exactly');
 
         // Cleanup
         try { await vscode.workspace.fs.delete(tmpProjectRoot, { recursive: true }); } catch { /* ignore */ }
@@ -97,17 +144,19 @@ suite('Audio Attachments Restoration', () => {
         } as any;
         await vscode.workspace.fs.writeFile(codexFile, new TextEncoder().encode(JSON.stringify(codex, null, 2)));
 
-        // Place file only in files/ so restoration will create pointer
+        // Place RAW BYTES only in files/ — restoration writes a zero-byte
+        // recovery placeholder into pointers/ (see test above for rationale).
         await vscode.workspace.fs.createDirectory(filesDir);
         await vscode.workspace.fs.writeFile(srcFile, new Uint8Array([9, 9, 9]));
 
         // Run migrator (restores pointer and updates flags)
         await migrateAudioAttachments(wsFolder);
 
-        // Pointer should now exist
+        // Pointer should now exist (as zero-byte placeholder); isMissing must
+        // flip to false because the pointer path is present on disk.
         await waitForExists(dstFile);
         const dstStat = await vscode.workspace.fs.stat(dstFile);
-        assert.ok(dstStat.size >= 3);
+        assert.strictEqual(dstStat.size, 0, 'Pointer should be a zero-byte recovery placeholder');
 
         // Codex should have isMissing=false after update and updatedAt bumped
         const updated = new TextDecoder().decode(await vscode.workspace.fs.readFile(codexFile));

@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { CodexNotebookAsJSONData, QuillCellContent } from "@types";
 import { CodexCellTypes } from "../../types/enums";
 import { removeHtmlTags } from "./subtitleUtils";
-import * as vscode from "vscode";
 
 /**
  * Inserts line breaks for dialogue patterns when missing.
@@ -125,9 +124,6 @@ ${unit.payload}
                 )
                 .join("\n");
 
-    if (cues.length === 0) {
-        vscode.window.showInformationMessage("No cues found in the " + filePath);
-    }
     return `WEBVTT
 
 ${cues}`;

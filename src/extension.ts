@@ -15,6 +15,7 @@ import {
     migration_reorderMisplacedParatextCells,
     migration_addGlobalReferences,
     migration_verseRangeLabelsAndPositions,
+    migration_recoverMissingMergedChildren,
     migration_cellIdsToUuid,
     migration_recoverTempFilesAndMergeDuplicates,
 } from "./projectManager/utils/migrationUtils";
@@ -974,6 +975,21 @@ export async function activate(context: vscode.ExtensionContext) {
             await migration_addGlobalReferences(context);
             await migration_cellIdsToUuid(context);
             await migration_recoverTempFilesAndMergeDuplicates(context);
+
+            // One-shot audio metadata schema migrations (currently: v1 backfills
+            // `selectedAudioId`/`selectionTimestamp` on legacy pre-Aug-18-2025
+            // cells). Gated by `audioSchemaVersion` in `localProjectSettings.json`
+            // (per-machine, gitignored), so this is a no-op on already-migrated
+            // machines.
+            try {
+                const wf = vscode.workspace.workspaceFolders?.[0];
+                if (wf) {
+                    const { runAudioSchemaMigrationsForWorkspace } = await import("./utils/audioAttachmentsMigrationUtils");
+                    await runAudioSchemaMigrationsForWorkspace(wf);
+                }
+            } catch (err) {
+                console.error("[extension] runAudioSchemaMigrationsForWorkspace failed:", err);
+            }
         }
 
         // Remove leftover files from features that have been removed
@@ -1116,6 +1132,25 @@ export async function activate(context: vscode.ExtensionContext) {
                     console.error("Verse range migration failed:", error);
                     await vscode.window.showErrorMessage(
                         `Verse range migration failed: ${msg}`
+                    );
+                }
+            }
+        )
+    );
+
+    // Command: Recover missing merged children (one-off recovery for the resolver
+    // tie-break bug; idempotent and prompts before writing).
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.recoverMissingMergedChildren",
+            async () => {
+                try {
+                    await migration_recoverMissingMergedChildren();
+                } catch (error) {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    console.error("Missing merged children recovery failed:", error);
+                    await vscode.window.showErrorMessage(
+                        `Missing merged children recovery failed: ${msg}`
                     );
                 }
             }
