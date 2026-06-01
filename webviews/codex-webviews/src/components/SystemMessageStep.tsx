@@ -8,6 +8,13 @@ export interface SystemMessageStepProps {
     onContinue: () => void;
     onSkip?: () => void;
     isWaitingForMessage?: boolean;
+    /** Optional banner shown above the heading (e.g. to explain why this view appeared). */
+    headerBanner?: React.ReactNode;
+    /** When provided, renders an additional button (e.g. "I don't need to change this") that calls onDismiss. */
+    dismissLabel?: string;
+    onDismiss?: () => void;
+    /** Override label shown on the primary save button. Defaults to "Save and Start Translating". */
+    saveLabel?: string;
 }
 
 /**
@@ -20,6 +27,10 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
     onContinue,
     onSkip,
     isWaitingForMessage = false,
+    headerBanner,
+    dismissLabel,
+    onDismiss,
+    saveLabel,
 }) => {
     const [systemMessage, setSystemMessage] = useState<string>(initialMessage);
     const [isGenerating, setIsGenerating] = useState(false);
@@ -126,6 +137,9 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                     gap: "12px",
                 }}
             >
+                {headerBanner && (
+                    <div>{headerBanner}</div>
+                )}
                 <div
                     style={{
                         display: "flex",
@@ -305,6 +319,15 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                         Skip for Now
                     </VSCodeButton>
                 )} */}
+                {dismissLabel && onDismiss && (
+                    <VSCodeButton
+                        appearance="secondary"
+                        onClick={onDismiss}
+                        disabled={isGenerating || isSaving}
+                    >
+                        {dismissLabel}
+                    </VSCodeButton>
+                )}
                 <VSCodeButton
                     appearance="primary"
                     onClick={handleSave}
@@ -331,12 +354,12 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                         </span>
                     ) : systemMessage.trim() ? (
                         <>
-                            Save and Start Translating
+                            {saveLabel ?? "Save and Start Translating"}
                             <i className="codicon codicon-arrow-right" style={{ marginLeft: "4px" }}></i>
                         </>
                     ) : (
                         <>
-                            Start Translating
+                            {saveLabel ?? "Start Translating"}
                             <i className="codicon codicon-arrow-right" style={{ marginLeft: "4px" }}></i>
                         </>
                     )}
