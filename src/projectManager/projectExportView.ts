@@ -781,9 +781,11 @@ function getWebviewContent(
                     font-size: 0.9em;
                     color: var(--vscode-editor-foreground);
                     line-height: 1.5;
-                    overflow-y: auto;
+                    display: flex;
+                    flex-direction: column;
                     min-height: 0;
                 }
+                .popup-body > p { flex-shrink: 0; }
                 .popup-file-list {
                     margin: 8px 0;
                     padding: 8px 12px;
@@ -791,6 +793,9 @@ function getWebviewContent(
                     border: 1px solid rgba(202, 138, 4, 0.25);
                     border-radius: 4px;
                     font-size: 0.9em;
+                    flex: 0 1 auto;
+                    min-height: 0;
+                    overflow-y: auto;
                 }
                 .popup-file-list div { padding: 2px 0; display: flex; align-items: center; }
                 .popup-footer { display: flex; justify-content: flex-end; margin-top: 16px; flex-shrink: 0; }
