@@ -120,6 +120,7 @@ const SystemMessageReviewApp: React.FC = () => {
                 saveLabel="Save"
                 generateLabel="Regenerate"
                 skipOverwriteWarning
+                emphasizeGenerateUntilEdited
             />
         </div>
     );

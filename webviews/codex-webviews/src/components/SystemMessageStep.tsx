@@ -19,6 +19,13 @@ export interface SystemMessageStepProps {
     generateLabel?: string;
     /** When true, clicking Generate skips the overwrite-confirmation warning and generates immediately. */
     skipOverwriteWarning?: boolean;
+    /**
+     * When true, the Generate button is the primary call-to-action until the user has
+     * either edited the text or regenerated. After that, Save becomes primary.
+     * Useful for the review flow where the expectation is that the user changes
+     * something before saving.
+     */
+    emphasizeGenerateUntilEdited?: boolean;
 }
 
 /**
@@ -37,19 +44,26 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
     saveLabel,
     generateLabel,
     skipOverwriteWarning = false,
+    emphasizeGenerateUntilEdited = false,
 }) => {
     const [systemMessage, setSystemMessage] = useState<string>(initialMessage);
     const [isGenerating, setIsGenerating] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [showOverwriteWarning, setShowOverwriteWarning] = useState(false);
+    const [hasInteracted, setHasInteracted] = useState(false);
 
     const resolvedGenerateLabel = generateLabel ?? "Generate";
+    const generateAppearance: "primary" | "secondary" =
+        emphasizeGenerateUntilEdited && !hasInteracted ? "primary" : "secondary";
+    const saveAppearance: "primary" | "secondary" =
+        emphasizeGenerateUntilEdited && !hasInteracted ? "secondary" : "primary";
 
     // Update local state when initialMessage changes
     useEffect(() => {
         if (initialMessage) {
             setSystemMessage(initialMessage);
+            setHasInteracted(false);
         }
     }, [initialMessage]);
 
@@ -60,6 +74,7 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                 setSystemMessage(event.data.message || "");
                 setIsGenerating(false);
                 setError(null);
+                setHasInteracted(true);
             } else if (event.data.command === "systemMessage.generateError") {
                 setError(event.data.error || "Failed to generate system message");
                 setIsGenerating(false);
@@ -230,7 +245,10 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                     <VSCodeTextArea
                         id="system-message-textarea"
                         value={systemMessage}
-                        onInput={(e: any) => setSystemMessage(e.target.value)}
+                        onInput={(e: any) => {
+                            setSystemMessage(e.target.value);
+                            setHasInteracted(true);
+                        }}
                         placeholder={
                             isGenerating || isWaitingForMessage
                                 ? "Generating translation instructions..."
@@ -259,7 +277,7 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                     }}
                 >
                     <VSCodeButton
-                        appearance="secondary"
+                        appearance={generateAppearance}
                         onClick={handleGenerate}
                         disabled={isGenerating || isWaitingForMessage || isSaving}
                         style={{
@@ -319,7 +337,7 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                     </VSCodeButton>
                 )}
                 <VSCodeButton
-                    appearance="primary"
+                    appearance={saveAppearance}
                     onClick={handleSave}
                     disabled={isGenerating || isSaving || !systemMessage.trim()}
                     style={{
