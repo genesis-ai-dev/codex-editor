@@ -713,9 +713,13 @@ function getWebviewContent(
                     padding: 20px 24px;
                     max-width: 480px;
                     width: 90%;
+                    max-height: 85vh;
+                    display: flex;
+                    flex-direction: column;
                     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
                 }
                 .popup-header {
+                    flex-shrink: 0;
                     display: flex;
                     align-items: center;
                     gap: 8px;
@@ -737,6 +741,8 @@ function getWebviewContent(
                     font-size: 0.9em;
                     color: var(--vscode-editor-foreground);
                     line-height: 1.5;
+                    overflow-y: auto;
+                    min-height: 0;
                 }
                 .popup-file-list {
                     margin: 8px 0;
@@ -745,11 +751,9 @@ function getWebviewContent(
                     border: 1px solid rgba(202, 138, 4, 0.25);
                     border-radius: 4px;
                     font-size: 0.9em;
-                    max-height: 40vh;
-                    overflow-y: auto;
                 }
                 .popup-file-list div { padding: 2px 0; display: flex; align-items: center; }
-                .popup-footer { display: flex; justify-content: flex-end; margin-top: 16px; }
+                .popup-footer { display: flex; justify-content: flex-end; margin-top: 16px; flex-shrink: 0; }
 
                 /* Step 4: Exporting screen */
                 .export-progress-card {
