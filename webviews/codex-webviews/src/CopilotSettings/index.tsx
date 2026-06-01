@@ -27,6 +27,7 @@ function CopilotSettingsApp() {
     const [systemMessage, setSystemMessage] = useState("");
     const [sourceLanguage, setSourceLanguage] = useState<ProjectLanguage | null>(null);
     const [targetLanguage, setTargetLanguage] = useState<ProjectLanguage | null>(null);
+    const [isGenerating, setIsGenerating] = useState(false);
 
     // ASR (Speech to Text) settings
     const [asrSettings, setAsrSettings] = useState<{
@@ -48,6 +49,9 @@ function CopilotSettingsApp() {
                 // Optional toast could be shown
             } else if (message.command === "updateInput") {
                 setSystemMessage(message.text || "");
+                setIsGenerating(false);
+            } else if (message.command === "generateError") {
+                setIsGenerating(false);
             }
         };
         window.addEventListener("message", handler);
@@ -56,6 +60,11 @@ function CopilotSettingsApp() {
         vscode.postMessage({ command: "getAsrSettings" });
         return () => window.removeEventListener("message", handler);
     }, [vscode]);
+
+    const handleGenerate = () => {
+        setIsGenerating(true);
+        vscode.postMessage({ command: "generate" });
+    };
 
     const saveAll = () => {
         vscode.postMessage({
@@ -124,11 +133,16 @@ function CopilotSettingsApp() {
                         <div className="font-medium">System Message</div>
                         {systemMessage && (
                             <Button
-                                onClick={() => vscode.postMessage({ command: "generate" })}
+                                onClick={handleGenerate}
+                                disabled={isGenerating}
                                 className="min-w-[180px] h-8 relative flex items-center justify-center"
                             >
-                                <i 
-                                    className="codicon codicon-sparkle absolute left-2 top-1/2 -translate-y-1/2"
+                                <i
+                                    className={
+                                        isGenerating
+                                            ? "codicon codicon-loading codicon-modifier-spin absolute left-2 top-1/2 -translate-y-1/2"
+                                            : "codicon codicon-sparkle absolute left-2 top-1/2 -translate-y-1/2"
+                                    }
                                     style={{
                                         width: "16px",
                                         height: "16px",
@@ -144,15 +158,27 @@ function CopilotSettingsApp() {
                             onChange={(e) => setSystemMessage(e.target.value)}
                             className="w-full border rounded p-2"
                             rows={12}
+                            disabled={isGenerating}
                         />
                     ) : (
                         <div className="text-center py-8">
                             <Button
-                                onClick={() => vscode.postMessage({ command: "generate" })}
+                                onClick={handleGenerate}
                                 className="mb-4"
-                                disabled={!sourceLanguage?.refName || !targetLanguage?.refName}
+                                disabled={
+                                    isGenerating ||
+                                    !sourceLanguage?.refName ||
+                                    !targetLanguage?.refName
+                                }
                             >
-                                ✨ Generate AI Instructions
+                                {isGenerating ? (
+                                    <span className="inline-flex items-center gap-2">
+                                        <i className="codicon codicon-loading codicon-modifier-spin" />
+                                        Generating...
+                                    </span>
+                                ) : (
+                                    "✨ Generate AI Instructions"
+                                )}
                             </Button>
                             <div className="text-sm opacity-70">
                                 {sourceLanguage?.refName && targetLanguage?.refName
@@ -169,7 +195,9 @@ function CopilotSettingsApp() {
                     >
                         Cancel
                     </Button>
-                    <Button onClick={saveAll}>Save All Settings</Button>
+                    <Button onClick={saveAll} disabled={isGenerating}>
+                        Save All Settings
+                    </Button>
                 </div>
             </div>
         </div>
