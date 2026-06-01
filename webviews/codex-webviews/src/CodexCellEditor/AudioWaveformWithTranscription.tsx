@@ -55,6 +55,8 @@ interface AudioWaveformWithTranscriptionProps {
     // Persistent ASR preferences exposed via the Transcribe-row gear popover.
     asrPhonetic?: boolean;
     onChangeAsrPhonetic?: (enabled: boolean) => void;
+    /** Total number of audio recordings for the cell (including soft-deleted). When > 0, a count badge is rendered on the History button. */
+    historyCount?: number;
 }
 
 const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionProps> = ({
@@ -80,6 +82,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     onChangeAsrLanguageMode,
     asrPhonetic = false,
     onChangeAsrPhonetic,
+    historyCount,
 }) => {
     const [audioSrc, setAudioSrc] = useState<string>("");
     const [audioDuration, setAudioDuration] = useState<number | null>(null);
@@ -370,6 +373,24 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                 >
                     <History className="h-3 w-3" />
                     <span className="ml-1">History</span>
+                    {typeof historyCount === "number" && historyCount > 0 && (
+                        <Badge
+                            variant="secondary"
+                            className="ml-1 justify-center leading-none"
+                            style={{
+                                minWidth: "1.5em",
+                                height: "1.5em",
+                                padding: "0 0.35em",
+                                fontSize: "0.85em",
+                                fontWeight: 700,
+                                backgroundColor: "var(--vscode-badge-background)",
+                                color: "var(--vscode-badge-foreground)",
+                            }}
+                            aria-label={`${historyCount} audio recording${historyCount === 1 ? "" : "s"} in history`}
+                        >
+                            {historyCount}
+                        </Badge>
+                    )}
                 </Button>
                 <Button
                     variant="outline"

@@ -1,5 +1,11 @@
 import * as vscode from "vscode";
 import { CodexNotebookAsJSONData } from "../../../types";
+import {
+    getCellAudioState,
+    isExportableCell,
+    isLabelableCell,
+} from "../../exportHandler/audioAttachmentUtils";
+import { formatCellDisplayLabel } from "../../exportHandler/cellLabelUtils";
 
 export {
     EXPORT_OPTIONS_BY_FILE_TYPE,
@@ -26,12 +32,56 @@ export const FILE_TYPE_DISPLAY_NAMES: Record<string, string> = {
     unknown: "Other Files",
 };
 
+export interface NotebookAudioStats {
+    /** Active cells (kind 1|2, not merged/deleted) — the denominator. */
+    eligibleCellCount: number;
+    /** Cells with a take that will actually be exported. */
+    audioReadyCount: number;
+    /** Eligible cells with no usable audio attachment at all. */
+    noAudioRecordedCount: number;
+    /**
+     * selectedAudioId was set on the cell but the referenced attachment is
+     * gone (deleted, missing, or unknown). Nothing will be exported — the
+     * user has to pick again or re-record.
+     */
+    selectionMissingCount: number;
+    /**
+     * No selectedAudioId, but non-deleted takes are present. The user has
+     * never picked one (or their pick was cleared by deletion). Nothing will
+     * be exported — we refuse to auto-pick on the user's behalf.
+     */
+    noneSelectedCount: number;
+    /**
+     * Cells in each non-ready bucket. Used by the Step 1 drill-down popover
+     * so the user can see WHICH cells are affected, not just how many.
+     * `label` matches the format the export progress reporter uses, so the
+     * wizard's pre-flight and the actual export speak the same identifiers.
+     * `cellId` is the cell's `metadata.id` — the popover uses it to deep-link
+     * the user straight into the affected cell in the codex editor.
+     *
+     * Cells without a presentable identifier (no globalReferences, no
+     * cellLabel, no text content) are intentionally omitted — same rule
+     * `audioExporter.ts` applies, so the counts here match what the export
+     * would actually surface.
+     */
+    noAudioRecordedCells: AudioStatsCellEntry[];
+    selectionMissingCells: AudioStatsCellEntry[];
+    noneSelectedCells: AudioStatsCellEntry[];
+}
+
+/** Per-cell entry surfaced by the Step 1 drill-down popover. */
+export interface AudioStatsCellEntry {
+    label: string;
+    cellId: string;
+}
+
 export interface FileGroupEntry {
     path: string;
     name: string;
     displayName: string;
     hasTranslations: boolean;
     hasAudio: boolean;
+    audioStats?: NotebookAudioStats;
 }
 
 export interface FileGroup {
@@ -75,8 +125,11 @@ function cellHasAudioAttachment(cell: CellEntry): boolean {
     if (!attachments) {
         return false;
     }
+    // Note: `isMissing` is intentionally not part of the predicate. The flag
+    // is a stale hint; the export's resolver will attempt LFS resolution at
+    // access time and report real failures via the missing-files reporter.
     return Object.values(attachments).some(
-        (att) => att.type === "audio" && !att.isDeleted && !att.isMissing && !!att.url
+        (att) => att.type === "audio" && !att.isDeleted && !!att.url
     );
 }
 
@@ -102,6 +155,65 @@ export function analyzeNotebookContent(notebook: CodexNotebookAsJSONData): {
         }
     }
     return { hasTranslations, hasAudio };
+}
+
+/**
+ * Full notebook walk that mirrors the predicate used by `audioExporter.ts` so
+ * Step 1 inline counts cannot disagree with what the actual export will do.
+ * Pure notebook-metadata walk: no disk IO, no network.
+ *
+ * @param bookCode used to label cells without globalReferences (non-Bible
+ *                 sources). Match what the exporter passes (basename of the
+ *                 .codex file without extension) so labels are identical.
+ */
+export function analyzeNotebookAudioStats(
+    notebook: CodexNotebookAsJSONData,
+    bookCode: string
+): NotebookAudioStats {
+    let eligibleCellCount = 0;
+    let audioReadyCount = 0;
+    const noAudioRecordedCells: AudioStatsCellEntry[] = [];
+    const selectionMissingCells: AudioStatsCellEntry[] = [];
+    const noneSelectedCells: AudioStatsCellEntry[] = [];
+
+    for (const cell of notebook.cells) {
+        if (!isExportableCell(cell)) continue;
+        eligibleCellCount += 1;
+        const state = getCellAudioState(cell);
+        if (state === "ready") {
+            audioReadyCount += 1;
+            continue;
+        }
+        // Mirror the exporter: cells we can't label aren't surfaced as
+        // missing-audio rows, so they shouldn't inflate the Step 1 counts.
+        if (!isLabelableCell(cell)) continue;
+        const cellId: string | undefined = (cell.metadata as any)?.id;
+        if (!cellId) continue;
+        const label = formatCellDisplayLabel(cell, cellId, bookCode);
+        // Belt-and-suspenders: `isLabelableCell` should match
+        // `formatCellDisplayLabel`'s null contract, but defending here keeps
+        // the array contents consistent with the counts even if those drift.
+        if (!label) continue;
+        const entry: AudioStatsCellEntry = { label, cellId };
+        if (state === "selection-missing") {
+            selectionMissingCells.push(entry);
+        } else if (state === "none-selected") {
+            noneSelectedCells.push(entry);
+        } else {
+            noAudioRecordedCells.push(entry);
+        }
+    }
+
+    return {
+        eligibleCellCount,
+        audioReadyCount,
+        noAudioRecordedCount: noAudioRecordedCells.length,
+        selectionMissingCount: selectionMissingCells.length,
+        noneSelectedCount: noneSelectedCells.length,
+        noAudioRecordedCells,
+        selectionMissingCells,
+        noneSelectedCells,
+    };
 }
 
 /**
@@ -269,6 +381,14 @@ export async function groupCodexFilesByImporterType(
                 name.replace(/\.codex$/i, "") ||
                 name;
             const { hasTranslations, hasAudio } = analyzeNotebookContent(notebook);
+            // bookCode here matches what the exporter computes (basename
+            // before the .codex extension), so labels generated by Step 1
+            // pre-flight align exactly with labels in the export's missing-
+            // files report.
+            const bookCode = name.split(".")[0] || "BOOK";
+            const audioStats = hasAudio
+                ? analyzeNotebookAudioStats(notebook, bookCode)
+                : undefined;
 
             if (!groupsMap.has(groupKey)) {
                 groupsMap.set(groupKey, []);
@@ -279,6 +399,7 @@ export async function groupCodexFilesByImporterType(
                 displayName: fileDisplayName,
                 hasTranslations,
                 hasAudio,
+                audioStats,
             });
         } catch {
             const name = uri.fsPath.split(/[/\\]/).pop() || "";
