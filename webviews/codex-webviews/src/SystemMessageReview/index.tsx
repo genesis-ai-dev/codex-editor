@@ -117,7 +117,7 @@ const SystemMessageReviewApp: React.FC = () => {
                 headerBanner={banner}
                 dismissLabel="I don't need to change this"
                 onDismiss={handleDismiss}
-                saveLabel="Save Translation Instructions"
+                saveLabel="Save"
                 generateLabel="Regenerate"
                 skipOverwriteWarning
             />

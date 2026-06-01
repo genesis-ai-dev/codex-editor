@@ -272,6 +272,7 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                                 alignItems: "center",
                                 justifyContent: "center",
                                 gap: "6px",
+                                whiteSpace: "nowrap",
                             }}
                         >
                             <i
@@ -331,6 +332,7 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                             alignItems: "center",
                             justifyContent: "center",
                             gap: "6px",
+                            whiteSpace: "nowrap",
                         }}
                     >
                         {isSaving ? (
