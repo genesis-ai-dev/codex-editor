@@ -118,6 +118,8 @@ const SystemMessageReviewApp: React.FC = () => {
                 dismissLabel="I don't need to change this"
                 onDismiss={handleDismiss}
                 saveLabel="Save Translation Instructions"
+                generateLabel="Regenerate"
+                skipOverwriteWarning
             />
         </div>
     );

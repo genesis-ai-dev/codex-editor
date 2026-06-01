@@ -15,6 +15,10 @@ export interface SystemMessageStepProps {
     onDismiss?: () => void;
     /** Override label shown on the primary save button. Defaults to "Save and Start Translating". */
     saveLabel?: string;
+    /** Override label shown on the generate button. Defaults to "Generate". */
+    generateLabel?: string;
+    /** When true, clicking Generate skips the overwrite-confirmation warning and generates immediately. */
+    skipOverwriteWarning?: boolean;
 }
 
 /**
@@ -31,17 +35,16 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
     dismissLabel,
     onDismiss,
     saveLabel,
+    generateLabel,
+    skipOverwriteWarning = false,
 }) => {
     const [systemMessage, setSystemMessage] = useState<string>(initialMessage);
     const [isGenerating, setIsGenerating] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [showOverwriteWarning, setShowOverwriteWarning] = useState(false);
-    
-    // Icon positioning constants
-    const ICON_LEFT_MARGIN = "3px";
-    const TEXT_LEFT_PADDING = "4px";
-    const ICON_SIZE = 16; // pixels
+
+    const resolvedGenerateLabel = generateLabel ?? "Generate";
 
     // Update local state when initialMessage changes
     useEffect(() => {
@@ -74,13 +77,13 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
     }, [onContinue]);
 
     const handleGenerate = () => {
-        // Show warning if there's existing text
-        if (systemMessage.trim()) {
+        // Show warning if there's existing text (unless the consumer opted out, e.g. the
+        // language-change review flow, where regenerating is the expected next step).
+        if (!skipOverwriteWarning && systemMessage.trim()) {
             setShowOverwriteWarning(true);
             return;
         }
-        
-        // Proceed with generation
+
         setIsGenerating(true);
         setError(null);
         vscode.postMessage({
@@ -189,7 +192,7 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                         }}
                     >
                         <div style={{ color: "var(--vscode-warningForeground)" }}>
-                            Generating a new message will overwrite your current text. Do you want to proceed?
+                            Generating a new message will overwrite your current text.
                         </div>
                         <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
                             <VSCodeButton
@@ -263,39 +266,25 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                             minWidth: "180px",
                         }}
                     >
-                        {(isGenerating || isWaitingForMessage) ? (
-                            <span style={{
-                                display: "flex",
+                        <span
+                            style={{
+                                display: "inline-flex",
                                 alignItems: "center",
-                                gap: "8px",
-                            }}>
-                                <i className="codicon codicon-loading codicon-modifier-spin" style={{
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    width: `${ICON_SIZE}px`,
-                                    height: `${ICON_SIZE}px`,
-                                    marginLeft: ICON_LEFT_MARGIN,
-                                }}></i>
-                                <span style={{ paddingLeft: TEXT_LEFT_PADDING }}>Generating...</span>
-                            </span>
-                        ) : (
-                            <span style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "8px",
-                            }}>
-                                <i className="codicon codicon-sparkle" style={{
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    width: `${ICON_SIZE}px`,
-                                    height: `${ICON_SIZE}px`,
-                                    marginLeft: ICON_LEFT_MARGIN,
-                                }}></i>
-                                <span style={{ paddingLeft: TEXT_LEFT_PADDING }}>Generate</span>
-                            </span>
-                        )}
+                                justifyContent: "center",
+                                gap: "6px",
+                            }}
+                        >
+                            <i
+                                className={
+                                    isGenerating || isWaitingForMessage
+                                        ? "codicon codicon-loading codicon-modifier-spin"
+                                        : "codicon codicon-sparkle"
+                                }
+                            ></i>
+                            {isGenerating || isWaitingForMessage
+                                ? "Generating..."
+                                : resolvedGenerateLabel}
+                        </span>
                     </VSCodeButton>
                 </div>
             </div>
@@ -336,33 +325,29 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                         minWidth: "200px",
                     }}
                 >
-                    {isSaving ? (
-                        <span style={{
-                            display: "flex",
+                    <span
+                        style={{
+                            display: "inline-flex",
                             alignItems: "center",
-                            gap: "8px",
-                        }}>
-                            <i className="codicon codicon-loading codicon-modifier-spin" style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                width: `${ICON_SIZE}px`,
-                                height: `${ICON_SIZE}px`,
-                                marginLeft: ICON_LEFT_MARGIN,
-                            }}></i>
-                            <span style={{ paddingLeft: TEXT_LEFT_PADDING }}>Saving...</span>
-                        </span>
-                    ) : systemMessage.trim() ? (
-                        <>
-                            {saveLabel ?? "Save and Start Translating"}
-                            <i className="codicon codicon-arrow-right" style={{ marginLeft: "4px" }}></i>
-                        </>
-                    ) : (
-                        <>
-                            {saveLabel ?? "Start Translating"}
-                            <i className="codicon codicon-arrow-right" style={{ marginLeft: "4px" }}></i>
-                        </>
-                    )}
+                            justifyContent: "center",
+                            gap: "6px",
+                        }}
+                    >
+                        {isSaving ? (
+                            <>
+                                <i className="codicon codicon-loading codicon-modifier-spin"></i>
+                                Saving...
+                            </>
+                        ) : (
+                            <>
+                                {saveLabel ??
+                                    (systemMessage.trim()
+                                        ? "Save and Start Translating"
+                                        : "Start Translating")}
+                                <i className="codicon codicon-arrow-right"></i>
+                            </>
+                        )}
+                    </span>
                 </VSCodeButton>
             </div>
         </div>
