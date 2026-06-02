@@ -7,7 +7,7 @@ import { BaseWebviewProvider } from "../../globalProvider";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { CodexItem } from "types";
-import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
+import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent, getBookNameValidationMessage } from "../../../sharedUtils";
 import { normalizeCorpusMarker } from "../../utils/corpusMarkerUtils";
 import { addMetadataEdit, addProjectMetadataEdit, EditMapUtils } from "../../utils/editMapUtils";
 import { MetadataManager } from "../../utils/metadataManager";
@@ -957,6 +957,21 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             return;
         }
 
+        // Defensive: reject names containing characters that would later be misinterpreted
+        // by filesystem-style cleanup (see issue #1013) or are otherwise unsafe in paths.
+        // The webview also blocks these client-side, but we re-validate here in case a
+        // stale webview, command, or future caller bypasses that check.
+        const trimmedNewBookName = (newBookName ?? "").trim();
+        if (!trimmedNewBookName) {
+            vscode.window.showErrorMessage("Book name cannot be empty.");
+            return;
+        }
+        const validationError = getBookNameValidationMessage(trimmedNewBookName);
+        if (validationError) {
+            vscode.window.showErrorMessage(`Cannot update book name: ${validationError}`);
+            return;
+        }
+
         try {
             // Find codex files matching the book abbreviation and read metadata from first file
             const { matchingUris, corpusMarker } = await findCodexFilesByBookAbbr(bookAbbr, { readMetadata: true });
@@ -1019,15 +1034,15 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                             const oldValue = metadata.fileDisplayName;
 
                             // Only add edit if value is actually changing
-                            if (oldValue !== newBookName) {
+                            if (oldValue !== trimmedNewBookName) {
                                 // Add edit history entry before updating metadata
-                                addMetadataEdit(metadata, "fileDisplayName", newBookName, currentUser);
+                                addMetadataEdit(metadata, "fileDisplayName", trimmedNewBookName, currentUser);
                             }
 
                             // Update metadata to add fileDisplayName (preserve originalName)
                             notebookData.metadata = {
                                 ...metadata,
-                                fileDisplayName: newBookName,
+                                fileDisplayName: trimmedNewBookName,
                                 // Preserve originalName if it exists, don't modify it
                             };
 
@@ -1068,15 +1083,15 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                                     const sourceOldValue = sourceMetadata.fileDisplayName;
 
                                     // Only add edit if value is actually changing
-                                    if (sourceOldValue !== newBookName) {
+                                    if (sourceOldValue !== trimmedNewBookName) {
                                         // Add edit history entry before updating metadata
-                                        addMetadataEdit(sourceMetadata, "fileDisplayName", newBookName, currentUser);
+                                        addMetadataEdit(sourceMetadata, "fileDisplayName", trimmedNewBookName, currentUser);
                                     }
 
                                     // Update metadata to add fileDisplayName (preserve originalName)
                                     sourceNotebookData.metadata = {
                                         ...sourceMetadata,
-                                        fileDisplayName: newBookName,
+                                        fileDisplayName: trimmedNewBookName,
                                         // Preserve originalName if it exists, don't modify it
                                     };
 
@@ -1104,11 +1119,11 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
                 if (updatedCount > 0) {
                     vscode.window.showInformationMessage(
-                        `Book name updated: "${bookAbbr}" → "${newBookName}" (${updatedCount} file(s) updated)`
+                        `Book name updated: "${bookAbbr}" → "${trimmedNewBookName}" (${updatedCount} file(s) updated)`
                     );
                 } else {
                     vscode.window.showInformationMessage(
-                        `Book name updated: "${bookAbbr}" → "${newBookName}" (no matching codex files found)`
+                        `Book name updated: "${bookAbbr}" → "${trimmedNewBookName}" (no matching codex files found)`
                     );
                 }
             } catch (error) {
