@@ -99,6 +99,15 @@ export interface LocalProjectSettings {
      *       (not deleted, not missing) and no explicit selection.
      */
     audioSchemaVersion?: number;
+    /**
+     * Rel-paths (within `.project/attachments/files`, e.g. "JUD/JUD_001_025.mp4")
+     * that the user explicitly chose to keep on this machine via "Save to project".
+     * These are protected from the stream-only pointer-replacement cleanup
+     * (`postSyncCleanup` / strategy switches) so they survive reloads. Stored
+     * locally (this file is gitignored) because the saved copy is a per-machine
+     * download — `attachments/files/**` is gitignored too. Video-only by design.
+     */
+    persistedMediaFiles?: string[];
     // Legacy keys (read and mirrored for backward compatibility)
     mediaFilesStrategy?: MediaFilesStrategy;
     lastModeRun?: MediaFilesStrategy;
@@ -239,6 +248,10 @@ async function writeLocalProjectSettingsInternal(
             autoSyncEnabled: settings.autoSyncEnabled ?? true,
             syncDelayMinutes: settings.syncDelayMinutes ?? 5,
             displayedProjectName: settings.displayedProjectName,
+            // Only persisted when present, so we don't pollute every project with an empty array
+            persistedMediaFiles: Array.isArray(settings.persistedMediaFiles) && settings.persistedMediaFiles.length > 0
+                ? settings.persistedMediaFiles
+                : undefined,
         };
         let existingRaw: Record<string, any> = {};
         try {
@@ -248,6 +261,13 @@ async function writeLocalProjectSettingsInternal(
             existingRaw = {};
         }
         const merged = { ...existingRaw, ...toWrite };
+        // Drop dead keys from superseded approaches so the file cleans itself up.
+        delete (merged as Record<string, unknown>).ephemeralStreamMedia;
+        // If the persisted list emptied out, remove the key entirely instead of
+        // leaving a stale array carried over from existingRaw.
+        if (!Array.isArray(toWrite.persistedMediaFiles) || toWrite.persistedMediaFiles.length === 0) {
+            delete (merged as Record<string, unknown>).persistedMediaFiles;
+        }
         const content = JSON.stringify(merged, null, 2);
         await vscode.workspace.fs.writeFile(settingsPath, Buffer.from(content, "utf-8"));
         debug("Wrote local project settings:", merged);
@@ -349,6 +369,60 @@ export async function setApplyState(
 export async function getMediaFilesStrategyForPath(projectPath: string): Promise<MediaFilesStrategy | undefined> {
     const projectUri = vscode.Uri.file(projectPath);
     return getMediaFilesStrategy(projectUri);
+}
+
+/**
+ * Canonical key for the persisted-media allowlist: the path *within*
+ * `attachments/files` (equivalently `attachments/pointers`), e.g.
+ * "JUD/JUD_001_025.mp4". Normalized to forward slashes with no leading slash so
+ * comparisons are stable across OSes and against the OS-native `relPath`s used
+ * by the cleanup functions.
+ */
+export function normalizePersistedMediaRelPath(relPath: string): string {
+    return relPath.replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
+/**
+ * Returns the list of media rel-paths the user explicitly saved (allowlist).
+ * Always returns an array (empty when none/invalid).
+ */
+export async function getPersistedMediaFiles(workspaceFolderUri?: vscode.Uri): Promise<string[]> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    return Array.isArray(settings.persistedMediaFiles) ? settings.persistedMediaFiles : [];
+}
+
+/**
+ * Adds a rel-path to the persisted-media allowlist (no-op if already present).
+ */
+export async function addPersistedMediaFile(
+    relPath: string,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const normalized = normalizePersistedMediaRelPath(relPath);
+    if (!normalized) return;
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    const current = Array.isArray(settings.persistedMediaFiles) ? settings.persistedMediaFiles : [];
+    if (current.includes(normalized)) return;
+    settings.persistedMediaFiles = [...current, normalized];
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
+}
+
+/**
+ * Removes a rel-path from the persisted-media allowlist (no-op if absent).
+ * Call this when a saved video is replaced or deleted so the list doesn't
+ * protect a stale/empty slot.
+ */
+export async function removePersistedMediaFile(
+    relPath: string,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const normalized = normalizePersistedMediaRelPath(relPath);
+    if (!normalized) return;
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    const current = Array.isArray(settings.persistedMediaFiles) ? settings.persistedMediaFiles : [];
+    if (!current.includes(normalized)) return;
+    settings.persistedMediaFiles = current.filter((p) => p !== normalized);
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
 }
 
 /**

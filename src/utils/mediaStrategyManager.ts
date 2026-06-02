@@ -8,6 +8,8 @@ import {
     setLastModeRun,
     setChangesApplied,
     getFlags,
+    getPersistedMediaFiles,
+    normalizePersistedMediaRelPath,
 } from "./localProjectSettings";
 import {
     findAllPointerFiles,
@@ -44,6 +46,12 @@ export async function replaceSpecificFilesWithPointers(projectPath: string, uplo
 
         debug(`Processing ${pointerFiles.length} uploaded pointer file(s) for replacement`);
 
+        // Allowlist of files the user explicitly saved via "Save to project" — never
+        // revert these to pointers, even in stream-only mode.
+        const persisted = new Set(
+            (await getPersistedMediaFiles(vscode.Uri.file(projectPath))).map(normalizePersistedMediaRelPath)
+        );
+
         // Process each file without showing progress UI (it's fast for a few files)
         for (const filepath of pointerFiles) {
             // Extract the relative path within the pointers directory
@@ -55,6 +63,11 @@ export async function replaceSpecificFilesWithPointers(projectPath: string, uplo
             }
 
             if (!relPath) continue;
+
+            if (persisted.has(normalizePersistedMediaRelPath(relPath))) {
+                debug(`PROTECTED: Skipping user-saved media file: ${relPath}`);
+                continue;
+            }
 
             try {
                 const pointerPath = path.join(projectPath, ".project", "attachments", "pointers", relPath);
@@ -134,7 +147,10 @@ export async function countDownloadedMediaFiles(projectPath: string): Promise<nu
  * @param projectPath - Root path of the project
  * @returns Number of files replaced
  */
-export async function replaceFilesWithPointers(projectPath: string): Promise<number> {
+export async function replaceFilesWithPointers(
+    projectPath: string,
+    options?: { ignorePersisted?: boolean; }
+): Promise<number> {
     let replacedCount = 0;
 
     try {
@@ -144,6 +160,15 @@ export async function replaceFilesWithPointers(projectPath: string): Promise<num
         // Find all pointer files
         const pointerFiles = await findAllPointerFiles(pointersDir);
         debug(`Found ${pointerFiles.length} pointer files to process`);
+
+        // Allowlist of files the user explicitly saved via "Save to project".
+        // Honored by automatic cleanup (strategy switches); bypassed only when an
+        // explicit "Clean media files" action passes ignorePersisted.
+        const persisted = options?.ignorePersisted
+            ? new Set<string>()
+            : new Set(
+                (await getPersistedMediaFiles(vscode.Uri.file(projectPath))).map(normalizePersistedMediaRelPath)
+            );
 
         await vscode.window.withProgress(
             {
@@ -169,6 +194,13 @@ export async function replaceFilesWithPointers(projectPath: string): Promise<num
                             const filesPath = path.join(filesDir, relPath);
 
                             try {
+                                // PROTECTED: user explicitly saved this file via
+                                // "Save to project" — never revert it to a pointer.
+                                if (persisted.has(normalizePersistedMediaRelPath(relPath))) {
+                                    debug(`PROTECTED: Skipping user-saved media file: ${relPath}`);
+                                    return false;
+                                }
+
                                 // CRITICAL: Check if this is a locally recorded, unsynced file
                                 // These files exist in files/ but haven't been uploaded yet
                                 // We MUST NOT replace them with pointers to avoid data loss

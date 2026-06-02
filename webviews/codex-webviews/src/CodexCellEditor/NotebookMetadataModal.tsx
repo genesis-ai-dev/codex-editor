@@ -67,6 +67,9 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
     tempVideoUrl,
 }) => {
     const [hasChanges, setHasChanges] = useState(false);
+    // When the video field holds a local file we lock the input until the user
+    // explicitly chooses to replace it (deletion is confirmed host-side).
+    const [isReplacingVideo, setIsReplacingVideo] = useState(false);
 
     const handleFieldChange = (key: string, value: string) => {
         setHasChanges(true);
@@ -76,11 +79,13 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
     const handleSave = () => {
         onSave();
         setHasChanges(false);
+        setIsReplacingVideo(false);
     };
 
     const handleClose = () => {
         onClose();
         setHasChanges(false);
+        setIsReplacingVideo(false);
     };
 
     const renderField = (key: string, config: typeof USER_EDITABLE_FIELDS[keyof typeof USER_EDITABLE_FIELDS]) => {
@@ -123,25 +128,66 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                         </SelectContent>
                     </Select>
                 ) : config.type === "url" && config.hasFilePicker ? (
-                    <div className="flex gap-2">
-                        <Input
-                            id={key}
-                            type="url"
-                            value={String(currentValue)}
-                            onChange={(e) => handleFieldChange(key, e.target.value)}
-                            placeholder="Enter video URL or use file picker"
-                            className="flex-1"
-                        />
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="icon"
-                            onClick={onPickFile}
-                            title="Pick Video File"
-                        >
-                            <i className="codicon codicon-folder-opened" />
-                        </Button>
-                    </div>
+                    (() => {
+                        const videoValue = String(currentValue);
+                        const isLocalFile = !!videoValue && !/^https?:\/\//i.test(videoValue);
+                        const locked = isLocalFile && !isReplacingVideo;
+                        const fileName = videoValue.split(/[\\/]/).pop() || videoValue;
+
+                        if (locked) {
+                            return (
+                                <div className="flex items-center gap-2">
+                                    <div
+                                        className="flex-1 flex items-center gap-2 rounded-md border border-input bg-muted px-3 py-2 text-sm overflow-hidden"
+                                        title={videoValue}
+                                    >
+                                        <i className="codicon codicon-device-camera-video text-muted-foreground" />
+                                        <span className="truncate">{fileName}</span>
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => setIsReplacingVideo(true)}
+                                    >
+                                        Replace video...
+                                    </Button>
+                                </div>
+                            );
+                        }
+
+                        return (
+                            <div className="flex gap-2">
+                                <Input
+                                    id={key}
+                                    type="url"
+                                    value={videoValue}
+                                    onChange={(e) => handleFieldChange(key, e.target.value)}
+                                    placeholder="Enter video URL or use file picker"
+                                    className="flex-1"
+                                />
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={onPickFile}
+                                    title="Pick Video File"
+                                >
+                                    <i className="codicon codicon-folder-opened" />
+                                </Button>
+                                {isReplacingVideo && (
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => setIsReplacingVideo(false)}
+                                        title="Cancel replace"
+                                    >
+                                        <i className="codicon codicon-close" />
+                                    </Button>
+                                )}
+                            </div>
+                        );
+                    })()
                 ) : config.type === "number" ? (
                     <Input
                         id={key}

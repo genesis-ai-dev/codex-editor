@@ -86,6 +86,8 @@ interface UseVSCodeMessageHandlerProps {
     updateTextDirection: (direction: "ltr" | "rtl") => void;
     updateNotebookMetadata: (metadata: CustomNotebookMetadata) => void;
     updateVideoUrl: (url: string) => void;
+    videoStreamUnavailable?: (reason: string, message?: string) => void;
+    videoNeedsDownload?: (strategy: "auto-download" | "stream-and-save" | "stream-only") => void;
 
     // New handlers for provider-centric state management
     updateAutocompletionState?: (state: {
@@ -157,6 +159,8 @@ export const useVSCodeMessageHandler = ({
     updateTextDirection,
     updateNotebookMetadata,
     updateVideoUrl,
+    videoStreamUnavailable,
+    videoNeedsDownload,
 
     // New handlers
     updateAutocompletionState,
@@ -249,6 +253,12 @@ export const useVSCodeMessageHandler = ({
                     break;
                 case "updateVideoUrlInWebview":
                     updateVideoUrl(message.content);
+                    break;
+                case "videoStreamUnavailable":
+                    videoStreamUnavailable?.(message.reason, message.message);
+                    break;
+                case "videoNeedsDownload":
+                    videoNeedsDownload?.(message.strategy);
                     break;
                 case "providerAutocompletionState":
                     if (updateAutocompletionState) {
@@ -432,6 +442,8 @@ export const useVSCodeMessageHandler = ({
         updateTextDirection,
         updateNotebookMetadata,
         updateVideoUrl,
+        videoStreamUnavailable,
+        videoNeedsDownload,
         updateAutocompletionState,
         updateSingleCellTranslationState,
         updateSingleCellQueueState,

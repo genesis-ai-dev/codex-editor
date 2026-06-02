@@ -28,6 +28,7 @@ import { SyncManager } from "../../projectManager/syncManager";
 
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { getNonce } from "../../utils/getNonce";
+import { getVideoStreamCacheRoot } from "../../utils/videoStreamCache";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import path from "path";
 import * as fs from "fs";
@@ -42,7 +43,6 @@ import {
     getPasteAsPlainText as getPasteAsPlainTextUtil,
     updatePasteAsPlainText as updatePasteAsPlainTextUtil,
 } from "./utils/workspaceStateUtils";
-import { processVideoUrl } from "./utils/videoUtils";
 import {
     isCodexFileFlexible,
     isSourceFileFlexible,
@@ -354,6 +354,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     private static readonly viewType = "codex.cellEditor";
+
+    /** Exposes the extension context (e.g. for the external video stream cache). */
+    public get extensionContext(): vscode.ExtensionContext {
+        return this.context;
+    }
 
     constructor(protected readonly context: vscode.ExtensionContext) {
         debug("Constructing CodexCellEditorProvider");
@@ -682,6 +687,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Add workspace folder to localResourceRoots to allow access to workspace files (e.g., video files)
         if (workspaceFolder) {
             localResourceRoots.push(workspaceFolder.uri);
+        }
+
+        // Allow the webview to load stream-only videos cached outside the project.
+        const videoCacheRoot = getVideoStreamCacheRoot(this.context);
+        if (videoCacheRoot) {
+            localResourceRoots.push(videoCacheRoot);
         }
 
         webviewPanel.webview.options = {
@@ -1790,7 +1801,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         const notebookData = this.getDocumentAsJson(document);
         const videoPath = notebookData.metadata?.videoUrl;
-        const videoUri = videoPath ? processVideoUrl(videoPath, webview) : null;
+        // Only embed remote URLs directly. Local files are resolved lazily by the
+        // webview (requestVideoStreamUrl) so we never hand the player a URL to an
+        // LFS pointer — which would fail to decode and poison the resource cache.
+        const videoUri =
+            videoPath && /^https?:\/\//i.test(videoPath) ? videoPath : null;
 
         const nonce = getNonce();
 
@@ -2842,7 +2857,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         videoPath: string | undefined,
         webviewPanel: vscode.WebviewPanel
     ): string | null {
-        return processVideoUrl(videoPath, webviewPanel.webview);
+        // Push remote URLs directly; local files are resolved lazily by the
+        // webview (requestVideoStreamUrl) so the player is never handed a URL to
+        // an LFS pointer. See resolveAndPostVideoStreamUrl.
+        if (videoPath && /^https?:\/\//i.test(videoPath)) {
+            return videoPath;
+        }
+        return null;
     }
 
     /**

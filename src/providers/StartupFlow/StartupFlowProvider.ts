@@ -3581,7 +3581,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 // 1) Replace downloaded media bytes in files/ with pointers (only for LFS-tracked media)
                                 try {
                                     const { replaceFilesWithPointers } = await import("../../utils/mediaStrategyManager");
-                                    await replaceFilesWithPointers(projectPath);
+                                    // Explicit user-initiated "Clean media files" reclaims space for
+                                    // everything, including videos the user had saved via "Save to project".
+                                    await replaceFilesWithPointers(projectPath, { ignorePersisted: true });
                                 } catch (e) {
                                     debugLog("Error replacing files with pointers during cleanup:", e);
                                 }

@@ -416,6 +416,9 @@ export type EditorPostMessages =
     | { command: "resolveHtmlStructure"; content: { cellId: string; }; }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
     | { command: "pickVideoFile"; }
+    | { command: "deleteVideoFile"; }
+    | { command: "requestVideoStreamUrl"; }
+    | { command: "downloadVideoFile"; persist?: boolean; }
     | { command: "getSourceText"; content: { cellId: string; }; }
     | { command: "searchSimilarCellIds"; content: { cellId: string; }; }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
@@ -2068,6 +2071,8 @@ type EditorReceiveMessages =
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
+    | { type: "videoStreamUnavailable"; reason: "offline" | "not-authenticated" | "not-found" | "error"; message?: string; }
+    | { type: "videoNeedsDownload"; strategy: "auto-download" | "stream-and-save" | "stream-only"; }
     | {
         type: "milestoneProgressUpdate";
         milestoneProgress: Record<number, {
