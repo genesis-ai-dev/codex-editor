@@ -21,6 +21,12 @@ import {
     createIndesignVerseCellMetadata,
     createIndesignParagraphCellMetadata,
 } from "./cellMetadata";
+import {
+    buildSegmentedParagraphHtml,
+    extractContentSegmentStructureFromParagraph,
+    getSegmentCharacterStylesForParagraph,
+    joinContentSegments,
+} from "./contentSegmentUtils";
 import type {
     IDMLCharacterStyleRange,
     IDMLDocument,
@@ -74,15 +80,12 @@ async function createCellsFromStories(
     for (const story of stories) {
         for (let i = 0; i < story.paragraphs.length; i++) {
             const paragraph = story.paragraphs[i];
-            const content = paragraph.paragraphStyleRange.content;
             const paragraphStyle = paragraph.paragraphStyleRange.appliedParagraphStyle;
+            const { segments: contentSegments, breakBefore: contentSegmentBreakBefore } =
+                extractContentSegmentStructureFromParagraph(paragraph);
+            const hasText = contentSegments.some((segment) => segment.trim().length > 0);
 
-            const cleanText = content
-                .replace(/[\r\n]+/g, " ")
-                .replace(/\s+/g, " ")
-                .trim();
-
-            if (!cleanText) {
+            if (!hasText) {
                 continue;
             }
 
@@ -108,6 +111,7 @@ async function createCellsFromStories(
                             paragraphId: paragraph.id || "",
                             appliedParagraphStyle: paragraphStyle,
                             paragraph,
+                            paragraphIndex: i,
                             fileName,
                             originalHash: htmlRepresentation.originalHash,
                         });
@@ -124,7 +128,7 @@ async function createCellsFromStories(
 
             const { cellId, metadata: cellMetadata } = createIndesignParagraphCellMetadata({
                 cellLabel: undefined,
-                originalContent: cleanText,
+                originalContent: joinContentSegments(contentSegments),
                 storyId: story.id || "",
                 paragraphId: paragraph.id || "",
                 appliedParagraphStyle: paragraphStyle,
@@ -134,9 +138,13 @@ async function createCellsFromStories(
                 fileName,
                 originalHash: htmlRepresentation.originalHash,
             });
-            const inlineHTML =
-                ranges.length > 0 ? buildInlineHTMLFromRanges(ranges) : escapeHtml(cleanText);
-            const htmlContent = `<p class="indesign-paragraph" data-paragraph-style="${paragraphStyle}" data-story-id="${story.id}">${inlineHTML}</p>`;
+            const htmlContent = buildSegmentedParagraphHtml(
+                contentSegments,
+                paragraphStyle,
+                story.id || "",
+                getSegmentCharacterStylesForParagraph(paragraph, contentSegments.length),
+                contentSegmentBreakBefore
+            );
             const cell = createProcessedCell(cellId, htmlContent, cellMetadata);
             const images = await extractImagesFromHtml(htmlContent);
             cell.images = images;

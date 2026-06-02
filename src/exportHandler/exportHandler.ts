@@ -276,7 +276,6 @@ async function exportCodexContentAsIdmlRoundtrip(
     // Import exporters
     const { exportIdmlRoundtrip } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/indesign/idmlExporter");
     const { exportIdmlRoundtrip: exportBiblicaIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/biblica/biblicaExporter");
-    // const { exportIdmlRoundtrip: exportReach4LifeIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/reach4life/reach4lifeExporter");
 
     // For each selected codex file, find its original attachment and create a translated copy in export folder
     for (const [index, filePath] of filesToExport.entries()) {
@@ -305,11 +304,6 @@ async function exportCodexContentAsIdmlRoundtrip(
                 fileType === 'biblica' ||
                 importerType === 'biblica-experimental' ||
                 fileType === 'biblica-experimental';
-            // const isReach4LifeFile =
-            //     corpusMarker === 'reach4life' ||
-            //     corpusMarker === 'reach4life-idml' ||
-            //     importerType === 'reach4life' ||
-            //     fileType === 'reach4life';
             const exporterType = isBiblicaFile ? 'Biblica' : 'Standard';
 
             console.log(`[IDML Export] Processing ${fileName} (corpusMarker: ${corpusMarker}) using ${exporterType} exporter`);
@@ -1544,18 +1538,16 @@ async function exportCodexContentAsRebuild(
             } else if (
                 corpusMarker === 'biblica' ||
                 corpusMarker === 'biblica-idml' ||
-                corpusMarker === 'reach4life' ||
-                corpusMarker === 'reach4life-idml' ||
                 corpusMarker === 'idml-roundtrip' ||
+                corpusMarker === 'indesign' ||
                 (corpusMarker && corpusMarker.startsWith('idml-')) ||
                 importerType === 'biblica' ||
                 fileType === 'biblica' ||
-                importerType === 'reach4life' ||
-                fileType === 'reach4life' ||
+                importerType === 'indesign' ||
                 importerType === 'biblica-experimental' || // Backward compatibility
                 fileType === 'biblica-experimental' // Backward compatibility
             ) {
-                // Biblica/Reach4Life files and IDML files both use the IDML exporter
+                // Biblica and InDesign files both use the IDML exporter
                 filesByType['idml'] = filesByType['idml'] || [];
                 filesByType['idml'].push(filePath);
             } else if (
@@ -1694,7 +1686,7 @@ async function exportCodexContentAsRebuild(
         messages.push(`Skipped ${unsupportedFiles.length} unsupported file(s).`);
         console.warn("[Rebuild Export] Unsupported files:", unsupportedFiles);
     }
-    messages.push("Supported types: DOCX, IDML, Biblica, Reach4Life, PDF, OBS, Markdown, TMS, USFM, CSV/TSV.");
+    messages.push("Supported types: DOCX, InDesign, Biblica, PDF, OBS, Markdown, TMS, USFM, CSV/TSV.");
 
     reporter.complete({
         exportPath: userSelectedPath,
