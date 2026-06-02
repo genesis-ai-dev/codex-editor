@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /**
  * Detects whether the user can record audio right now. Reports separately
@@ -13,15 +13,21 @@ import { useEffect, useState } from "react";
  *     "assume available" by callers so we never false-positive disable on a
  *     working machine.
  *
- * Reacts live to two signals so the UI stays in sync without a reload:
+ * Reacts live to three signals so the UI stays in sync without a reload:
  *   - `devicechange` on `navigator.mediaDevices` (mic plugged / unplugged)
  *   - `change` on the `microphone` PermissionStatus (user grants/revokes
- *     access via the address bar or system settings)
+ *     access via the address bar or browser-level settings)
+ *   - Runtime reports from the recorder via `reportRecorderError(err)` — the
+ *     only reliable way to observe an OS-level block on macOS / Linux (the
+ *     Permissions API only reflects browser-level state, not OS settings,
+ *     so a user who denies in System Settings will still see `"granted"`
+ *     from `navigator.permissions.query`; we only learn the real state
+ *     when `getUserMedia()` throws `NotAllowedError`).
  *
  * Devices typically show up in `enumerateDevices()` even before the user has
  * granted permission (their labels are blank, but the entries still count).
  * That means device count alone can't tell us if access is *blocked* — only
- * the permissions API can. We query both independently.
+ * the permissions API or a real `getUserMedia()` attempt can.
  *
  * ─────────────────────────────────────────────────────────────────────────
  * REVIEWER NOTE — testing without unplugging your microphone:
@@ -38,7 +44,7 @@ import { useEffect, useState } from "react";
  */
 
 /** Override real detection for visual review. MUST be `null` in committed code. */
-const FORCE_STATE_FOR_REVIEW: MicAvailability | null = 'permission-denied';//null;
+const FORCE_STATE_FOR_REVIEW: MicAvailability | null = null;
 
 export type MicAvailability =
     | "available"
@@ -56,6 +62,15 @@ export interface UseAudioInputDevicesResult {
     noMicDetected: boolean;
     /** True specifically when permission is denied for an existing mic. */
     micPermissionDenied: boolean;
+    /**
+     * Call from the recorder's `getUserMedia` catch block with the thrown
+     * error. The hook classifies the error name (`NotAllowedError`,
+     * `NotFoundError`, etc.) and updates `availability` accordingly. This
+     * is the only reliable path for catching OS-level mic blocks where the
+     * Permissions API misreports. Pass `null` to clear a runtime-set state
+     * (e.g. after a successful `getUserMedia` call).
+     */
+    reportRecorderError: (err: unknown | null) => void;
 }
 
 type PermissionState = "granted" | "denied" | "prompt" | "unknown";
@@ -95,6 +110,31 @@ async function subscribeToMicPermission(
     }
 }
 
+/**
+ * Map a `getUserMedia` rejection to a `MicAvailability` value. Returns `null`
+ * for transient or unknown errors so the caller leaves the state untouched.
+ *
+ * The `name` property is set by the browser per the WebRTC spec and is the
+ * supported way to distinguish these cases. Older browsers used different
+ * names (e.g. `DevicesNotFoundError`), so we accept the most common aliases.
+ */
+function classifyRecorderError(err: unknown): MicAvailability | null {
+    if (!err || typeof err !== "object") return null;
+    const name = (err as { name?: string }).name;
+    switch (name) {
+        case "NotAllowedError":
+        case "PermissionDeniedError": // Legacy Chromium alias.
+        case "SecurityError":
+            return "permission-denied";
+        case "NotFoundError":
+        case "DevicesNotFoundError": // Legacy alias.
+        case "OverconstrainedError":
+            return "no-device";
+        default:
+            return null;
+    }
+}
+
 export function useAudioInputDevices(): UseAudioInputDevicesResult {
     const isSupported =
         typeof navigator !== "undefined" &&
@@ -104,6 +144,12 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
     const [availability, setAvailability] = useState<MicAvailability>(
         isSupported ? "checking" : "unsupported"
     );
+    // When the recorder reports an error, we pin the state until cleared.
+    // Passive signals (`devicechange`, permission `change`) won't override it,
+    // because on macOS those signals are unreliable for OS-level mic blocks.
+    // The recorder calls `reportRecorderError(null)` after a successful
+    // `getUserMedia` to release the pin.
+    const [runtimeOverride, setRuntimeOverride] = useState<MicAvailability | null>(null);
 
     useEffect(() => {
         if (FORCE_STATE_FOR_REVIEW !== null) {
@@ -168,14 +214,31 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
         };
     }, [isSupported]);
 
-    const noMicDetected = availability === "no-device";
-    const micPermissionDenied = availability === "permission-denied";
+    const reportRecorderError = useCallback((err: unknown | null) => {
+        if (err === null) {
+            setRuntimeOverride(null);
+            return;
+        }
+        const classified = classifyRecorderError(err);
+        if (classified) setRuntimeOverride(classified);
+    }, []);
+
+    // Runtime override (from a real `getUserMedia` failure) takes precedence
+    // because it reflects ground truth, not Chromium's stale view of OS
+    // permissions. The dev-only `FORCE_STATE_FOR_REVIEW` still wins above
+    // everything for visual testing.
+    const effectiveAvailability: MicAvailability =
+        FORCE_STATE_FOR_REVIEW ?? runtimeOverride ?? availability;
+
+    const noMicDetected = effectiveAvailability === "no-device";
+    const micPermissionDenied = effectiveAvailability === "permission-denied";
     const micUnavailable = noMicDetected || micPermissionDenied;
 
     return {
-        availability,
+        availability: effectiveAvailability,
         micUnavailable,
         noMicDetected,
         micPermissionDenied,
+        reportRecorderError,
     };
 }

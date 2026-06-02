@@ -187,4 +187,104 @@ describe("useAudioInputDevices", () => {
         await waitFor(() => expect(result.current.availability).toBe("available"));
         expect(result.current.micPermissionDenied).toBe(false);
     });
+
+    describe("reportRecorderError (runtime override)", () => {
+        it("flips to permission-denied on NotAllowedError even when Permissions API reports granted", async () => {
+            (navigator as any).mediaDevices = createFakeMediaDevices([audioInputDevice()]);
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            // This is the macOS "denied at OS level" case: passive APIs
+            // report granted, but getUserMedia throws.
+            const err = Object.assign(new Error("denied"), {
+                name: "NotAllowedError",
+            });
+            act(() => {
+                result.current.reportRecorderError(err);
+            });
+
+            expect(result.current.availability).toBe("permission-denied");
+            expect(result.current.micPermissionDenied).toBe(true);
+        });
+
+        it("flips to no-device on NotFoundError even when enumeration reported a device", async () => {
+            (navigator as any).mediaDevices = createFakeMediaDevices([audioInputDevice()]);
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            const err = Object.assign(new Error("missing"), { name: "NotFoundError" });
+            act(() => {
+                result.current.reportRecorderError(err);
+            });
+
+            expect(result.current.availability).toBe("no-device");
+        });
+
+        it("clears the runtime override when called with null (e.g. after a successful retry)", async () => {
+            (navigator as any).mediaDevices = createFakeMediaDevices([audioInputDevice()]);
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            act(() => {
+                result.current.reportRecorderError(
+                    Object.assign(new Error(), { name: "NotAllowedError" })
+                );
+            });
+            expect(result.current.availability).toBe("permission-denied");
+
+            act(() => {
+                result.current.reportRecorderError(null);
+            });
+            expect(result.current.availability).toBe("available");
+        });
+
+        it("ignores unrecognized error names so transient failures don't disable recording", async () => {
+            (navigator as any).mediaDevices = createFakeMediaDevices([audioInputDevice()]);
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            act(() => {
+                result.current.reportRecorderError(
+                    Object.assign(new Error("weird"), { name: "AbortError" })
+                );
+            });
+
+            expect(result.current.availability).toBe("available");
+        });
+
+        it("runtime override outranks the passive Permissions API state", async () => {
+            (navigator as any).mediaDevices = createFakeMediaDevices([audioInputDevice()]);
+            // Passive layer says granted...
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            // ...but runtime got denied. Runtime wins.
+            act(() => {
+                result.current.reportRecorderError(
+                    Object.assign(new Error(), { name: "NotAllowedError" })
+                );
+            });
+            expect(result.current.availability).toBe("permission-denied");
+        });
+    });
 });

@@ -540,7 +540,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // `hooks/useAudioInputDevices.ts` (top of file) for the in-code constant
     // reviewers can flip to simulate "no microphone" / "permission denied"
     // on machines with a working mic.
-    const { noMicDetected, micPermissionDenied, micUnavailable } = useAudioInputDevices();
+    const { noMicDetected, micPermissionDenied, micUnavailable, reportRecorderError } =
+        useAudioInputDevices();
     // Mirror `micUnavailable` into a ref so guards inside callbacks (and
     // setTimeout-deferred work like the auto-start path) can read the
     // latest value without becoming stale closures.
@@ -548,6 +549,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
     useEffect(() => {
         micUnavailableRef.current = micUnavailable;
     }, [micUnavailable]);
+    // Ref for the runtime classifier so `startActualRecording`'s deps stay
+    // stable. `startActualRecording` is wrapped in `useCallback([audioUrl])`
+    // and changing its deps to include a new function on every render would
+    // ripple through several effects.
+    const reportRecorderErrorRef = useRef(reportRecorderError);
+    useEffect(() => {
+        reportRecorderErrorRef.current = reportRecorderError;
+    }, [reportRecorderError]);
 
     const centerEditor = useCallback(() => {
         const el = cellEditorRef.current;
@@ -789,6 +798,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 },
             });
 
+            // Successful stream acquisition is the ground-truth signal that
+            // mic access works. Clear any previous runtime-reported denial so
+            // the UI recovers without waiting for a (potentially unreliable)
+            // OS-level permission event.
+            reportRecorderErrorRef.current?.(null);
+
             const mediaRecorderOptions: MediaRecorderOptions = {};
             try {
                 if (typeof MediaRecorder !== "undefined") {
@@ -862,7 +877,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
             recorder.start();
             setMediaRecorder(recorder);
         } catch (err) {
-            setRecordingStatus("Microphone access denied");
+            // Promote the raw error to a typed availability state so the UI
+            // flips to the right warning (grey slashed mic + "Access denied"
+            // alert for `NotAllowedError`, "No microphone detected" for
+            // `NotFoundError`). The hook ignores unrecognized error names so
+            // transient failures don't accidentally disable recording.
+            reportRecorderErrorRef.current?.(err);
+            const errName = (err as { name?: string } | null)?.name;
+            const statusMessage =
+                errName === "NotFoundError" || errName === "DevicesNotFoundError"
+                    ? "No microphone detected"
+                    : "Microphone access denied";
+            setRecordingStatus(statusMessage);
             console.error("Error accessing microphone:", err);
             setCountdown(null);
             setIsStartingRecording(false);
