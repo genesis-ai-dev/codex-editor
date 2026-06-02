@@ -534,17 +534,20 @@ const CellEditor: React.FC<CellEditorProps> = ({
             undefined,
     };
 
-    // Microphone detection — drives the disabled state and warning under the
-    // recorder. Updates live via `devicechange`, so unplugging or plugging in
-    // a mic flips the UI immediately. See `hooks/useAudioInputDevices.ts` for
-    // the debug flag used to simulate "no microphone" on dev machines.
-    const {
-        hasAudioInput,
-        isChecking: isCheckingAudioDevices,
-        isSupported: isAudioDeviceApiSupported,
-    } = useAudioInputDevices();
-    const noMicDetected =
-        isAudioDeviceApiSupported && !isCheckingAudioDevices && !hasAudioInput;
+    // Microphone availability — drives the disabled state and warning under
+    // the recorder. Reacts live to both `devicechange` and permission changes
+    // so the UI stays in sync without a reload. See
+    // `hooks/useAudioInputDevices.ts` (top of file) for the in-code constant
+    // reviewers can flip to simulate "no microphone" / "permission denied"
+    // on machines with a working mic.
+    const { noMicDetected, micPermissionDenied, micUnavailable } = useAudioInputDevices();
+    // Mirror `micUnavailable` into a ref so guards inside callbacks (and
+    // setTimeout-deferred work like the auto-start path) can read the
+    // latest value without becoming stale closures.
+    const micUnavailableRef = useRef<boolean>(micUnavailable);
+    useEffect(() => {
+        micUnavailableRef.current = micUnavailable;
+    }, [micUnavailable]);
 
     const centerEditor = useCallback(() => {
         const el = cellEditorRef.current;
@@ -2762,6 +2765,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
         // Prevent recording if cell is locked
         if (isCellLocked) {
             setRecordingStatus("Cannot record: cell is locked");
+            return;
+        }
+
+        // Prevent recording — and importantly, the visible pre-record
+        // countdown — when no mic is available or permission is denied.
+        // Read from the ref so the auto-start path (deferred via setTimeout)
+        // sees the latest value rather than its captured render-time copy.
+        if (micUnavailableRef.current) {
+            setRecordingStatus(
+                micPermissionDenied
+                    ? "Microphone access denied"
+                    : "No microphone detected"
+            );
             return;
         }
 
@@ -5720,6 +5736,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             : "idle";
                                     const recorderTitle = isCellLocked
                                         ? "Cannot record: cell is locked"
+                                        : micPermissionDenied
+                                        ? "Microphone access denied"
                                         : noMicDetected
                                         ? "No microphone detected"
                                         : isRecording
@@ -5742,7 +5760,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     : startRecording
                                                             }
                                                             disabled={isCellLocked}
-                                                            unavailable={noMicDetected}
+                                                            unavailable={micUnavailable}
                                                             title={recorderTitle}
                                                         />
 
@@ -5813,12 +5831,20 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 </span>
                                                             </div>
                                                         )}
-                                                        {noMicDetected && (
-                                                            <Alert className="w-fit border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
-                                                                <AlertCircle className="h-4 w-4 !text-yellow-600 dark:!text-yellow-400" />
+                                                        {micUnavailable && (
+                                                            // Override the Alert's default absolute-icon layout so the
+                                                            // AlertCircle and text share a single flex row with proper
+                                                            // vertical centering. The `!` (important) prefixes are needed
+                                                            // because the base Alert variant pins the SVG with
+                                                            // `[&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4`.
+                                                            <Alert
+                                                                className="w-fit flex items-center gap-2 border-yellow-500 bg-yellow-50 dark:bg-yellow-950 [&>svg]:!static [&>svg+div]:!translate-y-0 [&>svg~*]:!pl-0"
+                                                            >
+                                                                <AlertCircle className="h-4 w-4 shrink-0 !text-yellow-600 dark:!text-yellow-400" />
                                                                 <AlertDescription className="text-yellow-800 dark:text-yellow-200">
-                                                                    No microphone detected. Connect
-                                                                    an input device to record.
+                                                                    {micPermissionDenied
+                                                                        ? "Microphone access denied. Enable microphone permissions in your system settings to record."
+                                                                        : "No microphone detected. Connect an input device to record."}
                                                                 </AlertDescription>
                                                             </Alert>
                                                         )}
