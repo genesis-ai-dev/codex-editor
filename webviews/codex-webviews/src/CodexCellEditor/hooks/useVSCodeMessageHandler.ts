@@ -88,6 +88,7 @@ interface UseVSCodeMessageHandlerProps {
     updateVideoUrl: (url: string) => void;
     videoStreamUnavailable?: (reason: string, message?: string) => void;
     videoNeedsDownload?: (strategy: "auto-download" | "stream-and-save" | "stream-only") => void;
+    videoReferenceStatus?: (status: "none" | "url" | "local-usable" | "missing") => void;
 
     // New handlers for provider-centric state management
     updateAutocompletionState?: (state: {
@@ -161,6 +162,7 @@ export const useVSCodeMessageHandler = ({
     updateVideoUrl,
     videoStreamUnavailable,
     videoNeedsDownload,
+    videoReferenceStatus,
 
     // New handlers
     updateAutocompletionState,
@@ -259,6 +261,9 @@ export const useVSCodeMessageHandler = ({
                     break;
                 case "videoNeedsDownload":
                     videoNeedsDownload?.(message.strategy);
+                    break;
+                case "videoReferenceStatus":
+                    videoReferenceStatus?.(message.status);
                     break;
                 case "providerAutocompletionState":
                     if (updateAutocompletionState) {

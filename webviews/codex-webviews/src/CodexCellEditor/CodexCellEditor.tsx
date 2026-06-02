@@ -184,6 +184,12 @@ const CodexCellEditor: React.FC = () => {
     const [videoNeedsDownloadStrategy, setVideoNeedsDownloadStrategy] = useState<
         "auto-download" | "stream-and-save" | "stream-only" | null
     >(null);
+    // Host-reported status of the stored video reference. Drives whether the
+    // "Show Video" toggle appears (a broken/missing reference is treated as no
+    // video) and lets the modal flag a missing file. `null` until first report.
+    const [videoReferenceStatus, setVideoReferenceStatus] = useState<
+        "none" | "url" | "local-usable" | "missing" | null
+    >(null);
     const playerRef = useRef<ReactPlayerRef>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const [muteVideoAudioDuringPlayback, setMuteVideoAudioDuringPlayback] = useState(true);
@@ -1297,11 +1303,6 @@ const CodexCellEditor: React.FC = () => {
         }
     }, [chapterNumber, isSourceText, highlightedCellId, lastHighlightedChapter]);
 
-    // A "temp" video URL that is used to update the video URL in the metadata modal.
-    // We need to use the client-side file picker, so we need to then pass the picked
-    // video URL back to the extension so the user can save or cancel the change.
-    const [tempVideoUrl, setTempVideoUrl] = useState<string>("");
-
     // Debug timestamp to track when a cell started processing
     const processingStartTimeRef = useRef<number | null>(null);
 
@@ -1744,13 +1745,24 @@ const CodexCellEditor: React.FC = () => {
             }
         },
         updateVideoUrl: (url: string) => {
-            // The host resolves the best playable URL (local webview URI, remote
-            // URL, or a presigned R2 stream URL) and pushes it here.
-            setTempVideoUrl(url);
+            // The host resolves the best playable URL (local webview URI or remote
+            // URL) and pushes it here.
             setVideoUrl(url);
             setVideoUnavailableMessage(null);
             setVideoNeedsDownloadStrategy(null);
             setVideoResolving(false);
+        },
+        videoReferenceStatus: (status) => {
+            setVideoReferenceStatus(status);
+            // When the reference is gone (removed/cleared), close the player and
+            // clear any transient video state so nothing lingers on screen.
+            if (status === "none") {
+                setShouldShowVideoPlayer(false);
+                setVideoUrl("");
+                setVideoUnavailableMessage(null);
+                setVideoNeedsDownloadStrategy(null);
+                setVideoResolving(false);
+            }
         },
         videoStreamUnavailable: (_reason: string, message?: string) => {
             // Drop the (likely pointer/stale) URL so the player is replaced by
@@ -3029,10 +3041,13 @@ const CodexCellEditor: React.FC = () => {
         vscode.postMessage({ command: "pickVideoFile" } as EditorPostMessages);
     };
 
-    const handleSaveMetadata = () => {
-        const updatedMetadata = { ...metadata };
+    // Commit metadata edits from the modal. The modal edits a local draft and only
+    // calls this on "Save Changes", so removals/edits are deferred until here.
+    // When the saved videoUrl changes, the host confirms and (for a local file)
+    // deletes the old file from disk as part of updateNotebookMetadata.
+    const handleSaveMetadata = (updatedMetadata: CustomNotebookMetadata) => {
+        setMetadata(updatedMetadata);
         setVideoUrl(updatedMetadata.videoUrl || "");
-        setTempVideoUrl("");
         debug("metadata", "Saving metadata:", updatedMetadata);
         vscode.postMessage({
             command: "updateNotebookMetadata",
@@ -3041,9 +3056,12 @@ const CodexCellEditor: React.FC = () => {
         setIsMetadataModalOpen(false);
     };
 
-    const handleUpdateVideoUrl = (url: string) => {
-        setVideoUrl(url);
-    };
+    // Keep the reference status fresh: ask the host whenever the stored video
+    // reference changes (and on mount). This drives the toggle + modal badge
+    // independently of whether the player is open.
+    useEffect(() => {
+        vscode.postMessage({ command: "requestVideoReferenceStatus" } as EditorPostMessages);
+    }, [metadata.videoUrl]);
 
     // Ask the host to resolve a playable source for the chapter video. Remote
     // URLs play directly; local files resolve to a webview URI; LFS pointers come
@@ -3161,7 +3179,14 @@ const CodexCellEditor: React.FC = () => {
 
     (window as any).getCurrentEditingCellId = getCurrentEditingCellId;
 
-    const documentHasVideoAvailable = !!metadata.videoUrl;
+    // The "Show Video" toggle should appear only when there's a usable reference:
+    // a remote URL, or a local file with bytes/pointer. A "missing" reference (or
+    // an empty one) hides it. Until the host reports status, fall back to the raw
+    // presence of a videoUrl so the toggle isn't briefly hidden on load.
+    const documentHasVideoAvailable =
+        videoReferenceStatus !== null
+            ? videoReferenceStatus === "url" || videoReferenceStatus === "local-usable"
+            : !!metadata.videoUrl;
 
     // Debug helper: Log info about translation units and their validation status
     useEffect(() => {
@@ -3561,11 +3586,10 @@ const CodexCellEditor: React.FC = () => {
                             openSourceText={openSourceText}
                             documentHasVideoAvailable={documentHasVideoAvailable}
                             metadata={metadata}
-                            tempVideoUrl={tempVideoUrl}
+                            videoReferenceStatus={videoReferenceStatus}
                             onMetadataChange={handleMetadataChange}
                             onSaveMetadata={handleSaveMetadata}
                             onPickFile={handlePickFile}
-                            onUpdateVideoUrl={handleUpdateVideoUrl}
                             toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
                             scrollSyncEnabled={scrollSyncEnabled}
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}

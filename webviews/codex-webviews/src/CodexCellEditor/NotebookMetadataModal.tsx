@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { CustomNotebookMetadata } from "../../../../types";
 import {
     Dialog,
@@ -20,10 +20,10 @@ interface NotebookMetadataModalProps {
     isOpen: boolean;
     onClose: () => void;
     metadata: CustomNotebookMetadata;
-    onMetadataChange: (key: string, value: string) => void;
-    onSave: () => void;
+    /** Commit the edited metadata. Only called when the user clicks "Save Changes". */
+    onSave: (updated: CustomNotebookMetadata) => void;
     onPickFile: () => void;
-    tempVideoUrl: string;
+    videoReferenceStatus: "none" | "url" | "local-usable" | "missing" | null;
 }
 
 // Define user-editable fields with proper labels and descriptions
@@ -61,35 +61,63 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
     isOpen,
     onClose,
     metadata,
-    onMetadataChange,
     onSave,
     onPickFile,
-    tempVideoUrl,
+    videoReferenceStatus,
 }) => {
+    // All edits happen on a local draft and are only committed on "Save Changes".
+    // Closing via X/Cancel discards the draft, so nothing — including video
+    // removal — is persisted unless the user explicitly saves.
+    const [draft, setDraft] = useState<CustomNotebookMetadata>(metadata);
     const [hasChanges, setHasChanges] = useState(false);
-    // When the video field holds a local file we lock the input until the user
-    // explicitly chooses to replace it (deletion is confirmed host-side).
-    const [isReplacingVideo, setIsReplacingVideo] = useState(false);
+
+    // Start the draft from the latest saved metadata each time the modal opens.
+    useEffect(() => {
+        if (isOpen) {
+            setDraft(metadata);
+            setHasChanges(false);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen]);
+
+    // Picking a file is an immediate host action that updates the saved videoUrl;
+    // mirror it into the draft so the field reflects the newly picked file.
+    useEffect(() => {
+        if (!isOpen) {
+            return;
+        }
+        setDraft((d) =>
+            d.videoUrl === metadata.videoUrl ? d : { ...d, videoUrl: metadata.videoUrl }
+        );
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [metadata.videoUrl]);
 
     const handleFieldChange = (key: string, value: string) => {
         setHasChanges(true);
-        onMetadataChange(key, value);
+        setDraft((d) => ({ ...d, [key]: value }) as CustomNotebookMetadata);
+    };
+
+    // Clear/remove is deferred: it only empties the draft field. The actual file
+    // deletion + JSON change happens on Save (the host removes the old local file
+    // when the saved videoUrl changes).
+    const handleClearVideo = () => {
+        setHasChanges(true);
+        setDraft((d) => ({ ...d, videoUrl: "" }) as CustomNotebookMetadata);
     };
 
     const handleSave = () => {
-        onSave();
+        onSave(draft);
         setHasChanges(false);
-        setIsReplacingVideo(false);
     };
 
     const handleClose = () => {
-        onClose();
+        setDraft(metadata);
         setHasChanges(false);
-        setIsReplacingVideo(false);
+        onClose();
     };
 
     const renderField = (key: string, config: typeof USER_EDITABLE_FIELDS[keyof typeof USER_EDITABLE_FIELDS]) => {
-        const currentValue = metadata[key as keyof CustomNotebookMetadata] || "";
+        const currentValue = draft[key as keyof CustomNotebookMetadata] || "";
         
         return (
             <div key={key} className="space-y-2">
@@ -130,26 +158,55 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                 ) : config.type === "url" && config.hasFilePicker ? (
                     (() => {
                         const videoValue = String(currentValue);
-                        const isLocalFile = !!videoValue && !/^https?:\/\//i.test(videoValue);
-                        const locked = isLocalFile && !isReplacingVideo;
+                        const hasVideo = !!videoValue;
+                        const isLocalFile = hasVideo && !/^https?:\/\//i.test(videoValue);
+                        // Only flag "missing" when the draft still reflects the saved
+                        // reference (not a pending edit the host hasn't evaluated yet).
+                        const isMissing =
+                            videoReferenceStatus === "missing" && draft.videoUrl === metadata.videoUrl;
                         const fileName = videoValue.split(/[\\/]/).pop() || videoValue;
+                        const displayLabel = isLocalFile ? fileName : videoValue;
 
-                        if (locked) {
+                        // When a video is set, lock the field. Changing it requires an
+                        // explicit Clear first (deferred — the file is only deleted and
+                        // the JSON updated on Save). Once cleared, the field becomes
+                        // editable for the next URL or picked file.
+                        if (hasVideo) {
                             return (
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-wrap items-center gap-2">
                                     <div
-                                        className="flex-1 flex items-center gap-2 rounded-md border border-input bg-muted px-3 py-2 text-sm overflow-hidden"
+                                        className={`flex-1 min-w-0 basis-0 flex items-center gap-2 rounded-md border px-3 py-2 text-sm overflow-hidden ${
+                                            isMissing
+                                                ? "border-destructive bg-destructive/10"
+                                                : "border-input bg-muted"
+                                        }`}
                                         title={videoValue}
                                     >
-                                        <i className="codicon codicon-device-camera-video text-muted-foreground" />
-                                        <span className="truncate">{fileName}</span>
+                                        <i
+                                            className={`codicon shrink-0 ${
+                                                isLocalFile ? "codicon-device-camera-video" : "codicon-link"
+                                            } text-muted-foreground`}
+                                        />
+                                        <span className="truncate">{displayLabel}</span>
+                                        {isMissing && (
+                                            <Badge variant="destructive" className="ml-auto shrink-0">
+                                                File missing
+                                            </Badge>
+                                        )}
                                     </div>
                                     <Button
                                         type="button"
                                         variant="outline"
-                                        onClick={() => setIsReplacingVideo(true)}
+                                        className="shrink-0"
+                                        onClick={handleClearVideo}
+                                        title={
+                                            isLocalFile
+                                                ? "Remove video (the local file is deleted when you save)"
+                                                : "Remove video"
+                                        }
                                     >
-                                        Replace video...
+                                        <i className="codicon codicon-trash mr-2" />
+                                        Clear
                                     </Button>
                                 </div>
                             );
@@ -163,28 +220,18 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                                     value={videoValue}
                                     onChange={(e) => handleFieldChange(key, e.target.value)}
                                     placeholder="Enter video URL or use file picker"
-                                    className="flex-1"
+                                    className="flex-1 min-w-0"
                                 />
                                 <Button
                                     type="button"
                                     variant="outline"
                                     size="icon"
+                                    className="shrink-0"
                                     onClick={onPickFile}
                                     title="Pick Video File"
                                 >
                                     <i className="codicon codicon-folder-opened" />
                                 </Button>
-                                {isReplacingVideo && (
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={() => setIsReplacingVideo(false)}
-                                        title="Cancel replace"
-                                    >
-                                        <i className="codicon codicon-close" />
-                                    </Button>
-                                )}
                             </div>
                         );
                     })()
@@ -225,7 +272,7 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
-            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-2xl max-h-[85vh] overflow-y-auto overflow-x-hidden">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <i className="codicon codicon-notebook" />
@@ -247,10 +294,10 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                         <Separator />
                         <div className="space-y-4">
                             <h3 className="text-sm font-semibold text-muted-foreground">System Information</h3>
-                            <div className="grid grid-cols-2 gap-2 text-xs">
-                                <div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                <div className="min-w-0">
                                     <span className="text-muted-foreground">ID:</span>
-                                    <span className="ml-2 font-mono">{metadata.id}</span>
+                                    <span className="ml-2 font-mono break-all">{metadata.id}</span>
                                 </div>
                                 <div>
                                     <span className="text-muted-foreground">Original Name:</span>

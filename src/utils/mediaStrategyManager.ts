@@ -22,6 +22,10 @@ import { setCachedLfsBytes } from "./mediaCache";
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[MediaStrategyManager]", ...args) : () => { };
 
+// Video extensions get a disk-backed session cache (outside the project) instead
+// of the in-memory LFS cache, since video files are large.
+const VIDEO_EXTENSIONS = new Set([".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v"]);
+
 /**
  * Replace specific files in attachments/files with their pointer versions
  * This is optimized for post-sync cleanup where we know exactly which files were uploaded
@@ -73,7 +77,8 @@ export async function replaceSpecificFilesWithPointers(projectPath: string, uplo
                 const pointerPath = path.join(projectPath, ".project", "attachments", "pointers", relPath);
                 const filesPath = path.join(projectPath, ".project", "attachments", "files", relPath);
 
-                // If files/ has real bytes, cache them in-memory before replacement
+                // If files/ has real bytes, cache them for this session before
+                // replacing the file with a pointer.
                 const filesIsPointer = await isPointerFile(filesPath).catch(() => false);
                 if (!filesIsPointer) {
                     const pointerContent = await vscode.workspace.fs.readFile(vscode.Uri.file(pointerPath));
@@ -81,7 +86,21 @@ export async function replaceSpecificFilesWithPointers(projectPath: string, uplo
                     const pointerInfo = parsePointerContent(pointerText);
                     if (pointerInfo?.oid) {
                         const fileBytes = await vscode.workspace.fs.readFile(vscode.Uri.file(filesPath));
-                        setCachedLfsBytes(pointerInfo.oid, fileBytes);
+                        const ext = path.extname(relPath).toLowerCase();
+                        if (VIDEO_EXTENSIONS.has(ext)) {
+                            // Videos are large: keep a session copy on disk (outside
+                            // the project) instead of in RAM, so a stream-only video
+                            // just uploaded replays this session without re-downloading.
+                            try {
+                                const { writeCachedVideo } = await import("./videoStreamCache");
+                                await writeCachedVideo(undefined, pointerInfo.oid, ext, fileBytes);
+                            } catch {
+                                // Session cache unavailable — it will re-download on next play.
+                            }
+                        } else {
+                            // Audio (small): in-memory cache is fine.
+                            setCachedLfsBytes(pointerInfo.oid, fileBytes);
+                        }
                     }
                 }
             } catch {

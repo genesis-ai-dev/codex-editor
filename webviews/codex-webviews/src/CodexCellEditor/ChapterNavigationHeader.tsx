@@ -53,10 +53,9 @@ interface ChapterNavigationHeaderProps {
     documentHasVideoAvailable: boolean;
     metadata: CustomNotebookMetadata | undefined;
     onMetadataChange: (key: string, value: string) => void;
-    onSaveMetadata: () => void;
+    onSaveMetadata: (updated: CustomNotebookMetadata) => void;
     onPickFile: () => void;
-    onUpdateVideoUrl: (url: string) => void;
-    tempVideoUrl: string;
+    videoReferenceStatus: "none" | "url" | "local-usable" | "missing" | null;
     toggleScrollSync: () => void;
     scrollSyncEnabled: boolean;
     translationUnitsForSection: QuillCellContent[];
@@ -115,8 +114,7 @@ export function ChapterNavigationHeader({
     onMetadataChange,
     onSaveMetadata,
     onPickFile,
-    onUpdateVideoUrl,
-    tempVideoUrl,
+    videoReferenceStatus,
     toggleScrollSync,
     scrollSyncEnabled,
     translationUnitsForSection,
@@ -405,12 +403,9 @@ ChapterNavigationHeaderProps) {
         setIsMetadataModalOpen(false);
     };
 
-    const handleSaveMetadata = () => {
-        onSaveMetadata();
+    const handleSaveMetadata = (updated: CustomNotebookMetadata) => {
+        onSaveMetadata(updated);
         setIsMetadataModalOpen(false);
-        if (metadata?.videoUrl) {
-            onUpdateVideoUrl(metadata.videoUrl);
-        }
     };
 
     const handleFontSizeChange = (value: number[]) => {
@@ -1181,10 +1176,9 @@ ChapterNavigationHeaderProps) {
                     isOpen={isMetadataModalOpen}
                     onClose={handleCloseMetadataModal}
                     metadata={metadata}
-                    onMetadataChange={onMetadataChange}
                     onSave={handleSaveMetadata}
                     onPickFile={onPickFile}
-                    tempVideoUrl={tempVideoUrl}
+                    videoReferenceStatus={videoReferenceStatus}
                 />
             )}
 

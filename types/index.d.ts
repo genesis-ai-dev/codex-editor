@@ -418,6 +418,7 @@ export type EditorPostMessages =
     | { command: "pickVideoFile"; }
     | { command: "deleteVideoFile"; }
     | { command: "requestVideoStreamUrl"; }
+    | { command: "requestVideoReferenceStatus"; }
     | { command: "downloadVideoFile"; persist?: boolean; }
     | { command: "getSourceText"; content: { cellId: string; }; }
     | { command: "searchSimilarCellIds"; content: { cellId: string; }; }
@@ -2073,6 +2074,7 @@ type EditorReceiveMessages =
     | { type: "updateVideoUrlInWebview"; content: string; }
     | { type: "videoStreamUnavailable"; reason: "offline" | "not-authenticated" | "not-found" | "error"; message?: string; }
     | { type: "videoNeedsDownload"; strategy: "auto-download" | "stream-and-save" | "stream-only"; }
+    | { type: "videoReferenceStatus"; status: "none" | "url" | "local-usable" | "missing"; }
     | {
         type: "milestoneProgressUpdate";
         milestoneProgress: Record<number, {

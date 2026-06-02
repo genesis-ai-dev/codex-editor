@@ -18,14 +18,25 @@ import * as vscode from "vscode";
 const CACHE_DIR_NAME = "videoStreamCache";
 
 /**
+ * Remembered global-storage location. Captured whenever a helper is called with
+ * a real ExtensionContext (e.g. on activation), so later operations that don't
+ * have a context on hand — such as post-sync cleanup — can still find the cache.
+ */
+let cachedStorageBase: vscode.Uri | undefined;
+
+/**
  * Returns the root folder for the video stream cache (under the extension's
  * global storage, i.e. outside any project), or `undefined` if global storage
- * isn't available.
+ * isn't available. A context is optional: when omitted, the last-seen global
+ * storage location is used.
  */
 export function getVideoStreamCacheRoot(
-    context: vscode.ExtensionContext
+    context?: vscode.ExtensionContext
 ): vscode.Uri | undefined {
-    const base = context?.globalStorageUri;
+    if (context?.globalStorageUri) {
+        cachedStorageBase = context.globalStorageUri;
+    }
+    const base = context?.globalStorageUri ?? cachedStorageBase;
     if (!base) {
         return undefined;
     }
@@ -38,7 +49,7 @@ export function getVideoStreamCacheRoot(
  * type from the path.
  */
 export function getCachedVideoUri(
-    context: vscode.ExtensionContext,
+    context: vscode.ExtensionContext | undefined,
     oid: string,
     ext?: string
 ): vscode.Uri | undefined {
@@ -54,7 +65,7 @@ export function getCachedVideoUri(
  * Whether a cached copy already exists for this session.
  */
 export async function hasCachedVideo(
-    context: vscode.ExtensionContext,
+    context: vscode.ExtensionContext | undefined,
     oid: string,
     ext?: string
 ): Promise<boolean> {
@@ -75,7 +86,7 @@ export async function hasCachedVideo(
  * is unavailable so callers can fall back to an error state.
  */
 export async function writeCachedVideo(
-    context: vscode.ExtensionContext,
+    context: vscode.ExtensionContext | undefined,
     oid: string,
     ext: string | undefined,
     bytes: Uint8Array
@@ -94,7 +105,9 @@ export async function writeCachedVideo(
  * Deletes the entire cache folder. Called on activation so temporary videos do
  * not survive a reload (matches the in-memory audio cache lifetime).
  */
-export async function clearVideoStreamCache(context: vscode.ExtensionContext): Promise<void> {
+export async function clearVideoStreamCache(
+    context?: vscode.ExtensionContext
+): Promise<void> {
     const root = getVideoStreamCacheRoot(context);
     if (!root) {
         return;

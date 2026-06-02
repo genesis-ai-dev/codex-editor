@@ -161,22 +161,25 @@ async function confirmVideoReplacement(
     oldKind: VideoKind,
     newKind: VideoKind
 ): Promise<boolean> {
-    if (oldKind !== "local") {
+    // Nothing to confirm when there was no video to begin with.
+    if (oldKind === "none") {
         return true;
     }
 
+    const removing = newKind === "none";
+    const confirmLabel = removing ? "Remove" : "Replace";
+
     let detail: string;
-    let confirmLabel: string;
-    if (newKind === "url") {
-        detail =
-            "Replace the locally stored video with a streamed URL? The local video file will be deleted from this project.";
-        confirmLabel = "Replace";
-    } else if (newKind === "none") {
-        detail = "Remove the current video? The local video file will be deleted from this project.";
-        confirmLabel = "Remove";
+    if (oldKind === "local") {
+        // A local file will actually be deleted from disk — always warn.
+        detail = removing
+            ? "Remove the current video? The local video file will be deleted from this project."
+            : "Replace the existing video? The current local video file will be deleted from this project.";
     } else {
-        detail = "Replace the existing video file? This deletes the current video file from this project.";
-        confirmLabel = "Replace";
+        // URL source: nothing is deleted from disk, but confirm for consistency.
+        detail = removing
+            ? "Remove the current streamed video URL?"
+            : "Replace the current streamed video URL?";
     }
 
     const choice = await vscode.window.showWarningMessage(detail, { modal: true }, confirmLabel);
@@ -306,6 +309,73 @@ async function resolveAndPostVideoStreamUrl(
     provider.postMessageToWebview(webviewPanel, {
         type: "videoNeedsDownload",
         strategy,
+    });
+}
+
+/**
+ * Classify the chapter's stored video reference so the webview can decide
+ * whether to offer the "Show Video" toggle (and the modal can flag a broken
+ * reference). This is independent of opening the player:
+ *  - "none"         → no video reference at all
+ *  - "url"          → remote streamed URL
+ *  - "local-usable" → local file with real bytes, or an LFS pointer (downloadable/streamable)
+ *  - "missing"      → local reference that resolves to neither bytes nor a pointer
+ */
+async function computeVideoReferenceStatus(
+    document: CodexCellDocument
+): Promise<"none" | "url" | "local-usable" | "missing"> {
+    const videoUrl = document.getNotebookMetadata()?.videoUrl;
+    if (!videoUrl) {
+        return "none";
+    }
+    if (isHttpVideoUrl(videoUrl)) {
+        return "url";
+    }
+
+    const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
+    if (!workspaceUri) {
+        return "missing";
+    }
+
+    const rel = getVideoWorkspaceRelativePath(videoUrl, workspaceUri);
+    if (!rel) {
+        return "missing";
+    }
+
+    const filesAbs = vscode.Uri.joinPath(workspaceUri, rel).fsPath;
+    const pointersRel = rel.includes("attachments/files/")
+        ? rel.replace("attachments/files/", "attachments/pointers/")
+        : rel;
+    const pointersAbs = vscode.Uri.joinPath(workspaceUri, pointersRel).fsPath;
+
+    // Real bytes already on disk → usable.
+    try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
+        const isPtr = await isPointerFile(filesAbs).catch(() => false);
+        if (!isPtr) {
+            return "local-usable";
+        }
+    } catch {
+        // files/ entry doesn't exist; fall through to pointer check.
+    }
+
+    // An LFS pointer (in files/ or pointers/) means it can be downloaded/streamed.
+    const pointer =
+        (await parsePointerFile(filesAbs).catch(() => null)) ??
+        (await parsePointerFile(pointersAbs).catch(() => null));
+    return pointer ? "local-usable" : "missing";
+}
+
+/** Compute and push the chapter video reference status to the webview. */
+async function postVideoReferenceStatus(
+    document: CodexCellDocument,
+    webviewPanel: vscode.WebviewPanel,
+    provider: CodexCellEditorProvider
+): Promise<void> {
+    const status = await computeVideoReferenceStatus(document);
+    provider.postMessageToWebview(webviewPanel, {
+        type: "videoReferenceStatus",
+        status,
     });
 }
 
@@ -1660,6 +1730,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             type: "providerUpdatesNotebookMetadataForWebview",
             content: await document.getNotebookMetadata(),
         });
+        await postVideoReferenceStatus(document, webviewPanel, provider);
     },
 
     deleteVideoFile: async ({ document, webviewPanel, provider }) => {
@@ -1684,7 +1755,19 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         await document.updateNotebookMetadata({ videoUrl: "" });
         await document.save(new vscode.CancellationTokenSource().token);
-        provider.refreshWebview(webviewPanel, document);
+
+        // Lightweight update instead of a full refresh: push the cleared metadata
+        // and a "none" reference status so the webview hides the toggle and closes
+        // the player if it's open.
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerUpdatesNotebookMetadataForWebview",
+            content: document.getNotebookMetadata(),
+        });
+        await postVideoReferenceStatus(document, webviewPanel, provider);
+    },
+
+    requestVideoReferenceStatus: async ({ document, webviewPanel, provider }) => {
+        await postVideoReferenceStatus(document, webviewPanel, provider);
     },
 
     requestVideoStreamUrl: async ({ document, webviewPanel, provider }) => {
@@ -1960,7 +2043,52 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 const relativePath = toPosixPath(path.relative(workspaceFolder.uri.fsPath, filesPath));
                 await document.updateNotebookMetadata({ videoUrl: relativePath });
                 await document.save(new vscode.CancellationTokenSource().token);
+
+                // In stream-only, a newly added local video would be reverted to an
+                // LFS pointer after the next sync (to free space). Ask whether to keep
+                // it saved in the project or treat it as a session-only stream.
+                // "Save to project" → add to the persisted allowlist so cleanup never
+                // pointerizes it (kept until removed). "Stream only" → leave it out, so
+                // after sync it streams on demand (with a session disk cache).
+                try {
+                    const { getMediaFilesStrategy, addPersistedMediaFile } = await import(
+                        "../../utils/localProjectSettings"
+                    );
+                    const strategy =
+                        (await getMediaFilesStrategy(workspaceFolder.uri)) ?? "auto-download";
+                    if (strategy === "stream-only") {
+                        const SAVE = "Save to project";
+                        const STREAM = "Stream only";
+                        const choice = await vscode.window.showInformationMessage(
+                            "Save this video to the project?",
+                            {
+                                modal: true,
+                                detail: "Save keeps it until you remove it. Stream only keeps it for this session.",
+                            },
+                            SAVE,
+                            STREAM
+                        );
+                        if (choice === SAVE) {
+                            const FILES_SEG = "attachments/files/";
+                            const savedRel = relativePath.includes(FILES_SEG)
+                                ? relativePath.slice(
+                                      relativePath.indexOf(FILES_SEG) + FILES_SEG.length
+                                  )
+                                : null;
+                            if (savedRel) {
+                                await addPersistedMediaFile(savedRel, workspaceFolder.uri);
+                            }
+                        }
+                    }
+                } catch (storageChoiceErr) {
+                    console.warn(
+                        "Could not apply stream-only storage choice for video:",
+                        storageChoiceErr
+                    );
+                }
+
                 provider.refreshWebview(webviewPanel, document);
+                await postVideoReferenceStatus(document, webviewPanel, provider);
             } catch (error) {
                 console.error("Error saving video file:", error);
                 vscode.window.showErrorMessage(
