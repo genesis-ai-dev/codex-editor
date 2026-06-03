@@ -55,6 +55,8 @@ interface ChapterNavigationHeaderProps {
     onMetadataChange: (key: string, value: string) => void;
     onSaveMetadata: (updated: CustomNotebookMetadata) => void;
     onPickFile: () => void;
+    videoCanFreeDiskSpace: boolean;
+    onFreeVideoDiskSpace: () => void;
     videoReferenceStatus: "none" | "url" | "local-usable" | "missing" | null;
     toggleScrollSync: () => void;
     scrollSyncEnabled: boolean;
@@ -114,6 +116,8 @@ export function ChapterNavigationHeader({
     onMetadataChange,
     onSaveMetadata,
     onPickFile,
+    videoCanFreeDiskSpace,
+    onFreeVideoDiskSpace,
     videoReferenceStatus,
     toggleScrollSync,
     scrollSyncEnabled,
@@ -1178,6 +1182,8 @@ ChapterNavigationHeaderProps) {
                     metadata={metadata}
                     onSave={handleSaveMetadata}
                     onPickFile={onPickFile}
+                    canFreeDiskSpace={videoCanFreeDiskSpace}
+                    onFreeDiskSpace={onFreeVideoDiskSpace}
                     videoReferenceStatus={videoReferenceStatus}
                 />
             )}

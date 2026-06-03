@@ -4682,6 +4682,28 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     /**
+     * Re-post the chapter video reference status to all open editors after a sync.
+     * A just-uploaded video becomes an LFS-backed pointer during sync, which makes
+     * the "Free up space" action eligible — but the webview only re-requests status
+     * on mount / videoUrl change, so without this it stays stale until reload.
+     */
+    public async refreshVideoReferenceStatusAfterSync(): Promise<void> {
+        const { postVideoReferenceStatus } = await import("./codexCellEditorMessagehandling");
+        for (const [documentUri, webviewPanel] of this.webviewPanels.entries()) {
+            try {
+                const document = this.documents.get(documentUri);
+                if (!document || !webviewPanel) continue;
+                await postVideoReferenceStatus(document, webviewPanel, this);
+            } catch (error) {
+                console.warn(
+                    `[refreshVideoReferenceStatusAfterSync] Failed for ${documentUri}:`,
+                    error
+                );
+            }
+        }
+    }
+
+    /**
      * Refresh webviews for specific files by sending refreshCurrentPage messages.
      * This is used after sync to ensure webviews show newly added cells.
      * Forces open, non-dirty documents to reload from disk before refreshing to ensure latest data.

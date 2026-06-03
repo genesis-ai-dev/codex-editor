@@ -190,6 +190,9 @@ const CodexCellEditor: React.FC = () => {
     const [videoReferenceStatus, setVideoReferenceStatus] = useState<
         "none" | "url" | "local-usable" | "missing" | null
     >(null);
+    // Stream-and-save only: a downloaded local copy exists that can be reverted to
+    // a pointer to free disk space (re-streamed on demand).
+    const [videoCanFreeDiskSpace, setVideoCanFreeDiskSpace] = useState<boolean>(false);
     const playerRef = useRef<ReactPlayerRef>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const [muteVideoAudioDuringPlayback, setMuteVideoAudioDuringPlayback] = useState(true);
@@ -1752,8 +1755,9 @@ const CodexCellEditor: React.FC = () => {
             setVideoNeedsDownloadStrategy(null);
             setVideoResolving(false);
         },
-        videoReferenceStatus: (status) => {
+        videoReferenceStatus: (status, canFreeDiskSpace) => {
             setVideoReferenceStatus(status);
+            setVideoCanFreeDiskSpace(!!canFreeDiskSpace);
             // When the reference is gone (removed/cleared), close the player and
             // clear any transient video state so nothing lingers on screen.
             if (status === "none") {
@@ -3041,6 +3045,13 @@ const CodexCellEditor: React.FC = () => {
         vscode.postMessage({ command: "pickVideoFile" } as EditorPostMessages);
     };
 
+    // Stream-and-save: revert the downloaded local copy back to an LFS pointer to
+    // free disk space. The host confirms; the video reference is kept so it
+    // re-streams on demand.
+    const handleFreeVideoDiskSpace = () => {
+        vscode.postMessage({ command: "freeVideoDiskSpace" } as EditorPostMessages);
+    };
+
     // Commit metadata edits from the modal. The modal edits a local draft and only
     // calls this on "Save Changes", so removals/edits are deferred until here.
     // When the saved videoUrl changes, the host confirms and (for a local file)
@@ -3590,6 +3601,8 @@ const CodexCellEditor: React.FC = () => {
                             onMetadataChange={handleMetadataChange}
                             onSaveMetadata={handleSaveMetadata}
                             onPickFile={handlePickFile}
+                            videoCanFreeDiskSpace={videoCanFreeDiskSpace}
+                            onFreeVideoDiskSpace={handleFreeVideoDiskSpace}
                             toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
                             scrollSyncEnabled={scrollSyncEnabled}
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}

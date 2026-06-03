@@ -23,6 +23,9 @@ interface NotebookMetadataModalProps {
     /** Commit the edited metadata. Only called when the user clicks "Save Changes". */
     onSave: (updated: CustomNotebookMetadata) => void;
     onPickFile: () => void;
+    /** Stream-and-save: a downloaded local copy can be reverted to a pointer to free space. */
+    canFreeDiskSpace: boolean;
+    onFreeDiskSpace: () => void;
     videoReferenceStatus: "none" | "url" | "local-usable" | "missing" | null;
 }
 
@@ -63,6 +66,8 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
     metadata,
     onSave,
     onPickFile,
+    canFreeDiskSpace,
+    onFreeDiskSpace,
     videoReferenceStatus,
 }) => {
     // All edits happen on a local draft and are only committed on "Save Changes".
@@ -164,6 +169,10 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                         // reference (not a pending edit the host hasn't evaluated yet).
                         const isMissing =
                             videoReferenceStatus === "missing" && draft.videoUrl === metadata.videoUrl;
+                        // Offer "free up space" only while the field reflects the saved
+                        // reference (not a pending edit the host hasn't evaluated yet).
+                        const showFreeSpace =
+                            canFreeDiskSpace && draft.videoUrl === metadata.videoUrl;
                         const fileName = videoValue.split(/[\\/]/).pop() || videoValue;
                         const displayLabel = isLocalFile ? fileName : videoValue;
 
@@ -194,6 +203,18 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                                             </Badge>
                                         )}
                                     </div>
+                                    {showFreeSpace && (
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="shrink-0"
+                                            onClick={onFreeDiskSpace}
+                                            title="Remove the downloaded file to save space. It will stream again on demand."
+                                        >
+                                            <i className="codicon codicon-cloud-download mr-2" />
+                                            Free up space
+                                        </Button>
+                                    )}
                                     <Button
                                         type="button"
                                         variant="outline"

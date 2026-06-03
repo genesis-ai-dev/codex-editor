@@ -366,16 +366,68 @@ async function computeVideoReferenceStatus(
     return pointer ? "local-usable" : "missing";
 }
 
+/**
+ * Whether the chapter video has an on-disk copy in the project (`files/`) that
+ * can be safely reverted to an LFS pointer to free disk space (and re-streamed
+ * on demand). Offered in stream-and-save (downloaded copy) and stream-only
+ * (a "Save to project" copy) — never auto-download (it would just re-download),
+ * and never the stream-only session cache (that lives in global storage and is
+ * already ephemeral). Requires a real local file AND a real LFS pointer backing
+ * it (so it isn't a local-unsynced file we'd lose).
+ */
+async function computeCanFreeVideoDiskSpace(document: CodexCellDocument): Promise<boolean> {
+    const videoUrl = document.getNotebookMetadata()?.videoUrl;
+    if (!videoUrl || isHttpVideoUrl(videoUrl)) {
+        return false;
+    }
+    const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
+    if (!workspaceUri) {
+        return false;
+    }
+    const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+    const strategy = (await getMediaFilesStrategy(workspaceUri)) ?? "auto-download";
+    if (strategy !== "stream-and-save" && strategy !== "stream-only") {
+        return false;
+    }
+
+    const rel = getVideoWorkspaceRelativePath(videoUrl, workspaceUri);
+    if (!rel) {
+        return false;
+    }
+    const filesAbs = vscode.Uri.joinPath(workspaceUri, rel).fsPath;
+    const pointersRel = rel.includes("attachments/files/")
+        ? rel.replace("attachments/files/", "attachments/pointers/")
+        : rel;
+    const pointersAbs = vscode.Uri.joinPath(workspaceUri, pointersRel).fsPath;
+
+    // Real bytes present in files/ (taking space)?
+    try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
+    } catch {
+        return false;
+    }
+    const filesIsPointer = await isPointerFile(filesAbs).catch(() => false);
+    if (filesIsPointer) {
+        return false;
+    }
+    // A real LFS pointer must back it so it can be re-streamed without data loss.
+    const pointer = await parsePointerFile(pointersAbs).catch(() => null);
+    return !!pointer;
+}
+
 /** Compute and push the chapter video reference status to the webview. */
-async function postVideoReferenceStatus(
+export async function postVideoReferenceStatus(
     document: CodexCellDocument,
     webviewPanel: vscode.WebviewPanel,
     provider: CodexCellEditorProvider
 ): Promise<void> {
     const status = await computeVideoReferenceStatus(document);
+    const canFreeDiskSpace =
+        status === "local-usable" ? await computeCanFreeVideoDiskSpace(document) : false;
     provider.postMessageToWebview(webviewPanel, {
         type: "videoReferenceStatus",
         status,
+        canFreeDiskSpace,
     });
 }
 
@@ -1766,6 +1818,58 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         await postVideoReferenceStatus(document, webviewPanel, provider);
     },
 
+    freeVideoDiskSpace: async ({ document, webviewPanel, provider }) => {
+        debug("freeVideoDiskSpace message received");
+        // Revert a downloaded stream-and-save video back to an LFS pointer to free
+        // disk space. The reference (videoUrl) is kept, so it re-streams on demand.
+        const videoUrl = document.getNotebookMetadata()?.videoUrl;
+        const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
+        if (!videoUrl || !workspaceUri || !(await computeCanFreeVideoDiskSpace(document))) {
+            return;
+        }
+
+        const proceed = await vscode.window.showInformationMessage(
+            "Free up space for this video?",
+            {
+                modal: true,
+                detail: "The downloaded file is removed and the video streams again on demand.",
+            },
+            "Free up space"
+        );
+        if (proceed !== "Free up space") {
+            return;
+        }
+
+        const rel = getVideoWorkspaceRelativePath(videoUrl, workspaceUri);
+        const FILES_SEG = "attachments/files/";
+        const relFromFiles =
+            rel && rel.includes(FILES_SEG)
+                ? rel.slice(rel.indexOf(FILES_SEG) + FILES_SEG.length)
+                : null;
+        if (!relFromFiles) {
+            return;
+        }
+
+        const { replaceFileWithPointer } = await import("../../utils/lfsHelpers");
+        await replaceFileWithPointer(workspaceUri.fsPath, relFromFiles);
+
+        // In stream-only, a saved copy is protected by the persisted allowlist.
+        // Freeing space means it's no longer "saved to project", so drop it so
+        // future syncs/cleanup don't treat it as protected.
+        const { getMediaFilesStrategy, removePersistedMediaFile } = await import(
+            "../../utils/localProjectSettings"
+        );
+        const strategy = (await getMediaFilesStrategy(workspaceUri)) ?? "auto-download";
+        if (strategy === "stream-only") {
+            await removePersistedMediaFile(relFromFiles, workspaceUri);
+        }
+
+        // Re-resolve playback (local bytes are gone → the player shows the
+        // download/stream action) and refresh the modal's reference status.
+        await resolveAndPostVideoStreamUrl(document, webviewPanel, provider);
+        await postVideoReferenceStatus(document, webviewPanel, provider);
+    },
+
     requestVideoReferenceStatus: async ({ document, webviewPanel, provider }) => {
         await postVideoReferenceStatus(document, webviewPanel, provider);
     },
@@ -1917,6 +2021,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Verified bytes present (in files/ or the external cache) → resolves
             // to a playable webview URI.
             await resolveAndPostVideoStreamUrl(document, webviewPanel, provider);
+            // A "Save to project"/"download & save" now has a real local copy, so
+            // refresh the reference status to surface the "Free up space" action.
+            await postVideoReferenceStatus(document, webviewPanel, provider);
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             const reason: "not-authenticated" | "error" = /not authenticated|log in/i.test(msg)

@@ -417,6 +417,7 @@ export type EditorPostMessages =
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
     | { command: "pickVideoFile"; }
     | { command: "deleteVideoFile"; }
+    | { command: "freeVideoDiskSpace"; }
     | { command: "requestVideoStreamUrl"; }
     | { command: "requestVideoReferenceStatus"; }
     | { command: "downloadVideoFile"; persist?: boolean; }
@@ -2074,7 +2075,13 @@ type EditorReceiveMessages =
     | { type: "updateVideoUrlInWebview"; content: string; }
     | { type: "videoStreamUnavailable"; reason: "offline" | "not-authenticated" | "not-found" | "error"; message?: string; }
     | { type: "videoNeedsDownload"; strategy: "auto-download" | "stream-and-save" | "stream-only"; }
-    | { type: "videoReferenceStatus"; status: "none" | "url" | "local-usable" | "missing"; }
+    | {
+          type: "videoReferenceStatus";
+          status: "none" | "url" | "local-usable" | "missing";
+          // True only in stream-and-save when a downloaded local copy exists and is
+          // LFS-backed, so it can be reverted to a pointer to free space and re-streamed.
+          canFreeDiskSpace?: boolean;
+      }
     | {
         type: "milestoneProgressUpdate";
         milestoneProgress: Record<number, {
