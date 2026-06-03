@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import Quill, { Delta, Op } from "quill";
 import "quill/dist/quill.snow.css";
+import { installPreserveWhitespaceMatcher } from "./utils/preserveWhitespace";
 import { getCleanedHtml } from "./utils";
 import {
     isSuperscriptibleDigit,
@@ -506,7 +507,20 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             const clipboardModule = quill.getModule("clipboard") as {
                 addMatcher: (selector: number, matcher: typeof matchSuperscriptUnicodeDigits) => void;
                 convert: (args: { html?: string; text?: string }) => Delta;
+                matchers: Array<[number | string, (node: Node, delta: Delta, scroll: unknown) => Delta]>;
             };
+
+            // Replace Quill's built-in whitespace-collapsing text matcher with
+            // a non-destructive variant so runs of consecutive spaces survive
+            // the HTML → Delta conversion on cell open. See issue #1010 and
+            // utils/preserveWhitespace.ts.
+            const swapped = installPreserveWhitespaceMatcher(clipboardModule);
+            if (!swapped && DEBUG_ENABLED) {
+                console.warn(
+                    "[Editor] Could not locate Quill's built-in matchText to replace; double spaces may collapse on cell open (issue #1010)."
+                );
+            }
+
             clipboardModule.addMatcher(Node.TEXT_NODE, matchSuperscriptUnicodeDigits);
 
             // Apply minimal direct styles; rely on CSS file for look-and-feel
@@ -1518,7 +1532,16 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     display: block;
                 }
                 .ql-editor {
-                    white-space: normal !important;
+                    /*
+                     * Keep Quill's default rendering posture (pre-wrap) so that
+                     * runs of consecutive spaces stay visible and editable while
+                     * a cell is open. The previous "normal" override collapsed
+                     * them at paint time, which (combined with Quill's clipboard
+                     * matcher dropping them at convert time — fixed separately
+                     * via preserveWhitespaceMatchText) made double spaces in
+                     * source text impossible to correct in place. See #1010.
+                     */
+                    white-space: pre-wrap !important;
                     background-color: var(--vscode-editor-background) !important;
                     color: var(--vscode-editor-foreground) !important;
                 }
