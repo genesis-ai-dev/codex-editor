@@ -6,7 +6,10 @@ import {
     isLabelableCell,
 } from "../../exportHandler/audioAttachmentUtils";
 import { formatCellDisplayLabel } from "../../exportHandler/cellLabelUtils";
-import { extractMilestonesFromCells } from "../../../sharedUtils/milestoneIndexUtils";
+import {
+    buildMilestoneIndexModel,
+    hasSelectableMilestonesInCells,
+} from "../../../sharedUtils/milestoneIndexUtils";
 
 export {
     EXPORT_OPTIONS_BY_FILE_TYPE,
@@ -84,10 +87,9 @@ export interface FileGroupEntry {
     hasAudio: boolean;
     audioStats?: NotebookAudioStats;
     milestones: MilestoneInfo[];
+    /** True when the notebook has real milestone cells (chapter boundaries), not only a synthetic fallback. */
+    hasSelectableMilestones: boolean;
 }
-
-/** File types that support milestone selection during bible audio export */
-export const BIBLE_MILESTONE_EXPORT_GROUP_KEYS = new Set(["usfm", "ebible", "paratext"]);
 
 export interface FileGroup {
     groupKey: string;
@@ -345,6 +347,11 @@ function getGroupKeyFromMetadata(metadata: Record<string, unknown>): string {
         return "usfm";
     }
 
+    // Legacy scripture projects: NT/OT corpus without importerType (common in older projects)
+    if (corpusMarker === "NT" || corpusMarker === "OT") {
+        return "usfm";
+    }
+
     // Bible Stories (OBS)
     if (corpusMarker === "obs" || importerType === "obs") {
         return "obs";
@@ -394,7 +401,9 @@ export async function groupCodexFilesByImporterType(
             const audioStats = hasAudio
                 ? analyzeNotebookAudioStats(notebook, bookCode)
                 : undefined;
-            const milestones = extractMilestonesFromCells(notebook.cells);
+            const milestoneModel = buildMilestoneIndexModel(notebook.cells);
+            const milestones = milestoneModel.milestones;
+            const hasSelectableMilestones = hasSelectableMilestonesInCells(notebook.cells);
 
             if (!groupsMap.has(groupKey)) {
                 groupsMap.set(groupKey, []);
@@ -407,6 +416,7 @@ export async function groupCodexFilesByImporterType(
                 hasAudio,
                 audioStats,
                 milestones,
+                hasSelectableMilestones,
             });
         } catch {
             const name = uri.fsPath.split(/[/\\]/).pop() || "";
@@ -420,6 +430,7 @@ export async function groupCodexFilesByImporterType(
                 hasTranslations: false,
                 hasAudio: false,
                 milestones: [{ index: 0, cellIndex: 0, value: "1", cellCount: 0 }],
+                hasSelectableMilestones: false,
             });
         }
     }

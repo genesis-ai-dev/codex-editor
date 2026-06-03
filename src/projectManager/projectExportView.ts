@@ -4,7 +4,7 @@ import * as fs from "fs";
 import * as vscode from "vscode";
 import { safePostMessageToPanel } from "../utils/webviewUtils";
 import { EXPORT_OPTIONS_BY_FILE_TYPE } from "../../sharedUtils/exportOptionsEligibility";
-import { groupCodexFilesByImporterType, type FileGroup, BIBLE_MILESTONE_EXPORT_GROUP_KEYS } from "./utils/exportViewUtils";
+import { groupCodexFilesByImporterType, type FileGroup } from "./utils/exportViewUtils";
 import { readCodexNotebookFromUri } from "../exportHandler/exportHandlerUtils";
 import { compareHtmlStructure } from "../../sharedUtils/htmlStructureUtils";
 import { getMediaFilesStrategy } from "../utils/localProjectSettings";
@@ -365,8 +365,6 @@ function getWebviewContent(
     const groupsJson = JSON.stringify(fileGroups);
     const exportOptionsConfigJson = JSON.stringify(EXPORT_OPTIONS_BY_FILE_TYPE);
     const initialExportFolderJson = JSON.stringify(initialExportFolder);
-    const bibleMilestoneGroupKeysJson = JSON.stringify([...BIBLE_MILESTONE_EXPORT_GROUP_KEYS]);
-
     return `<!DOCTYPE html>
     <html>
         <head>
@@ -1340,7 +1338,7 @@ function getWebviewContent(
                     <div class="step-content">
                         <h3>Select Milestones</h3>
                         <p style="color: var(--vscode-descriptionForeground); margin-bottom: 16px;">
-                            Choose which chapters (milestones) to include in the audio export. All milestones are selected by default.
+                            Choose which chapters (milestones) to include in the audio export.
                         </p>
                         <div id="milestoneGroupsContainer"></div>
                     </div>
@@ -1528,7 +1526,6 @@ function getWebviewContent(
                 const vscode = acquireVsCodeApi();
                 const fileGroups = ${groupsJson};
                 const exportOptionsConfig = ${exportOptionsConfigJson};
-                const bibleMilestoneGroupKeys = new Set(${bibleMilestoneGroupKeysJson});
                 const isStreamOnly = ${JSON.stringify(isStreamOnly)};
                 let currentStep = 1;
                 let selectedFormat = null;
@@ -1541,10 +1538,11 @@ function getWebviewContent(
 
                 function shouldShowMilestoneStep() {
                     if (!selectedAudioMode) return false;
-                    if (!selectedGroupKey || !bibleMilestoneGroupKeys.has(selectedGroupKey)) return false;
                     for (const path of selectedFiles) {
                         const f = fileLookup[path];
-                        if (f && f.milestones && f.milestones.length > 0) return true;
+                        if (f && f.hasSelectableMilestones && f.milestones && f.milestones.length > 0) {
+                            return true;
+                        }
                     }
                     return false;
                 }
@@ -1566,7 +1564,7 @@ function getWebviewContent(
                     milestoneFilePaths = [];
                     for (const path of selectedFiles) {
                         const f = fileLookup[path];
-                        if (f && f.milestones && f.milestones.length > 0) {
+                        if (f && f.hasSelectableMilestones && f.milestones && f.milestones.length > 0) {
                             selectedMilestonesByFile[path] = new Set(f.milestones.map(m => m.index));
                             milestoneFilePaths.push(path);
                         }

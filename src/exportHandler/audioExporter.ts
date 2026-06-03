@@ -13,10 +13,7 @@ import type { ExportProgressReporter, ExportMissingReason } from "./exportProgre
 import { pickAudioAttachment, isExportableCell, type AudioPick, type AudioPickOutcome } from "./audioAttachmentUtils";
 import { formatCellDisplayLabel } from "./cellLabelUtils";
 import { CodexCellTypes } from "../../types/enums";
-import {
-    advanceMilestoneIndexForCell,
-    effectiveMilestoneIndex,
-} from "../../sharedUtils/milestoneIndexUtils";
+import { buildMilestoneIndexModel } from "../../sharedUtils/milestoneIndexUtils";
 
 const execAsync = promisify(exec);
 
@@ -706,7 +703,7 @@ export async function exportAudioAttachments(
         // Build milestone folder mapping: cellId -> milestone folder name
         const cellMilestoneFolder = buildCellMilestoneMap(notebook.cells);
         const milestoneFilter = options?.selectedMilestonesByFile?.[file.fsPath];
-        let currentMilestoneIndex = -1;
+        const milestoneModel = buildMilestoneIndexModel(notebook.cells);
 
         // Count audio cells for per-book progress. Paratext and
         // milestone cells (e.g. chapter headers, intros) are not
@@ -714,12 +711,13 @@ export async function exportAudioAttachments(
         // `isExportableCell` — they would otherwise show up under
         // "no audio recorded" purely as noise.
         const audioCells: Array<{ cell: any; cellId: string; pick: AudioPick; }> = [];
-        for (const cell of notebook.cells) {
-            currentMilestoneIndex = advanceMilestoneIndexForCell(cell, currentMilestoneIndex);
+        for (let cellIndex = 0; cellIndex < notebook.cells.length; cellIndex++) {
+            const cell = notebook.cells[cellIndex];
+            const milestoneIndex = milestoneModel.cellMilestoneIndices[cellIndex] ?? 0;
             if (
                 milestoneFilter &&
                 milestoneFilter.length > 0 &&
-                !milestoneFilter.includes(effectiveMilestoneIndex(currentMilestoneIndex))
+                !milestoneFilter.includes(milestoneIndex)
             ) {
                 continue;
             }
