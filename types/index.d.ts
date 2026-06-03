@@ -603,7 +603,6 @@ export type EditorPostMessages =
             previousCellId: string;
             currentContent: string;
             previousContent: string;
-            message: string;
         };
     }
     | {
