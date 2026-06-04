@@ -83,22 +83,58 @@ def download_model():
 # Build the image with model weights baked in.
 # The run_function step uses a T4 GPU so fairseq2 can fully verify the
 # checkpoint. This only runs once — the resulting image is cached by Modal.
+#
+# Versions / CUDA notes:
+#  - omnilingual-asr 0.2.0 is the first release that ships the
+#    `omniASR_LLM_1B_v2` model card; 0.1.0 only has `omniASR_LLM_1B`.
+#  - omnilingual-asr -> fairseq2[arrow]<=0.6 -> fairseq2n which pins
+#    `torch==2.8.0` built specifically against CUDA 12.8 (it asserts this at
+#    import time). Newer torch wheels are CUDA 13 and fail to load on Modal's
+#    `debian_slim` (libcudart.so.13 missing).
+#  - We install everything in one pip call so the resolver lands on the
+#    cu128 wheel of torch 2.8.0.
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "libsndfile1")
     .pip_install(
-        "omnilingual-asr",
+        "torch==2.8.0",
+        "torchaudio==2.8.0",
+        "omnilingual-asr==0.2.0",
         "fastapi",
         "uvicorn",
         "python-multipart",
         "soundfile",
         "numpy",
+        extra_index_url="https://download.pytorch.org/whl/cu128",
     )
     .env({"FAIRSEQ2_CACHE_DIR": MODEL_CACHE_DIR})
     .run_function(download_model, gpu="T4")
 )
 
 _pipeline = None
+
+
+def _ensure_gang_context() -> None:
+    """
+    Initialise fairseq2's thread-local gang stack on the current thread.
+
+    fairseq2 0.6 stores the "current gangs" stack on a `threading.local()`,
+    but only initialises the underlying `current_gangs = []` attribute on
+    the importing thread. FastAPI dispatches sync request handlers on
+    worker threads where the attribute is missing, causing inference to
+    fail with::
+
+        AttributeError: '_thread._local' object has no attribute 'current_gangs'
+
+    Cheap to call per-request — just sets a list on the thread-local if
+    it isn't already there.
+    """
+    try:
+        from fairseq2.gang import _thread_local  # type: ignore[attr-defined]
+        if not hasattr(_thread_local, "current_gangs"):
+            _thread_local.current_gangs = []
+    except Exception:  # pragma: no cover — defensive only
+        pass
 
 
 def get_pipeline():
@@ -111,6 +147,7 @@ def get_pipeline():
         from omnilingual_asr.models.inference.pipeline import ASRInferencePipeline
 
         print(f"Loading {MODEL_CARD} from image cache...")
+        _ensure_gang_context()
         _pipeline = ASRInferencePipeline(model_card=MODEL_CARD)
         print("Pipeline ready")
     return _pipeline
@@ -139,6 +176,7 @@ def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/wav", lang: str
     import time
 
     pipeline = get_pipeline()
+    _ensure_gang_context()
 
     # --- Convert to 16kHz mono WAV via ffmpeg ---
     ext_map = {
