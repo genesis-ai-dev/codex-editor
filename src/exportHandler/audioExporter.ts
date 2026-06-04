@@ -1044,6 +1044,7 @@ export async function exportAudioAttachments(
         // the same shape of mutation at startup with no documented issues;
         // the worst case here is a transient disagreement that the next
         // editor reload reconciles.
+        //
         try {
             if (resolvedCells.size > 0 && wasMissingBefore.size > 0) {
                 let didChange = false;
