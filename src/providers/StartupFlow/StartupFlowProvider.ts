@@ -3356,7 +3356,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // applied by applyMediaStrategy when the project opens.
                         //   - auto-download -> stream-and-save: Keep Files / Free Space
                         //   - stream-only   -> stream-and-save: Preserve Videos? (only if local videos)
-                        //   - * -> stream-only: Keep Video / Free Space (only if local videos)
+                        //   - * -> stream-only: Keep Video / Free Space (if local videos);
+                        //     also reports synced audio that will be freed (confirm if no videos)
                         //   - * -> auto-download / stream-only->auto-download: preserve all (no prompt)
                         //
                         // IMPORTANT: branch on the last *applied* strategy (lastModeRun),
@@ -3368,7 +3369,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // actually on disk (e.g. auto-download -> [stream-only, not applied]
                         // -> stream-and-save prompts as auto-download -> stream-and-save).
                         const appliedStrategy = flags?.lastModeRun ?? currentStrategy;
-                        const { countDownloadedMediaFiles, countLocalVideoFiles } = await import("../../utils/mediaStrategyManager");
+                        const { countDownloadedMediaFiles, countLocalVideoFiles, countSyncedDeletableAudioFiles } = await import("../../utils/mediaStrategyManager");
                         const { readLocalProjectSettings, writeLocalProjectSettings } = await import("../../utils/localProjectSettings");
 
                         let keepFilesChoice: boolean | undefined;
@@ -3464,10 +3465,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             }
                         } else if (mediaStrategy === "stream-only") {
                             const videoCount = await countLocalVideoFiles(projectPath);
+                            // Stream-only always frees synced audio (audio is never kept
+                            // locally in this mode); surface how much will be removed.
+                            const audioCount = await countSyncedDeletableAudioFiles(projectPath);
+                            const audioNote =
+                                audioCount > 0
+                                    ? ` ${audioCount} synced audio file(s) will be removed to free space (they will stream on demand).`
+                                    : "";
                             if (videoCount > 0) {
                                 const choice = await vscode.window.showInformationMessage(
                                     `${videoCount} video(s) stored locally. Keep them or free up space?`,
-                                    { modal: true },
+                                    {
+                                        modal: true,
+                                        detail: `Stream-only keeps media as references and streams it on demand.${audioNote}`,
+                                    },
                                     "Keep Video",
                                     "Free Space"
                                 );
@@ -3477,6 +3488,23 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     return;
                                 }
                                 streamOnlyVideoChoice = choice === "Keep Video" ? "keep-video" : "free-all";
+                            } else if (audioCount > 0) {
+                                // No local videos, but synced audio will be removed —
+                                // confirm so the deletion isn't silent.
+                                const PROCEED = "Switch to Stream-only";
+                                const choice = await vscode.window.showInformationMessage(
+                                    `${audioCount} synced audio file(s) will be removed to free space.`,
+                                    {
+                                        modal: true,
+                                        detail: "They will stream on demand. Locally recorded audio that hasn't synced yet is kept.",
+                                    },
+                                    PROCEED
+                                );
+                                if (choice !== PROCEED) {
+                                    debugLog("User cancelled stream-only switch (audio removal)");
+                                    cancelSwitch();
+                                    return;
+                                }
                             }
                         }
 

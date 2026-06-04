@@ -201,7 +201,37 @@ async function confirmVideoReplacement(
  * and what the active media strategy implies, so it can present the right
  * action(s).
  */
-async function resolveAndPostVideoStreamUrl(
+/**
+ * Resolves the LFS pointer OID for a document's local (non-remote) chapter
+ * video, or `undefined` if there is no LFS-backed reference. Used to match a
+ * session-cache change against the right open editor.
+ */
+export async function getVideoPointerOidForDocument(
+    document: CodexCellDocument
+): Promise<string | undefined> {
+    const videoUrl = document.getNotebookMetadata()?.videoUrl;
+    if (!videoUrl || isHttpVideoUrl(videoUrl)) {
+        return undefined;
+    }
+    const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
+    if (!workspaceUri) {
+        return undefined;
+    }
+    const rel = getVideoWorkspaceRelativePath(videoUrl, workspaceUri);
+    if (!rel) {
+        return undefined;
+    }
+    const filesAbs = vscode.Uri.joinPath(workspaceUri, rel).fsPath;
+    const pointersRel = rel.includes("attachments/files/")
+        ? rel.replace("attachments/files/", "attachments/pointers/")
+        : rel;
+    const pointersAbs = vscode.Uri.joinPath(workspaceUri, pointersRel).fsPath;
+    const pointer =
+        (await parsePointerFile(filesAbs)) ?? (await parsePointerFile(pointersAbs));
+    return pointer?.oid;
+}
+
+export async function resolveAndPostVideoStreamUrl(
     document: CodexCellDocument,
     webviewPanel: vscode.WebviewPanel,
     provider: CodexCellEditorProvider
@@ -222,6 +252,16 @@ async function resolveAndPostVideoStreamUrl(
 
     const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
     if (!workspaceUri) {
+        return;
+    }
+
+    // If a fetch for this video is already running (e.g. "Load video"/"Save to
+    // project" started from a navigation card), show the loading state instead
+    // of the "needs download" placeholder. The operation's completion path
+    // re-resolves this editor with the playable URL.
+    const { isVideoOperationInFlight } = await import("./utils/videoDownloadUtils");
+    if (isVideoOperationInFlight(workspaceUri, videoUrl)) {
+        provider.postMessageToWebview(webviewPanel, { type: "videoStreamResolving" });
         return;
     }
 
@@ -1828,29 +1868,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             return;
         }
 
-        const rel = getVideoWorkspaceRelativePath(videoUrl, workspaceUri);
-        const FILES_SEG = "attachments/files/";
-        const relFromFiles =
-            rel && rel.includes(FILES_SEG)
-                ? rel.slice(rel.indexOf(FILES_SEG) + FILES_SEG.length)
-                : null;
-        if (!relFromFiles) {
-            return;
-        }
-
-        const { replaceFileWithPointer } = await import("../../utils/lfsHelpers");
-        await replaceFileWithPointer(workspaceUri.fsPath, relFromFiles);
-
-        // In stream-only, a saved copy is protected by the persisted allowlist.
-        // Freeing space means it's no longer "saved to project", so drop it so
-        // future syncs/cleanup don't treat it as protected.
-        const { getMediaFilesStrategy, removePersistedMediaFile } = await import(
-            "../../utils/localProjectSettings"
-        );
-        const strategy = (await getMediaFilesStrategy(workspaceUri)) ?? "auto-download";
-        if (strategy === "stream-only") {
-            await removePersistedMediaFile(relFromFiles, workspaceUri);
-        }
+        const { freeVideoFileToPointer } = await import("./utils/videoDownloadUtils");
+        await freeVideoFileToPointer(workspaceUri, videoUrl);
 
         // Re-resolve playback (local bytes are gone → the player shows the
         // download/stream action) and refresh the modal's reference status.

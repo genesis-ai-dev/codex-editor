@@ -28,7 +28,7 @@ import { SyncManager } from "../../projectManager/syncManager";
 
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { getNonce } from "../../utils/getNonce";
-import { getVideoStreamCacheRoot } from "../../utils/videoStreamCache";
+import { getVideoStreamCacheRoot, onDidChangeVideoStreamCache } from "../../utils/videoStreamCache";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import path from "path";
 import * as fs from "fs";
@@ -436,6 +436,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     this.toggleCorrectionEditorMode();
                 }
             )
+        );
+
+        // When a video lands in (or leaves) the session cache — e.g. the user
+        // clicked "Load video" on a navigation card — re-resolve the matching
+        // open editor so its player starts playing instead of staying on the
+        // "Streaming mode" placeholder.
+        this.context.subscriptions.push(
+            onDidChangeVideoStreamCache((oid) => {
+                void this.refreshVideoStreamForCachedOid(oid);
+            })
         );
 
     }
@@ -4697,6 +4707,75 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             } catch (error) {
                 console.warn(
                     `[refreshVideoReferenceStatusAfterSync] Failed for ${documentUri}:`,
+                    error
+                );
+            }
+        }
+    }
+
+    /**
+     * Put open editors showing this chapter video into the "resolving" (loading)
+     * state. Called when a navigation card starts a "Load video"/"Save to
+     * project" action so the player area reflects progress immediately, before
+     * any bytes have been fetched.
+     */
+    public notifyVideoResolvingForUrl(videoUrl: string): void {
+        for (const [documentUri, webviewPanel] of this.webviewPanels.entries()) {
+            const document = this.documents.get(documentUri);
+            if (!document || !webviewPanel) continue;
+            if (document.getNotebookMetadata()?.videoUrl === videoUrl) {
+                this.postMessageToWebview(webviewPanel, { type: "videoStreamResolving" });
+            }
+        }
+    }
+
+    /**
+     * Re-resolve the playable source for open editors showing this chapter
+     * video. Used after a card-driven download/save/free finishes — including
+     * the fresh-download path that writes straight to files/ and therefore
+     * fires no session-cache event.
+     */
+    public async refreshVideoStreamForUrl(videoUrl: string): Promise<void> {
+        const { resolveAndPostVideoStreamUrl } = await import(
+            "./codexCellEditorMessagehandling"
+        );
+        for (const [documentUri, webviewPanel] of this.webviewPanels.entries()) {
+            try {
+                const document = this.documents.get(documentUri);
+                if (!document || !webviewPanel) continue;
+                if (document.getNotebookMetadata()?.videoUrl !== videoUrl) continue;
+                await resolveAndPostVideoStreamUrl(document, webviewPanel, this);
+            } catch (error) {
+                console.warn(`[refreshVideoStreamForUrl] Failed for ${documentUri}:`, error);
+            }
+        }
+    }
+
+    /**
+     * Re-resolve the playable video source for open editors whose chapter video
+     * matches a session-cache change. Lets a video "loaded" from a navigation
+     * card (or freed/saved) immediately update the editor's player without a
+     * manual re-request. When `oid` is undefined (e.g. the cache was cleared),
+     * every open editor is refreshed.
+     */
+    public async refreshVideoStreamForCachedOid(oid: string | undefined): Promise<void> {
+        const { resolveAndPostVideoStreamUrl, getVideoPointerOidForDocument } = await import(
+            "./codexCellEditorMessagehandling"
+        );
+        for (const [documentUri, webviewPanel] of this.webviewPanels.entries()) {
+            try {
+                const document = this.documents.get(documentUri);
+                if (!document || !webviewPanel) continue;
+                // Only touch the editor whose video matches the changed cache
+                // entry so unrelated players aren't disturbed.
+                if (oid) {
+                    const docOid = await getVideoPointerOidForDocument(document);
+                    if (docOid !== oid) continue;
+                }
+                await resolveAndPostVideoStreamUrl(document, webviewPanel, this);
+            } catch (error) {
+                console.warn(
+                    `[refreshVideoStreamForCachedOid] Failed for ${documentUri}:`,
                     error
                 );
             }

@@ -18,6 +18,20 @@ import * as vscode from "vscode";
 const CACHE_DIR_NAME = "videoStreamCache";
 
 /**
+ * Fires whenever the session video cache gains or loses a copy (load / save /
+ * free). The cache lives in extension global storage, which no workspace
+ * FileSystemWatcher can observe, so this event lets interested views (e.g. the
+ * navigation cards) refresh their "loaded (temporary)" state immediately.
+ */
+const cacheChangeEmitter = new vscode.EventEmitter<string | undefined>();
+/**
+ * Fires with the affected LFS oid on a single write/delete, or `undefined` when
+ * the whole cache is cleared (so listeners should refresh everything).
+ */
+export const onDidChangeVideoStreamCache: vscode.Event<string | undefined> =
+    cacheChangeEmitter.event;
+
+/**
  * Remembered global-storage location. Captured whenever a helper is called with
  * a real ExtensionContext (e.g. on activation), so later operations that don't
  * have a context on hand — such as post-sync cleanup — can still find the cache.
@@ -98,7 +112,50 @@ export async function writeCachedVideo(
     }
     await vscode.workspace.fs.createDirectory(root);
     await vscode.workspace.fs.writeFile(uri, bytes);
+    cacheChangeEmitter.fire(oid);
     return uri;
+}
+
+/**
+ * Reads the cached bytes for an LFS object, or `undefined` if there is no
+ * session copy (or the cache is unavailable). Used to "save to project" an
+ * already-streamed video by moving it out of the cache without re-downloading.
+ */
+export async function readCachedVideo(
+    context: vscode.ExtensionContext | undefined,
+    oid: string,
+    ext?: string
+): Promise<Uint8Array | undefined> {
+    const uri = getCachedVideoUri(context, oid, ext);
+    if (!uri) {
+        return undefined;
+    }
+    try {
+        return await vscode.workspace.fs.readFile(uri);
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * Removes a single cached video. Used after moving a streamed copy into the
+ * project so the bytes live in exactly one place.
+ */
+export async function deleteCachedVideo(
+    context: vscode.ExtensionContext | undefined,
+    oid: string,
+    ext?: string
+): Promise<void> {
+    const uri = getCachedVideoUri(context, oid, ext);
+    if (!uri) {
+        return;
+    }
+    try {
+        await vscode.workspace.fs.delete(uri, { useTrash: false });
+    } catch {
+        // Nothing cached — nothing to remove.
+    }
+    cacheChangeEmitter.fire(oid);
 }
 
 /**
@@ -120,4 +177,6 @@ export async function clearVideoStreamCache(
     } catch {
         // Folder doesn't exist yet — nothing to clear.
     }
+    // undefined oid → "everything changed", listeners refresh all open videos.
+    cacheChangeEmitter.fire(undefined);
 }

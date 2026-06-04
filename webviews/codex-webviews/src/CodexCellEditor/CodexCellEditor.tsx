@@ -1772,6 +1772,16 @@ const CodexCellEditor: React.FC = () => {
                 setVideoResolving(false);
             }
         },
+        videoStreamResolving: () => {
+            // An action started elsewhere (e.g. "Load video" / "Save to project"
+            // from a navigation card) is fetching this chapter's video. Reflect
+            // that in the player area: drop the placeholder and show the loading
+            // state until the host pushes the resolved URL (or an error).
+            setVideoUrl("");
+            setVideoUnavailableMessage(null);
+            setVideoNeedsDownloadStrategy(null);
+            setVideoResolving(true);
+        },
         videoStreamUnavailable: (_reason: string, message?: string) => {
             // Drop the (likely pointer/stale) URL so the player is replaced by
             // the unavailable state with a retry action.

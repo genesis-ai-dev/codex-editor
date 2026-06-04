@@ -86,6 +86,7 @@ interface UseVSCodeMessageHandlerProps {
     updateTextDirection: (direction: "ltr" | "rtl") => void;
     updateNotebookMetadata: (metadata: CustomNotebookMetadata) => void;
     updateVideoUrl: (url: string) => void;
+    videoStreamResolving?: () => void;
     videoStreamUnavailable?: (reason: string, message?: string) => void;
     videoNeedsDownload?: (strategy: "auto-download" | "stream-and-save" | "stream-only") => void;
     videoReferenceStatus?: (
@@ -164,6 +165,7 @@ export const useVSCodeMessageHandler = ({
     updateTextDirection,
     updateNotebookMetadata,
     updateVideoUrl,
+    videoStreamResolving,
     videoStreamUnavailable,
     videoNeedsDownload,
     videoReferenceStatus,
@@ -259,6 +261,9 @@ export const useVSCodeMessageHandler = ({
                     break;
                 case "updateVideoUrlInWebview":
                     updateVideoUrl(message.content);
+                    break;
+                case "videoStreamResolving":
+                    videoStreamResolving?.();
                     break;
                 case "videoStreamUnavailable":
                     videoStreamUnavailable?.(message.reason, message.message);
@@ -451,6 +456,7 @@ export const useVSCodeMessageHandler = ({
         updateTextDirection,
         updateNotebookMetadata,
         updateVideoUrl,
+        videoStreamResolving,
         videoStreamUnavailable,
         videoNeedsDownload,
         updateAutocompletionState,

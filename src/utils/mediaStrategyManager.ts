@@ -335,6 +335,84 @@ export async function countLocalVideoFiles(projectPath: string): Promise<number>
 }
 
 /**
+ * Count locally-present AUDIO files that would be removed (reverted to pointers)
+ * when switching to stream-only. This mirrors the deletion eligibility used by
+ * {@link replaceFilesWithPointers}: only real-byte audio files that are synced
+ * (a pointer exists in `pointers/`) and not in the persisted "save to project"
+ * allowlist. Locally-recorded, not-yet-synced takes are excluded because they
+ * would be lost if pointerized, so they are never removed. Used to tell the user
+ * how much synced audio a stream-only switch will free.
+ */
+export async function countSyncedDeletableAudioFiles(projectPath: string): Promise<number> {
+    const filesDir = path.join(projectPath, ".project", "attachments", "files");
+    const pointersDir = path.join(projectPath, ".project", "attachments", "pointers");
+    if (!fs.existsSync(filesDir)) {
+        return 0;
+    }
+
+    // Source of truth for resolving ambiguous `.webm` files (audio vs video).
+    const videoRefs = await collectVideoReferenceRelPaths(projectPath);
+    const persisted = new Set(
+        (await getPersistedMediaFiles(vscode.Uri.file(projectPath))).map(normalizePersistedMediaRelPath)
+    );
+
+    let count = 0;
+    const scanDir = async (dirPath: string, relPrefix: string): Promise<void> => {
+        let entries: fs.Dirent[];
+        try {
+            entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        } catch {
+            return;
+        }
+        for (const entry of entries) {
+            const fullPath = path.join(dirPath, entry.name);
+            const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+            if (entry.isDirectory()) {
+                await scanDir(fullPath, rel);
+                continue;
+            }
+            if (!entry.isFile() || entry.name.startsWith(".")) {
+                continue;
+            }
+            // Audio only — leave videos to the video-specific prompts.
+            if (isVideoRelPath(rel, videoRefs)) {
+                continue;
+            }
+            // Must currently hold real bytes (not already a pointer stub).
+            if (await isPointerFile(fullPath).catch(() => false)) {
+                continue;
+            }
+            // User-saved files are never removed by automatic cleanup.
+            if (persisted.has(normalizePersistedMediaRelPath(rel))) {
+                continue;
+            }
+            // Only synced files are removed: a synced file has a pointer in
+            // pointers/, whereas a local recording not yet uploaded has full
+            // bytes there (or no pointer at all) and must be preserved.
+            const pointersPath = path.join(pointersDir, rel.split("/").join(path.sep));
+            let synced = false;
+            try {
+                await fs.promises.stat(pointersPath);
+                synced = await isPointerFile(pointersPath).catch(() => false);
+            } catch {
+                synced = false;
+            }
+            if (!synced) {
+                continue;
+            }
+            count++;
+        }
+    };
+
+    try {
+        await scanDir(filesDir, "");
+    } catch (error) {
+        debug("Error counting synced deletable audio files:", error);
+    }
+    return count;
+}
+
+/**
  * Replace all downloaded files in attachments/files with their pointer versions
  * This is used when switching to stream-only or stream-and-save modes
  * @param projectPath - Root path of the project

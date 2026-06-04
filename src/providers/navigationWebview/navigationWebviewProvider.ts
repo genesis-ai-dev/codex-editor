@@ -16,6 +16,7 @@ import { CustomNotebookMetadata, ProjectMetadata } from "../../../types";
 import { getCorrespondingSourceUri, findCodexFilesByBookAbbr } from "../../utils/codexNotebookUtils";
 import { CodexCellEditorProvider } from "../codexCellEditorProvider/codexCellEditorProvider";
 import { resolveVideoAvailability } from "../codexCellEditorProvider/utils/videoUtils";
+import { onDidChangeVideoStreamCache } from "../../utils/videoStreamCache";
 import { openCodexDocumentWithSourcePair } from "../../utils/openCodexDocumentWithSourcePair";
 
 interface CodexMetadata {
@@ -52,6 +53,9 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     private serializer = new CodexContentSerializer();
     private bibleBookMap: Map<string, BibleBookInfo> = new Map();
     private videoStatusRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+    // Current media-download strategy, sent to the webview so it can disable
+    // manual video download/free actions in "auto-download" (auto-managed).
+    private mediaStrategy: string = "auto-download";
 
     constructor(context: vscode.ExtensionContext) {
         super(context);
@@ -136,6 +140,9 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             case "webviewReady":
                 this.loadBibleBookMap();
                 await this.buildInitialData();
+                break;
+            case "videoCardAction":
+                await this.handleVideoCardAction(message.uri, message.action);
                 break;
             case "deleteFile":
                 try {
@@ -444,6 +451,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const groupedItems = this.groupByCorpus(codexItemsWithMetadata);
             this.codexItems = groupedItems;
 
+            await this.refreshMediaStrategy();
             this.sendItemsToWebview();
         } catch (error) {
             console.error("Error building data:", error);
@@ -566,6 +574,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const hasVideo = typeof videoUrl === "string" && videoUrl.trim().length > 0;
             let videoAvailability: CodexItem["videoAvailability"] | undefined;
             let videoSizeBytes: number | undefined;
+            let videoCached: boolean | undefined;
             if (hasVideo) {
                 const workspaceUri = vscode.workspace.getWorkspaceFolder(uri)?.uri;
                 const { availability, sizeBytes } = await resolveVideoAvailability(
@@ -574,6 +583,9 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 );
                 videoAvailability = availability === "none" ? undefined : availability;
                 videoSizeBytes = sizeBytes;
+                if (availability === "streamable" && workspaceUri) {
+                    videoCached = await this.isVideoCached(videoUrl, workspaceUri);
+                }
             }
             const corpusMarker = metadata?.corpusMarker
                 ? metadata.corpusMarker.trim()
@@ -600,6 +612,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 enforceHtmlStructure: metadata?.enforceHtmlStructure ?? false,
                 hasVideo,
                 videoAvailability,
+                videoCached,
                 videoSizeBytes,
                 videoUrl: hasVideo ? videoUrl : undefined,
             };
@@ -749,6 +762,13 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             new vscode.RelativePattern(rootUri.fsPath, "**/attachments/{files,pointers}/**")
         );
 
+        // Watch local project settings so a media-strategy switch (which may not
+        // touch any attachment file) re-evaluates whether cards can offer
+        // download/free actions.
+        const settingsWatcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(rootUri.fsPath, "**/localProjectSettings.json")
+        );
+
         this.disposables.push(
             codexWatcher,
             codexWatcher.onDidCreate(() => this.buildInitialData()),
@@ -758,6 +778,14 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             attachmentsWatcher.onDidCreate(() => this.scheduleVideoStatusRefresh()),
             attachmentsWatcher.onDidChange(() => this.scheduleVideoStatusRefresh()),
             attachmentsWatcher.onDidDelete(() => this.scheduleVideoStatusRefresh()),
+            settingsWatcher,
+            settingsWatcher.onDidCreate(() => this.scheduleVideoStatusRefresh()),
+            settingsWatcher.onDidChange(() => this.scheduleVideoStatusRefresh()),
+            // The session video cache lives in extension global storage, so the
+            // workspace watchers above can't see it. Listen for cache changes
+            // (loads from editor playback, saves, frees) so the "loaded
+            // (temporary)" cloud state updates immediately.
+            onDidChangeVideoStreamCache(() => this.scheduleVideoStatusRefresh()),
             vscode.workspace.onDidChangeConfiguration((e) => {
                 if (
                     e.affectsConfiguration("codex-project-manager.validationCount") ||
@@ -776,6 +804,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             safePostMessageToView(this._view, {
                 command: "updateItems",
                 codexItems: serializedCodexItems,
+                mediaStrategy: this.mediaStrategy,
             });
 
             if (this.bibleBookMap) {
@@ -806,8 +835,49 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
      * Triggered when files under `attachments/files|pointers/` change (video
      * downloaded, freed, or synced) so cards update without a manual refresh.
      */
+    /**
+     * Re-read the media-download strategy from local project settings into the
+     * cached value. Returns true if it changed (so callers can resend items).
+     */
+    private async refreshMediaStrategy(): Promise<boolean> {
+        const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceUri) {
+            return false;
+        }
+        try {
+            const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+            const strategy = (await getMediaFilesStrategy(workspaceUri)) ?? "auto-download";
+            if (strategy !== this.mediaStrategy) {
+                this.mediaStrategy = strategy;
+                return true;
+            }
+        } catch {
+            // Keep the last known strategy on read failure.
+        }
+        return false;
+    }
+
+    /**
+     * Whether a streamable (not-downloaded) video has a temporary copy in this
+     * session's video cache. Reused by initial build and live refresh so the
+     * card can show the "loaded (temporary)" cloud state.
+     */
+    private async isVideoCached(
+        videoUrl: string,
+        workspaceUri: vscode.Uri
+    ): Promise<boolean> {
+        try {
+            const { isVideoSessionCached } = await import(
+                "../codexCellEditorProvider/utils/videoDownloadUtils"
+            );
+            return await isVideoSessionCached(workspaceUri, videoUrl, this._context);
+        } catch {
+            return false;
+        }
+    }
+
     private async refreshVideoStatuses(): Promise<void> {
-        let changed = false;
+        let changed = await this.refreshMediaStrategy();
         const visit = async (items: CodexItem[]): Promise<void> => {
             for (const item of items) {
                 if (item.children?.length) {
@@ -824,12 +894,20 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     workspaceUri
                 );
                 const nextAvailability = availability === "none" ? undefined : availability;
+                // Only streamable videos can be "loaded temporarily"; others
+                // (saved/url/missing) are never session-cached.
+                const nextCached =
+                    availability === "streamable" && workspaceUri
+                        ? await this.isVideoCached(item.videoUrl, workspaceUri)
+                        : undefined;
                 if (
                     item.videoAvailability !== nextAvailability ||
-                    item.videoSizeBytes !== sizeBytes
+                    item.videoSizeBytes !== sizeBytes ||
+                    item.videoCached !== nextCached
                 ) {
                     item.videoAvailability = nextAvailability;
                     item.videoSizeBytes = sizeBytes;
+                    item.videoCached = nextCached;
                     changed = true;
                 }
             }
@@ -837,6 +915,189 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
         await visit(this.codexItems);
         if (changed) {
             this.sendItemsToWebview();
+        }
+    }
+
+    /** Find a built item (searching corpus children) by its .codex fsPath. */
+    private findItemByFsPath(fsPath: string): CodexItem | undefined {
+        const search = (items: CodexItem[]): CodexItem | undefined => {
+            for (const item of items) {
+                // Corpus groups reuse their first child's uri, so only match the
+                // actual document items (and recurse into corpus children).
+                if (
+                    item.type !== "corpus" &&
+                    (item.uri as vscode.Uri | undefined)?.fsPath === fsPath
+                ) {
+                    return item;
+                }
+                if (item.children?.length) {
+                    const found = search(item.children);
+                    if (found) {
+                        return found;
+                    }
+                }
+            }
+            return undefined;
+        };
+        return search(this.codexItems);
+    }
+
+    /**
+     * Download (save to project) or free up disk space for a card's chapter
+     * video, triggered by clicking the card's video icon. The attachments
+     * watcher refreshes the card automatically, but we also refresh inline for
+     * snappiness and re-post status to any open editor showing this document.
+     */
+    private async handleVideoCardAction(
+        uriPath: unknown,
+        action: unknown
+    ): Promise<void> {
+        if (typeof uriPath !== "string" || (action !== "download" && action !== "free")) {
+            return;
+        }
+
+        try {
+            const codexUri = vscode.Uri.file(uriPath.replace(/\\/g, "/"));
+            const item = this.findItemByFsPath(codexUri.fsPath);
+            const videoUrl = item?.videoUrl;
+            const workspaceUri = vscode.workspace.getWorkspaceFolder(codexUri)?.uri;
+            if (!videoUrl || !workspaceUri) {
+                return;
+            }
+
+            const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+            const strategy = (await getMediaFilesStrategy(workspaceUri)) ?? "auto-download";
+            // In auto-download every video is kept downloaded automatically, so
+            // manual download/free from a card is not allowed (ignore defensively;
+            // the webview also hides the action in this mode).
+            if (strategy === "auto-download") {
+                return;
+            }
+
+            const {
+                freeVideoFileToPointer,
+                downloadVideoToProject,
+                downloadVideoToSessionCache,
+                isVideoSessionCached,
+                beginVideoOperation,
+                endVideoOperation,
+            } = await import("../codexCellEditorProvider/utils/videoDownloadUtils");
+
+            if (action === "free") {
+                const proceed = await vscode.window.showInformationMessage(
+                    "Free up space for this video?",
+                    {
+                        modal: true,
+                        detail: "The downloaded file is removed. You can download it again later.",
+                    },
+                    "Free up space"
+                );
+                if (proceed !== "Free up space") {
+                    return;
+                }
+                await freeVideoFileToPointer(workspaceUri, videoUrl);
+            } else {
+                // Decide what to offer based on whether the video is already
+                // loaded this session. If it is, "Load video" is pointless — only
+                // offer to make it permanent. Otherwise offer both a temporary
+                // session load and a permanent save.
+                const cached = await isVideoSessionCached(workspaceUri, videoUrl, this._context);
+                const LOAD = "Load video";
+                const SAVE = "Save to project";
+                let saveToProject: boolean;
+                if (cached) {
+                    const proceed = await vscode.window.showInformationMessage(
+                        "Save this video to the project?",
+                        {
+                            modal: true,
+                            detail: "Moves the already-loaded copy into the project so it stays available without re-downloading.",
+                        },
+                        SAVE
+                    );
+                    if (proceed !== SAVE) {
+                        return;
+                    }
+                    saveToProject = true;
+                } else {
+                    const choice = await vscode.window.showInformationMessage(
+                        "Get this video",
+                        {
+                            modal: true,
+                            detail:
+                                "Load video keeps it temporarily for this session.\n\n" +
+                                "Save to project downloads and keeps it in the project so it stays available.",
+                        },
+                        LOAD,
+                        SAVE
+                    );
+                    if (choice !== LOAD && choice !== SAVE) {
+                        return;
+                    }
+                    saveToProject = choice === SAVE;
+                }
+
+                // If this chapter is open in an editor, reflect the in-progress
+                // fetch in its player area immediately (before bytes arrive).
+                try {
+                    CodexCellEditorProvider.getInstance()?.notifyVideoResolvingForUrl(videoUrl);
+                } catch {
+                    // Non-fatal: the editor will still update on completion.
+                }
+
+                // Mark this video as in-flight so an editor that opens its player
+                // mid-fetch shows the loading state rather than the placeholder.
+                beginVideoOperation(workspaceUri, videoUrl);
+                try {
+                    await vscode.window.withProgress(
+                        {
+                            location: vscode.ProgressLocation.Notification,
+                            title: saveToProject
+                                ? "Saving video to project…"
+                                : "Loading video for this session…",
+                            cancellable: false,
+                        },
+                        async () => {
+                            const result = saveToProject
+                                ? await downloadVideoToProject(workspaceUri, videoUrl, this._context)
+                                : await downloadVideoToSessionCache(
+                                      workspaceUri,
+                                      videoUrl,
+                                      this._context
+                                  );
+                            if (!result.ok) {
+                                vscode.window.showErrorMessage(
+                                    result.error ?? "Failed to get video."
+                                );
+                            }
+                        }
+                    );
+                } finally {
+                    endVideoOperation(workspaceUri, videoUrl);
+                }
+            }
+
+            await this.refreshVideoStatuses();
+
+            // Keep any open editor's player + "Show Video"/"Free up space" state
+            // in sync. refreshVideoStreamForUrl re-resolves the player source
+            // (covers the fresh-download save path, which fires no cache event);
+            // refreshVideoReferenceStatusAfterSync updates the toggle/free badge.
+            try {
+                const editorProvider = CodexCellEditorProvider.getInstance();
+                await editorProvider?.refreshVideoStreamForUrl(videoUrl);
+                await editorProvider?.refreshVideoReferenceStatusAfterSync();
+            } catch {
+                // Non-fatal: the card itself is already refreshed.
+            }
+        } finally {
+            // Always clear the card's "downloading" spinner, even on early return
+            // (e.g. the user cancelled the stream-only prompt) or on error.
+            if (this._view) {
+                safePostMessageToView(this._view, {
+                    command: "videoCardActionDone",
+                    uri: uriPath,
+                });
+            }
         }
     }
 

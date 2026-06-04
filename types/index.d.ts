@@ -1913,6 +1913,12 @@ interface CodexItem {
      *  - "missing"    → local reference resolving to neither bytes nor a pointer
      */
     videoAvailability?: "url" | "saved" | "streamable" | "missing";
+    /**
+     * True when a streamable (not-downloaded) video currently has a temporary
+     * copy in this session's video cache (i.e. it was "loaded" this session).
+     * Lets the card distinguish "loaded (temporary)" from "available to download".
+     */
+    videoCached?: boolean;
     /** Size of a local video in bytes when known (real bytes or LFS pointer size). */
     videoSizeBytes?: number;
     /**
@@ -2091,6 +2097,7 @@ type EditorReceiveMessages =
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
+    | { type: "videoStreamResolving"; }
     | { type: "videoStreamUnavailable"; reason: "offline" | "not-authenticated" | "not-found" | "error"; message?: string; }
     | { type: "videoNeedsDownload"; strategy: "auto-download" | "stream-and-save" | "stream-only"; }
     | {

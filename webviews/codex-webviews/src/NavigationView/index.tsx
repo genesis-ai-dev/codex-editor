@@ -21,6 +21,8 @@ import {
     Globe,
     ArrowDownToLine,
     Check,
+    Cloud,
+    Loader2,
     type LucideIcon,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
@@ -157,12 +159,22 @@ interface VideoIndicator {
     badgePosition?: string;
     label: string;
     detail?: string;
+    /** Clicking the icon performs this action on the chapter video, if set. */
+    action?: "download" | "free";
+    /** Extra tooltip line describing the click action. */
+    actionHint?: string;
 }
 
-const getVideoIndicator = (item: CodexItem): VideoIndicator | null => {
+const getVideoIndicator = (
+    item: CodexItem,
+    mediaStrategy: string
+): VideoIndicator | null => {
     if (!item.hasVideo) {
         return null;
     }
+    // In auto-download the project keeps every video downloaded automatically, so
+    // manual download/free actions are not offered (the icon is status-only).
+    const autoManaged = mediaStrategy === "auto-download";
     const size = formatBytes(item.videoSizeBytes);
     switch (item.videoAvailability) {
         case "url":
@@ -182,18 +194,49 @@ const getVideoIndicator = (item: CodexItem): VideoIndicator | null => {
                 badgeClassName: "text-charts-green",
                 label: "Video downloaded",
                 detail: size || undefined,
+                action: autoManaged ? undefined : "free",
+                actionHint: autoManaged ? undefined : "Click to free up space",
             };
         case "streamable":
+            if (autoManaged) {
+                // In auto-download a pointer is transient — the project downloads
+                // it automatically — so it's shown as a status-only "not yet
+                // downloaded" state with no manual action.
+                return {
+                    Icon: Video,
+                    Badge: ArrowDownToLine,
+                    className: "text-muted-foreground",
+                    badgeClassName: "text-muted-foreground",
+                    badgePosition: "-bottom-1 -right-1.5",
+                    label: "Video not downloaded",
+                    detail: size || undefined,
+                };
+            }
+            // Loaded for this session (temporary copy in the session cache) →
+            // cloud. Clicking again offers to make it a permanent project copy.
+            if (item.videoCached) {
+                return {
+                    Icon: Video,
+                    Badge: Cloud,
+                    className: "text-foreground",
+                    badgeClassName: "text-muted-foreground",
+                    label: "Loaded (temporary)",
+                    detail: size ? `${size} · cleared on reload` : "Cleared on reload",
+                    action: "download",
+                    actionHint: "Click to save to project",
+                };
+            }
+            // Available to download / stream on demand → down arrow.
             return {
                 Icon: Video,
                 Badge: ArrowDownToLine,
                 className: "text-foreground",
                 badgeClassName: "text-foreground",
-                // Sit the download arrow up near the lens (bottom-right), matching
-                // the checkmark's placement so the "spear" reads against the lens.
                 badgePosition: "-bottom-1 -right-1.5",
-                label: "Video not downloaded",
+                label: "Available to download",
                 detail: size || undefined,
+                action: "download",
+                actionHint: "Click to load or save to project",
             };
         case "missing":
             return {
@@ -307,6 +350,14 @@ function NavigationView() {
 
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
+    // Current media-download strategy (from the host). In "auto-download" videos
+    // are managed automatically, so manual download/free actions are disabled.
+    const [mediaStrategy, setMediaStrategy] = useState<string>("auto-download");
+
+    // .codex fsPaths whose video is currently downloading (clicked from a card).
+    // While present, the card icon shows a spinner and is not clickable.
+    const [downloadingUris, setDownloadingUris] = useState<Set<string>>(() => new Set());
+
     // Initialize Bible book map on component mount
     useEffect(() => {
         const bookMap = new Map<string, BibleBookInfo>();
@@ -331,6 +382,9 @@ function NavigationView() {
             const message = event.data;
             switch (message.command) {
                 case "updateItems":
+                    if (typeof message.mediaStrategy === "string") {
+                        setMediaStrategy(message.mediaStrategy);
+                    }
                     setState((prevState) => {
                         // Process items to add sortOrder for Bible books
                         const processedCodexItems = (message.codexItems || []).map(
@@ -398,6 +452,20 @@ function NavigationView() {
                         } catch (error) {
                             console.error("Error processing bible book map data:", error);
                         }
+                    }
+                    break;
+                case "videoCardActionDone":
+                    // A card-triggered download finished (or failed) — clear its
+                    // spinner so the icon reflects the refreshed status.
+                    if (typeof message.uri === "string") {
+                        setDownloadingUris((prev) => {
+                            if (!prev.has(message.uri)) {
+                                return prev;
+                            }
+                            const next = new Set(prev);
+                            next.delete(message.uri);
+                            return next;
+                        });
                     }
                     break;
             }
@@ -914,7 +982,9 @@ function NavigationView() {
 
                             {/* Video indicator - source-specific icon + hover details */}
                             {(() => {
-                                const indicator = isGroup ? null : getVideoIndicator(item);
+                                const indicator = isGroup
+                                    ? null
+                                    : getVideoIndicator(item, mediaStrategy);
                                 if (!indicator) {
                                     return null;
                                 }
@@ -926,38 +996,103 @@ function NavigationView() {
                                     badgePosition,
                                     label,
                                     detail,
+                                    action,
+                                    actionHint,
                                 } = indicator;
+                                const isDownloading = downloadingUris.has(item.uri);
+                                // While fetching, the icon is status-only (spinner) and not clickable.
+                                const effectiveAction = isDownloading ? undefined : action;
+                                const effectiveLabel = isDownloading ? "Working…" : label;
+                                const handleVideoAction = (e: React.MouseEvent) => {
+                                    e.stopPropagation();
+                                    if (!effectiveAction) {
+                                        return;
+                                    }
+                                    if (effectiveAction === "download") {
+                                        setDownloadingUris((prev) => {
+                                            const next = new Set(prev);
+                                            next.add(item.uri);
+                                            return next;
+                                        });
+                                    }
+                                    vscode.postMessage({
+                                        command: "videoCardAction",
+                                        uri: item.uri,
+                                        action: effectiveAction,
+                                    });
+                                };
                                 return (
                                     <TooltipProvider>
                                         <Tooltip>
                                             <TooltipTrigger asChild>
                                                 <span
-                                                    className="relative flex-shrink-0 flex items-center"
-                                                    aria-label={label}
-                                                    onClick={(e) => e.stopPropagation()}
+                                                    className={`relative flex-shrink-0 flex items-center rounded p-0.5 ${
+                                                        effectiveAction
+                                                            ? "cursor-pointer hover:bg-accent"
+                                                            : ""
+                                                    }`}
+                                                    aria-label={
+                                                        effectiveAction
+                                                            ? actionHint ?? effectiveLabel
+                                                            : effectiveLabel
+                                                    }
+                                                    role={effectiveAction ? "button" : undefined}
+                                                    onClick={handleVideoAction}
+                                                    onKeyDown={(e) => {
+                                                        if (
+                                                            effectiveAction &&
+                                                            (e.key === "Enter" || e.key === " ")
+                                                        ) {
+                                                            e.preventDefault();
+                                                            handleVideoAction(
+                                                                e as unknown as React.MouseEvent
+                                                            );
+                                                        }
+                                                    }}
+                                                    tabIndex={effectiveAction ? 0 : undefined}
                                                 >
                                                     <Icon className={`h-4 w-4 ${className}`} />
-                                                    {Badge && (
+                                                    {isDownloading ? (
                                                         <span
                                                             className={`absolute flex items-center justify-center ${
                                                                 badgePosition ?? "-bottom-1 -right-1"
                                                             }`}
                                                         >
-                                                            <Badge
-                                                                className={`h-2.5 w-2.5 ${
-                                                                    badgeClassName ?? className
-                                                                }`}
+                                                            <Loader2
+                                                                className="h-2.5 w-2.5 animate-spin text-foreground"
                                                                 strokeWidth={3}
                                                             />
                                                         </span>
+                                                    ) : (
+                                                        Badge && (
+                                                            <span
+                                                                className={`absolute flex items-center justify-center ${
+                                                                    badgePosition ?? "-bottom-1 -right-1"
+                                                                }`}
+                                                            >
+                                                                <Badge
+                                                                    className={`h-2.5 w-2.5 ${
+                                                                        badgeClassName ?? className
+                                                                    }`}
+                                                                    strokeWidth={3}
+                                                                />
+                                                            </span>
+                                                        )
                                                     )}
                                                 </span>
                                             </TooltipTrigger>
                                             <TooltipContent side="top">
                                                 <div className="flex flex-col gap-0.5">
-                                                    <span className="font-medium">{label}</span>
-                                                    {detail && (
+                                                    <span className="font-medium">
+                                                        {effectiveLabel}
+                                                    </span>
+                                                    {!isDownloading && detail && (
                                                         <span className="opacity-80">{detail}</span>
+                                                    )}
+                                                    {!isDownloading && actionHint && (
+                                                        <span className="opacity-80">
+                                                            {actionHint}
+                                                        </span>
                                                     )}
                                                 </div>
                                             </TooltipContent>
