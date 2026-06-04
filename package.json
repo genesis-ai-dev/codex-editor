@@ -898,7 +898,23 @@
                         "title": "ASR Language (ISO-639-3)",
                         "type": "string",
                         "default": "eng",
-                        "description": "Language code for transcription. MMS requires ISO-639-3 (e.g., eng, fra, spa). 2-letter codes will be mapped where possible."
+                        "description": "Legacy: ISO 639-3 hint for ASR providers. OmniASR uses the project's target language by default; configure via the gear menu on the Transcribe button."
+                    },
+                    "codex-editor-extension.asrLanguageMode": {
+                        "title": "ASR Language Mode",
+                        "type": "string",
+                        "enum": [
+                            "project",
+                            "auto"
+                        ],
+                        "default": "project",
+                        "description": "Whether to send the project's target language as a hint to the ASR service (\"project\"), or let the model transcribe without language conditioning (\"auto\")."
+                    },
+                    "codex-editor-extension.asrScriptPref": {
+                        "title": "ASR Script Preference",
+                        "type": "string",
+                        "default": "auto",
+                        "description": "Script subtag to pair with the ASR language code. \"auto\" picks the best-guess script per language; \"latin\" forces Latin where supported; any 4-letter ISO 15924 tag (e.g. \"Arab\", \"Cyrl\") overrides per-language."
                     },
                     "codex-editor-extension.sourceBookWhitelist": {
                         "title": "Source Book Whitelist",

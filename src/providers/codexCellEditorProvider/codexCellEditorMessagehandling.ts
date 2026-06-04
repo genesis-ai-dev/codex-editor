@@ -484,6 +484,25 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             const config = vscode.workspace.getConfiguration("codex-editor-extension");
             let endpoint = config.get<string>("asrEndpoint", "http://localhost:8000/api/v1/asr/transcribe");
 
+            // ASR language plumbing — see sharedUtils/asrLanguageUtils.ts for the resolver
+            // contract. The webview drives "auto-detect" vs "use project language" via the
+            // gear menu on the Transcribe button; that picker is persisted to the workspace
+            // setting `asrLanguageMode`.
+            const { resolveOmniAsrCode } = await import("../../../sharedUtils/asrLanguageUtils");
+            const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
+            const targetLanguage = projectConfig.get<any>("targetLanguage") as
+                | { tag?: string; refName?: string; iso1?: string; iso2t?: string; iso2b?: string; }
+                | undefined;
+            const languageMode = (config.get<string>("asrLanguageMode", "project") === "auto"
+                ? "auto"
+                : "project") as "auto" | "project";
+            const scriptPref = config.get<string>("asrScriptPref", "auto");
+            const resolvedCode =
+                languageMode === "auto"
+                    ? undefined
+                    : resolveOmniAsrCode(targetLanguage, scriptPref);
+            const projectLanguageName = targetLanguage?.refName;
+
             let authToken: string | undefined;
 
             // Try to get authenticated endpoint from FrontierAPI
@@ -536,10 +555,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 console.error(`[getAsrConfig] This will cause transcription to fail. Please check authentication status.`);
             }
 
-            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}`);
+            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}, lang=${resolvedCode}, mode=${languageMode}`);
             safePostMessageToPanel(webviewPanel, {
                 type: "asrConfig",
-                content: { endpoint, authToken }
+                content: {
+                    endpoint,
+                    authToken,
+                    lang: resolvedCode,
+                    languageMode,
+                    projectLanguageName,
+                },
             });
         } catch (error) {
             console.error("Error sending ASR config:", error);
@@ -550,9 +575,45 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 content: {
                     endpoint: fallbackEndpoint,
                     authToken: undefined,
+                    languageMode: "project",
                 }
             });
         }
+    },
+
+    setAsrLanguageMode: async ({ event, webviewPanel }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "setAsrLanguageMode"; }>;
+        const mode = typedEvent.content?.mode === "auto" ? "auto" : "project";
+        try {
+            await vscode.workspace
+                .getConfiguration("codex-editor-extension")
+                .update("asrLanguageMode", mode, vscode.ConfigurationTarget.Workspace);
+        } catch (err) {
+            console.warn("Failed to update asrLanguageMode", err);
+        }
+        // Rebroadcast so the webview can refresh its local asrConfig snapshot.
+        await messageHandlers.getAsrConfig({ webviewPanel } as any);
+    },
+
+    setAsrScriptPref: async ({ event, webviewPanel }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "setAsrScriptPref"; }>;
+        const rawPref = typedEvent.content?.scriptPref;
+        // Accept "auto", "latin", or any 4-letter ISO 15924 tag. Anything else falls back to "auto".
+        const isFourLetter = typeof rawPref === "string" && /^[A-Za-z]{4}$/.test(rawPref);
+        const normalized =
+            rawPref === "auto" || rawPref === "latin"
+                ? rawPref
+                : isFourLetter
+                    ? rawPref!.charAt(0).toUpperCase() + rawPref!.slice(1).toLowerCase()
+                    : "auto";
+        try {
+            await vscode.workspace
+                .getConfiguration("codex-editor-extension")
+                .update("asrScriptPref", normalized, vscode.ConfigurationTarget.Workspace);
+        } catch (err) {
+            console.warn("Failed to update asrScriptPref", err);
+        }
+        await messageHandlers.getAsrConfig({ webviewPanel } as any);
     },
 
     updateCellAfterTranscription: async ({ event, document, webviewPanel, provider }) => {
@@ -570,7 +631,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 ...(attachment || {}),
                 transcription: {
                     content: transcribedText,
-                    language: language || "unknown",
+                    // `language` is the OmniASR `{iso639_3}_{Script}` code the server reported
+                    // (or null when the server ran in auto-detect mode and didn't echo one).
+                    // The webview labels the badge with `labelForTranscriptionLanguage()` from
+                    // sharedUtils/asrLanguageUtils.ts — never trust "language" to be a human
+                    // string here.
+                    language: language ?? null,
                     timestamp: Date.now(),
                 },
                 updatedAt: Date.now(),
