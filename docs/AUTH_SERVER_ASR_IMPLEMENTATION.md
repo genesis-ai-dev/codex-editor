@@ -67,6 +67,22 @@ language as bare ISO 639-3, phonetic flag, etc.) is gone:
   `sharedUtils/omniAsrSupportedLangs.ts`,
   `sharedUtils/omniAsrDefaultScripts.ts`,
   `sharedUtils/omniAsrFriendlyNames.ts`
-- Modal app (source of truth for the upstream): `omniasr_llm_1b.py` in
-  the Modal deployment repo. Logs and dashboards:
-  <https://modal.com/apps/genesis-ai-dev/main>.
+- Modal app (source of truth for the upstream):
+  [`docs/asr/codex_asr_modal.py`](./asr/codex_asr_modal.py) in this repo.
+  Logs and dashboards:
+  <https://modal.com/apps/genesis-ai-dev/main/deployed/codex-asr>.
+
+## Action items for the Frontier auth proxy team
+
+1. Point the upstream ASR URL at the new app:
+   `https://genesis-ai-dev--codex-asr-serve.modal.run/transcribe`
+   (previously `…--mms-zeroshot-asr-…`). The legacy app is still up so
+   there's no urgency, but it should not be considered the source of
+   truth — only `codex-asr` will receive future updates.
+2. Make sure the proxy forwards the optional `?lang=` query string
+   verbatim and does not synthesise one when the client omits it
+   (auto-detect mode).
+3. Drop any `provider`, `model`, `phonetic`, `language` fields that
+   used to be part of the multipart/form body — they're no longer sent.
+4. Once the proxy is migrated, we can decommission the
+   `mms-zeroshot-asr` Modal app.
