@@ -2175,6 +2175,9 @@ type EditorReceiveMessages =
             /** "project" (default) → send `lang`. "auto" → omit `lang`, let the server transcribe
              *  without language conditioning. Persisted as workspace setting `asrLanguageMode`. */
             languageMode: "auto" | "project";
+            /** Script preference: "auto" (best guess), "latin", or a 4-letter ISO 15924 tag.
+             *  Persisted as workspace setting `asrScriptPref`. */
+            scriptPref?: string;
             /** Project target-language refName, e.g. "Swahili". Used as the badge fallback when
              *  the server doesn't echo `lang` in the response. */
             projectLanguageName?: string;

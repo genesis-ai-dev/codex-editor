@@ -2,10 +2,23 @@ import React, { useEffect, useState } from "react";
 import { CustomWaveformCanvas } from "./CustomWaveformCanvas.tsx";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { MessageCircle, Copy, Loader2, Trash2, History, Mic } from "lucide-react";
+import { MessageCircle, Copy, Loader2, Trash2, History, Mic, Settings as SettingsIcon } from "lucide-react";
 import type { ValidationStatusIconProps } from "./AudioValidationStatusIcon.tsx";
 import { AudioValidationBadge } from "./AudioValidationBadge.tsx";
 import type { AudioValidationPopoverProps } from "./AudioValidationBadge.tsx";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "../components/ui/popover";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "../components/ui/select";
+import { Input } from "../components/ui/input";
 
 interface AudioWaveformWithTranscriptionProps {
     audioUrl: string;
@@ -15,6 +28,10 @@ interface AudioWaveformWithTranscriptionProps {
         timestamp: number;
         language?: string;
     } | null;
+    /** Pre-computed friendly label for the language badge ("Swahili", "Auto Detect", or null
+     *  for "render nothing"). Computed by the caller via `labelForTranscriptionLanguage()`
+     *  from sharedUtils/asrLanguageUtils.ts so this component stays presentational. */
+    transcriptionLanguageLabel?: string | null;
     isTranscribing: boolean;
     transcriptionProgress: number;
     onTranscribe: () => void;
@@ -31,6 +48,17 @@ interface AudioWaveformWithTranscriptionProps {
     targetDuration?: number | null; // Target duration (in seconds) derived from cell timestamps.
     /** Total number of audio recordings for the cell (including soft-deleted). When > 0, a count badge is rendered on the History button. */
     historyCount?: number;
+    // Advanced ASR settings (gear menu, next to the Transcribe button).
+    /** Whether to display the gear menu. Hide on source-text editors where the user can't drive transcription policy. */
+    showAdvancedAsrMenu?: boolean;
+    /** Current language mode. Determines the chevron position in the gear menu. */
+    asrLanguageMode?: "auto" | "project";
+    /** Current script preference: "auto", "latin", or a 4-letter ISO 15924 tag (e.g. "Arab"). */
+    asrScriptPref?: string;
+    /** Friendly project-language label for the "Project language" radio (e.g. "Swahili"). */
+    projectLanguageName?: string;
+    onChangeAsrLanguageMode?: (mode: "auto" | "project") => void;
+    onChangeAsrScriptPref?: (pref: string) => void;
 }
 
 const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionProps> = ({
@@ -52,9 +80,27 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     targetDuration,
     author,
     historyCount,
+    transcriptionLanguageLabel,
+    showAdvancedAsrMenu = true,
+    asrLanguageMode = "project",
+    asrScriptPref = "auto",
+    projectLanguageName,
+    onChangeAsrLanguageMode,
+    onChangeAsrScriptPref,
 }) => {
     const [audioSrc, setAudioSrc] = useState<string>("");
     const [audioDuration, setAudioDuration] = useState<number | null>(null);
+
+    // The Script picker offers three "preset" choices plus a free-form 4-letter input for
+    // power users (e.g. someone wants `swa_Cyrl` even though the resolver would never pick
+    // it). We surface "Custom" only when the current value isn't one of the presets.
+    const isPresetScript = asrScriptPref === "auto" || asrScriptPref === "latin";
+    const [scriptCustomDraft, setScriptCustomDraft] = useState<string>(
+        isPresetScript ? "" : asrScriptPref
+    );
+    useEffect(() => {
+        if (!isPresetScript) setScriptCustomDraft(asrScriptPref);
+    }, [asrScriptPref, isPresetScript]);
 
     // Prefer the provided URL (can be blob: or data:). Fall back to creating an object URL from the blob.
     useEffect(() => {
@@ -142,9 +188,9 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                             >
                                 {transcription.content}
                             </p>
-                            {transcription.language && (
+                            {transcriptionLanguageLabel && (
                                 <Badge variant="secondary" className="text-xs">
-                                    {transcription.language}
+                                    {transcriptionLanguageLabel}
                                 </Badge>
                             )}
                         </div>
@@ -224,17 +270,118 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
 
             {/* Action buttons at bottom */}
             <div className="flex flex-wrap items-center justify-center gap-2 px-2">
-                {!transcription && !isTranscribing && (
-                    <Button
-                        onClick={onTranscribe}
-                        disabled={disabled || (!audioUrl && !audioBlob)}
-                        variant="outline"
-                        className="h-8 px-2 text-xs text-[var(--vscode-button-background)] border-[var(--vscode-button-background)]/20 hover:bg-[var(--vscode-button-background)]/10"
-                        title="Transcribe Audio"
-                    >
-                        <MessageCircle className="h-3 w-3" />
-                        <span className="ml-1">Transcribe</span>
-                    </Button>
+                {/* Transcribe / Re-transcribe button — always visible (mirrors Re-record),
+                    grey-out while a transcription is in flight. The label flips to
+                    "Re-transcribe" once we have a saved transcription so the user can
+                    re-run with different ASR settings (e.g. flip to auto-detect). */}
+                <Button
+                    onClick={onTranscribe}
+                    disabled={disabled || isTranscribing || (!audioUrl && !audioBlob)}
+                    variant="outline"
+                    className="h-8 px-2 text-xs text-[var(--vscode-button-background)] border-[var(--vscode-button-background)]/20 hover:bg-[var(--vscode-button-background)]/10"
+                    title={transcription ? "Re-transcribe audio with current settings" : "Transcribe Audio"}
+                >
+                    <MessageCircle className="h-3 w-3" />
+                    <span className="ml-1">{transcription ? "Re-transcribe" : "Transcribe"}</span>
+                </Button>
+                {/* Gear menu — Language (auto-detect vs project) + Script (auto/Latin/custom).
+                    Hidden on source-text editors where transcription policy isn't user-driven. */}
+                {showAdvancedAsrMenu && (
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 w-8 p-0 text-xs"
+                                title="Advanced ASR settings (Language / Script)"
+                                aria-label="Advanced ASR settings"
+                                disabled={isTranscribing}
+                            >
+                                <SettingsIcon className="h-3 w-3" />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-72 space-y-3" align="start">
+                            <div className="space-y-1">
+                                <div className="text-xs font-semibold">Language</div>
+                                <Select
+                                    value={asrLanguageMode}
+                                    onValueChange={(v) =>
+                                        onChangeAsrLanguageMode?.(v === "auto" ? "auto" : "project")
+                                    }
+                                >
+                                    <SelectTrigger className="h-7 text-xs">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="project">
+                                            {projectLanguageName ? `Project (${projectLanguageName})` : "Project language"}
+                                        </SelectItem>
+                                        <SelectItem value="auto">Auto-detect</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-[10px] text-muted-foreground leading-snug">
+                                    "Project" sends the language code to OmniASR for better accuracy.
+                                    "Auto-detect" omits it — OmniASR transcribes without language conditioning.
+                                </p>
+                            </div>
+                            <div className="space-y-1">
+                                <div className="text-xs font-semibold">Script</div>
+                                <Select
+                                    value={isPresetScript ? asrScriptPref : "custom"}
+                                    onValueChange={(v) => {
+                                        if (v === "auto" || v === "latin") {
+                                            onChangeAsrScriptPref?.(v);
+                                        } else {
+                                            // "custom" — keep whatever 4-letter tag is in the input,
+                                            // or fall back to "auto" if the input is empty/invalid.
+                                            const candidate = scriptCustomDraft.trim();
+                                            const isValid = /^[A-Za-z]{4}$/.test(candidate);
+                                            onChangeAsrScriptPref?.(isValid ? candidate : "auto");
+                                        }
+                                    }}
+                                >
+                                    <SelectTrigger className="h-7 text-xs">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="auto">Best guess (default)</SelectItem>
+                                        <SelectItem value="latin">Latin (where supported)</SelectItem>
+                                        <SelectItem value="custom">Custom (ISO 15924 tag)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                {/* Free-form 4-letter input shown only when "Custom" is selected.
+                                    Validation happens on commit so users can type. */}
+                                {!isPresetScript ? (
+                                    <div className="flex items-center gap-1">
+                                        <Input
+                                            value={scriptCustomDraft}
+                                            onChange={(e) => setScriptCustomDraft(e.target.value)}
+                                            placeholder="e.g. Arab, Cyrl, Hans"
+                                            maxLength={4}
+                                            className="h-7 text-xs"
+                                        />
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 px-2 text-xs"
+                                            onClick={() => {
+                                                const candidate = scriptCustomDraft.trim();
+                                                if (/^[A-Za-z]{4}$/.test(candidate)) {
+                                                    onChangeAsrScriptPref?.(candidate);
+                                                }
+                                            }}
+                                        >
+                                            Apply
+                                        </Button>
+                                    </div>
+                                ) : null}
+                                <p className="text-[10px] text-muted-foreground leading-snug">
+                                    Script subtag paired with the language. Best guess covers Urdu→Arabic,
+                                    Mandarin→Simplified, Cantonese→Traditional, etc.
+                                </p>
+                            </div>
+                        </PopoverContent>
+                    </Popover>
                 )}
                 <Button
                     variant="outline"

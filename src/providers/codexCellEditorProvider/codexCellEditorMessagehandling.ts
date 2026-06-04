@@ -555,7 +555,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 console.error(`[getAsrConfig] This will cause transcription to fail. Please check authentication status.`);
             }
 
-            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}, lang=${resolvedCode}, mode=${languageMode}`);
+            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}, lang=${resolvedCode}, mode=${languageMode}, scriptPref=${scriptPref}`);
             safePostMessageToPanel(webviewPanel, {
                 type: "asrConfig",
                 content: {
@@ -563,6 +563,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     authToken,
                     lang: resolvedCode,
                     languageMode,
+                    scriptPref,
                     projectLanguageName,
                 },
             });
