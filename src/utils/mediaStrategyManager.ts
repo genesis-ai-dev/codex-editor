@@ -10,6 +10,8 @@ import {
     getFlags,
     getPersistedMediaFiles,
     normalizePersistedMediaRelPath,
+    addPersistedMediaFiles,
+    removePersistedMediaFilesByExtension,
 } from "./localProjectSettings";
 import {
     findAllPointerFiles,
@@ -25,6 +27,120 @@ const debug = DEBUG ? (...args: any[]) => console.log("[MediaStrategyManager]", 
 // Video extensions get a disk-backed session cache (outside the project) instead
 // of the in-memory LFS cache, since video files are large.
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v"]);
+
+// `.webm` is ambiguous: browser audio recordings (MediaRecorder) are saved as
+// `.webm` too, and they live in the SAME attachments/files/<segment>/ tree as
+// videos. So a plain extension check would miscount every audio take as a
+// "video" (e.g. 1000+ audio cells reported as 1000+ videos). These extensions
+// are therefore resolved against the actual notebook `videoUrl` references
+// rather than the extension alone.
+const AMBIGUOUS_VIDEO_EXTENSIONS = new Set([".webm"]);
+// Extensions that are unambiguously video — never produced by the audio recorder.
+const UNAMBIGUOUS_VIDEO_EXTENSIONS = new Set(
+    [...VIDEO_EXTENSIONS].filter((ext) => !AMBIGUOUS_VIDEO_EXTENSIONS.has(ext))
+);
+
+const FILES_SEGMENT = "attachments/files/";
+
+/**
+ * Reads every notebook's `videoUrl` metadata and returns the set of rel-paths
+ * (within `attachments/files`, forward-slashed, e.g. "JUD/clip.webm") that are
+ * referenced as videos. This is the source of truth for distinguishing a real
+ * video from an audio recording that happens to share the `.webm` extension.
+ *
+ * `.codex` files live in `files/target`, `.source` files in
+ * `.project/sourceTexts`. We scan the raw text for the `videoUrl` field instead
+ * of fully parsing each (potentially large) notebook JSON.
+ */
+export async function collectVideoReferenceRelPaths(projectPath: string): Promise<Set<string>> {
+    const refs = new Set<string>();
+    const notebookDirs = [
+        { dir: path.join(projectPath, "files", "target"), ext: ".codex" },
+        { dir: path.join(projectPath, ".project", "sourceTexts"), ext: ".source" },
+    ];
+
+    const videoUrlPattern = /"videoUrl"\s*:\s*"((?:\\.|[^"\\])*)"/g;
+
+    const scanNotebookDir = async (dirPath: string, fileExt: string): Promise<void> => {
+        let entries: fs.Dirent[];
+        try {
+            entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        } catch {
+            return;
+        }
+        for (const entry of entries) {
+            const fullPath = path.join(dirPath, entry.name);
+            if (entry.isDirectory()) {
+                await scanNotebookDir(fullPath, fileExt);
+                continue;
+            }
+            if (!entry.isFile() || !entry.name.toLowerCase().endsWith(fileExt)) {
+                continue;
+            }
+            let text: string;
+            try {
+                text = await fs.promises.readFile(fullPath, "utf8");
+            } catch {
+                continue;
+            }
+            videoUrlPattern.lastIndex = 0;
+            let match: RegExpExecArray | null;
+            while ((match = videoUrlPattern.exec(text)) !== null) {
+                let raw = match[1];
+                try {
+                    raw = JSON.parse(`"${match[1]}"`);
+                } catch {
+                    // Fall back to the raw captured value if it can't be unescaped.
+                }
+                const rel = videoUrlToFilesRelPath(raw);
+                if (rel) {
+                    refs.add(rel);
+                }
+            }
+        }
+    };
+
+    for (const { dir, ext } of notebookDirs) {
+        await scanNotebookDir(dir, ext);
+    }
+    return refs;
+}
+
+/**
+ * Converts a stored `videoUrl` (workspace-relative path, absolute path, or
+ * `file://` URI) into its rel-path within `attachments/files`, or null for
+ * remote URLs and references outside the managed attachments tree.
+ */
+function videoUrlToFilesRelPath(videoUrl: string): string | null {
+    if (!videoUrl || /^https?:\/\//i.test(videoUrl)) {
+        return null;
+    }
+    const normalized = videoUrl.replace(/\\/g, "/");
+    const idx = normalized.indexOf(FILES_SEGMENT);
+    if (idx === -1) {
+        return null;
+    }
+    return normalized
+        .substring(idx + FILES_SEGMENT.length)
+        .replace(/^\/+/, "");
+}
+
+/**
+ * Decides whether a file (by its rel-path within attachments/files) should be
+ * treated as a video. Unambiguous video extensions always qualify; ambiguous
+ * ones (`.webm`) only qualify when referenced by a notebook's `videoUrl`, so
+ * audio recordings sharing the extension are not mistaken for videos.
+ */
+function isVideoRelPath(relPath: string, videoRefs: Set<string>): boolean {
+    const ext = path.extname(relPath).toLowerCase();
+    if (UNAMBIGUOUS_VIDEO_EXTENSIONS.has(ext)) {
+        return true;
+    }
+    if (AMBIGUOUS_VIDEO_EXTENSIONS.has(ext)) {
+        return videoRefs.has(relPath.replace(/\\/g, "/").replace(/^\/+/, ""));
+    }
+    return false;
+}
 
 /**
  * Replace specific files in attachments/files with their pointer versions
@@ -161,6 +277,64 @@ export async function countDownloadedMediaFiles(projectPath: string): Promise<nu
 }
 
 /**
+ * Returns the rel-paths (within attachments/files, forward-slashed, e.g.
+ * "JUD/clip.mp4") of every locally-present VIDEO file that holds real bytes
+ * (not a pointer). Used to drive the "keep video / free space" switch prompts
+ * and to add kept videos to the persisted allowlist.
+ */
+export async function collectLocalVideoRelPaths(projectPath: string): Promise<string[]> {
+    const filesDir = path.join(projectPath, ".project", "attachments", "files");
+    const relPaths: string[] = [];
+
+    if (!fs.existsSync(filesDir)) {
+        return relPaths;
+    }
+
+    // Source of truth for resolving ambiguous `.webm` files (audio vs video).
+    const videoRefs = await collectVideoReferenceRelPaths(projectPath);
+
+    const scanDir = async (dirPath: string, relPrefix: string): Promise<void> => {
+        let entries: fs.Dirent[];
+        try {
+            entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        } catch {
+            return;
+        }
+        for (const entry of entries) {
+            const fullPath = path.join(dirPath, entry.name);
+            const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+            if (entry.isDirectory()) {
+                await scanDir(fullPath, rel);
+            } else if (
+                entry.isFile() &&
+                !entry.name.startsWith(".") &&
+                isVideoRelPath(rel, videoRefs)
+            ) {
+                const isPtr = await isPointerFile(fullPath).catch(() => false);
+                if (!isPtr) {
+                    relPaths.push(rel);
+                }
+            }
+        }
+    };
+
+    try {
+        await scanDir(filesDir, "");
+    } catch (error) {
+        debug("Error collecting local video rel-paths:", error);
+    }
+    return relPaths;
+}
+
+/**
+ * Number of locally-present (real-bytes) video files. Drives the decision to
+ * show the granular "keep video / free space" prompt when switching strategies.
+ */
+export async function countLocalVideoFiles(projectPath: string): Promise<number> {
+    return (await collectLocalVideoRelPaths(projectPath)).length;
+}
+
+/**
  * Replace all downloaded files in attachments/files with their pointer versions
  * This is used when switching to stream-only or stream-and-save modes
  * @param projectPath - Root path of the project
@@ -168,7 +342,7 @@ export async function countDownloadedMediaFiles(projectPath: string): Promise<nu
  */
 export async function replaceFilesWithPointers(
     projectPath: string,
-    options?: { ignorePersisted?: boolean; }
+    options?: { ignorePersisted?: boolean; restrictToVideos?: boolean; restrictToAudio?: boolean; }
 ): Promise<number> {
     let replacedCount = 0;
 
@@ -188,6 +362,13 @@ export async function replaceFilesWithPointers(
             : new Set(
                 (await getPersistedMediaFiles(vscode.Uri.file(projectPath))).map(normalizePersistedMediaRelPath)
             );
+
+        // When restricting by media kind, resolve the ambiguous `.webm` extension
+        // against real notebook video references so audio takes aren't treated
+        // as videos (and vice-versa).
+        const videoRefs = options?.restrictToVideos || options?.restrictToAudio
+            ? await collectVideoReferenceRelPaths(projectPath)
+            : new Set<string>();
 
         await vscode.window.withProgress(
             {
@@ -213,6 +394,20 @@ export async function replaceFilesWithPointers(
                             const filesPath = path.join(filesDir, relPath);
 
                             try {
+                                // When restricted to videos (e.g. stream-only ->
+                                // stream-and-save "don't preserve"), leave non-video
+                                // media exactly as-is.
+                                const relIsVideo = isVideoRelPath(relPath.replace(/\\/g, "/"), videoRefs);
+                                if (options?.restrictToVideos && !relIsVideo) {
+                                    return false;
+                                }
+                                // When restricted to audio (e.g. auto-download ->
+                                // stream-and-save "keep video, free audio"), leave
+                                // videos exactly as-is.
+                                if (options?.restrictToAudio && relIsVideo) {
+                                    return false;
+                                }
+
                                 // PROTECTED: user explicitly saved this file via
                                 // "Save to project" — never revert it to a pointer.
                                 if (persisted.has(normalizePersistedMediaRelPath(relPath))) {
@@ -604,9 +799,13 @@ export async function applyMediaStrategyAndRecord(
         const settingsMod = await import("./localProjectSettings");
         const switchStarted = await settingsMod.getSwitchStarted(projectUri);
 
-        // Check if there's a pending keepFilesOnStreamAndSave choice that needs to be applied
+        // Check if there's a pending keep/free choice that needs to be applied
+        // (any of these require file operations, so we must not take the fast path).
         const settings = await settingsMod.readLocalProjectSettings(projectUri);
-        const hasKeepFilesChoice = settings.keepFilesOnStreamAndSave !== undefined;
+        const hasKeepFilesChoice =
+            settings.keepFilesOnStreamAndSave !== undefined ||
+            settings.keepVideoOnStreamAndSave !== undefined ||
+            settings.keepAudioOnStreamAndSave !== undefined;
 
         // Only skip if returning to last run strategy AND no interrupted switch
         // AND no pending keepFilesOnStreamAndSave choice (which requires file operations)
@@ -747,41 +946,130 @@ export async function applyMediaStrategy(
                 break;
             }
             case "stream-only": {
-                // Always replace files with pointers to free disk space
-                const replacedCount = await replaceFilesWithPointers(projectPath);
+                const { readLocalProjectSettings, writeLocalProjectSettings } = await import("./localProjectSettings");
+                const settings = await readLocalProjectSettings(projectUri);
+                const videoChoice = settings.streamOnlyVideoChoice;
+
+                let replacedCount = 0;
+                if (videoChoice === "keep-video") {
+                    // Keep locally-present videos: add them to the allowlist so they
+                    // survive this and future *automatic* cleanups, then free the rest.
+                    const localVideos = await collectLocalVideoRelPaths(projectPath);
+                    if (localVideos.length > 0) {
+                        await addPersistedMediaFiles(localVideos, projectUri);
+                    }
+                    replacedCount = await replaceFilesWithPointers(projectPath);
+                } else if (videoChoice === "free-all") {
+                    // Explicit "Free Space": free everything including previously
+                    // saved videos, and drop them from the allowlist so a later sync
+                    // won't re-protect them.
+                    replacedCount = await replaceFilesWithPointers(projectPath, { ignorePersisted: true });
+                    await removePersistedMediaFilesByExtension(VIDEO_EXTENSIONS, projectUri);
+                } else {
+                    // No prompt (no local videos): default cleanup, honoring allowlist.
+                    replacedCount = await replaceFilesWithPointers(projectPath);
+                }
 
                 if (replacedCount > 0) {
                     vscode.window.showInformationMessage(`Removed ${replacedCount} file(s). Media will stream.`);
                 } else {
                     vscode.window.showInformationMessage("Media will stream when needed.");
                 }
+
+                // Clear the choice after applying.
+                if (settings.streamOnlyVideoChoice !== undefined) {
+                    settings.streamOnlyVideoChoice = undefined;
+                    await writeLocalProjectSettings(settings, projectUri);
+                }
                 break;
             }
             case "stream-and-save": {
-                // Check if user chose to keep or free files during strategy switch
-                // (only relevant when switching from auto-download)
                 const { readLocalProjectSettings, writeLocalProjectSettings } = await import("./localProjectSettings");
                 const settings = await readLocalProjectSettings(projectUri);
 
-                if (settings.keepFilesOnStreamAndSave === false) {
-                    // User chose to free space - replace files with pointers
-                    const replacedCount = await replaceFilesWithPointers(projectPath);
+                // Granular auto-download -> stream-and-save choice (video present):
+                // the user decided about video and audio independently.
+                const hasGranularChoice =
+                    settings.keepVideoOnStreamAndSave !== undefined ||
+                    settings.keepAudioOnStreamAndSave !== undefined;
+
+                if (hasGranularChoice) {
+                    // Default missing flag to "keep" (only free what was explicitly chosen).
+                    const freeVideo = settings.keepVideoOnStreamAndSave === false;
+                    const freeAudio = settings.keepAudioOnStreamAndSave === false;
+                    let replacedCount = 0;
+                    if (freeVideo) {
+                        replacedCount += await replaceFilesWithPointers(projectPath, {
+                            ignorePersisted: true,
+                            restrictToVideos: true,
+                        });
+                        // Freed videos must not stay protected by the allowlist.
+                        await removePersistedMediaFilesByExtension(VIDEO_EXTENSIONS, projectUri);
+                    }
+                    if (freeAudio) {
+                        replacedCount += await replaceFilesWithPointers(projectPath, {
+                            ignorePersisted: true,
+                            restrictToAudio: true,
+                        });
+                    }
+                    // Kept media simply stays local; stream-and-save never auto-pointerizes,
+                    // so no allowlisting is needed to preserve it.
+                    if (replacedCount > 0) {
+                        vscode.window.showInformationMessage(`Removed ${replacedCount} file(s). Media will stream and save.`);
+                    } else {
+                        vscode.window.showInformationMessage("Files kept. Media will stream and save when accessed.");
+                    }
+                } else if (settings.keepFilesOnStreamAndSave === false) {
+                    // Switching from auto-download, user chose to free space. This is
+                    // an explicit cleanup, so it also frees previously saved videos.
+                    const replacedCount = await replaceFilesWithPointers(projectPath, { ignorePersisted: true });
+                    await removePersistedMediaFilesByExtension(VIDEO_EXTENSIONS, projectUri);
                     if (replacedCount > 0) {
                         vscode.window.showInformationMessage(`Removed ${replacedCount} file(s). Media will stream and save.`);
                     } else {
                         vscode.window.showInformationMessage("Media will stream and save when accessed.");
                     }
                 } else if (settings.keepFilesOnStreamAndSave === true) {
-                    // User chose to keep files
+                    // Switching from auto-download, user chose to keep files.
                     vscode.window.showInformationMessage("Files kept. Media will stream and save when accessed.");
+                } else if (settings.streamAndSavePreserveVideos === true) {
+                    // Switching from stream-only, user chose to preserve local videos:
+                    // allowlist them so automatic cleanup keeps them.
+                    const localVideos = await collectLocalVideoRelPaths(projectPath);
+                    if (localVideos.length > 0) {
+                        await addPersistedMediaFiles(localVideos, projectUri);
+                    }
+                    vscode.window.showInformationMessage("Videos kept. Media will stream and save when accessed.");
+                } else if (settings.streamAndSavePreserveVideos === false) {
+                    // Switching from stream-only, user chose NOT to preserve videos:
+                    // pointerize only the videos (audio is already pointers here).
+                    const replacedCount = await replaceFilesWithPointers(projectPath, {
+                        ignorePersisted: true,
+                        restrictToVideos: true,
+                    });
+                    await removePersistedMediaFilesByExtension(VIDEO_EXTENSIONS, projectUri);
+                    if (replacedCount > 0) {
+                        vscode.window.showInformationMessage(`Removed ${replacedCount} video(s). Media will stream and save.`);
+                    } else {
+                        vscode.window.showInformationMessage("Media will stream and save when accessed.");
+                    }
                 } else {
-                    // No choice stored (e.g., switching from stream-only)
+                    // No choice stored (e.g., switching from auto-download back to last
+                    // run, or stream-only with no local videos): preserve everything.
                     vscode.window.showInformationMessage("Media will stream and save when accessed.");
                 }
 
-                // Clear the flag after applying
-                if (settings.keepFilesOnStreamAndSave !== undefined) {
+                // Clear the flags after applying.
+                if (
+                    settings.keepFilesOnStreamAndSave !== undefined ||
+                    settings.keepVideoOnStreamAndSave !== undefined ||
+                    settings.keepAudioOnStreamAndSave !== undefined ||
+                    settings.streamAndSavePreserveVideos !== undefined
+                ) {
                     settings.keepFilesOnStreamAndSave = undefined;
+                    settings.keepVideoOnStreamAndSave = undefined;
+                    settings.keepAudioOnStreamAndSave = undefined;
+                    settings.streamAndSavePreserveVideos = undefined;
                     await writeLocalProjectSettings(settings, projectUri);
                 }
                 break;

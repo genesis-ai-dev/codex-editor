@@ -1781,9 +1781,14 @@ const CodexCellEditor: React.FC = () => {
         videoNeedsDownload: (strategy) => {
             // The video is an LFS pointer; show strategy-appropriate actions.
             setVideoUrl("");
-            setVideoResolving(false);
             setVideoUnavailableMessage(null);
             setVideoNeedsDownloadStrategy(strategy);
+            // In auto-download the file is meant to live on disk, so fetch it
+            // automatically (like audio) instead of asking the user to click.
+            // Show the resolving state so the manual overlay doesn't flash before
+            // the auto-download effect runs; a real failure resets this via
+            // `videoStreamUnavailable`.
+            setVideoResolving(strategy === "auto-download");
         },
         // Use cellError handler instead of showErrorMessage
         cellError: (data) => {
@@ -3109,6 +3114,16 @@ const CodexCellEditor: React.FC = () => {
         }
         requestVideoStreamUrl();
     }, [shouldShowVideoPlayer, metadata.videoUrl, requestVideoStreamUrl]);
+
+    // In auto-download mode a pointer-backed video should download on its own
+    // (mirroring audio's auto-fetch) rather than waiting for a manual click.
+    // `downloadVideoFile` clears the strategy, so this can't loop; a failure
+    // surfaces via `videoStreamUnavailable` and won't re-trigger.
+    useEffect(() => {
+        if (videoNeedsDownloadStrategy === "auto-download") {
+            downloadVideoFile(true);
+        }
+    }, [videoNeedsDownloadStrategy, downloadVideoFile]);
 
     // Handler for temporary font size changes (for preview)
     const handleTempFontSizeChange = (fontSize: number) => {

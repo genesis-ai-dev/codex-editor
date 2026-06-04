@@ -272,6 +272,30 @@ async function resolveAndPostVideoStreamUrl(
         }
     }
 
+    // Recovery: files/ is a pointer or missing, but the pointers/ sibling still
+    // holds REAL bytes (e.g. an unsynced local video, or an interrupted strategy
+    // switch). Serve those directly from disk instead of re-downloading from LFS.
+    // The whole workspace is in the webview's localResourceRoots, so pointers/ is
+    // loadable. (Skip when pointersAbs === filesAbs — already handled above.)
+    if (pointersAbs !== filesAbs) {
+        try {
+            const pStat = await vscode.workspace.fs.stat(vscode.Uri.file(pointersAbs));
+            if (pStat.size > 0 && !(await isPointerFile(pointersAbs))) {
+                const pUri = webviewPanel.webview
+                    .asWebviewUri(vscode.Uri.file(pointersAbs))
+                    .toString();
+                const bustedPointer = `${pUri}${pUri.includes("?") ? "&" : "?"}v=${pStat.size}`;
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "updateVideoUrlInWebview",
+                    content: bustedPointer,
+                });
+                return;
+            }
+        } catch {
+            // pointers/ missing — fall through to normal LFS resolution.
+        }
+    }
+
     const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
     const strategy = (await getMediaFilesStrategy(workspaceUri)) ?? "auto-download";
 
@@ -2070,10 +2094,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 // Read the video file content
                 const fileData = await vscode.workspace.fs.readFile(fileUri);
 
-                // Enforce a reasonable max size (e.g., 900 MB) for video files
-                const MAX_BYTES = 900 * 1024 * 1024;
+                // Enforce a reasonable max size (1.5 GB) for video files
+                const MAX_BYTES = 1.5 * 1024 * 1024 * 1024;
                 if (fileData.length > MAX_BYTES) {
-                    throw new Error("Video file exceeds maximum allowed size 900 MB)");
+                    throw new Error("Video file exceeds the maximum allowed size (1.5 GB).");
                 }
 
                 // Determine document segment
