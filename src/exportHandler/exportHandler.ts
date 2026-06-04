@@ -255,7 +255,7 @@ export interface ExportOptions {
     removeIds?: boolean;
     includeAudio?: boolean;
     includeTimestamps?: boolean;
-    /** Per-file list of 0-based milestone indices to include when exporting audio */
+    /** Per-file 0-based milestone indices to include when exporting audio. An empty array skips that file entirely. Files omitted from this map are exported in full (no milestone step). */
     selectedMilestonesByFile?: Record<string, number[]>;
 }
 

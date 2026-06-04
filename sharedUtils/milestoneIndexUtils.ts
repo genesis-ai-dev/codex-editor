@@ -238,9 +238,17 @@ export function buildMilestoneIndexModel(cells: NotebookCell[]): MilestoneIndexM
     return buildSyntheticMilestoneModel(cells);
 }
 
-/** True when the export UI should offer per-chapter milestone selection (more than one chapter). */
+/**
+ * True when the export UI should offer per-chapter milestone selection: explicit
+ * milestone cells (including a single chapter) or multiple inferred chapter
+ * boundaries. False for the synthetic single-chapter fallback only.
+ */
 export function hasSelectableMilestonesInCells(cells: NotebookCell[]): boolean {
-    return buildMilestoneIndexModel(cells).milestones.length > 1;
+    if (hasExplicitMilestonesInCells(cells)) {
+        return true;
+    }
+    const inferred = buildFromChapterBoundaries(cells);
+    return inferred !== null && inferred.milestones.length > 0;
 }
 
 /**

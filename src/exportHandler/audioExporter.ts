@@ -684,8 +684,17 @@ export async function exportAudioAttachments(
         });
 
         const bookCode = basename(file.fsPath).split(".")[0] || "BOOK";
-        const bookFolder = vscode.Uri.joinPath(exportDir, sanitizeFileComponent(bookCode));
-        await vscode.workspace.fs.createDirectory(bookFolder);
+        const milestoneSelection = options?.selectedMilestonesByFile;
+        const milestoneFilter = milestoneSelection?.[file.fsPath];
+        // Empty array means the user cleared every milestone for this file on step 3.
+        if (
+            milestoneSelection &&
+            Object.prototype.hasOwnProperty.call(milestoneSelection, file.fsPath) &&
+            milestoneFilter &&
+            milestoneFilter.length === 0
+        ) {
+            continue;
+        }
 
         let notebook: CodexNotebookAsJSONData;
         try {
@@ -702,8 +711,9 @@ export async function exportAudioAttachments(
 
         // Build milestone folder mapping: cellId -> milestone folder name
         const cellMilestoneFolder = buildCellMilestoneMap(notebook.cells);
-        const milestoneFilter = options?.selectedMilestonesByFile?.[file.fsPath];
         const milestoneModel = buildMilestoneIndexModel(notebook.cells);
+
+        const bookFolder = vscode.Uri.joinPath(exportDir, sanitizeFileComponent(bookCode));
 
         // Count audio cells for per-book progress. Paratext and
         // milestone cells (e.g. chapter headers, intros) are not
@@ -715,8 +725,9 @@ export async function exportAudioAttachments(
             const cell = notebook.cells[cellIndex];
             const milestoneIndex = milestoneModel.cellMilestoneIndices[cellIndex] ?? 0;
             if (
+                milestoneSelection &&
+                Object.prototype.hasOwnProperty.call(milestoneSelection, file.fsPath) &&
                 milestoneFilter &&
-                milestoneFilter.length > 0 &&
                 !milestoneFilter.includes(milestoneIndex)
             ) {
                 continue;

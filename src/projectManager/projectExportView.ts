@@ -1673,11 +1673,9 @@ function getWebviewContent(
                 function buildSelectedMilestonesPayload() {
                     if (!shouldShowMilestoneStep()) return undefined;
                     const payload = {};
-                    for (const path of selectedFiles) {
+                    for (const path of milestoneFilePaths) {
                         const set = selectedMilestonesByFile[path];
-                        if (set && set.size > 0) {
-                            payload[path] = Array.from(set).sort((a, b) => a - b);
-                        }
+                        payload[path] = set ? Array.from(set).sort((a, b) => a - b) : [];
                     }
                     return Object.keys(payload).length > 0 ? payload : undefined;
                 }
