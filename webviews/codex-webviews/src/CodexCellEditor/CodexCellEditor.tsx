@@ -458,11 +458,10 @@ const CodexCellEditor: React.FC = () => {
                     // Fetch ASR config
                     const asrConfig = await new Promise<{
                         endpoint: string;
-                        provider: string;
-                        model: string;
-                        language: string;
-                        phonetic: boolean;
                         authToken?: string;
+                        lang?: string;
+                        languageMode?: "auto" | "project";
+                        projectLanguageName?: string;
                     }>((resolve, reject) => {
                         let resolved = false;
                         const onMsg = (ev: MessageEvent) => {

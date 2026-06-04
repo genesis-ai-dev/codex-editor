@@ -497,11 +497,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const transcriptionClientRef = useRef<WhisperTranscriptionClient | null>(null);
     const [asrConfig, setAsrConfig] = useState<{
         endpoint: string;
-        provider: string;
-        model: string;
-        language: string; // ISO-639-3 expected by MMS; may be ISO-639-1 and mapped
-        phonetic: boolean;
         authToken?: string;
+        /** OmniASR code (e.g. `swh_Latn`) to send as `?lang=...`. Omitted in auto-detect mode. */
+        lang?: string;
+        /** What the user picked in the gear menu: "project" (default) or "auto". */
+        languageMode?: "auto" | "project";
+        /** Project's target-language refName, used as fallback when the server doesn't echo `lang`. */
+        projectLanguageName?: string;
     } | null>(null);
 
     // Helper to smoothly center the editor. Coalesces multiple calls and

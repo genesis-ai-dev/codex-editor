@@ -549,11 +549,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 type: "asrConfig",
                 content: {
                     endpoint: fallbackEndpoint,
-                    provider: "mms",
-                    model: "facebook/mms-1b-all",
-                    language: "eng",
-                    phonetic: false,
-                    authToken: undefined
+                    authToken: undefined,
                 }
             });
         }

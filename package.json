@@ -900,12 +900,6 @@
                         "default": "eng",
                         "description": "Language code for transcription. MMS requires ISO-639-3 (e.g., eng, fra, spa). 2-letter codes will be mapped where possible."
                     },
-                    "codex-editor-extension.asrPhonetic": {
-                        "title": "Return Phonetic (IPA)",
-                        "type": "boolean",
-                        "default": false,
-                        "description": "If enabled and supported by provider, also return phonetic (IPA) transcription."
-                    },
                     "codex-editor-extension.sourceBookWhitelist": {
                         "title": "Source Book Whitelist",
                         "type": "string",
