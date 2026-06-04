@@ -12,7 +12,19 @@ import {
 } from "../components/ui/dropdown-menu";
 import "../tailwind.css";
 import { CodexItem } from "types";
-import { Languages, Mic, ShieldCheck } from "lucide-react";
+import {
+    Languages,
+    Mic,
+    ShieldCheck,
+    Video,
+    VideoOff,
+    Globe,
+    ArrowDownToLine,
+    Check,
+    type LucideIcon,
+} from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
+import { formatBytes } from "../lib/utils";
 import { Switch } from "../components/ui/switch";
 import { Label } from "../components/ui/label";
 import { RenameModal } from "../components/RenameModal";
@@ -128,6 +140,72 @@ const styles = {
             transform: "scale(0.98)",
         },
     },
+};
+
+// Maps a document's video source/availability to a card indicator: a base
+// "video" icon plus a small corner badge denoting the source/state, a colour,
+// and hover-tooltip text (with size for local copies). The video icon anchors
+// the meaning; the badge differentiates web vs downloaded vs not-yet-downloaded.
+// Returns null when the document has no video.
+interface VideoIndicator {
+    Icon: LucideIcon;
+    /** Small corner modifier (download arrow, check, globe). Omitted for "missing". */
+    Badge?: LucideIcon;
+    className: string;
+    badgeClassName?: string;
+    /** Tailwind position classes for the badge; defaults to the bottom-right corner. */
+    badgePosition?: string;
+    label: string;
+    detail?: string;
+}
+
+const getVideoIndicator = (item: CodexItem): VideoIndicator | null => {
+    if (!item.hasVideo) {
+        return null;
+    }
+    const size = formatBytes(item.videoSizeBytes);
+    switch (item.videoAvailability) {
+        case "url":
+            return {
+                Icon: Video,
+                Badge: Globe,
+                className: "text-muted-foreground",
+                badgeClassName: "text-muted-foreground",
+                label: "Web video",
+                detail: "Streams from the internet",
+            };
+        case "saved":
+            return {
+                Icon: Video,
+                Badge: Check,
+                className: "text-foreground",
+                badgeClassName: "text-charts-green",
+                label: "Video downloaded",
+                detail: size || undefined,
+            };
+        case "streamable":
+            return {
+                Icon: Video,
+                Badge: ArrowDownToLine,
+                className: "text-foreground",
+                badgeClassName: "text-foreground",
+                // Sit the download arrow up near the lens (bottom-right), matching
+                // the checkmark's placement so the "spear" reads against the lens.
+                badgePosition: "-bottom-1 -right-1.5",
+                label: "Video not downloaded",
+                detail: size || undefined,
+            };
+        case "missing":
+            return {
+                Icon: VideoOff,
+                className: "text-destructive",
+                label: "Video missing",
+                detail: "File not found",
+            };
+        default:
+            // Has a video but availability wasn't resolved (e.g. older data).
+            return { Icon: Video, className: "text-muted-foreground", label: "Has video" };
+    }
 };
 
 // Helper function to sort items based on Bible book order or alphanumerically
@@ -833,6 +911,60 @@ function NavigationView() {
                             <span className="overflow-hidden text-ellipsis whitespace-nowrap flex-1 text-sm font-medium text-vscode-foreground leading-normal">
                                 {displayLabel}
                             </span>
+
+                            {/* Video indicator - source-specific icon + hover details */}
+                            {(() => {
+                                const indicator = isGroup ? null : getVideoIndicator(item);
+                                if (!indicator) {
+                                    return null;
+                                }
+                                const {
+                                    Icon,
+                                    Badge,
+                                    className,
+                                    badgeClassName,
+                                    badgePosition,
+                                    label,
+                                    detail,
+                                } = indicator;
+                                return (
+                                    <TooltipProvider>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <span
+                                                    className="relative flex-shrink-0 flex items-center"
+                                                    aria-label={label}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    <Icon className={`h-4 w-4 ${className}`} />
+                                                    {Badge && (
+                                                        <span
+                                                            className={`absolute flex items-center justify-center ${
+                                                                badgePosition ?? "-bottom-1 -right-1"
+                                                            }`}
+                                                        >
+                                                            <Badge
+                                                                className={`h-2.5 w-2.5 ${
+                                                                    badgeClassName ?? className
+                                                                }`}
+                                                                strokeWidth={3}
+                                                            />
+                                                        </span>
+                                                    )}
+                                                </span>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="top">
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span className="font-medium">{label}</span>
+                                                    {detail && (
+                                                        <span className="opacity-80">{detail}</span>
+                                                    )}
+                                                </div>
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                );
+                            })()}
 
                             {/* More options menu - visible on hover */}
                             <div className="flex items-center flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">

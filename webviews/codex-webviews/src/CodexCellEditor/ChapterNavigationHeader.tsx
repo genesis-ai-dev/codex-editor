@@ -58,6 +58,7 @@ interface ChapterNavigationHeaderProps {
     videoCanFreeDiskSpace: boolean;
     onFreeVideoDiskSpace: () => void;
     videoReferenceStatus: "none" | "url" | "local-usable" | "missing" | null;
+    videoSizeBytes?: number | null;
     toggleScrollSync: () => void;
     scrollSyncEnabled: boolean;
     translationUnitsForSection: QuillCellContent[];
@@ -119,6 +120,7 @@ export function ChapterNavigationHeader({
     videoCanFreeDiskSpace,
     onFreeVideoDiskSpace,
     videoReferenceStatus,
+    videoSizeBytes,
     toggleScrollSync,
     scrollSyncEnabled,
     translationUnitsForSection,
@@ -1185,6 +1187,7 @@ ChapterNavigationHeaderProps) {
                     canFreeDiskSpace={videoCanFreeDiskSpace}
                     onFreeDiskSpace={onFreeVideoDiskSpace}
                     videoReferenceStatus={videoReferenceStatus}
+                    videoSizeBytes={videoSizeBytes}
                 />
             )}
 

@@ -1903,6 +1903,24 @@ interface CodexItem {
     sortOrder?: string;
     fileDisplayName?: string;
     enforceHtmlStructure?: boolean;
+    /** True when this document references a chapter video (remote URL or local file). */
+    hasVideo?: boolean;
+    /**
+     * How the referenced chapter video is currently available:
+     *  - "url"        → remote streamed URL
+     *  - "saved"      → downloaded real bytes in the project
+     *  - "streamable" → LFS pointer only (download/stream on demand)
+     *  - "missing"    → local reference resolving to neither bytes nor a pointer
+     */
+    videoAvailability?: "url" | "saved" | "streamable" | "missing";
+    /** Size of a local video in bytes when known (real bytes or LFS pointer size). */
+    videoSizeBytes?: number;
+    /**
+     * Internal: the raw stored video reference, kept on the host so video
+     * availability can be recomputed on demand (download/free) without
+     * re-reading the notebook. Stripped before sending to the webview.
+     */
+    videoUrl?: string;
 }
 type EditorReceiveMessages =
     | {
@@ -2081,6 +2099,9 @@ type EditorReceiveMessages =
           // True only in stream-and-save when a downloaded local copy exists and is
           // LFS-backed, so it can be reverted to a pointer to free space and re-streamed.
           canFreeDiskSpace?: boolean;
+          // Size of the referenced video in bytes when known (real local bytes or the
+          // size recorded in the LFS pointer). Omitted for remote URLs / unknown.
+          videoSizeBytes?: number;
       }
     | {
         type: "milestoneProgressUpdate";

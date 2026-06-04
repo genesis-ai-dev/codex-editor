@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { parsePointerFile, isPointerFile } from "../../../utils/lfsHelpers";
 
 /**
  * Returns true when the stored video reference is a remote URL (streamed),
@@ -6,6 +7,80 @@ import * as vscode from "vscode";
  */
 export function isHttpVideoUrl(videoUrl: string | undefined | null): boolean {
     return !!videoUrl && /^https?:\/\//i.test(videoUrl);
+}
+
+/**
+ * How a chapter's stored video reference is currently available:
+ *  - "none"       → no reference at all
+ *  - "url"        → remote streamed URL
+ *  - "saved"      → real bytes on disk in `files/` (downloaded / saved to project)
+ *  - "streamable" → only an LFS pointer exists (download/stream on demand)
+ *  - "missing"    → a local reference that resolves to neither bytes nor a pointer
+ */
+export type VideoAvailability = "none" | "url" | "saved" | "streamable" | "missing";
+
+export interface VideoAvailabilityInfo {
+    availability: VideoAvailability;
+    /** Bytes of the referenced video when known (real local bytes or LFS pointer size). */
+    sizeBytes?: number;
+}
+
+/**
+ * Classify a stored video reference and, for local references, report its size.
+ * A single filesystem resolver shared by every surface that needs to reason
+ * about a chapter video (editor modal status, navigation cards) so they stay
+ * consistent. Remote-URL and "no reference" cases never touch the filesystem.
+ */
+export async function resolveVideoAvailability(
+    videoUrl: string | undefined | null,
+    workspaceUri: vscode.Uri | undefined
+): Promise<VideoAvailabilityInfo> {
+    if (!videoUrl) {
+        return { availability: "none" };
+    }
+    if (isHttpVideoUrl(videoUrl)) {
+        return { availability: "url" };
+    }
+    if (!workspaceUri) {
+        return { availability: "missing" };
+    }
+
+    const rel = getVideoWorkspaceRelativePath(videoUrl, workspaceUri);
+    if (!rel) {
+        return { availability: "missing" };
+    }
+
+    const filesAbs = vscode.Uri.joinPath(workspaceUri, rel).fsPath;
+    const pointersRel = rel.includes("attachments/files/")
+        ? rel.replace("attachments/files/", "attachments/pointers/")
+        : rel;
+    const pointersAbs = vscode.Uri.joinPath(workspaceUri, pointersRel).fsPath;
+
+    // Real bytes already on disk (not a tiny pointer stub) → saved.
+    try {
+        const stat = await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
+        const isPtr = await isPointerFile(filesAbs).catch(() => false);
+        if (!isPtr) {
+            return {
+                availability: "saved",
+                sizeBytes:
+                    typeof stat.size === "number" && stat.size > 0 ? stat.size : undefined,
+            };
+        }
+    } catch {
+        // files/ entry doesn't exist; fall through to the pointer check.
+    }
+
+    // An LFS pointer (in files/ or pointers/) means it can be downloaded/streamed,
+    // and records the real object size even before download.
+    const pointer =
+        (await parsePointerFile(filesAbs).catch(() => null)) ??
+        (await parsePointerFile(pointersAbs).catch(() => null));
+    if (pointer) {
+        return { availability: "streamable", sizeBytes: pointer.size };
+    }
+
+    return { availability: "missing" };
 }
 
 /**

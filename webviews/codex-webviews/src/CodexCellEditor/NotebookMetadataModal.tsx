@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../com
 import { Separator } from "../components/ui/separator";
 import { Badge } from "../components/ui/badge";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { formatBytes } from "../lib/utils";
 
 interface NotebookMetadataModalProps {
     isOpen: boolean;
@@ -27,6 +28,8 @@ interface NotebookMetadataModalProps {
     canFreeDiskSpace: boolean;
     onFreeDiskSpace: () => void;
     videoReferenceStatus: "none" | "url" | "local-usable" | "missing" | null;
+    /** Size of the referenced video in bytes when known (local bytes or LFS pointer size). */
+    videoSizeBytes?: number | null;
 }
 
 // Define user-editable fields with proper labels and descriptions
@@ -69,6 +72,7 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
     canFreeDiskSpace,
     onFreeDiskSpace,
     videoReferenceStatus,
+    videoSizeBytes,
 }) => {
     // All edits happen on a local draft and are only committed on "Save Changes".
     // Closing via X/Cancel discards the draft, so nothing — including video
@@ -175,6 +179,12 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                             canFreeDiskSpace && draft.videoUrl === metadata.videoUrl;
                         const fileName = videoValue.split(/[\\/]/).pop() || videoValue;
                         const displayLabel = isLocalFile ? fileName : videoValue;
+                        // Only show the size for a local file that still reflects the
+                        // saved reference (so the size matches what's actually on disk).
+                        const sizeLabel =
+                            isLocalFile && draft.videoUrl === metadata.videoUrl
+                                ? formatBytes(videoSizeBytes)
+                                : "";
 
                         // When a video is set, lock the field. Changing it requires an
                         // explicit Clear first (deferred — the file is only deleted and
@@ -197,6 +207,11 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                                             } text-muted-foreground`}
                                         />
                                         <span className="truncate">{displayLabel}</span>
+                                        {sizeLabel && !isMissing && (
+                                            <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
+                                                {sizeLabel}
+                                            </span>
+                                        )}
                                         {isMissing && (
                                             <Badge variant="destructive" className="ml-auto shrink-0">
                                                 File missing

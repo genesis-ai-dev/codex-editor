@@ -22,7 +22,7 @@ import { toPosixPath } from "../../utils/pathUtils";
 import { revalidateCellMissingFlags, clearMissingFlagAfterSuccess } from "../../utils/audioMissingUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
-import { deleteLocalVideoFiles, isHttpVideoUrl, processVideoUrl, getVideoWorkspaceRelativePath } from "./utils/videoUtils";
+import { deleteLocalVideoFiles, isHttpVideoUrl, processVideoUrl, getVideoWorkspaceRelativePath, resolveVideoAvailability, type VideoAvailability } from "./utils/videoUtils";
 import { parsePointerFile, isPointerFile } from "../../utils/lfsHelpers";
 
 // Enable debug logging if needed
@@ -337,57 +337,17 @@ async function resolveAndPostVideoStreamUrl(
 }
 
 /**
- * Classify the chapter's stored video reference so the webview can decide
- * whether to offer the "Show Video" toggle (and the modal can flag a broken
- * reference). This is independent of opening the player:
- *  - "none"         → no video reference at all
- *  - "url"          → remote streamed URL
- *  - "local-usable" → local file with real bytes, or an LFS pointer (downloadable/streamable)
- *  - "missing"      → local reference that resolves to neither bytes nor a pointer
+ * Map the fine-grained {@link resolveVideoAvailability} result onto the coarse
+ * status the webview consumes ("saved"/"streamable" both collapse to
+ * "local-usable" — i.e. the "Show Video" toggle is offered for either).
  */
-async function computeVideoReferenceStatus(
-    document: CodexCellDocument
-): Promise<"none" | "url" | "local-usable" | "missing"> {
-    const videoUrl = document.getNotebookMetadata()?.videoUrl;
-    if (!videoUrl) {
-        return "none";
+function toReferenceStatus(
+    availability: VideoAvailability
+): "none" | "url" | "local-usable" | "missing" {
+    if (availability === "saved" || availability === "streamable") {
+        return "local-usable";
     }
-    if (isHttpVideoUrl(videoUrl)) {
-        return "url";
-    }
-
-    const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
-    if (!workspaceUri) {
-        return "missing";
-    }
-
-    const rel = getVideoWorkspaceRelativePath(videoUrl, workspaceUri);
-    if (!rel) {
-        return "missing";
-    }
-
-    const filesAbs = vscode.Uri.joinPath(workspaceUri, rel).fsPath;
-    const pointersRel = rel.includes("attachments/files/")
-        ? rel.replace("attachments/files/", "attachments/pointers/")
-        : rel;
-    const pointersAbs = vscode.Uri.joinPath(workspaceUri, pointersRel).fsPath;
-
-    // Real bytes already on disk → usable.
-    try {
-        await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
-        const isPtr = await isPointerFile(filesAbs).catch(() => false);
-        if (!isPtr) {
-            return "local-usable";
-        }
-    } catch {
-        // files/ entry doesn't exist; fall through to pointer check.
-    }
-
-    // An LFS pointer (in files/ or pointers/) means it can be downloaded/streamed.
-    const pointer =
-        (await parsePointerFile(filesAbs).catch(() => null)) ??
-        (await parsePointerFile(pointersAbs).catch(() => null));
-    return pointer ? "local-usable" : "missing";
+    return availability;
 }
 
 /**
@@ -445,13 +405,17 @@ export async function postVideoReferenceStatus(
     webviewPanel: vscode.WebviewPanel,
     provider: CodexCellEditorProvider
 ): Promise<void> {
-    const status = await computeVideoReferenceStatus(document);
+    const videoUrl = document.getNotebookMetadata()?.videoUrl;
+    const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
+    const { availability, sizeBytes } = await resolveVideoAvailability(videoUrl, workspaceUri);
+    const status = toReferenceStatus(availability);
     const canFreeDiskSpace =
         status === "local-usable" ? await computeCanFreeVideoDiskSpace(document) : false;
     provider.postMessageToWebview(webviewPanel, {
         type: "videoReferenceStatus",
         status,
         canFreeDiskSpace,
+        videoSizeBytes: status === "local-usable" ? sizeBytes : undefined,
     });
 }
 

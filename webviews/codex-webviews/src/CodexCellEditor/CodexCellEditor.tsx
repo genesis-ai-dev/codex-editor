@@ -193,6 +193,9 @@ const CodexCellEditor: React.FC = () => {
     // Stream-and-save only: a downloaded local copy exists that can be reverted to
     // a pointer to free disk space (re-streamed on demand).
     const [videoCanFreeDiskSpace, setVideoCanFreeDiskSpace] = useState<boolean>(false);
+    // Size (bytes) of the referenced video when known (local bytes or LFS pointer
+    // size). null until reported / unknown (e.g. remote URLs).
+    const [videoSizeBytes, setVideoSizeBytes] = useState<number | null>(null);
     const playerRef = useRef<ReactPlayerRef>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const [muteVideoAudioDuringPlayback, setMuteVideoAudioDuringPlayback] = useState(true);
@@ -1755,9 +1758,10 @@ const CodexCellEditor: React.FC = () => {
             setVideoNeedsDownloadStrategy(null);
             setVideoResolving(false);
         },
-        videoReferenceStatus: (status, canFreeDiskSpace) => {
+        videoReferenceStatus: (status, canFreeDiskSpace, sizeBytes) => {
             setVideoReferenceStatus(status);
             setVideoCanFreeDiskSpace(!!canFreeDiskSpace);
+            setVideoSizeBytes(typeof sizeBytes === "number" ? sizeBytes : null);
             // When the reference is gone (removed/cleared), close the player and
             // clear any transient video state so nothing lingers on screen.
             if (status === "none") {
@@ -3618,6 +3622,7 @@ const CodexCellEditor: React.FC = () => {
                             onPickFile={handlePickFile}
                             videoCanFreeDiskSpace={videoCanFreeDiskSpace}
                             onFreeVideoDiskSpace={handleFreeVideoDiskSpace}
+                            videoSizeBytes={videoSizeBytes}
                             toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
                             scrollSyncEnabled={scrollSyncEnabled}
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}

@@ -90,7 +90,8 @@ interface UseVSCodeMessageHandlerProps {
     videoNeedsDownload?: (strategy: "auto-download" | "stream-and-save" | "stream-only") => void;
     videoReferenceStatus?: (
         status: "none" | "url" | "local-usable" | "missing",
-        canFreeDiskSpace?: boolean
+        canFreeDiskSpace?: boolean,
+        videoSizeBytes?: number
     ) => void;
 
     // New handlers for provider-centric state management
@@ -266,7 +267,7 @@ export const useVSCodeMessageHandler = ({
                     videoNeedsDownload?.(message.strategy);
                     break;
                 case "videoReferenceStatus":
-                    videoReferenceStatus?.(message.status, message.canFreeDiskSpace);
+                    videoReferenceStatus?.(message.status, message.canFreeDiskSpace, message.videoSizeBytes);
                     break;
                 case "providerAutocompletionState":
                     if (updateAutocompletionState) {

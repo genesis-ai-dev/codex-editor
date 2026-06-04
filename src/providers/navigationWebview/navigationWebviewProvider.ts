@@ -15,6 +15,7 @@ import { getAuthApi } from "../../extension";
 import { CustomNotebookMetadata, ProjectMetadata } from "../../../types";
 import { getCorrespondingSourceUri, findCodexFilesByBookAbbr } from "../../utils/codexNotebookUtils";
 import { CodexCellEditorProvider } from "../codexCellEditorProvider/codexCellEditorProvider";
+import { resolveVideoAvailability } from "../codexCellEditorProvider/utils/videoUtils";
 import { openCodexDocumentWithSourcePair } from "../../utils/openCodexDocumentWithSourcePair";
 
 interface CodexMetadata {
@@ -30,6 +31,7 @@ interface CodexMetadata {
     progress?: number;
     fileDisplayName?: string;
     enforceHtmlStructure?: boolean;
+    videoUrl?: string;
 }
 
 interface BibleBookInfo {
@@ -49,6 +51,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     private pendingRebuild = false;
     private serializer = new CodexContentSerializer();
     private bibleBookMap: Map<string, BibleBookInfo> = new Map();
+    private videoStatusRefreshTimer: ReturnType<typeof setTimeout> | undefined;
 
     constructor(context: vscode.ExtensionContext) {
         super(context);
@@ -556,6 +559,22 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const bookInfo = this.bibleBookMap.get(fileNameAbbr);
             const label = fileNameAbbr;
             const sortOrder = bookInfo?.ord;
+
+            // Resolve the chapter video's source/availability (and size for local
+            // copies) so the card can show a source-specific icon + hover details.
+            const videoUrl = metadata?.videoUrl;
+            const hasVideo = typeof videoUrl === "string" && videoUrl.trim().length > 0;
+            let videoAvailability: CodexItem["videoAvailability"] | undefined;
+            let videoSizeBytes: number | undefined;
+            if (hasVideo) {
+                const workspaceUri = vscode.workspace.getWorkspaceFolder(uri)?.uri;
+                const { availability, sizeBytes } = await resolveVideoAvailability(
+                    videoUrl,
+                    workspaceUri
+                );
+                videoAvailability = availability === "none" ? undefined : availability;
+                videoSizeBytes = sizeBytes;
+            }
             const corpusMarker = metadata?.corpusMarker
                 ? metadata.corpusMarker.trim()
                 : bookInfo?.testament;
@@ -579,6 +598,10 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 sortOrder,
                 fileDisplayName: metadata?.fileDisplayName,
                 enforceHtmlStructure: metadata?.enforceHtmlStructure ?? false,
+                hasVideo,
+                videoAvailability,
+                videoSizeBytes,
+                videoUrl: hasVideo ? videoUrl : undefined,
             };
         } catch (error: any) {
             // Don't log warnings for files that don't exist (FileNotFound/ENOENT errors)
@@ -719,11 +742,22 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
         );
         const codexWatcher = vscode.workspace.createFileSystemWatcher(codexWatcherPattern);
 
+        // Watch the LFS-backed media folders so cards reflect video downloads/
+        // frees/sync without a manual refresh. These changes don't touch the
+        // .codex file, so the codex watcher above wouldn't catch them.
+        const attachmentsWatcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(rootUri.fsPath, "**/attachments/{files,pointers}/**")
+        );
+
         this.disposables.push(
             codexWatcher,
             codexWatcher.onDidCreate(() => this.buildInitialData()),
             codexWatcher.onDidChange(() => this.buildInitialData()),
             codexWatcher.onDidDelete(() => this.buildInitialData()),
+            attachmentsWatcher,
+            attachmentsWatcher.onDidCreate(() => this.scheduleVideoStatusRefresh()),
+            attachmentsWatcher.onDidChange(() => this.scheduleVideoStatusRefresh()),
+            attachmentsWatcher.onDidDelete(() => this.scheduleVideoStatusRefresh()),
             vscode.workspace.onDidChangeConfiguration((e) => {
                 if (
                     e.affectsConfiguration("codex-project-manager.validationCount") ||
@@ -755,13 +789,66 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     }
 
     private serializeItem(item: CodexItem): any {
+        // `videoUrl` is host-only state for recomputing availability; never sent.
+        const { videoUrl: _videoUrl, ...rest } = item;
         return {
-            ...item,
+            ...rest,
             uri: (item.uri as vscode.Uri).fsPath,
             children: item.children
                 ? item.children.map((child) => this.serializeItem(child))
                 : undefined,
         };
+    }
+
+    /**
+     * Recompute only the video availability/size for each item (no notebook
+     * re-reads) and push the refreshed list to the webview if anything changed.
+     * Triggered when files under `attachments/files|pointers/` change (video
+     * downloaded, freed, or synced) so cards update without a manual refresh.
+     */
+    private async refreshVideoStatuses(): Promise<void> {
+        let changed = false;
+        const visit = async (items: CodexItem[]): Promise<void> => {
+            for (const item of items) {
+                if (item.children?.length) {
+                    await visit(item.children);
+                }
+                if (!item.videoUrl) {
+                    continue;
+                }
+                const workspaceUri = vscode.workspace.getWorkspaceFolder(
+                    item.uri as vscode.Uri
+                )?.uri;
+                const { availability, sizeBytes } = await resolveVideoAvailability(
+                    item.videoUrl,
+                    workspaceUri
+                );
+                const nextAvailability = availability === "none" ? undefined : availability;
+                if (
+                    item.videoAvailability !== nextAvailability ||
+                    item.videoSizeBytes !== sizeBytes
+                ) {
+                    item.videoAvailability = nextAvailability;
+                    item.videoSizeBytes = sizeBytes;
+                    changed = true;
+                }
+            }
+        };
+        await visit(this.codexItems);
+        if (changed) {
+            this.sendItemsToWebview();
+        }
+    }
+
+    /** Debounce bursts of attachment changes (e.g. a sync downloading many files). */
+    private scheduleVideoStatusRefresh(): void {
+        if (this.videoStatusRefreshTimer) {
+            clearTimeout(this.videoStatusRefreshTimer);
+        }
+        this.videoStatusRefreshTimer = setTimeout(() => {
+            this.videoStatusRefreshTimer = undefined;
+            void this.refreshVideoStatuses();
+        }, 400);
     }
 
     private async updateCorpusMarker(oldCorpusLabel: string, newCorpusName: string): Promise<void> {
@@ -1386,6 +1473,10 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     }
 
     public dispose(): void {
+        if (this.videoStatusRefreshTimer) {
+            clearTimeout(this.videoStatusRefreshTimer);
+            this.videoStatusRefreshTimer = undefined;
+        }
         this.disposables.forEach((d) => d.dispose());
     }
 }
