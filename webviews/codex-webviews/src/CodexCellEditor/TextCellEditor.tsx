@@ -20,6 +20,7 @@ import { generateChildCellId } from "../../../../src/providers/codexCellEditorPr
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
+import { labelForTranscriptionLanguage } from "@sharedUtils/asrLanguageUtils";
 import { AudioValidationBadge } from "./AudioValidationBadge";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
 import SourceTextDisplay from "./SourceTextDisplay";
@@ -497,12 +498,57 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const transcriptionClientRef = useRef<WhisperTranscriptionClient | null>(null);
     const [asrConfig, setAsrConfig] = useState<{
         endpoint: string;
-        provider: string;
-        model: string;
-        language: string; // ISO-639-3 expected by MMS; may be ISO-639-1 and mapped
-        phonetic: boolean;
         authToken?: string;
+        /** OmniASR code (e.g. `swh_Latn`) to send as `?lang=...`. Omitted in auto-detect mode. */
+        lang?: string;
+        /** What the user picked in the gear menu: "project" (default) or "auto". */
+        languageMode?: "auto" | "project";
+        /** Script preference: "auto" (best guess), "latin", or a 4-letter ISO 15924 tag. */
+        scriptPref?: string;
+        /** Project's target-language refName, used as fallback when the server doesn't echo `lang`. */
+        projectLanguageName?: string;
     } | null>(null);
+
+    /**
+     * Friendly label shown on the transcription badge.
+     *
+     * Auto-detect mode:
+     *   - Server echoed `lang` (LID succeeded) → show that language's friendly name.
+     *   - Server returned no `lang` (LID failed, OR client is talking to a legacy
+     *     endpoint without LID like the old `mms-zeroshot-asr` Modal app) →
+     *     **"Auto Detect"**. We deliberately do NOT fall back to the project
+     *     language here — the whole point of auto-detect is that we're not
+     *     assuming it's the project language.
+     *
+     * Project mode:
+     *   - Server echoed `lang` → show that.
+     *   - Server didn't echo but we sent a code → show what we sent.
+     *   - Otherwise fall back to the project language refName.
+     *
+     * Returns null → render no badge.
+     */
+    const transcriptionBadgeLabel: string | null = useMemo(() => {
+        if (!savedTranscription) return null;
+        const isAuto = asrConfig?.languageMode === "auto";
+        const serverLang = savedTranscription.language ?? null;
+        // In auto mode neither sentLang nor projectName are meaningful labels —
+        // we didn't send a code and we don't know that the speaker used the
+        // project's language. Force the labeller down its server-echo path only.
+        const sentLang = isAuto ? null : asrConfig?.lang ?? null;
+        const projectName = isAuto ? null : asrConfig?.projectLanguageName ?? null;
+        const friendly = labelForTranscriptionLanguage(serverLang, sentLang, projectName);
+        if (friendly) return friendly;
+        // No usable label and we're in auto mode → display "Auto Detect" rather
+        // than nothing, so the user can tell auto-detect ran but failed (or the
+        // endpoint they're hitting doesn't do server-side LID).
+        if (isAuto) return "Auto Detect";
+        return null;
+    }, [
+        savedTranscription,
+        asrConfig?.lang,
+        asrConfig?.languageMode,
+        asrConfig?.projectLanguageName,
+    ]);
 
     // Helper to smoothly center the editor. Coalesces multiple calls and
     // performs a single smooth scroll after layout settles.
@@ -3074,18 +3120,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 setTranscriptionStatus(`Error: ${error}`);
             };
 
-            // Perform transcription
-            const result = await client.transcribe(audioBlob);
+            // Perform transcription. In project-language mode `asrConfig.lang` is the OmniASR
+            // code we want OmniASR to bias toward. In auto-detect mode it's undefined so the
+            // server transcribes without language conditioning.
+            const sentLang = asrConfig?.languageMode === "auto" ? undefined : asrConfig?.lang;
+            const result = await client.transcribe(audioBlob, { lang: sentLang });
 
             // Success - save transcription but don't automatically insert
             const transcribedText = result.text.trim();
             if (transcribedText) {
-                // Save transcription to cell metadata
+                // Save transcription to cell metadata. Prefer the language the server echoed
+                // back; fall back to what we sent (the server used it silently). Both can be
+                // null in auto-detect mode — that's fine, the badge code handles that.
+                const echoedOrSentLang = result.lang ?? sentLang ?? null;
                 const audioId = sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
                 if (audioId) {
                     const transcriptionData = {
                         content: transcribedText,
                         timestamp: Date.now(),
+                        language: echoedOrSentLang ?? undefined,
                     };
 
                     // Save to cell metadata via provider
@@ -3094,7 +3147,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         content: {
                             cellId: cellMarkers[0],
                             transcribedText: transcribedText,
-                            language: "unknown",
+                            language: echoedOrSentLang,
                         },
                     };
                     window.vscodeApi.postMessage(messageContent);
@@ -5542,6 +5595,23 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             ? audioDuration ?? undefined
                                                             : undefined
                                                     }
+                                                    transcriptionLanguageLabel={transcriptionBadgeLabel}
+                                                    showAdvancedAsrMenu={!isSourceText}
+                                                    asrLanguageMode={asrConfig?.languageMode ?? "project"}
+                                                    asrScriptPref={asrConfig?.scriptPref ?? "auto"}
+                                                    projectLanguageName={asrConfig?.projectLanguageName}
+                                                    onChangeAsrLanguageMode={(mode) => {
+                                                        window.vscodeApi.postMessage({
+                                                            command: "setAsrLanguageMode",
+                                                            content: { mode },
+                                                        } as EditorPostMessages);
+                                                    }}
+                                                    onChangeAsrScriptPref={(scriptPref) => {
+                                                        window.vscodeApi.postMessage({
+                                                            command: "setAsrScriptPref",
+                                                            content: { scriptPref },
+                                                        } as EditorPostMessages);
+                                                    }}
                                                 />
 
                                                 {confirmingDiscard && (
