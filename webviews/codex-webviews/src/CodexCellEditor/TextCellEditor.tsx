@@ -512,24 +512,36 @@ const CellEditor: React.FC<CellEditorProps> = ({
     /**
      * Friendly label shown on the transcription badge.
      *
-     * Source priority (delegated to labelForTranscriptionLanguage):
-     *   1. Language the server echoed in the response (saved as `transcription.language`)
-     *   2. Language we *sent* — when in project mode the server uses it silently
-     *   3. Project target-language refName, as a last-ditch fallback
-     *   4. "Auto Detect" — only when in auto-detect mode and (1)/(2)/(3) all returned null
+     * Auto-detect mode:
+     *   - Server echoed `lang` (LID succeeded) → show that language's friendly name.
+     *   - Server returned no `lang` (LID failed, OR client is talking to a legacy
+     *     endpoint without LID like the old `mms-zeroshot-asr` Modal app) →
+     *     **"Auto Detect"**. We deliberately do NOT fall back to the project
+     *     language here — the whole point of auto-detect is that we're not
+     *     assuming it's the project language.
+     *
+     * Project mode:
+     *   - Server echoed `lang` → show that.
+     *   - Server didn't echo but we sent a code → show what we sent.
+     *   - Otherwise fall back to the project language refName.
      *
      * Returns null → render no badge.
      */
     const transcriptionBadgeLabel: string | null = useMemo(() => {
         if (!savedTranscription) return null;
+        const isAuto = asrConfig?.languageMode === "auto";
         const serverLang = savedTranscription.language ?? null;
-        const sentLang = asrConfig?.languageMode === "auto" ? null : asrConfig?.lang ?? null;
-        const projectName = asrConfig?.projectLanguageName ?? null;
+        // In auto mode neither sentLang nor projectName are meaningful labels —
+        // we didn't send a code and we don't know that the speaker used the
+        // project's language. Force the labeller down its server-echo path only.
+        const sentLang = isAuto ? null : asrConfig?.lang ?? null;
+        const projectName = isAuto ? null : asrConfig?.projectLanguageName ?? null;
         const friendly = labelForTranscriptionLanguage(serverLang, sentLang, projectName);
         if (friendly) return friendly;
-        // No language info at all → only honest answer is "Auto Detect" (and only when
-        // that's what the user picked; in project mode we'd rather render nothing than lie).
-        if (asrConfig?.languageMode === "auto") return "Auto Detect";
+        // No usable label and we're in auto mode → display "Auto Detect" rather
+        // than nothing, so the user can tell auto-detect ran but failed (or the
+        // endpoint they're hitting doesn't do server-side LID).
+        if (isAuto) return "Auto Detect";
         return null;
     }, [
         savedTranscription,

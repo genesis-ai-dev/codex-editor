@@ -505,7 +505,21 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             let authToken: string | undefined;
 
-            // Try to get authenticated endpoint from FrontierAPI
+            // Try to get authenticated endpoint from FrontierAPI.
+            //
+            // TRANSITIONAL: the Frontier auth-proxy currently points its ASR
+            // upstream at the legacy `mms-zeroshot-asr` Modal app, which does
+            // **not** run LID and so cannot return a `lang` for auto-detect
+            // mode. While that's true we ignore the proxy's URL and fall back
+            // to the configured `asrEndpoint` (default: `codex-asr`, which
+            // does LID). Once the auth-proxy migrates its upstream to
+            // `codex-asr` (see docs/AUTH_SERVER_ASR_IMPLEMENTATION.md) this
+            // bypass becomes a no-op and can be removed.
+            //
+            // We still pull the JWT (when present) so the configured endpoint
+            // can validate it if it ever moves behind auth — the direct
+            // `codex-asr` Modal app simply ignores Authorization headers.
+            const LEGACY_ASR_HOST_PATTERN = /mms-?zeroshot-?asr/i;
             try {
                 const frontierApi = getAuthApi();
                 if (frontierApi) {
@@ -516,7 +530,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         if (asrEndpoint && asrEndpoint.trim()) {
                             try {
                                 new URL(asrEndpoint);
-                                endpoint = asrEndpoint;
+                                if (LEGACY_ASR_HOST_PATTERN.test(asrEndpoint)) {
+                                    debug(
+                                        `[getAsrConfig] Auth proxy still points at legacy mms-zeroshot-asr (${asrEndpoint}); using configured endpoint instead so LID-enabled auto-detect works.`
+                                    );
+                                } else {
+                                    endpoint = asrEndpoint;
+                                }
                             } catch (urlError) {
                                 console.warn("Invalid ASR endpoint URL from auth API:", asrEndpoint, urlError);
                                 // Fall back to default endpoint
