@@ -48,12 +48,13 @@ Authorization: Bearer <token>  (optional if token in query)
 
 - `source` (required): `"codex"` or `"langquest"` — for logging.
 - `token` (optional): JWT, if not in the Authorization header.
-- `lang` (**optional, new**): OmniASR language code in
+- `lang` (**optional**): OmniASR language code in
   `{iso639_3}_{Script}` form (e.g. `swh_Latn`, `urd_Arab`, `cmn_Hans`).
-  Forward this directly to OmniASR. **Omit** it to let OmniASR
-  transcribe without language conditioning. The full list of accepted
-  codes is bundled with the client in
-  `sharedUtils/omniAsrSupportedLangs.ts` (and is the live response of
+  Forward this directly to OmniASR. **Omit** it to engage the upstream's
+  built-in language ID — `codex-asr` runs MMS-LID first and feeds the
+  detected code into OmniASR (the resolved code is then included in the
+  response). The full list of accepted codes is bundled with the client
+  in `sharedUtils/omniAsrSupportedLangs.ts` (and is the live response of
   OmniASR's `GET /languages`).
 
 ### Request Body
@@ -89,10 +90,16 @@ curl -X POST "https://auth.frontier.example/api/v1/asr/transcribe?source=codex&t
 }
 ```
 
-The `lang` field is **echoed only when the request supplied one**. In
-auto-detect mode (no `lang` on the request) OmniASR omits the field and the
-proxy should do the same. The client renders an "Auto Detect" badge in that
-case (it does not lie about what language was actually used).
+The `lang` field reflects what was **actually used** for transcription:
+- Request supplied `lang` → echoed verbatim.
+- Request omitted `lang` → upstream ran MMS-LID and the resolved
+  `{iso639_3}_{Script}` code is returned here. If LID failed (silence,
+  unrecognised language, …) the field is omitted and the response also
+  includes `lid_s` so callers can tell auto-detect actually ran. The
+  client renders an "Auto Detect" badge in that case.
+
+Auto-detect responses include an additional `"lid_s": <float>` field
+with the LID inference time (useful for monitoring).
 
 The client also accepts a legacy field name `language` in place of `lang`
 (this was the Frontier proxy's earlier convention) — either works. Prefer
