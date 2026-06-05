@@ -699,7 +699,7 @@ function MainMenu() {
                                         {/* Languages row */}
                                         <div className="grid grid-cols-1 min-[311px]:grid-cols-2 gap-4">
                                             <div
-                                                className="p-3 rounded-lg cursor-pointer hover:bg-accent transition-colors"
+                                                className="p-3 rounded-lg cursor-pointer hover:bg-accent transition-colors min-w-0"
                                                 onClick={() =>
                                                     handleProjectAction(
                                                         "changeSourceLanguage",
@@ -711,14 +711,14 @@ function MainMenu() {
                                                 <div className="text-xs text-muted-foreground mb-1">
                                                     Source
                                                 </div>
-                                                <div className="text-sm font-medium">
+                                                <div className="min-w-0 break-words text-sm font-medium">
                                                     {getLanguageDisplay(
                                                         projectState.projectOverview.sourceLanguage
                                                     )}
                                                 </div>
                                             </div>
                                             <div
-                                                className="p-3 rounded-lg cursor-pointer hover:bg-accent transition-colors"
+                                                className="p-3 rounded-lg cursor-pointer hover:bg-accent transition-colors min-w-0"
                                                 onClick={() =>
                                                     handleProjectAction(
                                                         "changeTargetLanguage",
@@ -847,21 +847,23 @@ function MainMenu() {
 
                             {/* Publish Card - only show if project doesn't have remote */}
                             {!projectState.repoHasRemote && (
-                                <Card className="border shadow-sm bg-muted/20">
+                                <Card className="border shadow-sm bg-muted/20 @container">
                                     <CardContent className="p-4">
-                                        <div className="flex items-center gap-4">
-                                            <div className="flex-shrink-0">
-                                                <i
-                                                    className="codicon codicon-cloud-upload text-2xl"
-                                                    style={{ color: "var(--ring)" }}
-                                                />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="font-semibold text-sm">
-                                                    Publish to Cloud
+                                        <div className="flex flex-col @[280px]:flex-row @[280px]:items-center gap-3 @[280px]:gap-4 min-w-0">
+                                            <div className="flex items-center gap-3 @[280px]:gap-4 min-w-0 @[280px]:flex-1">
+                                                <div className="flex-shrink-0">
+                                                    <i
+                                                        className="codicon codicon-cloud-upload text-2xl"
+                                                        style={{ color: "var(--ring)" }}
+                                                    />
                                                 </div>
-                                                <div className="text-xs text-muted-foreground">
-                                                    Enable syncing and collaboration
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="font-semibold text-sm break-words">
+                                                        Publish to Cloud
+                                                    </div>
+                                                    <div className="text-xs text-muted-foreground break-words">
+                                                        Enable syncing and collaboration
+                                                    </div>
                                                 </div>
                                             </div>
                                             <Button
@@ -881,7 +883,7 @@ function MainMenu() {
                                                 }
                                                 title={!state.isGitAvailable ? "Sync unavailable — missing sync tools" : undefined}
                                                 size="sm"
-                                                className="flex-shrink-0"
+                                                className="flex-shrink-0 self-center @[280px]:self-auto @[280px]:ml-auto"
                                             >
                                                 {!state.isGitAvailable ? (
                                                     "Sync Unavailable"
