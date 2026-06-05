@@ -3061,7 +3061,13 @@ const CodexCellEditor: React.FC = () => {
     };
 
     const handlePickFile = () => {
-        vscode.postMessage({ command: "pickVideoFile" } as EditorPostMessages);
+        // The metadata modal only exposes the file picker once the video field is
+        // empty, which requires passing its type-to-confirm removal step first.
+        // So the host's own replace/delete confirmation would be redundant here.
+        vscode.postMessage({
+            command: "pickVideoFile",
+            skipVideoConfirm: true,
+        } as EditorPostMessages);
     };
 
     // Stream-and-save: revert the downloaded local copy back to an LFS pointer to
@@ -3079,9 +3085,13 @@ const CodexCellEditor: React.FC = () => {
         setMetadata(updatedMetadata);
         setVideoUrl(updatedMetadata.videoUrl || "");
         debug("metadata", "Saving metadata:", updatedMetadata);
+        // Any video change in the modal already passed its robust type-to-confirm
+        // removal step, so the host's own replace/delete confirmation would be a
+        // redundant second prompt — skip it. The host still deletes the old file.
         vscode.postMessage({
             command: "updateNotebookMetadata",
             content: updatedMetadata,
+            skipVideoConfirm: true,
         } as EditorPostMessages);
         setIsMetadataModalOpen(false);
     };

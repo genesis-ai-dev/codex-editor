@@ -1783,7 +1783,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             const oldKind = classifyVideo(oldVideoUrl);
             const newKind = classifyVideo(newVideoUrl);
             if (oldKind === "local") {
-                const proceed = await confirmVideoReplacement(oldKind, newKind);
+                // The metadata modal already runs a robust type-to-confirm step
+                // before any video removal/replace, so it sets skipVideoConfirm to
+                // avoid a redundant second prompt. Other callers still confirm.
+                const proceed = typedEvent.skipVideoConfirm
+                    ? true
+                    : await confirmVideoReplacement(oldKind, newKind);
                 if (!proceed) {
                     // Revert the webview's optimistic edit by re-sending current
                     // metadata, and restore the player's URL to the unchanged video.
@@ -2044,15 +2049,18 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
-    pickVideoFile: async ({ document, webviewPanel, provider }) => {
+    pickVideoFile: async ({ event, document, webviewPanel, provider }) => {
         debug("pickVideoFile message received");
+        const typedEvent = event as Extract<EditorPostMessages, { command: "pickVideoFile"; }>;
 
         // If a local video already exists, confirm replacement up front so the
         // user can back out before choosing a new file (deletion happens after
-        // the new file is written successfully).
+        // the new file is written successfully). The metadata modal only reveals
+        // the picker after its own type-to-confirm removal step, so it sets
+        // skipVideoConfirm to avoid a redundant prompt.
         const existingVideoUrl = document.getNotebookMetadata()?.videoUrl;
         const existingKind = classifyVideo(existingVideoUrl);
-        if (existingKind === "local") {
+        if (existingKind === "local" && !typedEvent.skipVideoConfirm) {
             const proceed = await confirmVideoReplacement("local", "local");
             if (!proceed) {
                 return;

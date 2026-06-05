@@ -414,8 +414,8 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
     | { command: "resolveHtmlStructure"; content: { cellId: string; }; }
-    | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
-    | { command: "pickVideoFile"; }
+    | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; skipVideoConfirm?: boolean; }
+    | { command: "pickVideoFile"; skipVideoConfirm?: boolean; }
     | { command: "deleteVideoFile"; }
     | { command: "freeVideoDiskSpace"; }
     | { command: "requestVideoStreamUrl"; }
@@ -470,7 +470,7 @@ export type EditorPostMessages =
     | { command: "updateTextDirection"; direction: "ltr" | "rtl"; }
     | { command: "openSourceText"; content: { chapterNumber: number; }; }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
-    | { command: "pickVideoFile"; }
+    | { command: "pickVideoFile"; skipVideoConfirm?: boolean; }
     | {
         command: "exportFile";
         content: { subtitleData: string; format: string; includeStyles: boolean; };
