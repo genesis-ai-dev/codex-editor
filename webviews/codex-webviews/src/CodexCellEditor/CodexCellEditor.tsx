@@ -174,6 +174,28 @@ const CodexCellEditor: React.FC = () => {
         videoUrl: "", // FIXME: use attachments instead of videoUrl
     } as CustomNotebookMetadata);
     const [videoUrl, setVideoUrl] = useState<string>("");
+    // Set when the host reports a streamed video can't be played (offline, not
+    // logged in, no LFS reference, etc.); cleared once a playable URL arrives.
+    const [videoUnavailableMessage, setVideoUnavailableMessage] = useState<string | null>(null);
+    // True while the host resolves a playable URL (stream resolve or download).
+    const [videoResolving, setVideoResolving] = useState<boolean>(false);
+    // Set when the chapter video is an LFS pointer and must be downloaded before
+    // it can play. The active media strategy determines the wording/actions.
+    const [videoNeedsDownloadStrategy, setVideoNeedsDownloadStrategy] = useState<
+        "auto-download" | "stream-and-save" | "stream-only" | null
+    >(null);
+    // Host-reported status of the stored video reference. Drives whether the
+    // "Show Video" toggle appears (a broken/missing reference is treated as no
+    // video) and lets the modal flag a missing file. `null` until first report.
+    const [videoReferenceStatus, setVideoReferenceStatus] = useState<
+        "none" | "url" | "local-usable" | "missing" | null
+    >(null);
+    // Stream-and-save only: a downloaded local copy exists that can be reverted to
+    // a pointer to free disk space (re-streamed on demand).
+    const [videoCanFreeDiskSpace, setVideoCanFreeDiskSpace] = useState<boolean>(false);
+    // Size (bytes) of the referenced video when known (local bytes or LFS pointer
+    // size). null until reported / unknown (e.g. remote URLs).
+    const [videoSizeBytes, setVideoSizeBytes] = useState<number | null>(null);
     const playerRef = useRef<ReactPlayerRef>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const [muteVideoAudioDuringPlayback, setMuteVideoAudioDuringPlayback] = useState(true);
@@ -1287,11 +1309,6 @@ const CodexCellEditor: React.FC = () => {
         }
     }, [chapterNumber, isSourceText, highlightedCellId, lastHighlightedChapter]);
 
-    // A "temp" video URL that is used to update the video URL in the metadata modal.
-    // We need to use the client-side file picker, so we need to then pass the picked
-    // video URL back to the extension so the user can save or cancel the change.
-    const [tempVideoUrl, setTempVideoUrl] = useState<string>("");
-
     // Debug timestamp to track when a cell started processing
     const processingStartTimeRef = useRef<number | null>(null);
 
@@ -1734,7 +1751,58 @@ const CodexCellEditor: React.FC = () => {
             }
         },
         updateVideoUrl: (url: string) => {
-            setTempVideoUrl(url);
+            // The host resolves the best playable URL (local webview URI or remote
+            // URL) and pushes it here.
+            setVideoUrl(url);
+            setVideoUnavailableMessage(null);
+            setVideoNeedsDownloadStrategy(null);
+            setVideoResolving(false);
+        },
+        videoReferenceStatus: (status, canFreeDiskSpace, sizeBytes) => {
+            setVideoReferenceStatus(status);
+            setVideoCanFreeDiskSpace(!!canFreeDiskSpace);
+            setVideoSizeBytes(typeof sizeBytes === "number" ? sizeBytes : null);
+            // When the reference is gone (removed/cleared), close the player and
+            // clear any transient video state so nothing lingers on screen.
+            if (status === "none") {
+                setShouldShowVideoPlayer(false);
+                setVideoUrl("");
+                setVideoUnavailableMessage(null);
+                setVideoNeedsDownloadStrategy(null);
+                setVideoResolving(false);
+            }
+        },
+        videoStreamResolving: () => {
+            // An action started elsewhere (e.g. "Load video" / "Save to project"
+            // from a navigation card) is fetching this chapter's video. Reflect
+            // that in the player area: drop the placeholder and show the loading
+            // state until the host pushes the resolved URL (or an error).
+            setVideoUrl("");
+            setVideoUnavailableMessage(null);
+            setVideoNeedsDownloadStrategy(null);
+            setVideoResolving(true);
+        },
+        videoStreamUnavailable: (_reason: string, message?: string) => {
+            // Drop the (likely pointer/stale) URL so the player is replaced by
+            // the unavailable state with a retry action.
+            setVideoUrl("");
+            setVideoResolving(false);
+            setVideoNeedsDownloadStrategy(null);
+            setVideoUnavailableMessage(
+                message || "This video isn't available locally."
+            );
+        },
+        videoNeedsDownload: (strategy) => {
+            // The video is an LFS pointer; show strategy-appropriate actions.
+            setVideoUrl("");
+            setVideoUnavailableMessage(null);
+            setVideoNeedsDownloadStrategy(strategy);
+            // In auto-download the file is meant to live on disk, so fetch it
+            // automatically (like audio) instead of asking the user to click.
+            // Show the resolving state so the manual overlay doesn't flash before
+            // the auto-download effect runs; a real failure resets this via
+            // `videoStreamUnavailable`.
+            setVideoResolving(strategy === "auto-download");
         },
         // Use cellError handler instead of showErrorMessage
         cellError: (data) => {
@@ -2996,10 +3064,20 @@ const CodexCellEditor: React.FC = () => {
         vscode.postMessage({ command: "pickVideoFile" } as EditorPostMessages);
     };
 
-    const handleSaveMetadata = () => {
-        const updatedMetadata = { ...metadata };
+    // Stream-and-save: revert the downloaded local copy back to an LFS pointer to
+    // free disk space. The host confirms; the video reference is kept so it
+    // re-streams on demand.
+    const handleFreeVideoDiskSpace = () => {
+        vscode.postMessage({ command: "freeVideoDiskSpace" } as EditorPostMessages);
+    };
+
+    // Commit metadata edits from the modal. The modal edits a local draft and only
+    // calls this on "Save Changes", so removals/edits are deferred until here.
+    // When the saved videoUrl changes, the host confirms and (for a local file)
+    // deletes the old file from disk as part of updateNotebookMetadata.
+    const handleSaveMetadata = (updatedMetadata: CustomNotebookMetadata) => {
+        setMetadata(updatedMetadata);
         setVideoUrl(updatedMetadata.videoUrl || "");
-        setTempVideoUrl("");
         debug("metadata", "Saving metadata:", updatedMetadata);
         vscode.postMessage({
             command: "updateNotebookMetadata",
@@ -3008,9 +3086,58 @@ const CodexCellEditor: React.FC = () => {
         setIsMetadataModalOpen(false);
     };
 
-    const handleUpdateVideoUrl = (url: string) => {
-        setVideoUrl(url);
-    };
+    // Keep the reference status fresh: ask the host whenever the stored video
+    // reference changes (and on mount). This drives the toggle + modal badge
+    // independently of whether the player is open.
+    useEffect(() => {
+        vscode.postMessage({ command: "requestVideoReferenceStatus" } as EditorPostMessages);
+    }, [metadata.videoUrl]);
+
+    // Ask the host to resolve a playable source for the chapter video. Remote
+    // URLs play directly; local files resolve to a webview URI; LFS pointers come
+    // back as a "needs download" state (we no longer stream LFS directly). We
+    // clear the current URL so a stale pointer URI isn't shown while resolving.
+    const requestVideoStreamUrl = useCallback(() => {
+        setVideoUnavailableMessage(null);
+        setVideoNeedsDownloadStrategy(null);
+        setVideoResolving(true);
+        setVideoUrl("");
+        vscode.postMessage({ command: "requestVideoStreamUrl" } as EditorPostMessages);
+    }, []);
+
+    // Download the LFS-backed video so it can play locally. `persist` controls
+    // whether stream-only keeps the file ("Save to project") or treats it as a
+    // session cache that re-streams next session (the default "Load").
+    const downloadVideoFile = useCallback((persist: boolean = true) => {
+        setVideoUnavailableMessage(null);
+        setVideoNeedsDownloadStrategy(null);
+        setVideoResolving(true);
+        setVideoUrl("");
+        vscode.postMessage({ command: "downloadVideoFile", persist } as EditorPostMessages);
+    }, []);
+
+    // When the player opens (or the video reference changes while open), and the
+    // stored reference isn't already a direct remote URL, request a stream URL.
+    useEffect(() => {
+        if (!shouldShowVideoPlayer) {
+            return;
+        }
+        const stored = metadata.videoUrl;
+        if (!stored || /^https?:\/\//i.test(stored)) {
+            return;
+        }
+        requestVideoStreamUrl();
+    }, [shouldShowVideoPlayer, metadata.videoUrl, requestVideoStreamUrl]);
+
+    // In auto-download mode a pointer-backed video should download on its own
+    // (mirroring audio's auto-fetch) rather than waiting for a manual click.
+    // `downloadVideoFile` clears the strategy, so this can't loop; a failure
+    // surfaces via `videoStreamUnavailable` and won't re-trigger.
+    useEffect(() => {
+        if (videoNeedsDownloadStrategy === "auto-download") {
+            downloadVideoFile(true);
+        }
+    }, [videoNeedsDownloadStrategy, downloadVideoFile]);
 
     // Handler for temporary font size changes (for preview)
     const handleTempFontSizeChange = (fontSize: number) => {
@@ -3092,7 +3219,14 @@ const CodexCellEditor: React.FC = () => {
 
     (window as any).getCurrentEditingCellId = getCurrentEditingCellId;
 
-    const documentHasVideoAvailable = !!metadata.videoUrl;
+    // The "Show Video" toggle should appear only when there's a usable reference:
+    // a remote URL, or a local file with bytes/pointer. A "missing" reference (or
+    // an empty one) hides it. Until the host reports status, fall back to the raw
+    // presence of a videoUrl so the toggle isn't briefly hidden on load.
+    const documentHasVideoAvailable =
+        videoReferenceStatus !== null
+            ? videoReferenceStatus === "url" || videoReferenceStatus === "local-usable"
+            : !!metadata.videoUrl;
 
     // Debug helper: Log info about translation units and their validation status
     useEffect(() => {
@@ -3492,11 +3626,13 @@ const CodexCellEditor: React.FC = () => {
                             openSourceText={openSourceText}
                             documentHasVideoAvailable={documentHasVideoAvailable}
                             metadata={metadata}
-                            tempVideoUrl={tempVideoUrl}
+                            videoReferenceStatus={videoReferenceStatus}
                             onMetadataChange={handleMetadataChange}
                             onSaveMetadata={handleSaveMetadata}
                             onPickFile={handlePickFile}
-                            onUpdateVideoUrl={handleUpdateVideoUrl}
+                            videoCanFreeDiskSpace={videoCanFreeDiskSpace}
+                            onFreeVideoDiskSpace={handleFreeVideoDiskSpace}
+                            videoSizeBytes={videoSizeBytes}
                             toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
                             scrollSyncEnabled={scrollSyncEnabled}
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}
@@ -3530,6 +3666,138 @@ const CodexCellEditor: React.FC = () => {
                         />
                     </div>
                 </div>
+                {shouldShowVideoPlayer && !videoUrl && videoResolving && (
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: "12px",
+                            padding: "32px",
+                            backgroundColor: "black",
+                            color: "white",
+                        }}
+                        ref={videoPlayerRef}
+                    >
+                        <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontSize: "24px" }} />
+                        <span>Loading video…</span>
+                    </div>
+                )}
+                {shouldShowVideoPlayer && !videoUrl && !videoResolving && videoNeedsDownloadStrategy && (
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: "10px",
+                            padding: "24px",
+                            backgroundColor: "black",
+                            color: "white",
+                            textAlign: "center",
+                        }}
+                        ref={videoPlayerRef}
+                    >
+                        <i className="codicon codicon-device-camera-video" style={{ fontSize: "24px" }} />
+                        <span style={{ fontWeight: 600 }}>
+                            {videoNeedsDownloadStrategy === "stream-only"
+                                ? "Streaming mode"
+                                : videoNeedsDownloadStrategy === "stream-and-save"
+                                ? "Stream & save mode"
+                                : "Video not downloaded yet"}
+                        </span>
+                        <span style={{ opacity: 0.85, maxWidth: "420px" }}>
+                            {videoNeedsDownloadStrategy === "stream-only"
+                                ? "This video isn't saved to your project. Load it for this session, or save it so it's kept for next time."
+                                : "This video will be downloaded and saved to your project."}
+                        </span>
+                        <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+                            {videoNeedsDownloadStrategy === "stream-only" ? (
+                                <>
+                                    <button
+                                        onClick={() => downloadVideoFile(false)}
+                                        style={{
+                                            cursor: "pointer",
+                                            padding: "6px 14px",
+                                            borderRadius: "4px",
+                                            border: "1px solid var(--vscode-button-border, transparent)",
+                                            background: "var(--vscode-button-background)",
+                                            color: "var(--vscode-button-foreground)",
+                                        }}
+                                    >
+                                        <i className="codicon codicon-play" style={{ marginRight: "6px" }} />
+                                        Load video
+                                    </button>
+                                    <button
+                                        onClick={() => downloadVideoFile(true)}
+                                        style={{
+                                            cursor: "pointer",
+                                            padding: "6px 14px",
+                                            borderRadius: "4px",
+                                            border: "1px solid var(--vscode-button-border, transparent)",
+                                            background: "var(--vscode-button-secondaryBackground)",
+                                            color: "var(--vscode-button-secondaryForeground)",
+                                        }}
+                                    >
+                                        <i className="codicon codicon-save" style={{ marginRight: "6px" }} />
+                                        Save to project
+                                    </button>
+                                </>
+                            ) : (
+                                <button
+                                    onClick={() => downloadVideoFile(true)}
+                                    style={{
+                                        cursor: "pointer",
+                                        padding: "6px 14px",
+                                        borderRadius: "4px",
+                                        border: "1px solid var(--vscode-button-border, transparent)",
+                                        background: "var(--vscode-button-background)",
+                                        color: "var(--vscode-button-foreground)",
+                                    }}
+                                >
+                                    <i className="codicon codicon-cloud-download" style={{ marginRight: "6px" }} />
+                                    Download &amp; play
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                )}
+                {shouldShowVideoPlayer && !videoUrl && !videoResolving && videoUnavailableMessage && (
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: "12px",
+                            padding: "24px",
+                            backgroundColor: "black",
+                            color: "white",
+                            textAlign: "center",
+                        }}
+                        ref={videoPlayerRef}
+                    >
+                        <i className="codicon codicon-cloud-offline" style={{ fontSize: "24px" }} />
+                        <span>{videoUnavailableMessage}</span>
+                        <div style={{ display: "flex", gap: "8px" }}>
+                            <button
+                                onClick={requestVideoStreamUrl}
+                                style={{
+                                    cursor: "pointer",
+                                    padding: "6px 14px",
+                                    borderRadius: "4px",
+                                    border: "1px solid var(--vscode-button-border, transparent)",
+                                    background: "var(--vscode-button-background)",
+                                    color: "var(--vscode-button-foreground)",
+                                }}
+                            >
+                                <i className="codicon codicon-refresh" style={{ marginRight: "6px" }} />
+                                Retry
+                            </button>
+                        </div>
+                    </div>
+                )}
                 {shouldShowVideoPlayer && videoUrl && (
                     <div
                         style={{
@@ -3545,6 +3813,7 @@ const CodexCellEditor: React.FC = () => {
                             playerRef={playerRef}
                             audioAttachments={audioAttachments}
                             muteVideoWhenPlayingAudio={muteVideoAudioDuringPlayback}
+                            onRequestStreamUrl={requestVideoStreamUrl}
                         />
                     </div>
                 )}

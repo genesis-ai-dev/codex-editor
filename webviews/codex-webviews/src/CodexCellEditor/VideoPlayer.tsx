@@ -14,6 +14,12 @@ interface VideoPlayerProps {
     onPause?: () => void;
     autoPlay: boolean;
     playerHeight: number;
+    /**
+     * Ask the host to (re)resolve a playable URL. Used to recover from an
+     * expired presigned stream URL: on a media error we request a fresh one
+     * before surfacing an error to the user.
+     */
+    onRequestStreamUrl?: () => void;
 }
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -26,6 +32,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     onPause,
     autoPlay,
     playerHeight,
+    onRequestStreamUrl,
 }) => {
     const { subtitleUrl } = useSubtitleData(translationUnitsForSection);
     const [error, setError] = useState<string | null>(null);
@@ -36,8 +43,31 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Check if the URL is a YouTube URL
     const isYouTubeUrl = videoUrl?.includes("youtube.com") || videoUrl?.includes("youtu.be");
 
+    // Guard so a persistently-failing URL doesn't trigger an infinite refresh loop.
+    const lastStreamRefreshRef = useRef<{ url: string; at: number; }>({ url: "", at: 0 });
+
     const handleError = (error: any) => {
         console.error("Video player error:", error);
+
+        // A streamed (presigned) URL may have expired mid-watch. Ask the host for
+        // a fresh URL once before showing an error. Only do this for genuine
+        // remote stream URLs — local webview-resource URLs won't benefit and
+        // would otherwise loop. A new URL changes the player key and remounts;
+        // the same URL is guarded by time + identity.
+        const isRemoteStreamUrl =
+            /^https?:\/\//i.test(videoUrl) &&
+            !/vscode-resource|vscode-cdn|vscode-webview/i.test(videoUrl) &&
+            !isYouTubeUrl;
+        if (onRequestStreamUrl && isRemoteStreamUrl) {
+            const now = Date.now();
+            const guard = lastStreamRefreshRef.current;
+            if (guard.url !== videoUrl || now - guard.at > 10000) {
+                lastStreamRefreshRef.current = { url: videoUrl, at: now };
+                onRequestStreamUrl();
+                return;
+            }
+        }
+
         // ReactPlayer onError receives an error object or event
         if (error?.target?.error) {
             const videoError = error.target.error;

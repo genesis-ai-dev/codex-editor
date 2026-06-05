@@ -696,6 +696,21 @@ function getWebviewContent(
                 .format-option-row[data-option].hidden { display: none !important; }
                 .format-option p, .format-option-content p { line-height: 1.45; margin: 4px 0 0 0; }
                 .format-option-content { display: flex; flex-direction: column; gap: 4px; }
+                .format-option-toggle {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    font-size: 0.9em;
+                    color: var(--vscode-descriptionForeground);
+                    cursor: pointer;
+                    user-select: none;
+                }
+                .format-option-toggle input[type="checkbox"] { margin: 0; cursor: pointer; }
+                .format-section-suboption {
+                    padding: 10px 12px;
+                    background-color: var(--vscode-editor-background);
+                    border-top: 1px solid var(--vscode-input-border);
+                }
                 .format-tag {
                     display: inline-block;
                     padding: 1px 4px;
@@ -1247,6 +1262,12 @@ function getWebviewContent(
                                             <span class="format-tag">Plain Text Only</span>
                                         </div>
                                     </div>
+                                </div>
+                                <div class="format-section-suboption">
+                                    <label class="format-option-toggle" id="vttExcludeLabelsToggle">
+                                        <input type="checkbox" id="vttExcludeLabelsCb">
+                                        Exclude speaker labels from WebVTT cues
+                                    </label>
                                 </div>
                             </div>
                             <!-- Round-trip: only for supported file types -->
@@ -2953,6 +2974,10 @@ function getWebviewContent(
                     if (selectedAudioMode) {
                         options.includeAudio = true;
                         options.includeTimestamps = selectedAudioMode === 'audio-timestamps';
+                    }
+                    if (selectedFormat && selectedFormat.startsWith('subtitles-vtt-')) {
+                        const cb = document.getElementById('vttExcludeLabelsCb');
+                        if (cb && cb.checked) options.excludeLabels = true;
                     }
                     const selectedMilestones = buildSelectedMilestonesPayload();
                     if (selectedMilestones) {

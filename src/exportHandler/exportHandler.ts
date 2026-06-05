@@ -255,6 +255,7 @@ export interface ExportOptions {
     removeIds?: boolean;
     includeAudio?: boolean;
     includeTimestamps?: boolean;
+    excludeLabels?: boolean;
     /** Per-file 0-based milestone indices to include when exporting audio. An empty array skips that file entirely. Files omitted from this map are exported in full (no milestone step). */
     selectedMilestonesByFile?: Record<string, number[]>;
 }
@@ -2066,8 +2067,15 @@ export const exportCodexContentAsSubtitlesVtt = async (
             totalCells += cells.length;
             debug(`File has ${cells.length} active cells`);
 
-            const vttContent = generateVttData(cells, includeStyles, cueSplitting, file.fsPath);
-            debug({ vttContent, cells, includeStyles });
+                    // Generate VTT content
+                    const vttContent = generateVttData(
+                        cells,
+                        includeStyles,
+                        cueSplitting,
+                        file.fsPath,
+                        options?.excludeLabels === true
+                    );
+                    debug({ vttContent, cells, includeStyles });
 
             const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
             const fileName = basename(file.fsPath).replace(".codex", "") || "unknown";
