@@ -200,11 +200,17 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                             >
                                 {transcription.content}
                             </p>
-                            {transcriptionLanguageLabel && (
-                                <Badge variant="secondary" className="text-xs">
-                                    {transcriptionLanguageLabel}
-                                </Badge>
-                            )}
+                            {/* Language badge intentionally hidden in this PR.
+                                The new `codex-asr` Modal app DOES run MMS-LID and echo back a
+                                `lang` for auto-detect (and the plumbing all the way through
+                                `transcriptionLanguageLabel` is wired and ready), but this PR
+                                keeps the client pointed at the existing Frontier auth-proxy ASR
+                                endpoint, which still forwards to the legacy `mms-zeroshot-asr`
+                                Modal app — no LID, no `lang` echo. Showing the badge in that
+                                world means falling back to "Auto Detect" (or worse, the project
+                                language) instead of an honest detection, which is misleading.
+                                Re-enable this `<Badge>` once the auth-proxy upstream migrates
+                                to `codex-asr` (see docs/AUTH_SERVER_ASR_IMPLEMENTATION.md). */}
                         </div>
                         <Button
                             onClick={onInsertTranscription}
