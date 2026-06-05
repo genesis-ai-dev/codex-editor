@@ -93,14 +93,26 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
 
     // The Script picker offers three "preset" choices plus a free-form 4-letter input for
     // power users (e.g. someone wants `swa_Cyrl` even though the resolver would never pick
-    // it). We surface "Custom" only when the current value isn't one of the presets.
-    const isPresetScript = asrScriptPref === "auto" || asrScriptPref === "latin";
+    // it). We track the *dropdown* selection separately from the committed `asrScriptPref`
+    // so picking "Custom" reveals the input even before a valid tag has been entered.
+    type ScriptOption = "auto" | "latin" | "custom";
+    const optionFromPref = (pref: string): ScriptOption =>
+        pref === "auto" ? "auto" : pref === "latin" ? "latin" : "custom";
+    const [scriptSelection, setScriptSelection] = useState<ScriptOption>(
+        optionFromPref(asrScriptPref)
+    );
     const [scriptCustomDraft, setScriptCustomDraft] = useState<string>(
-        isPresetScript ? "" : asrScriptPref
+        optionFromPref(asrScriptPref) === "custom" ? asrScriptPref : ""
     );
     useEffect(() => {
-        if (!isPresetScript) setScriptCustomDraft(asrScriptPref);
-    }, [asrScriptPref, isPresetScript]);
+        const next = optionFromPref(asrScriptPref);
+        setScriptSelection(next);
+        if (next === "custom") setScriptCustomDraft(asrScriptPref);
+    }, [asrScriptPref]);
+    const commitCustomScript = () => {
+        const candidate = scriptCustomDraft.trim();
+        if (/^[A-Za-z]{4}$/.test(candidate)) onChangeAsrScriptPref?.(candidate);
+    };
 
     // Prefer the provided URL (can be blob: or data:). Fall back to creating an object URL from the blob.
     useEffect(() => {
@@ -270,119 +282,143 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
 
             {/* Action buttons at bottom */}
             <div className="flex flex-wrap items-center justify-center gap-2 px-2">
-                {/* Transcribe / Re-transcribe button — always visible (mirrors Re-record),
-                    grey-out while a transcription is in flight. The label flips to
-                    "Re-transcribe" once we have a saved transcription so the user can
-                    re-run with different ASR settings (e.g. flip to auto-detect). */}
-                <Button
-                    onClick={onTranscribe}
-                    disabled={disabled || isTranscribing || (!audioUrl && !audioBlob)}
-                    variant="outline"
-                    className="h-8 px-2 text-xs text-[var(--vscode-button-background)] border-[var(--vscode-button-background)]/20 hover:bg-[var(--vscode-button-background)]/10"
-                    title={transcription ? "Re-transcribe audio with current settings" : "Transcribe Audio"}
-                >
-                    <MessageCircle className="h-3 w-3" />
-                    <span className="ml-1">{transcription ? "Re-transcribe" : "Transcribe"}</span>
-                </Button>
-                {/* Gear menu — Language (auto-detect vs project) + Script (auto/Latin/custom).
-                    Hidden on source-text editors where transcription policy isn't user-driven. */}
-                {showAdvancedAsrMenu && (
-                    <Popover>
-                        <PopoverTrigger asChild>
+                {/* Transcribe / Re-transcribe split-button. The gear is glued to the right
+                    edge of the main button (shared border, no gap) so it visually belongs
+                    to the transcribe control. The label flips to "Re-transcribe" once a
+                    saved transcription exists so the user can re-run with different ASR
+                    settings (e.g. flip to auto-detect). Grey-out the whole group while a
+                    transcription is in flight. */}
+                {(() => {
+                    const sharedBtnClass =
+                        "h-8 text-xs text-[var(--vscode-button-background)] border-[var(--vscode-button-background)]/20 hover:bg-[var(--vscode-button-background)]/10";
+                    const transcribeDisabled =
+                        disabled || isTranscribing || (!audioUrl && !audioBlob);
+                    return (
+                        <div className="inline-flex items-stretch">
                             <Button
+                                onClick={onTranscribe}
+                                disabled={transcribeDisabled}
                                 variant="outline"
-                                size="sm"
-                                className="h-8 w-8 p-0 text-xs"
-                                title="Advanced ASR settings (Language / Script)"
-                                aria-label="Advanced ASR settings"
-                                disabled={isTranscribing}
+                                className={`${sharedBtnClass} px-2 ${
+                                    showAdvancedAsrMenu ? "rounded-r-none border-r-0" : ""
+                                }`}
+                                title={
+                                    transcription
+                                        ? "Re-transcribe audio with current settings"
+                                        : "Transcribe Audio"
+                                }
                             >
-                                <SettingsIcon className="h-3 w-3" />
+                                <MessageCircle className="h-3 w-3" />
+                                <span className="ml-1">
+                                    {transcription ? "Re-transcribe" : "Transcribe"}
+                                </span>
                             </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-72 space-y-3" align="start">
-                            <div className="space-y-1">
-                                <div className="text-xs font-semibold">Language</div>
-                                <Select
-                                    value={asrLanguageMode}
-                                    onValueChange={(v) =>
-                                        onChangeAsrLanguageMode?.(v === "auto" ? "auto" : "project")
-                                    }
-                                >
-                                    <SelectTrigger className="h-7 text-xs">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="project">
-                                            {projectLanguageName ? `Project (${projectLanguageName})` : "Project language"}
-                                        </SelectItem>
-                                        <SelectItem value="auto">Auto-detect</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                                <p className="text-[10px] text-muted-foreground leading-snug">
-                                    "Project" sends the language code to OmniASR for better accuracy.
-                                    "Auto-detect" omits it — OmniASR transcribes without language conditioning.
-                                </p>
-                            </div>
-                            <div className="space-y-1">
-                                <div className="text-xs font-semibold">Script</div>
-                                <Select
-                                    value={isPresetScript ? asrScriptPref : "custom"}
-                                    onValueChange={(v) => {
-                                        if (v === "auto" || v === "latin") {
-                                            onChangeAsrScriptPref?.(v);
-                                        } else {
-                                            // "custom" — keep whatever 4-letter tag is in the input,
-                                            // or fall back to "auto" if the input is empty/invalid.
-                                            const candidate = scriptCustomDraft.trim();
-                                            const isValid = /^[A-Za-z]{4}$/.test(candidate);
-                                            onChangeAsrScriptPref?.(isValid ? candidate : "auto");
-                                        }
-                                    }}
-                                >
-                                    <SelectTrigger className="h-7 text-xs">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="auto">Best guess (default)</SelectItem>
-                                        <SelectItem value="latin">Latin (where supported)</SelectItem>
-                                        <SelectItem value="custom">Custom (ISO 15924 tag)</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                                {/* Free-form 4-letter input shown only when "Custom" is selected.
-                                    Validation happens on commit so users can type. */}
-                                {!isPresetScript ? (
-                                    <div className="flex items-center gap-1">
-                                        <Input
-                                            value={scriptCustomDraft}
-                                            onChange={(e) => setScriptCustomDraft(e.target.value)}
-                                            placeholder="e.g. Arab, Cyrl, Hans"
-                                            maxLength={4}
-                                            className="h-7 text-xs"
-                                        />
+                            {showAdvancedAsrMenu && (
+                                <Popover>
+                                    <PopoverTrigger asChild>
                                         <Button
-                                            size="sm"
+                                            type="button"
                                             variant="outline"
-                                            className="h-7 px-2 text-xs"
-                                            onClick={() => {
-                                                const candidate = scriptCustomDraft.trim();
-                                                if (/^[A-Za-z]{4}$/.test(candidate)) {
-                                                    onChangeAsrScriptPref?.(candidate);
-                                                }
-                                            }}
+                                            disabled={isTranscribing}
+                                            className={`${sharedBtnClass} px-1.5 rounded-l-none`}
+                                            title="Advanced ASR settings (Language / Script)"
+                                            aria-label="Advanced ASR settings"
                                         >
-                                            Apply
+                                            <SettingsIcon className="h-3 w-3 opacity-70" />
                                         </Button>
-                                    </div>
-                                ) : null}
-                                <p className="text-[10px] text-muted-foreground leading-snug">
-                                    Script subtag paired with the language. Best guess covers Urdu→Arabic,
-                                    Mandarin→Simplified, Cantonese→Traditional, etc.
-                                </p>
-                            </div>
-                        </PopoverContent>
-                    </Popover>
-                )}
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-64 space-y-3" align="end">
+                                        <div className="space-y-1">
+                                            <div className="text-xs font-semibold">Language</div>
+                                            <Select
+                                                value={asrLanguageMode}
+                                                onValueChange={(v) =>
+                                                    onChangeAsrLanguageMode?.(
+                                                        v === "auto" ? "auto" : "project"
+                                                    )
+                                                }
+                                            >
+                                                <SelectTrigger className="h-7 text-xs">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="project">
+                                                        {projectLanguageName
+                                                            ? `Project (${projectLanguageName})`
+                                                            : "Project language"}
+                                                    </SelectItem>
+                                                    <SelectItem value="auto">
+                                                        Auto-detect
+                                                    </SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="text-xs font-semibold">Script</div>
+                                            <Select
+                                                value={scriptSelection}
+                                                onValueChange={(v) => {
+                                                    const next = v as ScriptOption;
+                                                    setScriptSelection(next);
+                                                    if (next === "auto" || next === "latin") {
+                                                        onChangeAsrScriptPref?.(next);
+                                                    }
+                                                }}
+                                            >
+                                                <SelectTrigger className="h-7 text-xs">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="auto">
+                                                        Default
+                                                    </SelectItem>
+                                                    <SelectItem value="latin">
+                                                        Latin (where supported)
+                                                    </SelectItem>
+                                                    <SelectItem value="custom">
+                                                        Other (ISO 15924 tag)
+                                                    </SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            {scriptSelection === "custom" && (
+                                                <div className="flex items-center gap-1">
+                                                    <Input
+                                                        value={scriptCustomDraft}
+                                                        onChange={(e) =>
+                                                            setScriptCustomDraft(e.target.value)
+                                                        }
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === "Enter") {
+                                                                e.preventDefault();
+                                                                commitCustomScript();
+                                                            }
+                                                        }}
+                                                        placeholder="e.g. Arab, Cyrl, Hans"
+                                                        maxLength={4}
+                                                        className="h-7 text-xs"
+                                                    />
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="h-7 px-2 text-xs"
+                                                        disabled={
+                                                            !/^[A-Za-z]{4}$/.test(
+                                                                scriptCustomDraft.trim()
+                                                            )
+                                                        }
+                                                        onClick={commitCustomScript}
+                                                    >
+                                                        Apply
+                                                    </Button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </PopoverContent>
+                                </Popover>
+                            )}
+                        </div>
+                    );
+                })()}
                 <Button
                     variant="outline"
                     size="sm"
