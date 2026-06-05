@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
 import { Separator } from "../components/ui/separator";
 import { Badge } from "../components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { formatBytes } from "../lib/utils";
 
@@ -79,18 +80,24 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
     // removal — is persisted unless the user explicitly saves.
     const [draft, setDraft] = useState<CustomNotebookMetadata>(metadata);
     const [hasChanges, setHasChanges] = useState(false);
+    // Safety gate for removing a video: the user must type/paste the exact file
+    // name (local) or URL (remote) before the removal is allowed. `null` means
+    // the confirmation panel is closed.
+    const [removalConfirmText, setRemovalConfirmText] = useState<string | null>(null);
 
     // Start the draft from the latest saved metadata each time the modal opens.
     useEffect(() => {
         if (isOpen) {
             setDraft(metadata);
             setHasChanges(false);
+            setRemovalConfirmText(null);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
 
     // Picking a file is an immediate host action that updates the saved videoUrl;
-    // mirror it into the draft so the field reflects the newly picked file.
+    // mirror it into the draft so the field reflects the newly picked file. Any
+    // in-progress removal confirmation no longer applies to the new reference.
     useEffect(() => {
         if (!isOpen) {
             return;
@@ -98,6 +105,7 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
         setDraft((d) =>
             d.videoUrl === metadata.videoUrl ? d : { ...d, videoUrl: metadata.videoUrl }
         );
+        setRemovalConfirmText(null);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [metadata.videoUrl]);
 
@@ -106,12 +114,22 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
         setDraft((d) => ({ ...d, [key]: value }) as CustomNotebookMetadata);
     };
 
-    // Clear/remove is deferred: it only empties the draft field. The actual file
-    // deletion + JSON change happens on Save (the host removes the old local file
-    // when the saved videoUrl changes).
+    // Step 1 of removal: open the type-to-confirm panel. Nothing is changed yet.
     const handleClearVideo = () => {
+        setRemovalConfirmText("");
+    };
+
+    const cancelClearVideo = () => {
+        setRemovalConfirmText(null);
+    };
+
+    // Step 2 of removal (only reachable once the typed text matches): empty the
+    // draft field. The actual file deletion + JSON change is still deferred to
+    // Save (the host removes the old local file when the saved videoUrl changes).
+    const confirmClearVideo = () => {
         setHasChanges(true);
         setDraft((d) => ({ ...d, videoUrl: "" }) as CustomNotebookMetadata);
+        setRemovalConfirmText(null);
     };
 
     const handleSave = () => {
@@ -122,6 +140,7 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
     const handleClose = () => {
         setDraft(metadata);
         setHasChanges(false);
+        setRemovalConfirmText(null);
         onClose();
     };
 
@@ -186,64 +205,161 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                                 ? formatBytes(videoSizeBytes)
                                 : "";
 
+                        // The token the user must type/paste to confirm removal:
+                        // the file name for a local video, or the full URL for a
+                        // remote one. Matching is exact after trimming surrounding
+                        // whitespace (so a pasted value with stray spaces still
+                        // works) — a deliberate "are you sure" gate.
+                        const expectedToken = isLocalFile ? fileName : videoValue;
+                        const isConfirmingRemoval = removalConfirmText !== null;
+                        const trimmedExpected = expectedToken.trim();
+                        const removalMatches =
+                            isConfirmingRemoval &&
+                            trimmedExpected.length > 0 &&
+                            (removalConfirmText ?? "").trim() === trimmedExpected;
+
                         // When a video is set, lock the field. Changing it requires an
                         // explicit Clear first (deferred — the file is only deleted and
                         // the JSON updated on Save). Once cleared, the field becomes
                         // editable for the next URL or picked file.
                         if (hasVideo) {
                             return (
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <div
-                                        className={`flex-1 min-w-0 basis-0 flex items-center gap-2 rounded-md border px-3 py-2 text-sm overflow-hidden ${
-                                            isMissing
-                                                ? "border-destructive bg-destructive/10"
-                                                : "border-input bg-muted"
-                                        }`}
-                                        title={videoValue}
-                                    >
-                                        <i
-                                            className={`codicon shrink-0 ${
-                                                isLocalFile ? "codicon-device-camera-video" : "codicon-link"
-                                            } text-muted-foreground`}
-                                        />
-                                        <span className="truncate">{displayLabel}</span>
-                                        {sizeLabel && !isMissing && (
-                                            <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
-                                                {sizeLabel}
-                                            </span>
+                                <div className="space-y-3">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <div
+                                            className={`flex-1 min-w-0 basis-0 flex items-center gap-2 rounded-md border px-3 py-2 text-sm overflow-hidden ${
+                                                isMissing
+                                                    ? "border-destructive bg-destructive/10"
+                                                    : "border-input bg-muted"
+                                            }`}
+                                            title={videoValue}
+                                        >
+                                            <i
+                                                className={`codicon shrink-0 ${
+                                                    isLocalFile ? "codicon-device-camera-video" : "codicon-link"
+                                                } text-muted-foreground`}
+                                            />
+                                            <span className="truncate">{displayLabel}</span>
+                                            {sizeLabel && !isMissing && (
+                                                <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
+                                                    {sizeLabel}
+                                                </span>
+                                            )}
+                                            {isMissing && (
+                                                <Badge variant="destructive" className="ml-auto shrink-0">
+                                                    File missing
+                                                </Badge>
+                                            )}
+                                        </div>
+                                        {showFreeSpace && !isConfirmingRemoval && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                className="shrink-0"
+                                                onClick={onFreeDiskSpace}
+                                                title="Remove the downloaded file to save space. It will stream again on demand."
+                                            >
+                                                <i className="codicon codicon-cloud-download mr-2" />
+                                                Free up space
+                                            </Button>
                                         )}
-                                        {isMissing && (
-                                            <Badge variant="destructive" className="ml-auto shrink-0">
-                                                File missing
-                                            </Badge>
+                                        {!isConfirmingRemoval && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                className="shrink-0"
+                                                onClick={handleClearVideo}
+                                                title={
+                                                    isLocalFile
+                                                        ? "Remove video (the local file is deleted when you save)"
+                                                        : "Remove video"
+                                                }
+                                            >
+                                                <i className="codicon codicon-trash mr-2" />
+                                                Clear
+                                            </Button>
                                         )}
                                     </div>
-                                    {showFreeSpace && (
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            className="shrink-0"
-                                            onClick={onFreeDiskSpace}
-                                            title="Remove the downloaded file to save space. It will stream again on demand."
-                                        >
-                                            <i className="codicon codicon-cloud-download mr-2" />
-                                            Free up space
-                                        </Button>
+
+                                    {isConfirmingRemoval && (
+                                        <Alert variant="destructive">
+                                            <i className="codicon codicon-warning" />
+                                            <AlertTitle>Remove this video?</AlertTitle>
+                                            <AlertDescription className="space-y-3">
+                                                <p>
+                                                    {isLocalFile
+                                                        ? "This removes the video reference and permanently deletes the local file when you save your changes."
+                                                        : "This removes the video URL from this chapter when you save your changes."}
+                                                </p>
+                                                <div className="space-y-1.5">
+                                                    <Label
+                                                        htmlFor="video-removal-confirm"
+                                                        className="text-xs font-medium text-foreground"
+                                                    >
+                                                        To confirm, type or paste the{" "}
+                                                        {isLocalFile ? "file name" : "URL"} below:
+                                                    </Label>
+                                                    <code className="block select-all break-all rounded bg-muted px-2 py-1 font-mono text-xs text-foreground">
+                                                        {expectedToken}
+                                                    </code>
+                                                    <Input
+                                                        id="video-removal-confirm"
+                                                        autoFocus
+                                                        autoComplete="off"
+                                                        spellCheck={false}
+                                                        value={removalConfirmText ?? ""}
+                                                        onChange={(e) =>
+                                                            setRemovalConfirmText(e.target.value)
+                                                        }
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === "Escape") {
+                                                                // Cancel only the confirmation,
+                                                                // don't let Radix close the modal.
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                cancelClearVideo();
+                                                            } else if (e.key === "Enter") {
+                                                                e.preventDefault();
+                                                                if (removalMatches) {
+                                                                    confirmClearVideo();
+                                                                }
+                                                            }
+                                                        }}
+                                                        placeholder={
+                                                            isLocalFile
+                                                                ? "Type the file name to confirm"
+                                                                : "Type the URL to confirm"
+                                                        }
+                                                        className="bg-background text-foreground"
+                                                    />
+                                                    {(removalConfirmText ?? "").length > 0 &&
+                                                        !removalMatches && (
+                                                            <p className="text-xs text-muted-foreground">
+                                                                The text doesn't match yet.
+                                                            </p>
+                                                        )}
+                                                </div>
+                                                <div className="flex flex-wrap justify-end gap-2">
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        onClick={cancelClearVideo}
+                                                    >
+                                                        Cancel
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        variant="destructive"
+                                                        disabled={!removalMatches}
+                                                        onClick={confirmClearVideo}
+                                                    >
+                                                        <i className="codicon codicon-trash mr-2" />
+                                                        Remove video
+                                                    </Button>
+                                                </div>
+                                            </AlertDescription>
+                                        </Alert>
                                     )}
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="shrink-0"
-                                        onClick={handleClearVideo}
-                                        title={
-                                            isLocalFile
-                                                ? "Remove video (the local file is deleted when you save)"
-                                                : "Remove video"
-                                        }
-                                    >
-                                        <i className="codicon codicon-trash mr-2" />
-                                        Clear
-                                    </Button>
                                 </div>
                             );
                         }
