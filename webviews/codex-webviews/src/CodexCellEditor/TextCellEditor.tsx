@@ -1643,25 +1643,23 @@ const CellEditor: React.FC<CellEditorProps> = ({
         const startTime = effectiveTimestamps?.startTime;
         const endTime = effectiveTimestamps?.endTime;
 
-        console.log("[PlayVideo] clicked", {
-            startTime,
-            endTime,
-            hasAudioBlob: !!audioBlob,
-            shouldShowVideoPlayer,
-            videoUrl,
-        });
-
         if (startTime === undefined || endTime === undefined) {
-            console.warn("[PlayVideo] Timestamps are not available");
+            console.warn("Timestamps are not available");
             return;
         }
 
         if (endTime <= startTime) {
-            console.warn("[PlayVideo] Invalid timestamps: endTime must be greater than startTime");
+            console.warn("Invalid timestamps: endTime must be greater than startTime");
             return;
         }
 
         setIsPlayAudioLoading(true);
+        // This cell-scoped preview owns the shared video for [startTime, endTime];
+        // suppress the multi-cell audio overlay so it can't play other cells'
+        // recorded audio over (or past) this section. Cleared when the video
+        // stops (isVideoPlaying → false in useMultiCellAudioPlayback), or in the
+        // finally below if nothing ends up playing.
+        globalAudioController.setVideoPreviewActive(true);
         try {
             // Clean up any existing playback
             if (audioElementRef.current) {
@@ -1924,16 +1922,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
             }
 
             // Handle video playback if available
-            console.log("[PlayVideo] video gate", {
-                shouldShowVideoPlayer,
-                videoUrl,
-                hasPlayerRef: !!playerRef?.current,
-                playerRefType: playerRef?.current
-                    ? Object.prototype.toString.call(playerRef.current)
-                    : null,
-                startTime,
-                endTime,
-            });
             if (
                 shouldShowVideoPlayer &&
                 videoUrl &&
@@ -2004,11 +1992,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         videoElement = asMediaElement(document.querySelector("video"));
                     }
 
-                    console.log("[PlayVideo] discovery result", {
-                        foundVideoElement: !!videoElement,
-                        seeked,
-                    });
-
                     // Seek to the subtitle start unless an API seek already did
                     if (videoElement && !seeked) {
                         videoElement.currentTime = startTime;
@@ -2024,14 +2007,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         // recorded audio, play the video's own track so the
                         // section isn't silent.
                         videoElement.muted = combinedBlob ? muteVideoAudioDuringPlayback : false;
-
-                        console.log("[PlayVideo] ready to play", {
-                            currentTime: videoElement.currentTime,
-                            endTime,
-                            muted: videoElement.muted,
-                            paused: videoElement.paused,
-                            readyState: videoElement.readyState,
-                        });
 
                         // Check if we're already past the end time (shouldn't happen, but be safe)
                         if (videoElement.currentTime >= endTime) {
@@ -2059,17 +2034,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             // This prevents the handler from firing and pausing before play() resolves
                             try {
                                 await videoElement.play();
-                                console.log("[PlayVideo] play() resolved", {
-                                    paused: videoElement.paused,
-                                    currentTime: videoElement.currentTime,
-                                });
 
                                 // Only set up the handler after play() succeeds
                                 // This prevents race conditions where pause() interrupts play()
                                 videoTimeUpdateHandlerRef.current = timeUpdateHandler;
                                 videoElement.addEventListener("timeupdate", timeUpdateHandler);
                             } catch (playError) {
-                                console.warn("[PlayVideo] play() rejected", playError);
                                 // Suppress AbortError warnings - these are expected when pause() interrupts play()
                                 // This can happen if cleanup is called while play() is pending
                                 if (
@@ -2107,6 +2077,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
             }
         } finally {
             setIsPlayAudioLoading(false);
+            // Normally the flag is cleared when the video stops (isVideoPlaying
+            // → false in useMultiCellAudioPlayback). But if nothing actually
+            // started here — no audio and the video isn't playing (not found, or
+            // play() was rejected) — that transition never happens, so clear it
+            // now to avoid leaving the overlay suppressed.
+            const videoPlaying =
+                !!videoElementRef.current && !videoElementRef.current.paused;
+            if (!videoPlaying && !audioElementRef.current) {
+                globalAudioController.setVideoPreviewActive(false);
+            }
         }
     }, [
         audioBlob,
@@ -2177,6 +2157,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 }
                 videoElementRef.current = null;
             }
+
+            // Clear the preview flag in case the cell changed mid-preview, so the
+            // multi-cell overlay isn't left suppressed.
+            globalAudioController.setVideoPreviewActive(false);
         };
     }, [cellMarkers]);
 
