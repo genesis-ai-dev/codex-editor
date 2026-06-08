@@ -53,8 +53,12 @@ interface ChapterNavigationHeaderProps {
     documentHasVideoAvailable: boolean;
     metadata: CustomNotebookMetadata | undefined;
     onMetadataChange: (key: string, value: string) => void;
-    onSaveMetadata: (updated: CustomNotebookMetadata) => void;
+    onSaveMetadata: (updated: CustomNotebookMetadata, pendingVideoFilePath?: string) => void;
     onPickFile: () => void;
+    // A staged video pick delivered from the host (not yet imported); shown in
+    // the metadata modal as a pending video until "Save Changes".
+    pickedVideoFile?: { fsPath: string; fileName: string; } | null;
+    onPickedVideoConsumed?: () => void;
     videoCanFreeDiskSpace: boolean;
     onFreeVideoDiskSpace: () => void;
     videoReferenceStatus: "none" | "url" | "local-usable" | "missing" | null;
@@ -117,6 +121,8 @@ export function ChapterNavigationHeader({
     onMetadataChange,
     onSaveMetadata,
     onPickFile,
+    pickedVideoFile,
+    onPickedVideoConsumed,
     videoCanFreeDiskSpace,
     onFreeVideoDiskSpace,
     videoReferenceStatus,
@@ -409,8 +415,11 @@ ChapterNavigationHeaderProps) {
         setIsMetadataModalOpen(false);
     };
 
-    const handleSaveMetadata = (updated: CustomNotebookMetadata) => {
-        onSaveMetadata(updated);
+    const handleSaveMetadata = (
+        updated: CustomNotebookMetadata,
+        pendingVideoFilePath?: string
+    ) => {
+        onSaveMetadata(updated, pendingVideoFilePath);
         setIsMetadataModalOpen(false);
     };
 
@@ -1184,6 +1193,8 @@ ChapterNavigationHeaderProps) {
                     metadata={metadata}
                     onSave={handleSaveMetadata}
                     onPickFile={onPickFile}
+                    pickedVideoFile={pickedVideoFile}
+                    onPickedVideoConsumed={onPickedVideoConsumed}
                     canFreeDiskSpace={videoCanFreeDiskSpace}
                     onFreeDiskSpace={onFreeVideoDiskSpace}
                     videoReferenceStatus={videoReferenceStatus}

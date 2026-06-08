@@ -196,6 +196,13 @@ const CodexCellEditor: React.FC = () => {
     // Size (bytes) of the referenced video when known (local bytes or LFS pointer
     // size). null until reported / unknown (e.g. remote URLs).
     const [videoSizeBytes, setVideoSizeBytes] = useState<number | null>(null);
+    // A video the user picked in the OS dialog but hasn't committed yet. It is
+    // only imported into the project when the metadata modal is saved, so it
+    // lives here as a staged selection (cleared on cancel/save).
+    const [pickedVideoFile, setPickedVideoFile] = useState<{
+        fsPath: string;
+        fileName: string;
+    } | null>(null);
     const playerRef = useRef<ReactPlayerRef>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const [muteVideoAudioDuringPlayback, setMuteVideoAudioDuringPlayback] = useState(true);
@@ -1772,6 +1779,11 @@ const CodexCellEditor: React.FC = () => {
                 setVideoResolving(false);
             }
         },
+        videoFilePicked: (fsPath: string, fileName: string) => {
+            // The user selected a file in the OS dialog. Stage it so the modal can
+            // show it as a pending video; nothing is written until "Save Changes".
+            setPickedVideoFile({ fsPath, fileName });
+        },
         videoStreamResolving: () => {
             // An action started elsewhere (e.g. "Load video" / "Save to project"
             // from a navigation card) is fetching this chapter's video. Reflect
@@ -3061,7 +3073,13 @@ const CodexCellEditor: React.FC = () => {
     };
 
     const handlePickFile = () => {
-        vscode.postMessage({ command: "pickVideoFile" } as EditorPostMessages);
+        // The metadata modal only exposes the file picker once the video field is
+        // empty, which requires passing its type-to-confirm removal step first.
+        // So the host's own replace/delete confirmation would be redundant here.
+        vscode.postMessage({
+            command: "pickVideoFile",
+            skipVideoConfirm: true,
+        } as EditorPostMessages);
     };
 
     // Stream-and-save: revert the downloaded local copy back to an LFS pointer to
@@ -3075,14 +3093,30 @@ const CodexCellEditor: React.FC = () => {
     // calls this on "Save Changes", so removals/edits are deferred until here.
     // When the saved videoUrl changes, the host confirms and (for a local file)
     // deletes the old file from disk as part of updateNotebookMetadata.
-    const handleSaveMetadata = (updatedMetadata: CustomNotebookMetadata) => {
-        setMetadata(updatedMetadata);
-        setVideoUrl(updatedMetadata.videoUrl || "");
+    const handleSaveMetadata = (
+        updatedMetadata: CustomNotebookMetadata,
+        pendingVideoFilePath?: string
+    ) => {
+        // Don't optimistically clobber videoUrl when a staged pick is being
+        // imported: the host computes the real project-relative path and pushes
+        // it back via providerUpdatesNotebookMetadataForWebview.
+        if (!pendingVideoFilePath) {
+            setMetadata(updatedMetadata);
+            setVideoUrl(updatedMetadata.videoUrl || "");
+        }
         debug("metadata", "Saving metadata:", updatedMetadata);
+        // Any video change in the modal already passed its robust type-to-confirm
+        // removal step, so the host's own replace/delete confirmation would be a
+        // redundant second prompt — skip it. The host still deletes the old file.
+        // A staged pick (pendingVideoFilePath) is imported by the host as part of
+        // this save, so cancelling instead of saving leaves the project untouched.
         vscode.postMessage({
             command: "updateNotebookMetadata",
             content: updatedMetadata,
+            skipVideoConfirm: true,
+            pendingVideoFilePath,
         } as EditorPostMessages);
+        setPickedVideoFile(null);
         setIsMetadataModalOpen(false);
     };
 
@@ -3104,6 +3138,44 @@ const CodexCellEditor: React.FC = () => {
         setVideoUrl("");
         vscode.postMessage({ command: "requestVideoStreamUrl" } as EditorPostMessages);
     }, []);
+
+    // Keep the latest resolved URL in a ref so the error handler reads the
+    // current value (not a stale closure) and can guard retries by URL.
+    const videoUrlRef = useRef(videoUrl);
+    useEffect(() => {
+        videoUrlRef.current = videoUrl;
+    }, [videoUrl]);
+    // Guards auto-retry on playback error. This lives in the parent (not in
+    // VideoPlayer) on purpose: requesting a fresh URL clears videoUrl and
+    // unmounts the player, so a guard inside the player would reset on every
+    // remount and loop forever on a persistently-failing URL.
+    const videoErrorRetryRef = useRef<{ url: string; at: number; }>({ url: "", at: 0 });
+
+    // Called when the player reports a load/playback error. A remote stream URL
+    // may have expired, so re-resolve it once; if the SAME URL keeps failing we
+    // stop and surface the "unavailable" state (with a manual retry) instead of
+    // looping — which is what an invalid URL like "https://www.ffdsf" would
+    // otherwise do, flooding the console with errors.
+    const VIDEO_ERROR_RETRY_WINDOW_MS = 10000;
+    const handleVideoStreamError = useCallback(() => {
+        const url = videoUrlRef.current;
+        const now = Date.now();
+        const guard = videoErrorRetryRef.current;
+        const retriedRecently =
+            guard.url === url && now - guard.at < VIDEO_ERROR_RETRY_WINDOW_MS;
+        if (retriedRecently) {
+            // Already retried this URL once recently → give up to avoid a loop.
+            setVideoUrl("");
+            setVideoResolving(false);
+            setVideoNeedsDownloadStrategy(null);
+            setVideoUnavailableMessage(
+                "This video couldn't be played. Please check that the URL is correct and reachable."
+            );
+            return;
+        }
+        videoErrorRetryRef.current = { url, at: now };
+        requestVideoStreamUrl();
+    }, [requestVideoStreamUrl]);
 
     // Download the LFS-backed video so it can play locally. `persist` controls
     // whether stream-only keeps the file ("Save to project") or treats it as a
@@ -3630,6 +3702,8 @@ const CodexCellEditor: React.FC = () => {
                             onMetadataChange={handleMetadataChange}
                             onSaveMetadata={handleSaveMetadata}
                             onPickFile={handlePickFile}
+                            pickedVideoFile={pickedVideoFile}
+                            onPickedVideoConsumed={() => setPickedVideoFile(null)}
                             videoCanFreeDiskSpace={videoCanFreeDiskSpace}
                             onFreeVideoDiskSpace={handleFreeVideoDiskSpace}
                             videoSizeBytes={videoSizeBytes}
@@ -3813,7 +3887,7 @@ const CodexCellEditor: React.FC = () => {
                             playerRef={playerRef}
                             audioAttachments={audioAttachments}
                             muteVideoWhenPlayingAudio={muteVideoAudioDuringPlayback}
-                            onRequestStreamUrl={requestVideoStreamUrl}
+                            onRequestStreamUrl={handleVideoStreamError}
                         />
                     </div>
                 )}

@@ -187,6 +187,166 @@ async function confirmVideoReplacement(
 }
 
 /**
+ * Imports a video file the user picked from the OS dialog into the project's
+ * attachments. This is deliberately run at *save* time (not at pick time) so
+ * that picking a file and then cancelling the metadata modal leaves the project
+ * untouched. It writes the bytes into files/ (and best-effort into pointers/),
+ * deletes any previous local video, and — in stream-only mode — offers to keep
+ * the file via the persisted allowlist.
+ *
+ * In stream-only mode the user is asked up front whether to keep the video.
+ * Cancelling that prompt aborts the import before anything is written/deleted,
+ * in which case this resolves to `null` and the existing video is left intact.
+ *
+ * @returns the workspace-relative path to store in `videoUrl`, or `null` if the
+ * user cancelled the import.
+ */
+async function importPickedVideoIntoProject(
+    document: CodexCellDocument,
+    sourceFsPath: string
+): Promise<string | null> {
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+    if (!workspaceFolder) {
+        throw new Error("No workspace folder found");
+    }
+
+    // Read the picked file (still at its original location on the user's disk).
+    const fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(sourceFsPath));
+
+    // Enforce a reasonable max size (1.5 GB) for video files.
+    const MAX_BYTES = 1.5 * 1024 * 1024 * 1024;
+    if (fileData.length > MAX_BYTES) {
+        throw new Error("Video file exceeds the maximum allowed size (1.5 GB).");
+    }
+
+    // In stream-only, a newly added local video would be reverted to an LFS
+    // pointer after the next sync (to free space), so ask up front whether to
+    // keep it saved in the project ("Save to project" → persisted allowlist) or
+    // treat it as a session-only stream ("Stream only"). Asking *before* any
+    // write means Cancel can abort the whole import cleanly — nothing is written
+    // and the previous video is left untouched. Other strategies never prompt.
+    let persistInStreamOnly = false;
+    try {
+        const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+        const strategy = (await getMediaFilesStrategy(workspaceFolder.uri)) ?? "auto-download";
+        if (strategy === "stream-only") {
+            const SAVE = "Save to project";
+            const STREAM = "Stream only";
+            const choice = await vscode.window.showInformationMessage(
+                "Save this video to the project?",
+                {
+                    modal: true,
+                    detail: "Save keeps it until you remove it. Stream only keeps it for this session.",
+                },
+                SAVE,
+                STREAM
+            );
+            // Cancel / dismissed (Escape) → abort the import entirely.
+            if (choice !== SAVE && choice !== STREAM) {
+                return null;
+            }
+            persistInStreamOnly = choice === SAVE;
+        }
+    } catch (storageChoiceErr) {
+        console.warn("Could not determine stream-only storage choice for video:", storageChoiceErr);
+    }
+
+    const documentSegment = getDocumentSegment(document);
+
+    // Generate a safe filename from the original file.
+    const originalFileName = path.basename(sourceFsPath);
+    const ext = path.extname(originalFileName).toLowerCase().slice(1);
+    const allowedExtensions = new Set(["mp4", "mkv", "avi", "mov", "webm", "m4v"]);
+    const safeExt = allowedExtensions.has(ext) ? ext : "mp4";
+    const baseName = path.basename(originalFileName, path.extname(originalFileName));
+    const sanitizedBaseName = baseName.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const fileName = `${sanitizedBaseName}.${safeExt}`;
+
+    const pointersDir = path.join(
+        workspaceFolder.uri.fsPath,
+        ".project",
+        "attachments",
+        "pointers",
+        documentSegment
+    );
+    const filesDir = path.join(
+        workspaceFolder.uri.fsPath,
+        ".project",
+        "attachments",
+        "files",
+        documentSegment
+    );
+
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(pointersDir));
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(filesDir));
+
+    const pointersPath = path.join(pointersDir, fileName);
+    const filesPath = path.join(filesDir, fileName);
+
+    // Atomic write helper (write to temp then rename).
+    const writeFileAtomically = async (finalFsPath: string, data: Uint8Array): Promise<void> => {
+        const tmpPath = `${finalFsPath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const tmpUri = vscode.Uri.file(tmpPath);
+        const finalUri = vscode.Uri.file(finalFsPath);
+        await vscode.workspace.fs.writeFile(tmpUri, data);
+        await vscode.workspace.fs.rename(tmpUri, finalUri, { overwrite: true });
+        try {
+            const stat = await vscode.workspace.fs.stat(finalUri);
+            if (typeof stat.size === "number" && stat.size !== data.length) {
+                console.warn("Size mismatch after write for", finalFsPath, {
+                    expected: data.length,
+                    actual: stat.size,
+                });
+            }
+        } catch {
+            // ignore stat issues
+        }
+    };
+
+    // Write actual file (primary). Pointer write is best-effort.
+    await writeFileAtomically(filesPath, fileData);
+    try {
+        await writeFileAtomically(pointersPath, fileData);
+    } catch (pointerErr) {
+        console.warn("Pointer write failed; proceeding with saved file only", pointerErr);
+    }
+
+    // Delete the previous local video (if any) now that the new file is written,
+    // skipping the freshly-written paths in case the replacement reuses the same
+    // filename.
+    const existingVideoUrl = document.getNotebookMetadata()?.videoUrl;
+    if (classifyVideo(existingVideoUrl) === "local") {
+        await deleteLocalVideoFiles(
+            existingVideoUrl,
+            workspaceFolder.uri,
+            new Set([filesPath, pointersPath])
+        );
+    }
+
+    const relativePath = toPosixPath(path.relative(workspaceFolder.uri.fsPath, filesPath));
+
+    // "Save to project" in stream-only → record the rel-path on the persisted
+    // allowlist so post-sync / strategy-switch cleanup never reverts this saved
+    // video to a pointer.
+    if (persistInStreamOnly) {
+        try {
+            const { addPersistedMediaFile } = await import("../../utils/localProjectSettings");
+            const FILES_SEG = "attachments/files/";
+            const savedRel = relativePath.includes(FILES_SEG)
+                ? relativePath.slice(relativePath.indexOf(FILES_SEG) + FILES_SEG.length)
+                : null;
+            if (savedRel) {
+                await addPersistedMediaFile(savedRel, workspaceFolder.uri);
+            }
+        } catch (storageChoiceErr) {
+            console.warn("Could not persist stream-only video to allowlist:", storageChoiceErr);
+        }
+    }
+
+    return relativePath;
+}
+
+/**
  * Tracks stream-only "session cache" videos that were activated (downloaded)
  * during the current extension-host session, keyed by `${projectPath}::${rel}`.
  * Module-level so it is naturally empty after a reload, which is what makes a
@@ -350,7 +510,8 @@ export async function resolveAndPostVideoStreamUrl(
         provider.postMessageToWebview(webviewPanel, {
             type: "videoStreamUnavailable",
             reason: "not-found",
-            message: "The video is not available locally and no LFS reference was found.",
+            message:
+                "This video isn't available yet. It may still be syncing, or the file couldn't be found.",
         });
         return;
     }
@@ -1773,17 +1934,48 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         debug("updateNotebookMetadata message received", { event });
         const newMetadata = typedEvent.content;
 
+        // A staged video pick is imported here, at save time, so that picking a
+        // file and then cancelling the modal leaves nothing behind. The import
+        // both writes the new file and deletes any previous local video, so it
+        // takes the place of the generic video-change guard below.
+        const pendingVideoFilePath = typedEvent.pendingVideoFilePath;
+        if (pendingVideoFilePath) {
+            try {
+                const imported = await importPickedVideoIntoProject(
+                    document,
+                    pendingVideoFilePath
+                );
+                // `null` means the user cancelled the import (nothing was written);
+                // keep whatever video was already saved.
+                newMetadata.videoUrl =
+                    imported ?? document.getNotebookMetadata()?.videoUrl ?? "";
+            } catch (error) {
+                console.error("Error saving video file:", error);
+                vscode.window.showErrorMessage(
+                    `Failed to save video file: ${error instanceof Error ? error.message : "Unknown error"}`
+                );
+                // Keep the previously saved video so a failed import doesn't drop it.
+                newMetadata.videoUrl = document.getNotebookMetadata()?.videoUrl ?? "";
+            }
+        }
+
         // Guard the video field: if the user is replacing an existing local
         // video (file -> URL, file -> file, or removal), confirm first and
-        // delete the old local file from files/ and pointers/.
+        // delete the old local file from files/ and pointers/. Skipped for a
+        // staged pick, which already handled the previous file during import.
         const oldVideoUrl = document.getNotebookMetadata()?.videoUrl;
         const newVideoUrl = newMetadata.videoUrl;
         const videoChanged = (oldVideoUrl ?? "") !== (newVideoUrl ?? "");
-        if (videoChanged) {
+        if (!pendingVideoFilePath && videoChanged) {
             const oldKind = classifyVideo(oldVideoUrl);
             const newKind = classifyVideo(newVideoUrl);
             if (oldKind === "local") {
-                const proceed = await confirmVideoReplacement(oldKind, newKind);
+                // The metadata modal already runs a robust type-to-confirm step
+                // before any video removal/replace, so it sets skipVideoConfirm to
+                // avoid a redundant second prompt. Other callers still confirm.
+                const proceed = typedEvent.skipVideoConfirm
+                    ? true
+                    : await confirmVideoReplacement(oldKind, newKind);
                 if (!proceed) {
                     // Revert the webview's optimistic edit by re-sending current
                     // metadata, and restore the player's URL to the unchanged video.
@@ -1938,7 +2130,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             provider.postMessageToWebview(webviewPanel, {
                 type: "videoStreamUnavailable",
                 reason: "not-found",
-                message: "No LFS reference found for this video.",
+                message:
+                    "This video isn't available yet. It may still be syncing, or the file couldn't be found.",
             });
             return;
         }
@@ -2044,21 +2237,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
-    pickVideoFile: async ({ document, webviewPanel, provider }) => {
+    pickVideoFile: async ({ webviewPanel, provider }) => {
         debug("pickVideoFile message received");
 
-        // If a local video already exists, confirm replacement up front so the
-        // user can back out before choosing a new file (deletion happens after
-        // the new file is written successfully).
-        const existingVideoUrl = document.getNotebookMetadata()?.videoUrl;
-        const existingKind = classifyVideo(existingVideoUrl);
-        if (existingKind === "local") {
-            const proceed = await confirmVideoReplacement("local", "local");
-            if (!proceed) {
-                return;
-            }
-        }
-
+        // Stage the selection only — the file is NOT written into the project
+        // here. The metadata modal shows it as a pending video and the host
+        // imports it (writing files/pointers + deleting any previous local
+        // video) when the user clicks "Save Changes" (see
+        // updateNotebookMetadata's pendingVideoFilePath). Cancelling the modal
+        // therefore leaves the project untouched.
         const result = await vscode.window.showOpenDialog({
             canSelectMany: false,
             openLabel: "Select Video File",
@@ -2067,149 +2254,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             },
         });
         const fileUri = result?.[0];
-        if (fileUri) {
-            try {
-                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-                if (!workspaceFolder) {
-                    throw new Error("No workspace folder found");
-                }
-
-                // Read the video file content
-                const fileData = await vscode.workspace.fs.readFile(fileUri);
-
-                // Enforce a reasonable max size (1.5 GB) for video files
-                const MAX_BYTES = 1.5 * 1024 * 1024 * 1024;
-                if (fileData.length > MAX_BYTES) {
-                    throw new Error("Video file exceeds the maximum allowed size (1.5 GB).");
-                }
-
-                // Determine document segment
-                const documentSegment = getDocumentSegment(document);
-
-                // Generate safe filename from original file
-                const originalFileName = path.basename(fileUri.fsPath);
-                const ext = path.extname(originalFileName).toLowerCase().slice(1); // Remove leading dot
-                const allowedExtensions = new Set(["mp4", "mkv", "avi", "mov", "webm", "m4v"]);
-                const safeExt = allowedExtensions.has(ext) ? ext : "mp4";
-
-                // Sanitize filename (keep base name, replace unsafe chars)
-                const baseName = path.basename(originalFileName, path.extname(originalFileName));
-                const sanitizedBaseName = baseName.replace(/[^a-zA-Z0-9._-]/g, "-");
-                const fileName = `${sanitizedBaseName}.${safeExt}`;
-
-                // Create directory paths
-                const pointersDir = path.join(
-                    workspaceFolder.uri.fsPath,
-                    ".project",
-                    "attachments",
-                    "pointers",
-                    documentSegment
-                );
-                const filesDir = path.join(
-                    workspaceFolder.uri.fsPath,
-                    ".project",
-                    "attachments",
-                    "files",
-                    documentSegment
-                );
-
-                // Create directories if they don't exist
-                await vscode.workspace.fs.createDirectory(vscode.Uri.file(pointersDir));
-                await vscode.workspace.fs.createDirectory(vscode.Uri.file(filesDir));
-
-                const pointersPath = path.join(pointersDir, fileName);
-                const filesPath = path.join(filesDir, fileName);
-
-                // Atomic write helper (write to temp then rename)
-                const writeFileAtomically = async (finalFsPath: string, data: Uint8Array): Promise<void> => {
-                    const tmpPath = `${finalFsPath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                    const tmpUri = vscode.Uri.file(tmpPath);
-                    const finalUri = vscode.Uri.file(finalFsPath);
-                    await vscode.workspace.fs.writeFile(tmpUri, data);
-                    await vscode.workspace.fs.rename(tmpUri, finalUri, { overwrite: true });
-                    // Optional sanity check to ensure size matches
-                    try {
-                        const stat = await vscode.workspace.fs.stat(finalUri);
-                        if (typeof stat.size === 'number' && stat.size !== data.length) {
-                            console.warn("Size mismatch after write for", finalFsPath, { expected: data.length, actual: stat.size });
-                        }
-                    } catch {
-                        // ignore stat issues
-                    }
-                };
-
-                // Write actual file (primary). Pointer write is best-effort.
-                await writeFileAtomically(filesPath, fileData);
-                try {
-                    await writeFileAtomically(pointersPath, fileData);
-                } catch (pointerErr) {
-                    console.warn("Pointer write failed; proceeding with saved file only", pointerErr);
-                }
-
-                // Delete the previous local video (if any) now that the new
-                // file is written, skipping the freshly-written paths in case
-                // the replacement reuses the same filename.
-                if (existingKind === "local") {
-                    await deleteLocalVideoFiles(existingVideoUrl, workspaceFolder.uri, new Set([filesPath, pointersPath]));
-                }
-
-                // Store the files path in metadata (relative path from workspace root)
-                const relativePath = toPosixPath(path.relative(workspaceFolder.uri.fsPath, filesPath));
-                await document.updateNotebookMetadata({ videoUrl: relativePath });
-                await document.save(new vscode.CancellationTokenSource().token);
-
-                // In stream-only, a newly added local video would be reverted to an
-                // LFS pointer after the next sync (to free space). Ask whether to keep
-                // it saved in the project or treat it as a session-only stream.
-                // "Save to project" → add to the persisted allowlist so cleanup never
-                // pointerizes it (kept until removed). "Stream only" → leave it out, so
-                // after sync it streams on demand (with a session disk cache).
-                try {
-                    const { getMediaFilesStrategy, addPersistedMediaFile } = await import(
-                        "../../utils/localProjectSettings"
-                    );
-                    const strategy =
-                        (await getMediaFilesStrategy(workspaceFolder.uri)) ?? "auto-download";
-                    if (strategy === "stream-only") {
-                        const SAVE = "Save to project";
-                        const STREAM = "Stream only";
-                        const choice = await vscode.window.showInformationMessage(
-                            "Save this video to the project?",
-                            {
-                                modal: true,
-                                detail: "Save keeps it until you remove it. Stream only keeps it for this session.",
-                            },
-                            SAVE,
-                            STREAM
-                        );
-                        if (choice === SAVE) {
-                            const FILES_SEG = "attachments/files/";
-                            const savedRel = relativePath.includes(FILES_SEG)
-                                ? relativePath.slice(
-                                      relativePath.indexOf(FILES_SEG) + FILES_SEG.length
-                                  )
-                                : null;
-                            if (savedRel) {
-                                await addPersistedMediaFile(savedRel, workspaceFolder.uri);
-                            }
-                        }
-                    }
-                } catch (storageChoiceErr) {
-                    console.warn(
-                        "Could not apply stream-only storage choice for video:",
-                        storageChoiceErr
-                    );
-                }
-
-                provider.refreshWebview(webviewPanel, document);
-                await postVideoReferenceStatus(document, webviewPanel, provider);
-            } catch (error) {
-                console.error("Error saving video file:", error);
-                vscode.window.showErrorMessage(
-                    `Failed to save video file: ${error instanceof Error ? error.message : "Unknown error"}`
-                );
-            }
+        if (!fileUri) {
+            return;
         }
+
+        provider.postMessageToWebview(webviewPanel, {
+            type: "videoFilePicked",
+            fsPath: fileUri.fsPath,
+            fileName: path.basename(fileUri.fsPath),
+        });
     },
 
     replaceDuplicateCells: ({ event, document }) => {

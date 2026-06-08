@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
 import { Separator } from "../components/ui/separator";
 import { Badge } from "../components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { formatBytes } from "../lib/utils";
 
@@ -21,9 +22,20 @@ interface NotebookMetadataModalProps {
     isOpen: boolean;
     onClose: () => void;
     metadata: CustomNotebookMetadata;
-    /** Commit the edited metadata. Only called when the user clicks "Save Changes". */
-    onSave: (updated: CustomNotebookMetadata) => void;
+    /**
+     * Commit the edited metadata. Only called when the user clicks "Save Changes".
+     * `pendingVideoFilePath` is the absolute path of a staged video pick that the
+     * host should import into the project as part of this save.
+     */
+    onSave: (updated: CustomNotebookMetadata, pendingVideoFilePath?: string) => void;
     onPickFile: () => void;
+    /**
+     * A video the user picked in the OS dialog but hasn't committed. Shown as a
+     * pending video; only imported into the project on "Save Changes".
+     */
+    pickedVideoFile?: { fsPath: string; fileName: string; } | null;
+    /** Called once the modal has adopted a delivered `pickedVideoFile`. */
+    onPickedVideoConsumed?: () => void;
     /** Stream-and-save: a downloaded local copy can be reverted to a pointer to free space. */
     canFreeDiskSpace: boolean;
     onFreeDiskSpace: () => void;
@@ -69,6 +81,8 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
     metadata,
     onSave,
     onPickFile,
+    pickedVideoFile,
+    onPickedVideoConsumed,
     canFreeDiskSpace,
     onFreeDiskSpace,
     videoReferenceStatus,
@@ -79,18 +93,54 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
     // removal — is persisted unless the user explicitly saves.
     const [draft, setDraft] = useState<CustomNotebookMetadata>(metadata);
     const [hasChanges, setHasChanges] = useState(false);
+    // Safety gate for removing a video: the user must type/paste the exact file
+    // name (local) or URL (remote) before the removal is allowed. `null` means
+    // the confirmation panel is closed.
+    const [removalConfirmText, setRemovalConfirmText] = useState<string | null>(null);
+    // A video the user picked in the OS dialog but hasn't committed. It is only
+    // imported into the project (and the videoUrl updated) when the user clicks
+    // "Save Changes"; cancelling the modal discards it.
+    const [pendingVideoFile, setPendingVideoFile] = useState<{
+        fsPath: string;
+        fileName: string;
+    } | null>(null);
+    // Once the user clears/replaces the saved video in this session, keep the
+    // field editable even if they retype the exact same URL. Without this, the
+    // deferred removal leaves metadata.videoUrl unchanged, so retyping the old
+    // value would match it and re-lock the field mid-typing.
+    const [videoUnlocked, setVideoUnlocked] = useState(false);
 
     // Start the draft from the latest saved metadata each time the modal opens.
     useEffect(() => {
         if (isOpen) {
             setDraft(metadata);
             setHasChanges(false);
+            setRemovalConfirmText(null);
+            setPendingVideoFile(null);
+            setVideoUnlocked(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
 
+    // Adopt a staged pick delivered from the host. Clearing the draft URL keeps
+    // any previously typed URL from lingering behind the pending chip, and the
+    // one-shot consume callback prevents re-adopting it if the modal reopens.
+    useEffect(() => {
+        if (!isOpen || !pickedVideoFile) {
+            return;
+        }
+        setPendingVideoFile(pickedVideoFile);
+        setDraft((d) => ({ ...d, videoUrl: "" }) as CustomNotebookMetadata);
+        setRemovalConfirmText(null);
+        setHasChanges(true);
+        setVideoUnlocked(true);
+        onPickedVideoConsumed?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pickedVideoFile, isOpen]);
+
     // Picking a file is an immediate host action that updates the saved videoUrl;
-    // mirror it into the draft so the field reflects the newly picked file.
+    // mirror it into the draft so the field reflects the newly picked file. Any
+    // in-progress removal confirmation no longer applies to the new reference.
     useEffect(() => {
         if (!isOpen) {
             return;
@@ -98,6 +148,7 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
         setDraft((d) =>
             d.videoUrl === metadata.videoUrl ? d : { ...d, videoUrl: metadata.videoUrl }
         );
+        setRemovalConfirmText(null);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [metadata.videoUrl]);
 
@@ -106,22 +157,41 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
         setDraft((d) => ({ ...d, [key]: value }) as CustomNotebookMetadata);
     };
 
-    // Clear/remove is deferred: it only empties the draft field. The actual file
-    // deletion + JSON change happens on Save (the host removes the old local file
-    // when the saved videoUrl changes).
+    // Step 1 of removal: open the type-to-confirm panel. Nothing is changed yet.
     const handleClearVideo = () => {
+        setRemovalConfirmText("");
+    };
+
+    const cancelClearVideo = () => {
+        setRemovalConfirmText(null);
+    };
+
+    // Step 2 of removal (only reachable once the typed text matches): empty the
+    // draft field. The actual file deletion + JSON change is still deferred to
+    // Save (the host removes the old local file when the saved videoUrl changes).
+    const confirmClearVideo = () => {
         setHasChanges(true);
         setDraft((d) => ({ ...d, videoUrl: "" }) as CustomNotebookMetadata);
+        setRemovalConfirmText(null);
+        setVideoUnlocked(true);
     };
 
     const handleSave = () => {
-        onSave(draft);
+        onSave(draft, pendingVideoFile?.fsPath);
         setHasChanges(false);
+        setPendingVideoFile(null);
+    };
+
+    const cancelPendingVideo = () => {
+        setPendingVideoFile(null);
     };
 
     const handleClose = () => {
         setDraft(metadata);
         setHasChanges(false);
+        setRemovalConfirmText(null);
+        setPendingVideoFile(null);
+        setVideoUnlocked(false);
         onClose();
     };
 
@@ -129,7 +199,10 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
         const currentValue = draft[key as keyof CustomNotebookMetadata] || "";
         
         return (
-            <div key={key} className="space-y-2">
+            // min-w-0 lets this grid item shrink below its content's intrinsic
+            // width so a long, unbreakable video URL truncates instead of forcing
+            // the whole modal wider than the viewport.
+            <div key={key} className="space-y-2 min-w-0">
                 <div className="flex items-center gap-2">
                     <Label htmlFor={key} className="text-sm font-medium">
                         {config.label}
@@ -166,8 +239,49 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                     </Select>
                 ) : config.type === "url" && config.hasFilePicker ? (
                     (() => {
+                        // A staged pick takes precedence: show it as pending until
+                        // the user saves (which imports it) or clears it (discard).
+                        if (pendingVideoFile) {
+                            return (
+                                <div className="space-y-2">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <div
+                                            className="flex-1 min-w-0 basis-0 flex items-center gap-2 rounded-md border border-input bg-muted px-3 py-2 text-sm overflow-hidden"
+                                            title={pendingVideoFile.fsPath}
+                                        >
+                                            <i className="codicon codicon-device-camera-video shrink-0 text-muted-foreground" />
+                                            <span className="truncate min-w-0">{pendingVideoFile.fileName}</span>
+                                            <Badge variant="secondary" className="ml-auto shrink-0">
+                                                Pending
+                                            </Badge>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="shrink-0"
+                                            onClick={cancelPendingVideo}
+                                            title="Discard this pending video"
+                                        >
+                                            <i className="codicon codicon-close mr-2" />
+                                            Clear
+                                        </Button>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                        This video will be added to the project when you save your
+                                        changes.
+                                    </p>
+                                </div>
+                            );
+                        }
+
                         const videoValue = String(currentValue);
                         const hasVideo = !!videoValue;
+                        // Lock the field (read-only chip + Clear) only while the
+                        // draft still points at the SAVED video. While composing a
+                        // new URL (draft differs from the saved value) the field
+                        // must stay an editable input — otherwise typing the first
+                        // character would flip it to the locked view immediately.
+                        const reflectsSavedVideo = hasVideo && draft.videoUrl === metadata.videoUrl;
                         const isLocalFile = hasVideo && !/^https?:\/\//i.test(videoValue);
                         // Only flag "missing" when the draft still reflects the saved
                         // reference (not a pending edit the host hasn't evaluated yet).
@@ -186,64 +300,172 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                                 ? formatBytes(videoSizeBytes)
                                 : "";
 
-                        // When a video is set, lock the field. Changing it requires an
-                        // explicit Clear first (deferred — the file is only deleted and
-                        // the JSON updated on Save). Once cleared, the field becomes
-                        // editable for the next URL or picked file.
-                        if (hasVideo) {
+                        // The token the user must type/paste to confirm removal:
+                        // the file name for a local video, or the full URL for a
+                        // remote one. Matching is exact after trimming surrounding
+                        // whitespace (so a pasted value with stray spaces still
+                        // works) — a deliberate "are you sure" gate.
+                        const expectedToken = isLocalFile ? fileName : videoValue;
+                        const isConfirmingRemoval = removalConfirmText !== null;
+                        const trimmedExpected = expectedToken.trim();
+                        const removalMatches =
+                            isConfirmingRemoval &&
+                            trimmedExpected.length > 0 &&
+                            (removalConfirmText ?? "").trim() === trimmedExpected;
+
+                        // When the saved video is set, lock the field. Changing it
+                        // requires an explicit Clear first (deferred — the file is
+                        // only deleted and the JSON updated on Save). Once cleared,
+                        // the field becomes editable for the next URL or picked file.
+                        if (reflectsSavedVideo && !videoUnlocked) {
                             return (
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <div
-                                        className={`flex-1 min-w-0 basis-0 flex items-center gap-2 rounded-md border px-3 py-2 text-sm overflow-hidden ${
-                                            isMissing
-                                                ? "border-destructive bg-destructive/10"
-                                                : "border-input bg-muted"
-                                        }`}
-                                        title={videoValue}
-                                    >
-                                        <i
-                                            className={`codicon shrink-0 ${
-                                                isLocalFile ? "codicon-device-camera-video" : "codicon-link"
-                                            } text-muted-foreground`}
-                                        />
-                                        <span className="truncate">{displayLabel}</span>
-                                        {sizeLabel && !isMissing && (
-                                            <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
-                                                {sizeLabel}
-                                            </span>
+                                <div className="space-y-3 min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                        <div
+                                            className={`flex-1 min-w-0 basis-0 flex items-center gap-2 rounded-md border px-3 py-2 text-sm overflow-hidden ${
+                                                isMissing
+                                                    ? "border-destructive bg-destructive/10"
+                                                    : "border-input bg-muted"
+                                            }`}
+                                            title={videoValue}
+                                        >
+                                            <i
+                                                className={`codicon shrink-0 ${
+                                                    isLocalFile ? "codicon-device-camera-video" : "codicon-link"
+                                                } text-muted-foreground`}
+                                            />
+                                            <span className="truncate min-w-0">{displayLabel}</span>
+                                            {sizeLabel && !isMissing && (
+                                                <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
+                                                    {sizeLabel}
+                                                </span>
+                                            )}
+                                            {isMissing && (
+                                                <Badge variant="destructive" className="ml-auto shrink-0">
+                                                    File missing
+                                                </Badge>
+                                            )}
+                                        </div>
+                                        {showFreeSpace && !isConfirmingRemoval && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                className="shrink-0"
+                                                onClick={onFreeDiskSpace}
+                                                title="Remove the downloaded file to save space. It will stream again on demand."
+                                            >
+                                                <i className="codicon codicon-cloud-download mr-2" />
+                                                Free up space
+                                            </Button>
                                         )}
-                                        {isMissing && (
-                                            <Badge variant="destructive" className="ml-auto shrink-0">
-                                                File missing
-                                            </Badge>
+                                        {!isConfirmingRemoval && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                className="shrink-0"
+                                                onClick={handleClearVideo}
+                                                title={
+                                                    isLocalFile
+                                                        ? "Remove video (the local file is deleted when you save)"
+                                                        : "Remove video"
+                                                }
+                                            >
+                                                <i className="codicon codicon-trash mr-2" />
+                                                Clear
+                                            </Button>
                                         )}
                                     </div>
-                                    {showFreeSpace && (
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            className="shrink-0"
-                                            onClick={onFreeDiskSpace}
-                                            title="Remove the downloaded file to save space. It will stream again on demand."
-                                        >
-                                            <i className="codicon codicon-cloud-download mr-2" />
-                                            Free up space
-                                        </Button>
+
+                                    {isConfirmingRemoval && (
+                                        <Alert variant="destructive">
+                                            <i className="codicon codicon-warning" />
+                                            <AlertTitle>Remove this video?</AlertTitle>
+                                            <AlertDescription className="space-y-3">
+                                                <p>
+                                                    {isLocalFile
+                                                        ? "This removes the video reference and permanently deletes the local file when you save your changes."
+                                                        : "This removes the video URL from this chapter when you save your changes."}
+                                                </p>
+                                                <div className="space-y-1.5">
+                                                    <Label
+                                                        htmlFor="video-removal-confirm"
+                                                        className="text-xs font-medium text-foreground"
+                                                    >
+                                                        To confirm, type or paste the{" "}
+                                                        {isLocalFile ? "file name" : "URL"} below:
+                                                    </Label>
+                                                    <code
+                                                        className="block cursor-pointer select-all break-all rounded bg-muted px-2 py-1 font-mono text-xs text-foreground"
+                                                        title="Click to select all"
+                                                        onClick={(e) => {
+                                                            // select-all alone is unreliable (a click
+                                                            // mid-text can collapse the selection), so
+                                                            // explicitly select the whole node on click.
+                                                            const selection = window.getSelection();
+                                                            if (!selection) return;
+                                                            const range = document.createRange();
+                                                            range.selectNodeContents(e.currentTarget);
+                                                            selection.removeAllRanges();
+                                                            selection.addRange(range);
+                                                        }}
+                                                    >
+                                                        {expectedToken}
+                                                    </code>
+                                                    <Input
+                                                        id="video-removal-confirm"
+                                                        autoFocus
+                                                        autoComplete="off"
+                                                        spellCheck={false}
+                                                        value={removalConfirmText ?? ""}
+                                                        onChange={(e) =>
+                                                            setRemovalConfirmText(e.target.value)
+                                                        }
+                                                        onKeyDown={(e) => {
+                                                            // Escape is handled by the dialog's
+                                                            // onEscapeKeyDown (cancels just this
+                                                            // panel). Enter confirms when matched.
+                                                            if (e.key === "Enter") {
+                                                                e.preventDefault();
+                                                                if (removalMatches) {
+                                                                    confirmClearVideo();
+                                                                }
+                                                            }
+                                                        }}
+                                                        placeholder={
+                                                            isLocalFile
+                                                                ? "Type the file name to confirm"
+                                                                : "Type the URL to confirm"
+                                                        }
+                                                        className="bg-background text-foreground"
+                                                    />
+                                                    {(removalConfirmText ?? "").length > 0 &&
+                                                        !removalMatches && (
+                                                            <p className="text-xs text-muted-foreground">
+                                                                The text doesn't match yet.
+                                                            </p>
+                                                        )}
+                                                </div>
+                                                <div className="flex flex-wrap justify-end gap-2">
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        onClick={cancelClearVideo}
+                                                    >
+                                                        Cancel
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        variant="destructive"
+                                                        disabled={!removalMatches}
+                                                        onClick={confirmClearVideo}
+                                                    >
+                                                        <i className="codicon codicon-trash mr-2" />
+                                                        Remove video
+                                                    </Button>
+                                                </div>
+                                            </AlertDescription>
+                                        </Alert>
                                     )}
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="shrink-0"
-                                        onClick={handleClearVideo}
-                                        title={
-                                            isLocalFile
-                                                ? "Remove video (the local file is deleted when you save)"
-                                                : "Remove video"
-                                        }
-                                    >
-                                        <i className="codicon codicon-trash mr-2" />
-                                        Clear
-                                    </Button>
                                 </div>
                             );
                         }
@@ -308,7 +530,23 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
-            <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-2xl max-h-[85vh] overflow-y-auto overflow-x-hidden">
+            <DialogContent
+                // Width is pinned to the viewport (vw), not the containing block,
+                // so the modal always fits the webview panel with a 1rem margin
+                // each side and caps at 2xl on wide panels. Using vw avoids the
+                // sm:max-w override silently dropping the responsive cap.
+                className="w-[calc(100vw-2rem)] max-w-2xl sm:max-w-2xl max-h-[85vh] overflow-y-auto overflow-x-hidden"
+                onEscapeKeyDown={(e) => {
+                    // While the type-to-confirm removal panel is open, Escape should
+                    // dismiss only that panel, not the whole modal. (Radix listens
+                    // for Escape at the document level, so a synthetic
+                    // stopPropagation on the input isn't enough — intercept here.)
+                    if (removalConfirmText !== null) {
+                        e.preventDefault();
+                        cancelClearVideo();
+                    }
+                }}
+            >
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <i className="codicon codicon-notebook" />
@@ -316,9 +554,13 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                     </DialogTitle>
                 </DialogHeader>
                 
-                <div className="space-y-6">
+                {/* min-w-0 on this grid item (DialogContent is a CSS grid) lets the
+                    column shrink below its content's intrinsic width, so long
+                    unbreakable strings (e.g. a video URL) truncate instead of
+                    widening the whole modal. */}
+                <div className="space-y-6 min-w-0">
                     {/* User-Editable Fields */}
-                    <div className="space-y-4">
+                    <div className="space-y-4 min-w-0">
                         {Object.entries(USER_EDITABLE_FIELDS).map(([key, config]) => 
                             renderField(key, config)
                         )}
@@ -335,9 +577,9 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                                     <span className="text-muted-foreground">ID:</span>
                                     <span className="ml-2 font-mono break-all">{metadata.id}</span>
                                 </div>
-                                <div>
+                                <div className="min-w-0">
                                     <span className="text-muted-foreground">Original Name:</span>
-                                    <span className="ml-2">{metadata.originalName}</span>
+                                    <span className="ml-2 break-all">{metadata.originalName}</span>
                                 </div>
                                 {metadata.sourceCreatedAt && (
                                     <div>
