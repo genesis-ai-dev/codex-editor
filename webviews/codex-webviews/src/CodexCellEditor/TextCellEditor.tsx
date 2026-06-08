@@ -1338,8 +1338,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
             audioAttachments?.[nextCellId] === "available-local" ||
             audioAttachments?.[nextCellId] === "available-pointer" ||
             audioAttachments?.[nextCellId] === "available-cached");
-    const canPlayAudioWithVideo =
-        Boolean(audioBlob) || hasPrevAudioAvailable || hasNextAudioAvailable;
 
     // Helper function to request audio blob for a cell
     const requestAudioBlob = useCallback((cellId: string): Promise<Blob | null> => {
@@ -1645,13 +1643,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
         const startTime = effectiveTimestamps?.startTime;
         const endTime = effectiveTimestamps?.endTime;
 
+        console.log("[PlayVideo] clicked", {
+            startTime,
+            endTime,
+            hasAudioBlob: !!audioBlob,
+            shouldShowVideoPlayer,
+            videoUrl,
+        });
+
         if (startTime === undefined || endTime === undefined) {
-            console.warn("Timestamps are not available");
+            console.warn("[PlayVideo] Timestamps are not available");
             return;
         }
 
         if (endTime <= startTime) {
-            console.warn("Invalid timestamps: endTime must be greater than startTime");
+            console.warn("[PlayVideo] Invalid timestamps: endTime must be greater than startTime");
             return;
         }
 
@@ -1796,14 +1802,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         combinedBlob = null;
                     }
                 } else {
-                    setAudioWarning("No audio available in the current video timestamp range");
-                    return;
+                    // No recorded audio overlaps this range — fall through and
+                    // play the video alone from the subtitle start time. Clear
+                    // any stale cached blob so we don't replay another cell's
+                    // audio over this video-only section.
+                    combinedBlob = null;
+                    setAudioWarning(null);
                 }
-            }
-
-            if (!combinedBlob) {
-                console.warn("No combined audio blob available");
-                return;
             }
 
             // Helper function to clean up all audio and video
@@ -1848,135 +1853,185 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 }
             };
 
-            // Create single audio element from combined blob
-            const audioUrl = URL.createObjectURL(combinedBlob);
-            overlappingAudioUrlsRef.current.set("combined", audioUrl);
-            const audio = new Audio(audioUrl);
-            audioElementRef.current = audio;
+            // Create single audio element from combined blob. Skipped when no
+            // recorded audio overlaps this range — the video then plays alone.
+            if (combinedBlob) {
+                const audioUrl = URL.createObjectURL(combinedBlob);
+                overlappingAudioUrlsRef.current.set("combined", audioUrl);
+                const audio = new Audio(audioUrl);
+                audioElementRef.current = audio;
 
-            // Set up audio event handlers
-            audio.onended = () => {
-                if (!videoElementRef.current) {
-                    cleanupAll();
-                }
-            };
-            audio.onerror = () => {
-                const error = audio.error;
-                // Only log if it's a real error (not just unsupported format - code 4)
-                // MediaError codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
-                if (error && error.code !== 4) {
-                    const errorMessage = error.message
-                        ? `Error loading combined audio: ${error.message}`
-                        : "Error loading combined audio";
-                    console.warn(errorMessage);
-                }
-            };
-
-            // Set up timeupdate listener to stop at endTime
-            const audioTimeUpdateHandler = (e: Event) => {
-                const target = e.target as HTMLAudioElement;
-                if (target.currentTime >= totalDuration) {
-                    target.pause();
-                    if (audioTimeUpdateHandlerRef.current) {
-                        target.removeEventListener("timeupdate", audioTimeUpdateHandlerRef.current);
-                        audioTimeUpdateHandlerRef.current = null;
+                // Set up audio event handlers
+                audio.onended = () => {
+                    if (!videoElementRef.current) {
+                        cleanupAll();
                     }
-                    cleanupAll();
-                }
-            };
-
-            audioTimeUpdateHandlerRef.current = audioTimeUpdateHandler;
-            audio.addEventListener("timeupdate", audioTimeUpdateHandler);
-
-            // Wait for audio to be ready
-            await new Promise<void>((resolve, reject) => {
-                const handleLoadedMetadata = () => {
-                    audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
-                    audio.removeEventListener("error", handleError);
-                    resolve();
                 };
-
-                const handleError = () => {
-                    audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
-                    audio.removeEventListener("error", handleError);
+                audio.onerror = () => {
                     const error = audio.error;
-                    const errorMessage = error?.message || "Error loading combined audio";
-                    reject(new Error(errorMessage));
+                    // Only log if it's a real error (not just unsupported format - code 4)
+                    // MediaError codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
+                    if (error && error.code !== 4) {
+                        const errorMessage = error.message
+                            ? `Error loading combined audio: ${error.message}`
+                            : "Error loading combined audio";
+                        console.warn(errorMessage);
+                    }
                 };
 
-                if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
-                    handleLoadedMetadata();
-                } else {
-                    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
-                    audio.addEventListener("error", handleError);
-                }
-            });
+                // Set up timeupdate listener to stop at endTime
+                const audioTimeUpdateHandler = (e: Event) => {
+                    const target = e.target as HTMLAudioElement;
+                    if (target.currentTime >= totalDuration) {
+                        target.pause();
+                        if (audioTimeUpdateHandlerRef.current) {
+                            target.removeEventListener(
+                                "timeupdate",
+                                audioTimeUpdateHandlerRef.current
+                            );
+                            audioTimeUpdateHandlerRef.current = null;
+                        }
+                        cleanupAll();
+                    }
+                };
+
+                audioTimeUpdateHandlerRef.current = audioTimeUpdateHandler;
+                audio.addEventListener("timeupdate", audioTimeUpdateHandler);
+
+                // Wait for audio to be ready
+                await new Promise<void>((resolve, reject) => {
+                    const handleLoadedMetadata = () => {
+                        audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+                        audio.removeEventListener("error", handleError);
+                        resolve();
+                    };
+
+                    const handleError = () => {
+                        audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+                        audio.removeEventListener("error", handleError);
+                        const error = audio.error;
+                        const errorMessage = error?.message || "Error loading combined audio";
+                        reject(new Error(errorMessage));
+                    };
+
+                    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
+                        handleLoadedMetadata();
+                    } else {
+                        audio.addEventListener("loadedmetadata", handleLoadedMetadata);
+                        audio.addEventListener("error", handleError);
+                    }
+                });
+            }
 
             // Handle video playback if available
+            console.log("[PlayVideo] video gate", {
+                shouldShowVideoPlayer,
+                videoUrl,
+                hasPlayerRef: !!playerRef?.current,
+                playerRefType: playerRef?.current
+                    ? Object.prototype.toString.call(playerRef.current)
+                    : null,
+                startTime,
+                endTime,
+            });
             if (
                 shouldShowVideoPlayer &&
                 videoUrl &&
-                playerRef?.current &&
                 startTime !== undefined &&
                 endTime !== undefined
             ) {
                 try {
                     let videoElement: HTMLVideoElement | null = null;
                     let seeked = false;
+                    const player = playerRef?.current;
 
-                    // First try seekTo method if available
-                    if (typeof playerRef.current.seekTo === "function") {
-                        playerRef.current.seekTo(startTime, "seconds");
+                    // Duck-type a media element. For HLS/streaming sources
+                    // react-player v3 renders a custom element (e.g.
+                    // <hls-video>) whose real <video> lives in shadow DOM.
+                    // These elements are drop-in <video> replacements: they
+                    // expose play()/currentTime/muted/etc and proxy to the
+                    // inner video, so we can drive them directly without
+                    // reaching into the shadow root. A plain <video> matches
+                    // this too, covering the non-HLS case.
+                    const asMediaElement = (el: unknown): HTMLVideoElement | null => {
+                        const candidate = el as any;
+                        if (
+                            candidate &&
+                            typeof candidate === "object" &&
+                            typeof candidate.play === "function" &&
+                            typeof candidate.pause === "function" &&
+                            typeof candidate.addEventListener === "function" &&
+                            "currentTime" in candidate &&
+                            "paused" in candidate
+                        ) {
+                            return candidate as HTMLVideoElement;
+                        }
+                        return null;
+                    };
+
+                    // 1. The ref itself is the media element (native <video>
+                    //    or a media-compatible custom element like <hls-video>).
+                    videoElement = asMediaElement(player);
+
+                    // 2. Older API: seekTo method if available.
+                    if (!videoElement && typeof player?.seekTo === "function") {
+                        player.seekTo(startTime, "seconds");
                         seeked = true;
                     }
 
-                    // Try to find the video element
-                    const internalPlayer = playerRef.current.getInternalPlayer?.();
-
-                    if (internalPlayer instanceof HTMLVideoElement) {
-                        videoElement = internalPlayer;
-                        if (!seeked) {
-                            videoElement.currentTime = startTime;
-                            seeked = true;
-                        }
-                    } else if (internalPlayer && typeof internalPlayer === "object") {
-                        // Try different ways to access the video element
-                        const foundVideo =
-                            (internalPlayer as any).querySelector?.("video") ||
-                            (internalPlayer as any).video ||
-                            internalPlayer;
-
-                        if (foundVideo instanceof HTMLVideoElement) {
-                            videoElement = foundVideo;
-                            if (!seeked) {
-                                videoElement.currentTime = startTime;
-                                seeked = true;
-                            }
-                        }
+                    // 3. getInternalPlayer (react-player v2 style).
+                    if (!videoElement && player) {
+                        const internalPlayer = player.getInternalPlayer?.();
+                        videoElement =
+                            asMediaElement(internalPlayer) ||
+                            asMediaElement((internalPlayer as any)?.querySelector?.("video")) ||
+                            asMediaElement((internalPlayer as any)?.video);
                     }
 
-                    // Last resort: Try to find video element in the DOM
-                    if (!videoElement && playerRef.current) {
-                        const wrapper = playerRef.current as any;
-                        const foundVideo =
-                            wrapper.querySelector?.("video") ||
-                            wrapper.parentElement?.querySelector?.("video");
+                    // 4. Look for a <video> in light DOM near the ref, then in
+                    //    its shadow root (custom elements keep it there).
+                    if (!videoElement && player) {
+                        const wrapper = player as any;
+                        videoElement =
+                            asMediaElement(wrapper.querySelector?.("video")) ||
+                            asMediaElement(wrapper.parentElement?.querySelector?.("video")) ||
+                            asMediaElement(wrapper.shadowRoot?.querySelector?.("video"));
+                    }
 
-                        if (foundVideo instanceof HTMLVideoElement) {
-                            videoElement = foundVideo;
-                            if (!seeked) {
-                                videoElement.currentTime = startTime;
-                                seeked = true;
-                            }
-                        }
+                    // 5. Last resort: the editor renders a single player, so
+                    //    fall back to the only <video> in the document.
+                    if (!videoElement) {
+                        videoElement = asMediaElement(document.querySelector("video"));
+                    }
+
+                    console.log("[PlayVideo] discovery result", {
+                        foundVideoElement: !!videoElement,
+                        seeked,
+                    });
+
+                    // Seek to the subtitle start unless an API seek already did
+                    if (videoElement && !seeked) {
+                        videoElement.currentTime = startTime;
+                        seeked = true;
                     }
 
                     // If we found the video element, mute it and set up playback
                     if (videoElement) {
                         videoElementRef.current = videoElement;
                         previousVideoMuteStateRef.current = videoElement.muted;
-                        // Only mute if checkbox is checked
-                        videoElement.muted = muteVideoAudioDuringPlayback;
+                        // Mute only when recorded audio is overlaying the video
+                        // (the checkbox exists to avoid double audio). With no
+                        // recorded audio, play the video's own track so the
+                        // section isn't silent.
+                        videoElement.muted = combinedBlob ? muteVideoAudioDuringPlayback : false;
+
+                        console.log("[PlayVideo] ready to play", {
+                            currentTime: videoElement.currentTime,
+                            endTime,
+                            muted: videoElement.muted,
+                            paused: videoElement.paused,
+                            readyState: videoElement.readyState,
+                        });
 
                         // Check if we're already past the end time (shouldn't happen, but be safe)
                         if (videoElement.currentTime >= endTime) {
@@ -2004,12 +2059,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             // This prevents the handler from firing and pausing before play() resolves
                             try {
                                 await videoElement.play();
+                                console.log("[PlayVideo] play() resolved", {
+                                    paused: videoElement.paused,
+                                    currentTime: videoElement.currentTime,
+                                });
 
                                 // Only set up the handler after play() succeeds
                                 // This prevents race conditions where pause() interrupts play()
                                 videoTimeUpdateHandlerRef.current = timeUpdateHandler;
                                 videoElement.addEventListener("timeupdate", timeUpdateHandler);
                             } catch (playError) {
+                                console.warn("[PlayVideo] play() rejected", playError);
                                 // Suppress AbortError warnings - these are expected when pause() interrupts play()
                                 // This can happen if cleanup is called while play() is pending
                                 if (
@@ -2028,17 +2088,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
             }
 
             // Play the combined audio using globalAudioController to prevent duplicate playback
-            // This ensures useMultiCellAudioPlayback knows audio is already playing
-            try {
-                await globalAudioController.playExclusive(audio);
-            } catch (playError) {
-                if (
-                    playError instanceof Error &&
-                    playError.name !== "AbortError" &&
-                    playError.name !== "NotAllowedError"
-                ) {
-                    console.error("Error playing combined audio:", playError);
-                    cleanupAll();
+            // This ensures useMultiCellAudioPlayback knows audio is already playing.
+            // Skipped for video-only playback where no audio element was created.
+            const audioToPlay = audioElementRef.current;
+            if (audioToPlay) {
+                try {
+                    await globalAudioController.playExclusive(audioToPlay);
+                } catch (playError) {
+                    if (
+                        playError instanceof Error &&
+                        playError.name !== "AbortError" &&
+                        playError.name !== "NotAllowedError"
+                    ) {
+                        console.error("Error playing combined audio:", playError);
+                        cleanupAll();
+                    }
                 }
             }
         } finally {
@@ -5300,7 +5364,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         variant="default"
                                                         size="sm"
                                                         disabled={
-                                                            !canPlayAudioWithVideo ||
                                                             (effectiveTimestamps?.endTime ?? 0) -
                                                                 (effectiveTimestamps?.startTime ??
                                                                     0) <=
