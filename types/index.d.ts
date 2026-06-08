@@ -414,7 +414,18 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
     | { command: "resolveHtmlStructure"; content: { cellId: string; }; }
-    | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; skipVideoConfirm?: boolean; }
+    | {
+        command: "updateNotebookMetadata";
+        content: CustomNotebookMetadata;
+        skipVideoConfirm?: boolean;
+        /**
+         * Absolute path of a video file the user picked but hasn't committed yet.
+         * The picker stages the selection (it is NOT written on pick); the host
+         * imports it into the project as part of this save, so cancelling the
+         * modal leaves nothing behind.
+         */
+        pendingVideoFilePath?: string;
+    }
     | { command: "pickVideoFile"; skipVideoConfirm?: boolean; }
     | { command: "deleteVideoFile"; }
     | { command: "freeVideoDiskSpace"; }
@@ -2098,6 +2109,14 @@ type EditorReceiveMessages =
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
     | { type: "videoStreamResolving"; }
+    | {
+          // The user picked a video file in the OS dialog. It is staged (not yet
+          // imported into the project); the editor shows it as pending until the
+          // metadata modal is saved.
+          type: "videoFilePicked";
+          fsPath: string;
+          fileName: string;
+      }
     | { type: "videoStreamUnavailable"; reason: "offline" | "not-authenticated" | "not-found" | "error"; message?: string; }
     | { type: "videoNeedsDownload"; strategy: "auto-download" | "stream-and-save" | "stream-only"; }
     | {

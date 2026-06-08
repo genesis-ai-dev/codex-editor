@@ -196,6 +196,13 @@ const CodexCellEditor: React.FC = () => {
     // Size (bytes) of the referenced video when known (local bytes or LFS pointer
     // size). null until reported / unknown (e.g. remote URLs).
     const [videoSizeBytes, setVideoSizeBytes] = useState<number | null>(null);
+    // A video the user picked in the OS dialog but hasn't committed yet. It is
+    // only imported into the project when the metadata modal is saved, so it
+    // lives here as a staged selection (cleared on cancel/save).
+    const [pickedVideoFile, setPickedVideoFile] = useState<{
+        fsPath: string;
+        fileName: string;
+    } | null>(null);
     const playerRef = useRef<ReactPlayerRef>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const [muteVideoAudioDuringPlayback, setMuteVideoAudioDuringPlayback] = useState(true);
@@ -1772,6 +1779,11 @@ const CodexCellEditor: React.FC = () => {
                 setVideoResolving(false);
             }
         },
+        videoFilePicked: (fsPath: string, fileName: string) => {
+            // The user selected a file in the OS dialog. Stage it so the modal can
+            // show it as a pending video; nothing is written until "Save Changes".
+            setPickedVideoFile({ fsPath, fileName });
+        },
         videoStreamResolving: () => {
             // An action started elsewhere (e.g. "Load video" / "Save to project"
             // from a navigation card) is fetching this chapter's video. Reflect
@@ -3081,18 +3093,30 @@ const CodexCellEditor: React.FC = () => {
     // calls this on "Save Changes", so removals/edits are deferred until here.
     // When the saved videoUrl changes, the host confirms and (for a local file)
     // deletes the old file from disk as part of updateNotebookMetadata.
-    const handleSaveMetadata = (updatedMetadata: CustomNotebookMetadata) => {
-        setMetadata(updatedMetadata);
-        setVideoUrl(updatedMetadata.videoUrl || "");
+    const handleSaveMetadata = (
+        updatedMetadata: CustomNotebookMetadata,
+        pendingVideoFilePath?: string
+    ) => {
+        // Don't optimistically clobber videoUrl when a staged pick is being
+        // imported: the host computes the real project-relative path and pushes
+        // it back via providerUpdatesNotebookMetadataForWebview.
+        if (!pendingVideoFilePath) {
+            setMetadata(updatedMetadata);
+            setVideoUrl(updatedMetadata.videoUrl || "");
+        }
         debug("metadata", "Saving metadata:", updatedMetadata);
         // Any video change in the modal already passed its robust type-to-confirm
         // removal step, so the host's own replace/delete confirmation would be a
         // redundant second prompt — skip it. The host still deletes the old file.
+        // A staged pick (pendingVideoFilePath) is imported by the host as part of
+        // this save, so cancelling instead of saving leaves the project untouched.
         vscode.postMessage({
             command: "updateNotebookMetadata",
             content: updatedMetadata,
             skipVideoConfirm: true,
+            pendingVideoFilePath,
         } as EditorPostMessages);
+        setPickedVideoFile(null);
         setIsMetadataModalOpen(false);
     };
 
@@ -3640,6 +3664,8 @@ const CodexCellEditor: React.FC = () => {
                             onMetadataChange={handleMetadataChange}
                             onSaveMetadata={handleSaveMetadata}
                             onPickFile={handlePickFile}
+                            pickedVideoFile={pickedVideoFile}
+                            onPickedVideoConsumed={() => setPickedVideoFile(null)}
                             videoCanFreeDiskSpace={videoCanFreeDiskSpace}
                             onFreeVideoDiskSpace={handleFreeVideoDiskSpace}
                             videoSizeBytes={videoSizeBytes}

@@ -22,9 +22,20 @@ interface NotebookMetadataModalProps {
     isOpen: boolean;
     onClose: () => void;
     metadata: CustomNotebookMetadata;
-    /** Commit the edited metadata. Only called when the user clicks "Save Changes". */
-    onSave: (updated: CustomNotebookMetadata) => void;
+    /**
+     * Commit the edited metadata. Only called when the user clicks "Save Changes".
+     * `pendingVideoFilePath` is the absolute path of a staged video pick that the
+     * host should import into the project as part of this save.
+     */
+    onSave: (updated: CustomNotebookMetadata, pendingVideoFilePath?: string) => void;
     onPickFile: () => void;
+    /**
+     * A video the user picked in the OS dialog but hasn't committed. Shown as a
+     * pending video; only imported into the project on "Save Changes".
+     */
+    pickedVideoFile?: { fsPath: string; fileName: string; } | null;
+    /** Called once the modal has adopted a delivered `pickedVideoFile`. */
+    onPickedVideoConsumed?: () => void;
     /** Stream-and-save: a downloaded local copy can be reverted to a pointer to free space. */
     canFreeDiskSpace: boolean;
     onFreeDiskSpace: () => void;
@@ -70,6 +81,8 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
     metadata,
     onSave,
     onPickFile,
+    pickedVideoFile,
+    onPickedVideoConsumed,
     canFreeDiskSpace,
     onFreeDiskSpace,
     videoReferenceStatus,
@@ -84,6 +97,13 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
     // name (local) or URL (remote) before the removal is allowed. `null` means
     // the confirmation panel is closed.
     const [removalConfirmText, setRemovalConfirmText] = useState<string | null>(null);
+    // A video the user picked in the OS dialog but hasn't committed. It is only
+    // imported into the project (and the videoUrl updated) when the user clicks
+    // "Save Changes"; cancelling the modal discards it.
+    const [pendingVideoFile, setPendingVideoFile] = useState<{
+        fsPath: string;
+        fileName: string;
+    } | null>(null);
 
     // Start the draft from the latest saved metadata each time the modal opens.
     useEffect(() => {
@@ -91,9 +111,25 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
             setDraft(metadata);
             setHasChanges(false);
             setRemovalConfirmText(null);
+            setPendingVideoFile(null);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
+
+    // Adopt a staged pick delivered from the host. Clearing the draft URL keeps
+    // any previously typed URL from lingering behind the pending chip, and the
+    // one-shot consume callback prevents re-adopting it if the modal reopens.
+    useEffect(() => {
+        if (!isOpen || !pickedVideoFile) {
+            return;
+        }
+        setPendingVideoFile(pickedVideoFile);
+        setDraft((d) => ({ ...d, videoUrl: "" }) as CustomNotebookMetadata);
+        setRemovalConfirmText(null);
+        setHasChanges(true);
+        onPickedVideoConsumed?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pickedVideoFile, isOpen]);
 
     // Picking a file is an immediate host action that updates the saved videoUrl;
     // mirror it into the draft so the field reflects the newly picked file. Any
@@ -133,14 +169,20 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
     };
 
     const handleSave = () => {
-        onSave(draft);
+        onSave(draft, pendingVideoFile?.fsPath);
         setHasChanges(false);
+        setPendingVideoFile(null);
+    };
+
+    const cancelPendingVideo = () => {
+        setPendingVideoFile(null);
     };
 
     const handleClose = () => {
         setDraft(metadata);
         setHasChanges(false);
         setRemovalConfirmText(null);
+        setPendingVideoFile(null);
         onClose();
     };
 
@@ -185,8 +227,49 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                     </Select>
                 ) : config.type === "url" && config.hasFilePicker ? (
                     (() => {
+                        // A staged pick takes precedence: show it as pending until
+                        // the user saves (which imports it) or clears it (discard).
+                        if (pendingVideoFile) {
+                            return (
+                                <div className="space-y-2">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <div
+                                            className="flex-1 min-w-0 basis-0 flex items-center gap-2 rounded-md border border-input bg-muted px-3 py-2 text-sm overflow-hidden"
+                                            title={pendingVideoFile.fsPath}
+                                        >
+                                            <i className="codicon codicon-device-camera-video shrink-0 text-muted-foreground" />
+                                            <span className="truncate">{pendingVideoFile.fileName}</span>
+                                            <Badge variant="secondary" className="ml-auto shrink-0">
+                                                Pending
+                                            </Badge>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="shrink-0"
+                                            onClick={cancelPendingVideo}
+                                            title="Discard this pending video"
+                                        >
+                                            <i className="codicon codicon-close mr-2" />
+                                            Clear
+                                        </Button>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                        This video will be added to the project when you save your
+                                        changes.
+                                    </p>
+                                </div>
+                            );
+                        }
+
                         const videoValue = String(currentValue);
                         const hasVideo = !!videoValue;
+                        // Lock the field (read-only chip + Clear) only while the
+                        // draft still points at the SAVED video. While composing a
+                        // new URL (draft differs from the saved value) the field
+                        // must stay an editable input — otherwise typing the first
+                        // character would flip it to the locked view immediately.
+                        const reflectsSavedVideo = hasVideo && draft.videoUrl === metadata.videoUrl;
                         const isLocalFile = hasVideo && !/^https?:\/\//i.test(videoValue);
                         // Only flag "missing" when the draft still reflects the saved
                         // reference (not a pending edit the host hasn't evaluated yet).
@@ -218,11 +301,11 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                             trimmedExpected.length > 0 &&
                             (removalConfirmText ?? "").trim() === trimmedExpected;
 
-                        // When a video is set, lock the field. Changing it requires an
-                        // explicit Clear first (deferred — the file is only deleted and
-                        // the JSON updated on Save). Once cleared, the field becomes
-                        // editable for the next URL or picked file.
-                        if (hasVideo) {
+                        // When the saved video is set, lock the field. Changing it
+                        // requires an explicit Clear first (deferred — the file is
+                        // only deleted and the JSON updated on Save). Once cleared,
+                        // the field becomes editable for the next URL or picked file.
+                        if (reflectsSavedVideo) {
                             return (
                                 <div className="space-y-3">
                                     <div className="flex flex-wrap items-center gap-2">
@@ -312,13 +395,10 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                                                             setRemovalConfirmText(e.target.value)
                                                         }
                                                         onKeyDown={(e) => {
-                                                            if (e.key === "Escape") {
-                                                                // Cancel only the confirmation,
-                                                                // don't let Radix close the modal.
-                                                                e.preventDefault();
-                                                                e.stopPropagation();
-                                                                cancelClearVideo();
-                                                            } else if (e.key === "Enter") {
+                                                            // Escape is handled by the dialog's
+                                                            // onEscapeKeyDown (cancels just this
+                                                            // panel). Enter confirms when matched.
+                                                            if (e.key === "Enter") {
                                                                 e.preventDefault();
                                                                 if (removalMatches) {
                                                                     confirmClearVideo();
@@ -424,7 +504,19 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
-            <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-2xl max-h-[85vh] overflow-y-auto overflow-x-hidden">
+            <DialogContent
+                className="max-w-[calc(100%-2rem)] sm:max-w-2xl max-h-[85vh] overflow-y-auto overflow-x-hidden"
+                onEscapeKeyDown={(e) => {
+                    // While the type-to-confirm removal panel is open, Escape should
+                    // dismiss only that panel, not the whole modal. (Radix listens
+                    // for Escape at the document level, so a synthetic
+                    // stopPropagation on the input isn't enough — intercept here.)
+                    if (removalConfirmText !== null) {
+                        e.preventDefault();
+                        cancelClearVideo();
+                    }
+                }}
+            >
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <i className="codicon codicon-notebook" />
