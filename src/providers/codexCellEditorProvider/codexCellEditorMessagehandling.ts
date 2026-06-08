@@ -510,7 +510,8 @@ export async function resolveAndPostVideoStreamUrl(
         provider.postMessageToWebview(webviewPanel, {
             type: "videoStreamUnavailable",
             reason: "not-found",
-            message: "The video is not available locally and no LFS reference was found.",
+            message:
+                "This video isn't available yet. It may still be syncing, or the file couldn't be found.",
         });
         return;
     }
@@ -2129,7 +2130,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             provider.postMessageToWebview(webviewPanel, {
                 type: "videoStreamUnavailable",
                 reason: "not-found",
-                message: "No LFS reference found for this video.",
+                message:
+                    "This video isn't available yet. It may still be syncing, or the file couldn't be found.",
             });
             return;
         }

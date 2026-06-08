@@ -3139,6 +3139,44 @@ const CodexCellEditor: React.FC = () => {
         vscode.postMessage({ command: "requestVideoStreamUrl" } as EditorPostMessages);
     }, []);
 
+    // Keep the latest resolved URL in a ref so the error handler reads the
+    // current value (not a stale closure) and can guard retries by URL.
+    const videoUrlRef = useRef(videoUrl);
+    useEffect(() => {
+        videoUrlRef.current = videoUrl;
+    }, [videoUrl]);
+    // Guards auto-retry on playback error. This lives in the parent (not in
+    // VideoPlayer) on purpose: requesting a fresh URL clears videoUrl and
+    // unmounts the player, so a guard inside the player would reset on every
+    // remount and loop forever on a persistently-failing URL.
+    const videoErrorRetryRef = useRef<{ url: string; at: number; }>({ url: "", at: 0 });
+
+    // Called when the player reports a load/playback error. A remote stream URL
+    // may have expired, so re-resolve it once; if the SAME URL keeps failing we
+    // stop and surface the "unavailable" state (with a manual retry) instead of
+    // looping — which is what an invalid URL like "https://www.ffdsf" would
+    // otherwise do, flooding the console with errors.
+    const VIDEO_ERROR_RETRY_WINDOW_MS = 10000;
+    const handleVideoStreamError = useCallback(() => {
+        const url = videoUrlRef.current;
+        const now = Date.now();
+        const guard = videoErrorRetryRef.current;
+        const retriedRecently =
+            guard.url === url && now - guard.at < VIDEO_ERROR_RETRY_WINDOW_MS;
+        if (retriedRecently) {
+            // Already retried this URL once recently → give up to avoid a loop.
+            setVideoUrl("");
+            setVideoResolving(false);
+            setVideoNeedsDownloadStrategy(null);
+            setVideoUnavailableMessage(
+                "This video couldn't be played. Please check that the URL is correct and reachable."
+            );
+            return;
+        }
+        videoErrorRetryRef.current = { url, at: now };
+        requestVideoStreamUrl();
+    }, [requestVideoStreamUrl]);
+
     // Download the LFS-backed video so it can play locally. `persist` controls
     // whether stream-only keeps the file ("Save to project") or treats it as a
     // session cache that re-streams next session (the default "Load").
@@ -3849,7 +3887,7 @@ const CodexCellEditor: React.FC = () => {
                             playerRef={playerRef}
                             audioAttachments={audioAttachments}
                             muteVideoWhenPlayingAudio={muteVideoAudioDuringPlayback}
-                            onRequestStreamUrl={requestVideoStreamUrl}
+                            onRequestStreamUrl={handleVideoStreamError}
                         />
                     </div>
                 )}

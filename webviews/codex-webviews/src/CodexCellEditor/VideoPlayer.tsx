@@ -43,29 +43,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Check if the URL is a YouTube URL
     const isYouTubeUrl = videoUrl?.includes("youtube.com") || videoUrl?.includes("youtu.be");
 
-    // Guard so a persistently-failing URL doesn't trigger an infinite refresh loop.
-    const lastStreamRefreshRef = useRef<{ url: string; at: number; }>({ url: "", at: 0 });
-
     const handleError = (error: any) => {
         console.error("Video player error:", error);
 
-        // A streamed (presigned) URL may have expired mid-watch. Ask the host for
-        // a fresh URL once before showing an error. Only do this for genuine
-        // remote stream URLs — local webview-resource URLs won't benefit and
-        // would otherwise loop. A new URL changes the player key and remounts;
-        // the same URL is guarded by time + identity.
+        // A streamed (presigned) URL may have expired mid-watch, and an invalid
+        // user-entered URL simply won't load. Defer recovery to the parent via
+        // onRequestStreamUrl: it owns a guard that survives the player's
+        // unmount/remount cycle, so it re-resolves once and then surfaces an
+        // error instead of looping. (A guard here would reset on every remount.)
+        // Only delegate genuine remote URLs — local/webview-resource and YouTube
+        // errors are shown inline below and are not retried, so they can't loop.
         const isRemoteStreamUrl =
             /^https?:\/\//i.test(videoUrl) &&
             !/vscode-resource|vscode-cdn|vscode-webview/i.test(videoUrl) &&
             !isYouTubeUrl;
         if (onRequestStreamUrl && isRemoteStreamUrl) {
-            const now = Date.now();
-            const guard = lastStreamRefreshRef.current;
-            if (guard.url !== videoUrl || now - guard.at > 10000) {
-                lastStreamRefreshRef.current = { url: videoUrl, at: now };
-                onRequestStreamUrl();
-                return;
-            }
+            onRequestStreamUrl();
+            return;
         }
 
         // ReactPlayer onError receives an error object or event

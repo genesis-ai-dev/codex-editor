@@ -104,6 +104,11 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
         fsPath: string;
         fileName: string;
     } | null>(null);
+    // Once the user clears/replaces the saved video in this session, keep the
+    // field editable even if they retype the exact same URL. Without this, the
+    // deferred removal leaves metadata.videoUrl unchanged, so retyping the old
+    // value would match it and re-lock the field mid-typing.
+    const [videoUnlocked, setVideoUnlocked] = useState(false);
 
     // Start the draft from the latest saved metadata each time the modal opens.
     useEffect(() => {
@@ -112,6 +117,7 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
             setHasChanges(false);
             setRemovalConfirmText(null);
             setPendingVideoFile(null);
+            setVideoUnlocked(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
@@ -127,6 +133,7 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
         setDraft((d) => ({ ...d, videoUrl: "" }) as CustomNotebookMetadata);
         setRemovalConfirmText(null);
         setHasChanges(true);
+        setVideoUnlocked(true);
         onPickedVideoConsumed?.();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pickedVideoFile, isOpen]);
@@ -166,6 +173,7 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
         setHasChanges(true);
         setDraft((d) => ({ ...d, videoUrl: "" }) as CustomNotebookMetadata);
         setRemovalConfirmText(null);
+        setVideoUnlocked(true);
     };
 
     const handleSave = () => {
@@ -183,6 +191,7 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
         setHasChanges(false);
         setRemovalConfirmText(null);
         setPendingVideoFile(null);
+        setVideoUnlocked(false);
         onClose();
     };
 
@@ -308,7 +317,7 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                         // requires an explicit Clear first (deferred — the file is
                         // only deleted and the JSON updated on Save). Once cleared,
                         // the field becomes editable for the next URL or picked file.
-                        if (reflectsSavedVideo) {
+                        if (reflectsSavedVideo && !videoUnlocked) {
                             return (
                                 <div className="space-y-3 min-w-0">
                                     <div className="flex flex-wrap items-center gap-2 min-w-0">
@@ -385,7 +394,21 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                                                         To confirm, type or paste the{" "}
                                                         {isLocalFile ? "file name" : "URL"} below:
                                                     </Label>
-                                                    <code className="block select-all break-all rounded bg-muted px-2 py-1 font-mono text-xs text-foreground">
+                                                    <code
+                                                        className="block cursor-pointer select-all break-all rounded bg-muted px-2 py-1 font-mono text-xs text-foreground"
+                                                        title="Click to select all"
+                                                        onClick={(e) => {
+                                                            // select-all alone is unreliable (a click
+                                                            // mid-text can collapse the selection), so
+                                                            // explicitly select the whole node on click.
+                                                            const selection = window.getSelection();
+                                                            if (!selection) return;
+                                                            const range = document.createRange();
+                                                            range.selectNodeContents(e.currentTarget);
+                                                            selection.removeAllRanges();
+                                                            selection.addRange(range);
+                                                        }}
+                                                    >
                                                         {expectedToken}
                                                     </code>
                                                     <Input
