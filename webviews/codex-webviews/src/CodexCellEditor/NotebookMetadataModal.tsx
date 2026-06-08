@@ -190,7 +190,10 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
         const currentValue = draft[key as keyof CustomNotebookMetadata] || "";
         
         return (
-            <div key={key} className="space-y-2">
+            // min-w-0 lets this grid item shrink below its content's intrinsic
+            // width so a long, unbreakable video URL truncates instead of forcing
+            // the whole modal wider than the viewport.
+            <div key={key} className="space-y-2 min-w-0">
                 <div className="flex items-center gap-2">
                     <Label htmlFor={key} className="text-sm font-medium">
                         {config.label}
@@ -238,7 +241,7 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                                             title={pendingVideoFile.fsPath}
                                         >
                                             <i className="codicon codicon-device-camera-video shrink-0 text-muted-foreground" />
-                                            <span className="truncate">{pendingVideoFile.fileName}</span>
+                                            <span className="truncate min-w-0">{pendingVideoFile.fileName}</span>
                                             <Badge variant="secondary" className="ml-auto shrink-0">
                                                 Pending
                                             </Badge>
@@ -307,8 +310,8 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                         // the field becomes editable for the next URL or picked file.
                         if (reflectsSavedVideo) {
                             return (
-                                <div className="space-y-3">
-                                    <div className="flex flex-wrap items-center gap-2">
+                                <div className="space-y-3 min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2 min-w-0">
                                         <div
                                             className={`flex-1 min-w-0 basis-0 flex items-center gap-2 rounded-md border px-3 py-2 text-sm overflow-hidden ${
                                                 isMissing
@@ -322,7 +325,7 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                                                     isLocalFile ? "codicon-device-camera-video" : "codicon-link"
                                                 } text-muted-foreground`}
                                             />
-                                            <span className="truncate">{displayLabel}</span>
+                                            <span className="truncate min-w-0">{displayLabel}</span>
                                             {sizeLabel && !isMissing && (
                                                 <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
                                                     {sizeLabel}
@@ -505,7 +508,11 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
             <DialogContent
-                className="max-w-[calc(100%-2rem)] sm:max-w-2xl max-h-[85vh] overflow-y-auto overflow-x-hidden"
+                // Width is pinned to the viewport (vw), not the containing block,
+                // so the modal always fits the webview panel with a 1rem margin
+                // each side and caps at 2xl on wide panels. Using vw avoids the
+                // sm:max-w override silently dropping the responsive cap.
+                className="w-[calc(100vw-2rem)] max-w-2xl sm:max-w-2xl max-h-[85vh] overflow-y-auto overflow-x-hidden"
                 onEscapeKeyDown={(e) => {
                     // While the type-to-confirm removal panel is open, Escape should
                     // dismiss only that panel, not the whole modal. (Radix listens
@@ -524,9 +531,13 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                     </DialogTitle>
                 </DialogHeader>
                 
-                <div className="space-y-6">
+                {/* min-w-0 on this grid item (DialogContent is a CSS grid) lets the
+                    column shrink below its content's intrinsic width, so long
+                    unbreakable strings (e.g. a video URL) truncate instead of
+                    widening the whole modal. */}
+                <div className="space-y-6 min-w-0">
                     {/* User-Editable Fields */}
-                    <div className="space-y-4">
+                    <div className="space-y-4 min-w-0">
                         {Object.entries(USER_EDITABLE_FIELDS).map(([key, config]) => 
                             renderField(key, config)
                         )}
@@ -543,9 +554,9 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                                     <span className="text-muted-foreground">ID:</span>
                                     <span className="ml-2 font-mono break-all">{metadata.id}</span>
                                 </div>
-                                <div>
+                                <div className="min-w-0">
                                     <span className="text-muted-foreground">Original Name:</span>
-                                    <span className="ml-2">{metadata.originalName}</span>
+                                    <span className="ml-2 break-all">{metadata.originalName}</span>
                                 </div>
                                 {metadata.sourceCreatedAt && (
                                     <div>
