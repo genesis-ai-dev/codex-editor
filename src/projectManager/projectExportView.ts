@@ -100,6 +100,20 @@ async function checkHtmlStructureMismatches(
  */
 let activeExportPanel: vscode.WebviewPanel | undefined;
 
+/**
+ * Cancellation source for the export currently running in the active panel.
+ * Created when an export starts and disposed when it settles. Used to abort the
+ * run when the user clicks Cancel or closes the export tab mid-export.
+ */
+let activeExportCts: vscode.CancellationTokenSource | undefined;
+
+/**
+ * True while an export is actively running in the active panel. Guards against
+ * starting a second export (e.g. the run still draining its in-flight LFS
+ * downloads after a cancel) before the first has settled.
+ */
+let isExporting = false;
+
 export async function openProjectExportView(context: vscode.ExtensionContext) {
     if (activeExportPanel) {
         // Bring the existing wizard forward instead of stacking another one.
@@ -126,6 +140,12 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
     );
     activeExportPanel = panel;
     panel.onDidDispose(() => {
+        // Closing the tab while an export is running aborts it (and triggers the
+        // engine's partial-output cleanup). This also prevents a stale run from
+        // continuing in the background after the panel is gone.
+        if (isExporting) {
+            activeExportCts?.cancel();
+        }
         if (activeExportPanel === panel) {
             activeExportPanel = undefined;
         }
@@ -222,6 +242,11 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                 );
                 break;
             case "export":
+                // Guard against a second export starting while one is still
+                // running (or draining in-flight downloads after a cancel).
+                if (isExporting) {
+                    break;
+                }
                 try {
                     // For round-trip exports, check for HTML structure mismatches and prompt
                     if (message.format === "rebuild-export" && message.filesToExport?.length) {
@@ -251,23 +276,39 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
 
                     const reporter = createWebviewReporter(panel, "ProjectExport");
 
+                    // Fresh cancellation source for this run. The token is
+                    // threaded through the export engine so Cancel / tab-close
+                    // can stop downloads and trigger partial-output cleanup.
+                    activeExportCts = new vscode.CancellationTokenSource();
+                    isExporting = true;
                     try {
                         await exportCodexContent(
                             message.format as CodexExportFormat,
                             message.userSelectedPath,
                             message.filesToExport,
                             message.options,
-                            reporter
+                            reporter,
+                            activeExportCts.token
                         );
                     } catch (error) {
-                        reporter.error(
-                            error instanceof Error
-                                ? error.message
-                                : "Failed to export project. Please check your configuration."
-                        );
+                        // A cancellation surfaces here as an AbortError from an
+                        // in-flight download; the engine has already emitted the
+                        // `cancelled` event and cleaned up, so don't also report
+                        // it as a failure.
+                        if (!activeExportCts.token.isCancellationRequested) {
+                            reporter.error(
+                                error instanceof Error
+                                    ? error.message
+                                    : "Failed to export project. Please check your configuration."
+                            );
+                        }
+                    } finally {
+                        isExporting = false;
+                        activeExportCts.dispose();
+                        activeExportCts = undefined;
                     }
                     // Intentionally do NOT dispose the panel. The webview owns
-                    // the success/error UI and the user clicks Close when ready.
+                    // the success/error/cancelled UI and the user clicks Close when ready.
                 } catch (error) {
                     safePostMessageToPanel(
                         panel,
@@ -340,6 +381,12 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
             }
             case "cancel":
                 panel.dispose();
+                break;
+            case "cancelExport":
+                // Stop the in-progress export. Keep the panel open: the engine
+                // cleans up partial output and emits `exportCancelled`, which
+                // the webview renders as a terminal cancelled state.
+                activeExportCts?.cancel();
                 break;
         }
     });
@@ -1427,6 +1474,13 @@ function getWebviewContent(
                             <div class="export-extra-messages" id="exportExtraMessages" style="display:none;"></div>
 
                             <div class="export-output-path" id="exportOutputPath" style="display:none;"></div>
+
+                            <div class="export-action-row" id="exportCancelRow">
+                                <button class="secondary" id="exportCancelBtn" onclick="cancelExportRun()">
+                                    <i class="codicon codicon-close"></i>
+                                    Cancel
+                                </button>
+                            </div>
 
                             <div class="export-action-row" id="exportActionRow" style="display:none;">
                                 <button class="secondary" id="exportOpenFolderBtn" onclick="openExportFolder()">
@@ -2521,12 +2575,25 @@ function getWebviewContent(
                     vscode.postMessage({ command: 'cancel' });
                 }
 
+                function cancelExportRun() {
+                    // Avoid a double-send if the user mashes the button; also a
+                    // no-op once the run has already settled.
+                    if (exportState.finished || exportState.cancelRequested) return;
+                    exportState.cancelRequested = true;
+                    const btn = document.getElementById('exportCancelBtn');
+                    if (btn) btn.disabled = true;
+                    setExportTitle('Cancelling export...', 'Stopping downloads and cleaning up partial output.');
+                    vscode.postMessage({ command: 'cancelExport' });
+                }
+
                 // Step 4 (Exporting) state
                 const STAGE_ORDER = ['preparing', 'processing', 'downloading', 'writing', 'finalizing'];
                 const exportState = {
                     started: false,
                     finished: false,
                     succeeded: false,
+                    cancelRequested: false,
+                    cancelled: false,
                     stageIndex: -1,
                     extraMessages: [],
                     outputPath: null,
@@ -2538,6 +2605,8 @@ function getWebviewContent(
                     exportState.started = false;
                     exportState.finished = false;
                     exportState.succeeded = false;
+                    exportState.cancelRequested = false;
+                    exportState.cancelled = false;
                     exportState.stageIndex = -1;
                     exportState.extraMessages = [];
                     exportState.outputPath = null;
@@ -2546,7 +2615,7 @@ function getWebviewContent(
 
                     const icon = document.getElementById('exportProgressIcon');
                     if (icon) {
-                        icon.classList.remove('success', 'error');
+                        icon.classList.remove('success', 'error', 'warn');
                         icon.classList.add('export-spinner');
                         icon.innerHTML = '<i class="codicon codicon-sync"></i>';
                     }
@@ -2570,6 +2639,12 @@ function getWebviewContent(
 
                     const actionRow = document.getElementById('exportActionRow');
                     if (actionRow) actionRow.style.display = 'none';
+
+                    // Cancel control is visible only while the export is running.
+                    const cancelRow = document.getElementById('exportCancelRow');
+                    if (cancelRow) cancelRow.style.display = 'flex';
+                    const cancelBtn = document.getElementById('exportCancelBtn');
+                    if (cancelBtn) cancelBtn.disabled = false;
                 }
 
                 function escapeHtml(s) {
@@ -2609,12 +2684,21 @@ function getWebviewContent(
                 function handleExportStage(stageKey, message, file, current, total) {
                     const idx = STAGE_ORDER.indexOf(stageKey);
                     if (idx === -1) return;
-                    if (idx > exportState.stageIndex) {
-                        for (let i = 0; i < idx; i++) setStageState(STAGE_ORDER[i], 'done');
-                        setStageState(stageKey, 'active');
+                    // Reflect the most-recently-reported stage as the active one.
+                    // Exports interleave stages: the text exporter's "writing"
+                    // runs concurrently with audio "downloading", and audio
+                    // alternates download/write per file. A monotonic (furthest-
+                    // wins) indicator would get stuck on "Writing output" while
+                    // audio is still downloading, so we follow the latest event
+                    // instead. Only re-render when the stage actually changes to
+                    // avoid redundant DOM churn.
+                    if (idx !== exportState.stageIndex) {
+                        for (let i = 0; i < STAGE_ORDER.length; i++) {
+                            if (i < idx) setStageState(STAGE_ORDER[i], 'done');
+                            else if (i === idx) setStageState(STAGE_ORDER[i], 'active');
+                            else setStageState(STAGE_ORDER[i], 'pending');
+                        }
                         exportState.stageIndex = idx;
-                    } else if (idx === exportState.stageIndex) {
-                        setStageState(stageKey, 'active');
                     }
 
                     if (message) {
@@ -2658,16 +2742,58 @@ function getWebviewContent(
                     el.style.display = 'block';
                 }
 
+                function hideCancelRow() {
+                    const cancelRow = document.getElementById('exportCancelRow');
+                    if (cancelRow) cancelRow.style.display = 'none';
+                }
+
+                function showExportCancelled() {
+                    // Terminal state distinct from success/failure. The host has
+                    // already deleted the partial output before sending this.
+                    exportState.finished = true;
+                    exportState.cancelled = true;
+                    exportState.succeeded = false;
+
+                    hideCancelRow();
+
+                    // Reset any spinning stage row back to a static pending icon
+                    // (toggling the class alone leaves the codicon-sync spinning).
+                    document.querySelectorAll('#exportStageList .stage-row.active').forEach(row => {
+                        setStageState(row.dataset.stage, 'pending');
+                    });
+
+                    const icon = document.getElementById('exportProgressIcon');
+                    if (icon) {
+                        icon.classList.remove('export-spinner', 'success', 'error', 'warn');
+                        icon.classList.add('warn');
+                        icon.innerHTML = '<i class="codicon codicon-circle-slash"></i>';
+                    }
+
+                    setExportTitle('Export cancelled', 'The partial export was removed.');
+
+                    const currentFile = document.getElementById('exportCurrentFile');
+                    if (currentFile) { currentFile.style.display = 'none'; currentFile.textContent = ''; }
+
+                    // Output is gone, so only offer Close (no Open Folder).
+                    const actionRow = document.getElementById('exportActionRow');
+                    const openBtn = document.getElementById('exportOpenFolderBtn');
+                    if (openBtn) openBtn.style.display = 'none';
+                    if (actionRow) actionRow.style.display = 'flex';
+                }
+
                 function showExportFinished(success, summaryText) {
                     exportState.finished = true;
                     exportState.succeeded = success;
+
+                    hideCancelRow();
 
                     document.querySelectorAll('#exportStageList .stage-row').forEach(row => {
                         if (success) {
                             setStageState(row.dataset.stage, 'done');
                         } else if (row.classList.contains('active')) {
-                            row.classList.remove('active');
-                            row.classList.add('pending');
+                            // Reset via setStageState so the spinning icon stops
+                            // (toggling the class alone leaves codicon-sync spinning).
+                            setStageState(row.dataset.stage, 'pending');
                         }
                     });
 
@@ -2770,6 +2896,10 @@ function getWebviewContent(
                         return;
                     }
                     if (message.command === 'exportProgress') {
+                        // Ignore late progress once we have reached a terminal
+                        // state (e.g. trailing events from in-flight downloads
+                        // draining after a cancel).
+                        if (exportState.finished || exportState.cancelled) return;
                         const event = message.event || {};
                         if (event.stage) {
                             handleExportStage(event.stage, event.message, event.file, event.current, event.total);
@@ -2787,6 +2917,9 @@ function getWebviewContent(
                         return;
                     }
                     if (message.command === 'exportCompleted') {
+                        // A cancel that already won the race takes precedence;
+                        // don't flip a cancelled run to "complete".
+                        if (exportState.cancelled) return;
                         const summary = message.summary || {};
                         if (summary.exportPath) showOutputPath(summary.exportPath);
                         if (summary.extraMessages && summary.extraMessages.length > 0) {
@@ -2796,7 +2929,14 @@ function getWebviewContent(
                         return;
                     }
                     if (message.command === 'exportError') {
+                        if (exportState.cancelled) return;
                         showExportFinished(false, message.message || 'Export failed.');
+                        return;
+                    }
+                    if (message.command === 'exportCancelled') {
+                        // Terminal: the host deleted the partial output and will
+                        // not send complete/error for this run.
+                        showExportCancelled();
                         return;
                     }
                     if (message.command === 'subtitleOverlapResult') {

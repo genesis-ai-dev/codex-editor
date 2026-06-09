@@ -473,15 +473,52 @@ async function prepareAudioForExport(
 const EXPORT_CONCURRENCY = 30;
 
 /**
+ * Error used to mark a concurrency-pool slot that was never run because the
+ * export was cancelled. Callers can recognise it to suppress per-cell failure
+ * reporting for work that simply never started.
+ */
+export class ExportCancelledError extends Error {
+    constructor(message = "Export cancelled") {
+        super(message);
+        this.name = "ExportCancelledError";
+    }
+}
+
+/**
+ * Bridges a VS Code `CancellationToken` to a DOM `AbortSignal` so it can be
+ * handed to fetch-based APIs (e.g. the Frontier LFS download). The returned
+ * `dispose` must be called to detach the listener and avoid leaks.
+ */
+export function tokenToAbortSignal(
+    token?: vscode.CancellationToken
+): { signal: AbortSignal | undefined; dispose: () => void; } {
+    if (!token) {
+        return { signal: undefined, dispose: () => undefined };
+    }
+    const controller = new AbortController();
+    if (token.isCancellationRequested) {
+        controller.abort();
+        return { signal: controller.signal, dispose: () => undefined };
+    }
+    const sub = token.onCancellationRequested(() => controller.abort());
+    return { signal: controller.signal, dispose: () => sub.dispose() };
+}
+
+/**
  * Runs async tasks with a sliding-window concurrency pool.
  * Keeps exactly `concurrency` tasks active at all times — as soon as one
  * finishes, the next pending task starts immediately.
+ *
+ * When `token` is cancelled, workers stop pulling new items; any items that
+ * were never started are recorded as rejected with `ExportCancelledError` so
+ * the results array stays dense (one entry per input item).
  */
 export async function runWithConcurrencyPool<T, R>(
     items: T[],
     concurrency: number,
     processor: (item: T, index: number) => Promise<R>,
-    onProgress?: (completed: number, total: number) => void
+    onProgress?: (completed: number, total: number) => void,
+    token?: vscode.CancellationToken
 ): Promise<Array<PromiseSettledResult<R>>> {
     const results: Array<PromiseSettledResult<R>> = new Array(items.length);
     let nextIndex = 0;
@@ -490,6 +527,13 @@ export async function runWithConcurrencyPool<T, R>(
     const runWorker = async (): Promise<void> => {
         let idx = nextIndex++;
         while (idx < items.length) {
+            if (token?.isCancellationRequested) {
+                // Stop scheduling new work; keep the slot dense so the
+                // downstream write loop never reads `undefined`.
+                results[idx] = { status: "rejected", reason: new ExportCancelledError() };
+                idx = nextIndex++;
+                continue;
+            }
             try {
                 const value = await processor(items[idx], idx);
                 results[idx] = { status: "fulfilled", value };
@@ -540,7 +584,8 @@ type ResolveResult =
 async function resolveAudioBytes(
     absoluteSrc: vscode.Uri,
     workspaceFolderUri: vscode.Uri,
-    frontierApi: { downloadLFSFile: (projectPath: string, oid: string, size: number) => Promise<Uint8Array>; } | null
+    frontierApi: { downloadLFSFile: (projectPath: string, oid: string, size: number, signal?: AbortSignal) => Promise<Uint8Array>; } | null,
+    signal?: AbortSignal
 ): Promise<ResolveResult> {
     const projectPath = workspaceFolderUri.fsPath;
 
@@ -562,7 +607,7 @@ async function resolveAudioBytes(
             return { error: "Frontier API not available — cannot stream audio for export" };
         }
 
-        const lfsData = await frontierApi.downloadLFSFile(projectPath, pointer.oid, pointer.size);
+        const lfsData = await frontierApi.downloadLFSFile(projectPath, pointer.oid, pointer.size, signal);
         setCachedLfsBytes(pointer.oid, lfsData);
         return { data: lfsData };
     };
@@ -607,8 +652,13 @@ export async function exportAudioAttachments(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    options?: ExportAudioOptions
+    options?: ExportAudioOptions,
+    token?: vscode.CancellationToken
 ): Promise<void> {
+    // The host owns the CancellationTokenSource and disposes it when the export
+    // settles, which also detaches the listener this signal registers — so an
+    // early return without an explicit dispose does not leak.
+    const { signal: abortSignal } = tokenToAbortSignal(token);
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
         reporter.error("No project folder found. Please open a project first.");
@@ -632,7 +682,7 @@ export async function exportAudioAttachments(
     const mayNeedStreaming = mediaStrategy === "stream-only" || mediaStrategy === "stream-and-save";
 
     // Obtain the Frontier API for LFS downloads (may be null if not available)
-    let frontierApi: { downloadLFSFile: (projectPath: string, oid: string, size: number) => Promise<Uint8Array>; } | null = null;
+    let frontierApi: { downloadLFSFile: (projectPath: string, oid: string, size: number, signal?: AbortSignal) => Promise<Uint8Array>; } | null = null;
     if (mayNeedStreaming) {
         // Enforce version gates before attempting any LFS operations
         try {
@@ -675,6 +725,8 @@ export async function exportAudioAttachments(
     let selectionMissingCount = 0;
 
     for (const [index, file] of selectedFiles.entries()) {
+        // Stop before starting another book once cancellation is requested.
+        if (token?.isCancellationRequested) break;
         reporter.report({
             stage: "processing",
             message: `Processing ${basename(file.fsPath)} (${index + 1}/${selectedFiles.length})`,
@@ -910,7 +962,7 @@ export async function exportAudioAttachments(
             async (task) => {
                 debug(`Cell ${task.cellId}: downloading ${task.absoluteSrc.fsPath}`);
                 const resolved = await resolveAudioBytes(
-                    task.absoluteSrc, workspaceFolder.uri, frontierApi
+                    task.absoluteSrc, workspaceFolder.uri, frontierApi, abortSignal
                 );
                 if (resolved.error || !resolved.data) {
                     return { error: resolved.error ?? "No data returned" };
@@ -925,12 +977,17 @@ export async function exportAudioAttachments(
                     current: completed,
                     total,
                 });
-            }
+            },
+            token
         );
 
         // Phase 2b: Convert and write each file (CPU/disk-bound, sequential
         // to avoid FFmpeg contention and show per-file progress).
         for (let ti = 0; ti < tasks.length; ti++) {
+            // Stop writing the moment cancellation is requested. The
+            // isMissing reconciliation below still runs for whatever already
+            // resolved, and the orchestrator deletes the partial folder.
+            if (token?.isCancellationRequested) break;
             const task = tasks[ti];
             const dlResult = downloadResults[ti];
 
@@ -943,6 +1000,11 @@ export async function exportAudioAttachments(
             });
 
             if (dlResult.status === "rejected") {
+                // A slot skipped because of cancellation is not a real
+                // failure — don't report it as a missing/failed cell.
+                if (dlResult.reason instanceof ExportCancelledError) {
+                    continue;
+                }
                 console.error("Failed to download audio:", dlResult.reason);
                 if (task.cellLabel) {
                     reporter.fileMissing(
@@ -1084,6 +1146,13 @@ export async function exportAudioAttachments(
                 err
             );
         }
+    }
+
+    // Cancelled: skip the terminal summary entirely. The orchestrator
+    // (exportCodexContent) observes the token after Promise.all, deletes the
+    // partial export folder, and emits the single `cancelled` event.
+    if (token?.isCancellationRequested) {
+        return;
     }
 
     debug(

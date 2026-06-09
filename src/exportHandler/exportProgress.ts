@@ -82,6 +82,13 @@ export interface ExportProgressReporter {
     fileMissing(file: string, reason: ExportMissingReason, detail?: string): void;
     complete(summary: ExportSummary): void;
     error(message: string): void;
+    /**
+     * Signals that the export was cancelled by the user before it finished.
+     * Implementations should treat this as a terminal state distinct from
+     * `complete`/`error` (the partial output has already been cleaned up by the
+     * time this fires).
+     */
+    cancelled(summary?: ExportSummary): void;
 }
 
 /**
@@ -95,6 +102,7 @@ export function createNoopReporter(): ExportProgressReporter {
         fileMissing: () => undefined,
         complete: () => undefined,
         error: () => undefined,
+        cancelled: () => undefined,
     };
 }
 
@@ -136,6 +144,9 @@ export function createAggregatingReporter(target: ExportProgressReporter): {
             error(message) {
                 hadError = true;
                 errorMessages.push(message);
+            },
+            cancelled(summary) {
+                target.cancelled(summary);
             },
         },
         drain() {
@@ -183,6 +194,13 @@ export function createWebviewReporter(
             safePostMessageToPanel(
                 panel,
                 { command: "exportError", message },
+                context
+            );
+        },
+        cancelled(summary) {
+            safePostMessageToPanel(
+                panel,
+                { command: "exportCancelled", summary },
                 context
             );
         },
