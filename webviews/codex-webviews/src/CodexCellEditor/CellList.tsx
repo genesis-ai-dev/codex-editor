@@ -157,24 +157,21 @@ const CellList: React.FC<CellListProps> = ({
     // State to track unresolved comments count for each cell
     const [cellCommentsCount, setCellCommentsCount] = useState<Map<string, number>>(new Map());
 
-    // Filter out merged cells if we're in correction editor mode for source text
     const filteredTranslationUnits = useMemo(() => {
         let filtered = translationUnits;
 
-        // Filter out merged cells if we're in correction editor mode for source text
-        if (isSourceText && isCorrectionEditorMode) {
-            filtered = filtered.filter((unit) => {
-                // Check if cell has merged metadata in the data property
-                const cellData = unit.data as any;
-                return !cellData?.merged;
-            });
-        }
+        // NOTE: Do NOT filter out merged cells here. In source + correction editor mode the
+        // provider intentionally keeps merged cells in the translation units (see
+        // mergeRangesAndProcess) so they render greyed-out with the "unmerge" button. In every
+        // other mode the provider already strips merged cells, so they never reach this list.
+        // Filtering them here previously hid them in correction mode, which removed the only
+        // place the unmerge button could appear (issue #691).
 
         // Filter out milestone cells from the view (they remain in JSON)
         filtered = filtered.filter((unit) => unit.cellType !== CodexCellTypes.MILESTONE);
 
         return filtered;
-    }, [translationUnits, isSourceText, isCorrectionEditorMode]);
+    }, [translationUnits]);
     // Use filtered units for all operations
     const workingTranslationUnits = filteredTranslationUnits;
     // State to track completed translations (only successful ones) - REMOVED: Now handled by parent
