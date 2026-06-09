@@ -16,6 +16,7 @@ interface VideoTimelineEditorProps {
         [cellId: string]: AudioAvailability;
     };
     muteVideoWhenPlayingAudio?: boolean;
+    onRequestStreamUrl?: () => void;
 }
 
 const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
@@ -25,6 +26,7 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
     playerRef,
     audioAttachments,
     muteVideoWhenPlayingAudio = true,
+    onRequestStreamUrl,
 }) => {
     const [playerHeight, setPlayerHeight] = useState<number>(300);
     const [isDragging, setIsDragging] = useState(false);
@@ -108,6 +110,7 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
                 onPlay={handlePlay}
                 onPause={handlePause}
                 playerHeight={playerHeight}
+                onRequestStreamUrl={onRequestStreamUrl}
             />
             <div
                 style={{

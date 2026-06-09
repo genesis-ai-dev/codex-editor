@@ -414,8 +414,24 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
     | { command: "resolveHtmlStructure"; content: { cellId: string; }; }
-    | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
-    | { command: "pickVideoFile"; }
+    | {
+        command: "updateNotebookMetadata";
+        content: CustomNotebookMetadata;
+        skipVideoConfirm?: boolean;
+        /**
+         * Absolute path of a video file the user picked but hasn't committed yet.
+         * The picker stages the selection (it is NOT written on pick); the host
+         * imports it into the project as part of this save, so cancelling the
+         * modal leaves nothing behind.
+         */
+        pendingVideoFilePath?: string;
+    }
+    | { command: "pickVideoFile"; skipVideoConfirm?: boolean; }
+    | { command: "deleteVideoFile"; }
+    | { command: "freeVideoDiskSpace"; }
+    | { command: "requestVideoStreamUrl"; }
+    | { command: "requestVideoReferenceStatus"; }
+    | { command: "downloadVideoFile"; persist?: boolean; }
     | { command: "getSourceText"; content: { cellId: string; }; }
     | { command: "searchSimilarCellIds"; content: { cellId: string; }; }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
@@ -465,7 +481,7 @@ export type EditorPostMessages =
     | { command: "updateTextDirection"; direction: "ltr" | "rtl"; }
     | { command: "openSourceText"; content: { chapterNumber: number; }; }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
-    | { command: "pickVideoFile"; }
+    | { command: "pickVideoFile"; skipVideoConfirm?: boolean; }
     | {
         command: "exportFile";
         content: { subtitleData: string; format: string; includeStyles: boolean; };
@@ -1897,6 +1913,30 @@ interface CodexItem {
     sortOrder?: string;
     fileDisplayName?: string;
     enforceHtmlStructure?: boolean;
+    /** True when this document references a chapter video (remote URL or local file). */
+    hasVideo?: boolean;
+    /**
+     * How the referenced chapter video is currently available:
+     *  - "url"        → remote streamed URL
+     *  - "saved"      → downloaded real bytes in the project
+     *  - "streamable" → LFS pointer only (download/stream on demand)
+     *  - "missing"    → local reference resolving to neither bytes nor a pointer
+     */
+    videoAvailability?: "url" | "saved" | "streamable" | "missing";
+    /**
+     * True when a streamable (not-downloaded) video currently has a temporary
+     * copy in this session's video cache (i.e. it was "loaded" this session).
+     * Lets the card distinguish "loaded (temporary)" from "available to download".
+     */
+    videoCached?: boolean;
+    /** Size of a local video in bytes when known (real bytes or LFS pointer size). */
+    videoSizeBytes?: number;
+    /**
+     * Internal: the raw stored video reference, kept on the host so video
+     * availability can be recomputed on demand (download/free) without
+     * re-reading the notebook. Stripped before sending to the webview.
+     */
+    videoUrl?: string;
 }
 type EditorReceiveMessages =
     | {
@@ -2067,6 +2107,27 @@ type EditorReceiveMessages =
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
+    | { type: "videoStreamResolving"; }
+    | {
+          // The user picked a video file in the OS dialog. It is staged (not yet
+          // imported into the project); the editor shows it as pending until the
+          // metadata modal is saved.
+          type: "videoFilePicked";
+          fsPath: string;
+          fileName: string;
+      }
+    | { type: "videoStreamUnavailable"; reason: "offline" | "not-authenticated" | "not-found" | "error"; message?: string; }
+    | { type: "videoNeedsDownload"; strategy: "auto-download" | "stream-and-save" | "stream-only"; }
+    | {
+          type: "videoReferenceStatus";
+          status: "none" | "url" | "local-usable" | "missing";
+          // True only in stream-and-save when a downloaded local copy exists and is
+          // LFS-backed, so it can be reverted to a pointer to free space and re-streamed.
+          canFreeDiskSpace?: boolean;
+          // Size of the referenced video in bytes when known (real local bytes or the
+          // size recorded in the LFS pointer). Omitted for remote URLs / unknown.
+          videoSizeBytes?: number;
+      }
     | {
         type: "milestoneProgressUpdate";
         milestoneProgress: Record<number, {
