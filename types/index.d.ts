@@ -928,7 +928,6 @@ type FileImporterType =
     | "ebibleCorpus"
     | "macula"
     | "biblica"
-    | "reach4life"
     | "obs";
 
 /**
