@@ -86,6 +86,15 @@ interface UseVSCodeMessageHandlerProps {
     updateTextDirection: (direction: "ltr" | "rtl") => void;
     updateNotebookMetadata: (metadata: CustomNotebookMetadata) => void;
     updateVideoUrl: (url: string) => void;
+    videoFilePicked?: (fsPath: string, fileName: string) => void;
+    videoStreamResolving?: () => void;
+    videoStreamUnavailable?: (reason: string, message?: string) => void;
+    videoNeedsDownload?: (strategy: "auto-download" | "stream-and-save" | "stream-only") => void;
+    videoReferenceStatus?: (
+        status: "none" | "url" | "local-usable" | "missing",
+        canFreeDiskSpace?: boolean,
+        videoSizeBytes?: number
+    ) => void;
 
     // New handlers for provider-centric state management
     updateAutocompletionState?: (state: {
@@ -157,6 +166,11 @@ export const useVSCodeMessageHandler = ({
     updateTextDirection,
     updateNotebookMetadata,
     updateVideoUrl,
+    videoFilePicked,
+    videoStreamResolving,
+    videoStreamUnavailable,
+    videoNeedsDownload,
+    videoReferenceStatus,
 
     // New handlers
     updateAutocompletionState,
@@ -249,6 +263,21 @@ export const useVSCodeMessageHandler = ({
                     break;
                 case "updateVideoUrlInWebview":
                     updateVideoUrl(message.content);
+                    break;
+                case "videoFilePicked":
+                    videoFilePicked?.(message.fsPath, message.fileName);
+                    break;
+                case "videoStreamResolving":
+                    videoStreamResolving?.();
+                    break;
+                case "videoStreamUnavailable":
+                    videoStreamUnavailable?.(message.reason, message.message);
+                    break;
+                case "videoNeedsDownload":
+                    videoNeedsDownload?.(message.strategy);
+                    break;
+                case "videoReferenceStatus":
+                    videoReferenceStatus?.(message.status, message.canFreeDiskSpace, message.videoSizeBytes);
                     break;
                 case "providerAutocompletionState":
                     if (updateAutocompletionState) {
@@ -432,6 +461,10 @@ export const useVSCodeMessageHandler = ({
         updateTextDirection,
         updateNotebookMetadata,
         updateVideoUrl,
+        videoFilePicked,
+        videoStreamResolving,
+        videoStreamUnavailable,
+        videoNeedsDownload,
         updateAutocompletionState,
         updateSingleCellTranslationState,
         updateSingleCellQueueState,
