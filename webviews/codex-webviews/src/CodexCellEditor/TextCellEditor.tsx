@@ -22,6 +22,7 @@ import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
 import { AudioValidationBadge } from "./AudioValidationBadge";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
+import { useAudioInputDevices } from "./hooks/useAudioInputDevices";
 import SourceTextDisplay from "./SourceTextDisplay";
 import { AudioHistoryViewer } from "./AudioHistoryViewer";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
@@ -533,6 +534,30 @@ const CellEditor: React.FC<CellEditorProps> = ({
             undefined,
     };
 
+    // Microphone availability — drives the disabled state and warning under
+    // the recorder. Reacts live to both `devicechange` and permission changes
+    // so the UI stays in sync without a reload. See
+    // `hooks/useAudioInputDevices.ts` (top of file) for the in-code constant
+    // reviewers can flip to simulate "no microphone" / "permission denied"
+    // on machines with a working mic.
+    const { noMicDetected, micPermissionDenied, micUnavailable, reportRecorderError } =
+        useAudioInputDevices();
+    // Mirror `micUnavailable` into a ref so guards inside callbacks (and
+    // setTimeout-deferred work like the auto-start path) can read the
+    // latest value without becoming stale closures.
+    const micUnavailableRef = useRef<boolean>(micUnavailable);
+    useEffect(() => {
+        micUnavailableRef.current = micUnavailable;
+    }, [micUnavailable]);
+    // Ref for the runtime classifier so `startActualRecording`'s deps stay
+    // stable. `startActualRecording` is wrapped in `useCallback([audioUrl])`
+    // and changing its deps to include a new function on every render would
+    // ripple through several effects.
+    const reportRecorderErrorRef = useRef(reportRecorderError);
+    useEffect(() => {
+        reportRecorderErrorRef.current = reportRecorderError;
+    }, [reportRecorderError]);
+
     const centerEditor = useCallback(() => {
         const el = cellEditorRef.current;
         if (!el) return;
@@ -773,6 +798,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 },
             });
 
+            // Successful stream acquisition is the ground-truth signal that
+            // mic access works. Clear any previous runtime-reported denial so
+            // the UI recovers without waiting for a (potentially unreliable)
+            // OS-level permission event.
+            reportRecorderErrorRef.current?.(null);
+
             const mediaRecorderOptions: MediaRecorderOptions = {};
             try {
                 if (typeof MediaRecorder !== "undefined") {
@@ -846,7 +877,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
             recorder.start();
             setMediaRecorder(recorder);
         } catch (err) {
-            setRecordingStatus("Microphone access denied");
+            // Promote the raw error to a typed availability state so the UI
+            // flips to the right warning (grey slashed mic + "Access denied"
+            // alert for `NotAllowedError`, "No microphone detected" for
+            // `NotFoundError`). The hook ignores unrecognized error names so
+            // transient failures don't accidentally disable recording.
+            reportRecorderErrorRef.current?.(err);
+            const errName = (err as { name?: string } | null)?.name;
+            const statusMessage =
+                errName === "NotFoundError" || errName === "DevicesNotFoundError"
+                    ? "No microphone detected"
+                    : "Microphone access denied";
+            setRecordingStatus(statusMessage);
             console.error("Error accessing microphone:", err);
             setCountdown(null);
             setIsStartingRecording(false);
@@ -2797,6 +2839,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
         // Prevent recording if cell is locked
         if (isCellLocked) {
             setRecordingStatus("Cannot record: cell is locked");
+            return;
+        }
+
+        // Prevent recording — and importantly, the visible pre-record
+        // countdown — when no mic is available or permission is denied.
+        // Read from the ref so the auto-start path (deferred via setTimeout)
+        // sees the latest value rather than its captured render-time copy.
+        if (micUnavailableRef.current) {
+            setRecordingStatus(
+                micPermissionDenied
+                    ? "Microphone access denied"
+                    : "No microphone detected"
+            );
             return;
         }
 
@@ -5754,6 +5809,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             : "idle";
                                     const recorderTitle = isCellLocked
                                         ? "Cannot record: cell is locked"
+                                        : micPermissionDenied
+                                        ? "Microphone access denied"
+                                        : noMicDetected
+                                        ? "No microphone detected"
                                         : isRecording
                                         ? "Stop Recording"
                                         : countdown !== null
@@ -5774,6 +5833,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     : startRecording
                                                             }
                                                             disabled={isCellLocked}
+                                                            unavailable={micUnavailable}
                                                             title={recorderTitle}
                                                         />
 
@@ -5843,6 +5903,23 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     auto-trimmed
                                                                 </span>
                                                             </div>
+                                                        )}
+                                                        {micUnavailable && (
+                                                            // Override the Alert's default absolute-icon layout so the
+                                                            // AlertCircle and text share a single flex row with proper
+                                                            // vertical centering. The `!` (important) prefixes are needed
+                                                            // because the base Alert variant pins the SVG with
+                                                            // `[&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4`.
+                                                            <Alert
+                                                                className="w-fit flex items-center gap-2 border-yellow-500 bg-yellow-50 dark:bg-yellow-950 [&>svg]:!static [&>svg+div]:!translate-y-0 [&>svg~*]:!pl-0"
+                                                            >
+                                                                <AlertCircle className="h-4 w-4 shrink-0 !text-yellow-600 dark:!text-yellow-400" />
+                                                                <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+                                                                    {micPermissionDenied
+                                                                        ? "Microphone access denied. Enable microphone permissions in your system settings to record."
+                                                                        : "No microphone detected. Connect an input device to record."}
+                                                                </AlertDescription>
+                                                            </Alert>
                                                         )}
                                                         {hint && (
                                                             <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
