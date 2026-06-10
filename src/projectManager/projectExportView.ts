@@ -1,5 +1,5 @@
 import { CodexExportFormat, exportCodexContent, checkSubtitleOverlapsAndConfirm } from "../exportHandler/exportHandler";
-import { createWebviewReporter } from "../exportHandler/exportProgress";
+import { createWebviewReporter, type ExportProgressReporter } from "../exportHandler/exportProgress";
 import * as fs from "fs";
 import * as vscode from "vscode";
 import { safePostMessageToPanel } from "../utils/webviewUtils";
@@ -372,6 +372,122 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                     );
                 }
                 break;
+            case "retryExport": {
+                // Targeted retry: re-attempt only the cells that failed (with a
+                // transient/recoverable reason) and merge any recovered audio
+                // back into the original export folder. Audio-only path —
+                // download/transcode/write failures only happen there.
+                if (isExporting) {
+                    break;
+                }
+                const audioOutputPath = message.audioOutputPath as string | undefined;
+                const targets = message.targets as
+                    | { cellId: string; codexPath: string; }[]
+                    | undefined;
+                if (!audioOutputPath || !targets || targets.length === 0) {
+                    break;
+                }
+
+                // Group target cellIds by their codex file.
+                const retryCellFilter = new Map<string, Set<string>>();
+                for (const t of targets) {
+                    if (!t?.cellId || !t?.codexPath) continue;
+                    let set = retryCellFilter.get(t.codexPath);
+                    if (!set) {
+                        set = new Set<string>();
+                        retryCellFilter.set(t.codexPath, set);
+                    }
+                    set.add(t.cellId);
+                }
+                const codexPaths = Array.from(retryCellFilter.keys());
+                if (codexPaths.length === 0) {
+                    break;
+                }
+
+                // Custom reporter: still-failing cells stream back as
+                // `exportFileMissing` (so the issues list refreshes), but the
+                // terminal state is a `retryCompleted` — distinct from a full
+                // export's complete/error so the completion screen and its
+                // existing issue list aren't torn down.
+                const retryReporter: ExportProgressReporter = {
+                    report: () => undefined,
+                    fileMissing: (file, reason, detail, location) => {
+                        safePostMessageToPanel(
+                            panel,
+                            {
+                                command: "exportFileMissing",
+                                file,
+                                reason,
+                                detail,
+                                cellId: location?.cellId,
+                                codexPath: location?.codexPath,
+                            },
+                            "ProjectExport"
+                        );
+                    },
+                    complete: (summary) => {
+                        safePostMessageToPanel(
+                            panel,
+                            { command: "retryCompleted", summary },
+                            "ProjectExport"
+                        );
+                    },
+                    error: (errMessage) => {
+                        safePostMessageToPanel(
+                            panel,
+                            { command: "retryCompleted", error: errMessage },
+                            "ProjectExport"
+                        );
+                    },
+                    cancelled: () => {
+                        safePostMessageToPanel(
+                            panel,
+                            { command: "retryCompleted", cancelled: true },
+                            "ProjectExport"
+                        );
+                    },
+                };
+
+                activeExportCts = new vscode.CancellationTokenSource();
+                isExporting = true;
+                try {
+                    const { exportAudioAttachments } = await import(
+                        "../exportHandler/audioExporter"
+                    );
+                    await exportAudioAttachments(
+                        audioOutputPath,
+                        codexPaths,
+                        retryReporter,
+                        {
+                            // Reproduce timestamp behaviour so retried files
+                            // match the original. Milestones are intentionally
+                            // omitted — the cell filter is authoritative.
+                            includeTimestamps: message.options?.includeTimestamps === true,
+                            retryCellFilter,
+                        },
+                        activeExportCts.token
+                    );
+                } catch (error) {
+                    if (!activeExportCts.token.isCancellationRequested) {
+                        safePostMessageToPanel(
+                            panel,
+                            {
+                                command: "retryCompleted",
+                                error:
+                                    error instanceof Error
+                                        ? error.message
+                                        : "Retry failed.",
+                            },
+                            "ProjectExport"
+                        );
+                    }
+                } finally {
+                    isExporting = false;
+                    activeExportCts.dispose();
+                    activeExportCts = undefined;
+                }
+                break;
+            }
             case "openExportFolder": {
                 const target = message.path as string | undefined;
                 if (target && fs.existsSync(target)) {
@@ -1041,6 +1157,33 @@ function getWebviewContent(
                     flex-direction: column;
                     gap: 6px;
                 }
+                .export-issues-toolbar {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 8px;
+                    padding: 0 2px 2px;
+                }
+                .export-issues-summary {
+                    font-size: 0.82em;
+                    color: var(--vscode-descriptionForeground);
+                }
+                .export-issues-toggle-all {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 5px;
+                    font: inherit;
+                    font-size: 0.82em;
+                    color: var(--vscode-textLink-foreground);
+                    background: transparent;
+                    border: none;
+                    cursor: pointer;
+                    padding: 2px 4px;
+                    -webkit-appearance: none;
+                    appearance: none;
+                }
+                .export-issues-toggle-all:hover { text-decoration: underline; }
+                .export-issues-toggle-all .codicon { font-size: 0.95em; }
                 .export-issue-group {
                     border: 1px solid var(--vscode-input-border);
                     border-radius: 6px;
@@ -1143,23 +1286,17 @@ function getWebviewContent(
                 button.export-issue-item:focus-visible {
                     box-shadow: inset 0 0 0 1px var(--vscode-focusBorder, transparent);
                 }
-                .export-issue-group.sev-error .export-issue-icon { color: var(--vscode-errorForeground, #dc2626); }
-                .export-issue-group.sev-error .export-issue-count {
-                    color: var(--vscode-errorForeground, #dc2626);
-                    background-color: rgba(220, 38, 38, 0.10);
-                    border-color: rgba(220, 38, 38, 0.32);
-                }
-                .export-issue-group.sev-warn .export-issue-icon { color: var(--vscode-charts-yellow, #ca8a04); }
-                .export-issue-group.sev-warn .export-issue-count {
+                /*
+                 * All issue groups share one accent (amber) regardless of
+                 * severity — the icon glyph already conveys the distinction,
+                 * and a uniform colour reads as a single calm "things to
+                 * review" list rather than a red/yellow/grey alarm board.
+                 */
+                .export-issue-group .export-issue-icon { color: var(--vscode-charts-yellow, #ca8a04); }
+                .export-issue-group .export-issue-count {
                     color: var(--vscode-charts-yellow, #ca8a04);
                     background-color: rgba(202, 138, 4, 0.10);
                     border-color: rgba(202, 138, 4, 0.32);
-                }
-                .export-issue-group.sev-info .export-issue-icon { color: var(--vscode-descriptionForeground); }
-                .export-issue-group.sev-info .export-issue-count {
-                    color: var(--vscode-descriptionForeground);
-                    background-color: var(--vscode-input-background);
-                    border-color: var(--vscode-input-border);
                 }
 
                 /*
@@ -1668,6 +1805,10 @@ function getWebviewContent(
                             </div>
 
                             <div class="export-action-row" id="exportActionRow" style="display:none;">
+                                <button class="secondary" id="exportRetryBtn" onclick="retryFailedExport()" style="display:none;">
+                                    <i class="codicon codicon-refresh"></i>
+                                    <span id="exportRetryBtnText">Retry failed</span>
+                                </button>
                                 <button class="secondary" id="exportOpenFolderBtn" onclick="openExportFolder()">
                                     <i class="codicon codicon-folder-opened"></i>
                                     Open Export Folder
@@ -2932,9 +3073,29 @@ function getWebviewContent(
                     // list once the export completes.
                     missingFiles: [],
                     outputPath: null,
+                    // Folder the audio files landed in (may be an audio/ subfolder
+                    // for multi-format). A targeted retry writes recovered files
+                    // back here.
+                    audioOutputPath: null,
+                    // Options from the last export request, reused for retry.
+                    lastOptions: null,
+                    // True while a targeted "retry failed downloads" is running.
+                    retrying: false,
+                    // How many cells the in-flight retry attempted (for the
+                    // "X recovered, Y still failing" summary).
+                    retryAttempted: 0,
                     lastTitle: 'Exporting...',
                     lastSubtitle: 'This may take a moment. Please keep this view open.',
                 };
+
+                // Failure reasons that are worth retrying — transient / recoverable
+                // (network, disk, transcode hiccups). User-action reasons (no take
+                // chosen, selected-missing, nothing recorded) are excluded.
+                const RETRYABLE_EXPORT_REASONS = new Set([
+                    'download-failed',
+                    'transcode-failed',
+                    'write-failed',
+                ]);
 
                 function resetExportProgressView() {
                     exportState.started = false;
@@ -2946,6 +3107,9 @@ function getWebviewContent(
                     exportState.extraMessages = [];
                     exportState.missingFiles = [];
                     exportState.outputPath = null;
+                    exportState.audioOutputPath = null;
+                    exportState.retrying = false;
+                    exportState.retryAttempted = 0;
                     exportState.lastTitle = 'Exporting...';
                     exportState.lastSubtitle = 'This may take a moment. Please keep this view open.';
 
@@ -3151,6 +3315,29 @@ function getWebviewContent(
                 function toggleExportIssue(headerEl) {
                     const group = headerEl.closest('.export-issue-group');
                     if (group) group.classList.toggle('open');
+                    syncExpandAllLabel();
+                }
+
+                // Expand / collapse every issue group at once. If any group is
+                // still collapsed, the action expands all; otherwise it collapses
+                // all.
+                function toggleAllExportIssues() {
+                    const groups = Array.from(document.querySelectorAll('#exportIssues .export-issue-group'));
+                    if (groups.length === 0) return;
+                    const anyClosed = groups.some(g => !g.classList.contains('open'));
+                    groups.forEach(g => g.classList.toggle('open', anyClosed));
+                    syncExpandAllLabel();
+                }
+
+                // Keep the toggle's label/icon in sync with the current state.
+                function syncExpandAllLabel() {
+                    const btn = document.getElementById('exportIssuesToggleAll');
+                    if (!btn) return;
+                    const groups = Array.from(document.querySelectorAll('#exportIssues .export-issue-group'));
+                    const allOpen = groups.length > 0 && groups.every(g => g.classList.contains('open'));
+                    btn.innerHTML = allOpen
+                        ? '<i class="codicon codicon-collapse-all"></i>Collapse all'
+                        : '<i class="codicon codicon-expand-all"></i>Expand all';
                 }
 
                 function renderExportIssues() {
@@ -3182,7 +3369,17 @@ function getWebviewContent(
                         return String(ma.label).localeCompare(String(mb.label));
                     });
 
-                    container.innerHTML = ordered.map(([reason, list]) => {
+                    // Header bar: total count + an expand/collapse-all toggle.
+                    const totalIssues = items.length;
+                    const headerHtml =
+                        '<div class="export-issues-toolbar">' +
+                            '<span class="export-issues-summary">' + totalIssues + ' item' + (totalIssues === 1 ? '' : 's') + ' to review</span>' +
+                            '<button type="button" class="export-issues-toggle-all" id="exportIssuesToggleAll" onclick="toggleAllExportIssues()">' +
+                                '<i class="codicon codicon-expand-all"></i>Expand all' +
+                            '</button>' +
+                        '</div>';
+
+                    const groupsHtml = ordered.map(([reason, list]) => {
                         const meta = EXPORT_REASON_META[reason] || {
                             severity: 'error',
                             icon: 'error',
@@ -3231,7 +3428,10 @@ function getWebviewContent(
                             '</div>'
                         );
                     }).join('');
+                    container.innerHTML = headerHtml + groupsHtml;
                     container.style.display = 'flex';
+                    syncExpandAllLabel();
+                    updateRetryButton();
                 }
 
                 function showOutputPath(path) {
@@ -3326,6 +3526,88 @@ function getWebviewContent(
                     const openBtn = document.getElementById('exportOpenFolderBtn');
                     if (actionRow) actionRow.style.display = 'flex';
                     if (openBtn) openBtn.style.display = (success && exportState.outputPath) ? 'flex' : 'none';
+                }
+
+                // Failed cells worth retrying: transient/recoverable reason AND
+                // we know which cell to re-run (cellId + codexPath).
+                function getRetryTargets() {
+                    return (exportState.missingFiles || []).filter(it =>
+                        it && it.cellId && it.codexPath && RETRYABLE_EXPORT_REASONS.has(it.reason)
+                    );
+                }
+
+                function updateRetryButton() {
+                    const btn = document.getElementById('exportRetryBtn');
+                    if (!btn) return;
+                    if (exportState.retrying) {
+                        btn.style.display = 'flex';
+                        btn.disabled = true;
+                        return;
+                    }
+                    const targets = getRetryTargets();
+                    const canRetry = targets.length > 0 && !!exportState.audioOutputPath;
+                    btn.style.display = canRetry ? 'flex' : 'none';
+                    btn.disabled = false;
+                    const txt = document.getElementById('exportRetryBtnText');
+                    if (txt) txt.textContent = 'Retry failed (' + targets.length + ')';
+                }
+
+                function retryFailedExport() {
+                    if (exportState.retrying) return;
+                    const targets = getRetryTargets();
+                    if (targets.length === 0 || !exportState.audioOutputPath) return;
+
+                    const retrySet = new Set(targets.map(t => t.cellId));
+                    // Remove the cells we're about to re-run; the ones that fail
+                    // again stream back in via exportFileMissing.
+                    exportState.missingFiles = (exportState.missingFiles || []).filter(it =>
+                        !(it && it.cellId && RETRYABLE_EXPORT_REASONS.has(it.reason) && retrySet.has(it.cellId))
+                    );
+                    exportState.retrying = true;
+                    exportState.retryAttempted = targets.length;
+                    renderExportIssues();
+
+                    const btnText = document.getElementById('exportRetryBtnText');
+                    if (btnText) btnText.textContent = 'Retrying ' + targets.length + '…';
+                    const closeBtn = document.getElementById('exportCloseBtn');
+                    if (closeBtn) closeBtn.disabled = true;
+                    setExportTitle(
+                        'Retrying ' + targets.length + ' cell' + (targets.length === 1 ? '' : 's') + '…',
+                        'Re-attempting the recordings that could not be exported.'
+                    );
+
+                    vscode.postMessage({
+                        command: 'retryExport',
+                        audioOutputPath: exportState.audioOutputPath,
+                        options: exportState.lastOptions || {},
+                        targets: targets.map(t => ({ cellId: t.cellId, codexPath: t.codexPath })),
+                    });
+                }
+
+                function finishRetry(message) {
+                    exportState.retrying = false;
+                    const closeBtn = document.getElementById('exportCloseBtn');
+                    if (closeBtn) closeBtn.disabled = false;
+
+                    if (message && message.error) {
+                        setExportTitle('Retry failed', String(message.error));
+                    } else if (!(message && message.cancelled)) {
+                        const stillFailing = getRetryTargets().length;
+                        const attempted = exportState.retryAttempted || 0;
+                        const recovered = Math.max(0, attempted - stillFailing);
+                        let subtitle;
+                        if (stillFailing === 0) {
+                            subtitle = recovered > 0
+                                ? 'Recovered ' + recovered + ' recording' + (recovered === 1 ? '' : 's') + '.'
+                                : 'Nothing left to retry.';
+                        } else {
+                            subtitle = recovered + ' recovered, ' + stillFailing + ' still need attention.';
+                        }
+                        setExportTitle(exportState.succeeded ? 'Export complete' : exportState.lastTitle, subtitle);
+                    }
+
+                    renderExportIssues();
+                    updateRetryButton();
                 }
 
                 function enterExportingView() {
@@ -3428,7 +3710,10 @@ function getWebviewContent(
                         // an expandable, grouped breakdown. Stop collecting once
                         // we've reached a terminal state (late events from
                         // in-flight work draining after a cancel).
-                        if (exportState.finished || exportState.cancelled) return;
+                        // During a targeted retry the run is already "finished",
+                        // but we still want to collect the cells that failed
+                        // again so the issues list reflects the new state.
+                        if ((exportState.finished && !exportState.retrying) || exportState.cancelled) return;
                         exportState.missingFiles.push({
                             file: message.file,
                             reason: message.reason,
@@ -3436,6 +3721,11 @@ function getWebviewContent(
                             cellId: message.cellId,
                             codexPath: message.codexPath,
                         });
+                        if (exportState.retrying) {
+                            // Live-refresh while retrying so recovered cells drop
+                            // off and any that still fail re-appear.
+                            renderExportIssues();
+                        }
                         return;
                     }
                     if (message.command === 'exportCompleted') {
@@ -3444,6 +3734,7 @@ function getWebviewContent(
                         if (exportState.cancelled) return;
                         const summary = message.summary || {};
                         if (summary.exportPath) showOutputPath(summary.exportPath);
+                        if (summary.audioExportPath) exportState.audioOutputPath = summary.audioExportPath;
                         if (summary.extraMessages && summary.extraMessages.length > 0) {
                             showExtraMessages(summary.extraMessages);
                         }
@@ -3462,6 +3753,10 @@ function getWebviewContent(
                         // Terminal: the host deleted the partial output and will
                         // not send complete/error for this run.
                         showExportCancelled();
+                        return;
+                    }
+                    if (message.command === 'retryCompleted') {
+                        finishRetry(message);
                         return;
                     }
                     if (message.command === 'subtitleOverlapResult') {
@@ -3652,6 +3947,9 @@ function getWebviewContent(
                     // the user does not see Cancel / Back / Export anymore. The host
                     // also broadcasts exportStarted, which is idempotent.
                     enterExportingView();
+                    // Remember the options so a "retry failed downloads" can
+                    // reproduce the same export behaviour (e.g. timestamps).
+                    exportState.lastOptions = options;
                     vscode.postMessage({
                         command: 'export',
                         format: formatToSend,

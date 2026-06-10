@@ -127,17 +127,14 @@ export function getCellAudioState(cell: unknown): CellAudioState {
 }
 
 /**
- * Counts a cell's *other* usable audio takes — non-deleted, not flagged
- * `isMissing`, with a url — excluding the given attachment id.
+ * Counts a cell's usable audio takes — non-deleted, NOT flagged `isMissing`,
+ * with a url — optionally excluding one attachment id.
  *
- * Used at export time to tell the user, when their selected take can't be
- * resolved, whether the cell still has recordings they could switch to (vs.
- * needing a re-record / re-sync). Unlike `pickAudioAttachment` — which ignores
- * `isMissing` on purpose so the resolver gets the final say — this DOES honor
- * `isMissing`, because here we only want to point the user at takes that are
- * likely to actually resolve.
+ * Unlike `pickAudioAttachment` — which ignores `isMissing` on purpose so the
+ * resolver gets the final say — this DOES honor `isMissing`, because callers
+ * here only care about takes likely to actually resolve.
  */
-export function countAvailableAlternativeTakes(cell: unknown, excludeId: string): number {
+function countUsableTakes(cell: unknown, excludeId?: string): number {
     const meta = (cell as { metadata?: Record<string, unknown> } | undefined)?.metadata;
     if (!meta || typeof meta !== "object") return 0;
 
@@ -146,7 +143,7 @@ export function countAvailableAlternativeTakes(cell: unknown, excludeId: string)
 
     let count = 0;
     for (const [attId, attVal] of Object.entries(attachments)) {
-        if (attId === excludeId) continue;
+        if (excludeId !== undefined && attId === excludeId) continue;
         if (!attVal || typeof attVal !== "object") continue;
         const att = attVal as {
             type?: string;
@@ -161,6 +158,34 @@ export function countAvailableAlternativeTakes(cell: unknown, excludeId: string)
         count++;
     }
     return count;
+}
+
+/**
+ * Counts a cell's *other* usable audio takes — non-deleted, not flagged
+ * `isMissing`, with a url — excluding the given attachment id.
+ *
+ * Used at export time to tell the user, when their selected take can't be
+ * resolved, whether the cell still has recordings they could switch to (vs.
+ * needing a re-record / re-sync).
+ */
+export function countAvailableAlternativeTakes(cell: unknown, excludeId: string): number {
+    return countUsableTakes(cell, excludeId);
+}
+
+/**
+ * Counts a cell's usable audio takes (non-deleted, not flagged `isMissing`,
+ * with a url).
+ *
+ * Callers use `=== 0` to detect a cell whose only remaining takes are flagged
+ * missing: `pickAudioAttachment` would still report `none-selected` (it ignores
+ * `isMissing`), but there's nothing the user could actually pick that would
+ * resolve — so it's presented as "without audio" instead of "with audio, none
+ * selected". This is only applied to the unselected case; when a take is
+ * explicitly selected we still defer to the resolver (the flag may be stale),
+ * which is why it isn't folded into `pickAudioAttachment`.
+ */
+export function countUsableNonMissingTakes(cell: unknown): number {
+    return countUsableTakes(cell);
 }
 
 /**

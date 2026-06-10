@@ -10,7 +10,7 @@ import { isLfsPointerContent, parsePointerContent } from "../utils/lfsHelpers";
 import { getCachedLfsBytes, setCachedLfsBytes } from "../utils/mediaCache";
 import { getMediaFilesStrategy } from "../utils/localProjectSettings";
 import type { ExportProgressReporter, ExportMissingReason } from "./exportProgress";
-import { pickAudioAttachment, isExportableCell, countAvailableAlternativeTakes, type AudioPick, type AudioPickOutcome } from "./audioAttachmentUtils";
+import { pickAudioAttachment, isExportableCell, countAvailableAlternativeTakes, countUsableNonMissingTakes, type AudioPick, type AudioPickOutcome } from "./audioAttachmentUtils";
 import { formatCellDisplayLabel } from "./cellLabelUtils";
 import { CodexCellTypes } from "../../types/enums";
 import { buildMilestoneIndexModel } from "../../sharedUtils/milestoneIndexUtils";
@@ -34,6 +34,15 @@ function debug(...args: any[]) {
 type ExportAudioOptions = {
     includeTimestamps?: boolean;
     selectedMilestonesByFile?: Record<string, number[]>;
+    /**
+     * Targeted-retry filter: codex file fsPath → set of cellIds to (re)export.
+     * When present, only those cells are processed and written into the
+     * (existing) export folder; every other cell is skipped entirely — no
+     * tasks, no "no audio recorded" reporting. Used by "retry failed downloads"
+     * to re-attempt just the cells that failed, merging recovered files into
+     * the original export output.
+     */
+    retryCellFilter?: Map<string, Set<string>>;
 };
 
 type AudioCellData = {
@@ -740,6 +749,9 @@ export async function exportAudioAttachments(
         });
 
         const bookCode = basename(file.fsPath).split(".")[0] || "BOOK";
+        // Targeted retry: when set, only the listed cells in this file are
+        // processed (and merged into the existing export folder).
+        const retryFilter = options?.retryCellFilter?.get(file.fsPath);
         const milestoneSelection = options?.selectedMilestonesByFile;
         const milestoneFilter = milestoneSelection?.[file.fsPath];
         // Empty array means the user cleared every milestone for this file on step 3.
@@ -791,6 +803,8 @@ export async function exportAudioAttachments(
             if (!isExportableCell(cell)) continue;
             const cellId: string | undefined = cell?.metadata?.id;
             if (!cellId) continue;
+            // Targeted retry skips everything not on the retry list.
+            if (retryFilter && !retryFilter.has(cellId)) continue;
             const outcome = pickAudioAttachmentForCell(cell);
             if (outcome.state === "ready" && outcome.pick) {
                 audioCells.push({ cell, cellId, pick: outcome.pick });
@@ -816,6 +830,19 @@ export async function exportAudioAttachments(
                 continue;
             }
             if (outcome.state === "none-selected") {
+                // `none-selected` means non-deleted takes exist but none is
+                // picked. If every one of those takes is flagged `isMissing`,
+                // there's nothing the user could choose that would resolve —
+                // report it as "no audio recorded" rather than "none selected"
+                // (mirrors the Step 1 pre-flight in exportViewUtils.ts).
+                if (countUsableNonMissingTakes(cell) === 0) {
+                    reporter.fileMissing(label, "no-audio-recorded", undefined, {
+                        cellId,
+                        codexPath: file.fsPath,
+                    });
+                    notRecordedCount++;
+                    continue;
+                }
                 // There are valid takes on this cell but the user has
                 // never picked one (or their previous pick was cleared
                 // when its take was deleted). We refuse to auto-pick.

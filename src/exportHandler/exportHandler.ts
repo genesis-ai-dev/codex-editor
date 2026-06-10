@@ -1891,6 +1891,7 @@ export async function exportCodexContent(
 
     reporter.complete({
         exportPath: wrapperPath,
+        audioExportPath: isAudioExport ? audioPath : undefined,
         filesExported: aggregated.filesExported || filesToExport.length,
         audioCopied: aggregated.audioCopied,
         audioMissing: aggregated.audioMissing,

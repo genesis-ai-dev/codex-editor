@@ -5,6 +5,7 @@ import {
     isExportableCell,
     isLabelableCell,
     isTakeFlaggedMissing,
+    countUsableNonMissingTakes,
 } from "../../exportHandler/audioAttachmentUtils";
 import { formatCellDisplayLabel } from "../../exportHandler/cellLabelUtils";
 import {
@@ -227,7 +228,16 @@ export function analyzeNotebookAudioStats(
         if (state === "selection-missing") {
             selectionMissingCells.push(entry);
         } else if (state === "none-selected") {
-            noneSelectedCells.push(entry);
+            // `pickAudioAttachment` ignores `isMissing`, so a cell whose only
+            // non-deleted takes are all flagged missing still reads as
+            // "none-selected". There's nothing the user could pick that would
+            // resolve, so present it as "without audio" instead. (Mirrored in
+            // audioExporter.ts so Step 1 and the export agree.)
+            if (countUsableNonMissingTakes(cell) === 0) {
+                noAudioRecordedCells.push(entry);
+            } else {
+                noneSelectedCells.push(entry);
+            }
         } else {
             noAudioRecordedCells.push(entry);
         }

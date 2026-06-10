@@ -86,6 +86,13 @@ export interface ExportMissingFile {
 
 export interface ExportSummary {
     exportPath: string;
+    /**
+     * Directory the audio files were written into. Differs from `exportPath`
+     * in multi-format exports (where audio lives in an `audio/` subfolder). The
+     * export view remembers this so a targeted "retry failed downloads" can
+     * write the recovered files back into the same folder.
+     */
+    audioExportPath?: string;
     filesExported?: number;
     audioCopied?: number;
     audioMissing?: number;
