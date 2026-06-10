@@ -1644,7 +1644,7 @@ async function exportCodexContentAsRebuild(
     // a single overall summary at the bottom of this orchestrator.
     const childReporter: ExportProgressReporter = {
         report: (event) => reporter.report(event),
-        fileMissing: (file, reason, detail) => reporter.fileMissing(file, reason, detail),
+        fileMissing: (file, reason, detail, location) => reporter.fileMissing(file, reason, detail, location),
         complete: () => undefined,
         error: (message) => reporter.fileMissing(message, "error"),
         cancelled: () => undefined,
@@ -1762,9 +1762,9 @@ export async function exportCodexContent(
 
     const childReporter: ExportProgressReporter = {
         report: (event) => reporter.report(event),
-        fileMissing: (file, reason, detail) => {
-            aggregated.missingFiles.push({ file, reason, detail });
-            reporter.fileMissing(file, reason, detail);
+        fileMissing: (file, reason, detail, location) => {
+            aggregated.missingFiles.push({ file, reason, detail, ...location });
+            reporter.fileMissing(file, reason, detail, location);
         },
         complete: (summary) => {
             if (summary.extraMessages) aggregated.extraMessages.push(...summary.extraMessages);

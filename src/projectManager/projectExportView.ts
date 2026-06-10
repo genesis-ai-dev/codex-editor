@@ -1098,6 +1098,51 @@ function getWebviewContent(
                     color: var(--vscode-descriptionForeground);
                     font-size: 0.95em;
                 }
+                /*
+                 * Clickable variant — rendered as a <button> (keyboard focus +
+                 * Enter/Space for free) that deep-links into the cell, mirroring
+                 * the Step 1 audio-stats popover rows. UA chrome stripped so it
+                 * sits flush with the static rows around it.
+                 */
+                button.export-issue-item {
+                    width: 100%;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    text-align: left;
+                    font-family: inherit;
+                    background: transparent;
+                    border: none;
+                    border-radius: 3px;
+                    cursor: pointer;
+                    -webkit-appearance: none;
+                    appearance: none;
+                }
+                button.export-issue-item .export-issue-item-label {
+                    flex: 1;
+                    min-width: 0;
+                    word-break: break-word;
+                }
+                button.export-issue-item .export-issue-item-icon {
+                    flex-shrink: 0;
+                    font-size: 0.85em;
+                    opacity: 0.55;
+                    transition: transform 80ms ease, opacity 80ms ease;
+                }
+                button.export-issue-item:hover,
+                button.export-issue-item:focus-visible {
+                    background-color: var(--vscode-list-hoverBackground, rgba(0,0,0,0.04));
+                    color: var(--vscode-list-hoverForeground, var(--vscode-foreground));
+                    outline: none;
+                }
+                button.export-issue-item:hover .export-issue-item-icon,
+                button.export-issue-item:focus-visible .export-issue-item-icon {
+                    opacity: 1;
+                    transform: translateX(2px);
+                }
+                button.export-issue-item:focus-visible {
+                    box-shadow: inset 0 0 0 1px var(--vscode-focusBorder, transparent);
+                }
                 .export-issue-group.sev-error .export-issue-icon { color: var(--vscode-errorForeground, #dc2626); }
                 .export-issue-group.sev-error .export-issue-count {
                     color: var(--vscode-errorForeground, #dc2626);
@@ -2169,6 +2214,24 @@ function getWebviewContent(
                         const target = event.target;
                         if (!target || !target.closest) return;
 
+                        // Clickable cell row in the completion screen's grouped
+                        // issues list — deep-link into the codex editor, same as
+                        // the Step 1 popover rows below.
+                        const issueRow = target.closest('button.export-issue-item.is-clickable');
+                        if (issueRow) {
+                            const cellId = issueRow.getAttribute('data-cell-id');
+                            const filePath = issueRow.getAttribute('data-file-path');
+                            if (cellId && filePath) {
+                                vscode.postMessage({
+                                    command: 'openCellInEditor',
+                                    cellId: cellId,
+                                    filePath: filePath,
+                                });
+                                event.stopPropagation();
+                                return;
+                            }
+                        }
+
                         // Clickable cell row inside the popover — deep-link
                         // into the codex editor. We intentionally KEEP the
                         // popover open: opening the cell sends the export tab
@@ -3019,68 +3082,68 @@ function getWebviewContent(
                     'download-failed': {
                         severity: 'error',
                         icon: 'cloud-download',
-                        label: 'Failed to download',
-                        description: "The audio is stored remotely but couldn't be downloaded — usually a network drop or sign-in issue. Re-running the export often recovers these.",
+                        label: "Audio couldn't be downloaded",
+                        description: "This audio is stored online but couldn't be downloaded — usually a network or sign-in problem. Trying the export again often fixes it.",
                     },
                     'audio-file-missing': {
                         severity: 'error',
                         icon: 'circle-slash',
-                        label: 'Audio could not be resolved',
-                        description: "A take is selected for the cell, but its audio file couldn't be found locally or on the server. The recording may need to be re-synced or re-recorded.",
+                        label: 'Audio file(s) missing',
+                        description: "An audio recording is selected for the cell, but it couldn't be found locally or on the server. The recording may need to be re-recorded.",
                     },
                     'transcode-failed': {
                         severity: 'error',
                         icon: 'error',
-                        label: 'Audio conversion failed',
-                        description: 'The audio was found but could not be trimmed/converted for export. The source file may be corrupt or in an unsupported format.',
+                        label: "Audio couldn't be converted",
+                        description: "We found the audio but couldn't prepare it for export. The recording may be damaged or in a format we don't support.",
                     },
                     'write-failed': {
                         severity: 'error',
                         icon: 'error',
-                        label: 'Could not write file',
-                        description: 'The audio was resolved but writing the output file to disk failed (e.g. permissions or disk space).',
+                        label: "Couldn't save the file",
+                        description: "We found the audio but couldn't save the exported file. You may be out of disk space or not have permission to save there.",
                     },
                     'error': {
                         severity: 'error',
                         icon: 'error',
-                        label: 'Export error',
-                        description: 'These files could not be exported due to an unexpected error. See the detail next to each entry.',
+                        label: 'Something went wrong',
+                        description: "These cells couldn't be exported because of an unexpected problem. See the note next to each one for details.",
                     },
                     'selected-audio-missing-alternatives': {
                         severity: 'warn',
                         icon: 'warning',
-                        label: 'Selected recording missing — other takes available',
-                        description: "The recording selected for these cells couldn't be found, but each cell has other recordings. Open the cell and select a different take to export it (no re-recording needed).",
+                        label: 'Selected recording missing (other recordings available)',
+                        description: "The recording chosen for these cells couldn't be found, but each cell has other recordings. Open the cell and pick a different recording — no need to record again.",
                     },
                     'no-audio-selected': {
                         severity: 'warn',
                         icon: 'warning',
-                        label: 'Audio recorded, none selected',
-                        description: 'These cells have one or more recordings but no take was selected to export. Open the cell to choose a take.',
+                        label: 'No recording chosen',
+                        description: 'These cells have one or more recordings, but none was chosen to export. Open the cell and pick which recording to use.',
                     },
                     'pointer-corrupt': {
                         severity: 'warn',
                         icon: 'warning',
-                        label: 'Corrupt media pointer',
-                        description: "The reference to this audio is malformed, so its bytes can't be located. The file likely needs to be re-synced.",
+                        label: 'Audio reference is broken',
+                        description: "The link to this audio is broken, so we couldn't find the actual file. Re-syncing the project will likely fix it.",
                     },
                     'source-not-found': {
                         severity: 'warn',
                         icon: 'warning',
-                        label: 'Source not found',
-                        description: 'The source file backing this export could not be found, so it was skipped.',
+                        label: 'Source file missing',
+                        description: "The original file this export is based on couldn't be found, so it was skipped.",
                     },
                     'no-audio-recorded': {
                         severity: 'info',
                         icon: 'info',
                         label: 'No audio recorded',
-                        description: 'These cells have no recorded audio, so there was nothing to export for them.',
+                        description: "These cells don't have any audio recorded yet, so there was nothing to export.",
                     },
                     'no-text-recorded': {
                         severity: 'info',
                         icon: 'info',
-                        label: 'No text recorded',
-                        description: 'These files have no translated text, so there was nothing to export for them.',
+                        label: 'No text written',
+                        description: "These files don't have any translated text yet, so there was nothing to export.",
                     },
                 };
                 const EXPORT_SEVERITY_ORDER = { error: 0, warn: 1, info: 2 };
@@ -3126,12 +3189,32 @@ function getWebviewContent(
                             label: reason,
                             description: '',
                         };
+                        // The group header already explains the reason, so we
+                        // don't repeat the per-cell detail on every row (it was
+                        // redundant). Any per-cell specifics (e.g. a raw write
+                        // error) are kept on the title tooltip for hover. When
+                        // we know which cell an entry came from, render it as a
+                        // clickable row that deep-links into the editor — same
+                        // UX as the Step 1 "problematic cells" popover.
                         const itemsHtml = list.map(it => {
                             const name = escapeHtml(String(it.file || ''));
-                            const detail = it.detail
-                                ? '<span class="export-issue-item-detail">' + escapeHtml(String(it.detail)) + '</span>'
+                            const titleAttr = it.detail
+                                ? ' title="' + escapeHtml(String(it.detail)) + '"'
                                 : '';
-                            return '<div class="export-issue-item">' + name + detail + '</div>';
+                            const cellId = it.cellId ? escapeHtml(String(it.cellId)) : '';
+                            const filePath = it.codexPath ? escapeHtml(String(it.codexPath)) : '';
+                            if (cellId && filePath) {
+                                return (
+                                    '<button type="button" class="export-issue-item is-clickable"' +
+                                    ' data-cell-id="' + cellId + '"' +
+                                    ' data-file-path="' + filePath + '"' +
+                                    (it.detail ? titleAttr : ' title="Open this cell in the editor"') + '>' +
+                                        '<span class="export-issue-item-label">' + name + '</span>' +
+                                        '<i class="codicon codicon-arrow-right export-issue-item-icon" aria-hidden="true"></i>' +
+                                    '</button>'
+                                );
+                            }
+                            return '<div class="export-issue-item"' + titleAttr + '>' + name + '</div>';
                         }).join('');
                         return (
                             '<div class="export-issue-group sev-' + meta.severity + '">' +
@@ -3350,6 +3433,8 @@ function getWebviewContent(
                             file: message.file,
                             reason: message.reason,
                             detail: message.detail,
+                            cellId: message.cellId,
+                            codexPath: message.codexPath,
                         });
                         return;
                     }

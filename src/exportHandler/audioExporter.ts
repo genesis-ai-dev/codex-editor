@@ -809,7 +809,8 @@ export async function exportAudioAttachments(
                 reporter.fileMissing(
                     label,
                     "audio-file-missing",
-                    "The audio file you selected for this cell cannot be found. Open the cell to choose another take or re-record."
+                    "The audio file you selected for this cell cannot be found. Open the cell to choose another take or re-record.",
+                    { cellId, codexPath: file.fsPath }
                 );
                 selectionMissingCount++;
                 continue;
@@ -821,13 +822,17 @@ export async function exportAudioAttachments(
                 reporter.fileMissing(
                     label,
                     "no-audio-selected",
-                    "Audio is recorded for this cell but no take has been selected. Open the cell to choose which take to export."
+                    "Audio is recorded for this cell but no take has been selected. Open the cell to choose which take to export.",
+                    { cellId, codexPath: file.fsPath }
                 );
                 noneSelectedCount++;
                 continue;
             }
             // No usable attachment at all — Tier 1 informational.
-            reporter.fileMissing(label, "no-audio-recorded");
+            reporter.fileMissing(label, "no-audio-recorded", undefined, {
+                cellId,
+                codexPath: file.fsPath,
+            });
             notRecordedCount++;
         }
 
@@ -1022,7 +1027,8 @@ export async function exportAudioAttachments(
                     reporter.fileMissing(
                         task.cellLabel,
                         "download-failed",
-                        dlResult.reason ? String(dlResult.reason) : undefined
+                        dlResult.reason ? String(dlResult.reason) : undefined,
+                        { cellId: task.cellId, codexPath: file.fsPath }
                     );
                     streamFailCount++;
                     missingCount++;
@@ -1050,7 +1056,8 @@ export async function exportAudioAttachments(
                         reporter.fileMissing(
                             task.cellLabel,
                             "selected-audio-missing-alternatives",
-                            `The recording selected for this cell is missing, but the cell has ${n} other recording${n === 1 ? "" : "s"} available. Open the cell to select a different take.`
+                            `The recording selected for this cell is missing, but the cell has ${n} other recording${n === 1 ? "" : "s"} available. Open the cell to select a different take.`,
+                            { cellId: task.cellId, codexPath: file.fsPath }
                         );
                         selectedMissingWithAltCount++;
                     } else {
@@ -1059,7 +1066,10 @@ export async function exportAudioAttachments(
                             : isPointerCorrupt
                                 ? "pointer-corrupt"
                                 : "audio-file-missing";
-                        reporter.fileMissing(task.cellLabel, reason, err);
+                        reporter.fileMissing(task.cellLabel, reason, err, {
+                            cellId: task.cellId,
+                            codexPath: file.fsPath,
+                        });
                         missingCount++;
                     }
                 }
@@ -1089,7 +1099,8 @@ export async function exportAudioAttachments(
                         reporter.fileMissing(
                             task.cellLabel,
                             "transcode-failed",
-                            e instanceof Error ? e.message : String(e)
+                            e instanceof Error ? e.message : String(e),
+                            { cellId: task.cellId, codexPath: file.fsPath }
                         );
                         missingCount++;
                     }
@@ -1118,7 +1129,8 @@ export async function exportAudioAttachments(
                     reporter.fileMissing(
                         task.cellLabel,
                         "write-failed",
-                        e instanceof Error ? e.message : String(e)
+                        e instanceof Error ? e.message : String(e),
+                        { cellId: task.cellId, codexPath: file.fsPath }
                     );
                     missingCount++;
                 }

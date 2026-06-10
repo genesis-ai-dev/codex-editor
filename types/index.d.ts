@@ -2554,6 +2554,9 @@ export interface ExportMissingFilePayload {
     file: string;
     reason: ExportMissingFileReason;
     detail?: string;
+    /** Cell + codex path the entry came from, when known. Enables a deep-link. */
+    cellId?: string;
+    codexPath?: string;
 }
 
 export interface ExportSummaryPayload {
@@ -2571,7 +2574,7 @@ export type MessagesToProjectExportView =
     | { command: "htmlStructureCheckResult"; mismatches: { totalMismatches: number; fileDetails: { file: string; count: number; }[]; }; }
     | { command: "exportStarted"; }
     | { command: "exportProgress"; event: ExportProgressEventPayload; }
-    | { command: "exportFileMissing"; file: string; reason: ExportMissingFileReason; detail?: string; }
+    | { command: "exportFileMissing"; file: string; reason: ExportMissingFileReason; detail?: string; cellId?: string; codexPath?: string; }
     | { command: "exportCompleted"; summary: ExportSummaryPayload; }
     | { command: "exportError"; message: string; };
 

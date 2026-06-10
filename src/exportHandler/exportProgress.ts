@@ -66,10 +66,22 @@ export interface ExportProgressEvent {
     increment?: number;
 }
 
+/**
+ * Optional pointer to the exact cell a missing-file event came from. When
+ * present, the webview renders the entry as a clickable row that deep-links
+ * into the codex editor (same UX as the Step 1 audio-stats popover).
+ */
+export interface ExportMissingFileLocation {
+    cellId?: string;
+    codexPath?: string;
+}
+
 export interface ExportMissingFile {
     file: string;
     reason: ExportMissingReason;
     detail?: string;
+    cellId?: string;
+    codexPath?: string;
 }
 
 export interface ExportSummary {
@@ -84,7 +96,12 @@ export interface ExportSummary {
 
 export interface ExportProgressReporter {
     report(event: ExportProgressEvent): void;
-    fileMissing(file: string, reason: ExportMissingReason, detail?: string): void;
+    fileMissing(
+        file: string,
+        reason: ExportMissingReason,
+        detail?: string,
+        location?: ExportMissingFileLocation
+    ): void;
     complete(summary: ExportSummary): void;
     error(message: string): void;
     /**
@@ -137,9 +154,9 @@ export function createAggregatingReporter(target: ExportProgressReporter): {
             report(event) {
                 target.report(event);
             },
-            fileMissing(file, reason, detail) {
-                missingFiles.push({ file, reason, detail });
-                target.fileMissing(file, reason, detail);
+            fileMissing(file, reason, detail, location) {
+                missingFiles.push({ file, reason, detail, ...location });
+                target.fileMissing(file, reason, detail, location);
             },
             complete(summary) {
                 if (summary.exportPath) lastExportPath = summary.exportPath;
@@ -181,10 +198,17 @@ export function createWebviewReporter(
                 context
             );
         },
-        fileMissing(file, reason, detail) {
+        fileMissing(file, reason, detail, location) {
             safePostMessageToPanel(
                 panel,
-                { command: "exportFileMissing", file, reason, detail },
+                {
+                    command: "exportFileMissing",
+                    file,
+                    reason,
+                    detail,
+                    cellId: location?.cellId,
+                    codexPath: location?.codexPath,
+                },
                 context
             );
         },
