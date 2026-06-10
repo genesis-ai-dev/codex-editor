@@ -10,7 +10,7 @@ import { isLfsPointerContent, parsePointerContent } from "../utils/lfsHelpers";
 import { getCachedLfsBytes, setCachedLfsBytes } from "../utils/mediaCache";
 import { getMediaFilesStrategy } from "../utils/localProjectSettings";
 import type { ExportProgressReporter, ExportMissingReason } from "./exportProgress";
-import { pickAudioAttachment, isExportableCell, type AudioPick, type AudioPickOutcome } from "./audioAttachmentUtils";
+import { pickAudioAttachment, isExportableCell, countAvailableAlternativeTakes, type AudioPick, type AudioPickOutcome } from "./audioAttachmentUtils";
 import { formatCellDisplayLabel } from "./cellLabelUtils";
 import { CodexCellTypes } from "../../types/enums";
 import { buildMilestoneIndexModel } from "../../sharedUtils/milestoneIndexUtils";
@@ -723,6 +723,10 @@ export async function exportAudioAttachments(
     let notRecordedCount = 0;
     let noneSelectedCount = 0;
     let selectionMissingCount = 0;
+    // Selected take's bytes couldn't be resolved, but the cell has other usable
+    // recordings to switch to — counted separately (and reported as a warning)
+    // rather than folded into the hard "could not be resolved" total.
+    let selectedMissingWithAltCount = 0;
 
     for (const [index, file] of selectedFiles.entries()) {
         // Stop before starting another book once cancellation is requested.
@@ -877,6 +881,13 @@ export async function exportAudioAttachments(
             originalExt: string;
             start?: number;
             end?: number;
+            /**
+             * How many *other* usable takes (non-deleted, non-missing) the cell
+             * has. When the selected take fails to resolve, a value > 0 means
+             * the user can recover by selecting a different take — surfaced as a
+             * warning rather than a hard "could not be resolved" error.
+             */
+            alternativeTakeCount: number;
         };
 
         const tasks: AudioExportTask[] = [];
@@ -940,6 +951,7 @@ export async function exportAudioAttachments(
                 originalExt,
                 start,
                 end,
+                alternativeTakeCount: countAvailableAlternativeTakes(cell, pick.id),
             });
         }
 
@@ -1027,13 +1039,29 @@ export async function exportAudioAttachments(
                 const isPointerCorrupt = err.includes("Invalid LFS pointer");
                 if (task.cellLabel) {
                     if (isStreamFailure) streamFailCount++;
-                    const reason: ExportMissingReason = isStreamFailure
-                        ? "download-failed"
-                        : isPointerCorrupt
-                            ? "pointer-corrupt"
-                            : "audio-file-missing";
-                    reporter.fileMissing(task.cellLabel, reason, err);
-                    missingCount++;
+                    // When the selected take simply can't be found (not a stream
+                    // or pointer error) but the cell has other usable takes, the
+                    // user can recover by re-selecting — report it as a warning
+                    // and keep it out of the hard "could not be resolved" total.
+                    const recoverableViaOtherTake =
+                        !isStreamFailure && !isPointerCorrupt && task.alternativeTakeCount > 0;
+                    if (recoverableViaOtherTake) {
+                        const n = task.alternativeTakeCount;
+                        reporter.fileMissing(
+                            task.cellLabel,
+                            "selected-audio-missing-alternatives",
+                            `The recording selected for this cell is missing, but the cell has ${n} other recording${n === 1 ? "" : "s"} available. Open the cell to select a different take.`
+                        );
+                        selectedMissingWithAltCount++;
+                    } else {
+                        const reason: ExportMissingReason = isStreamFailure
+                            ? "download-failed"
+                            : isPointerCorrupt
+                                ? "pointer-corrupt"
+                                : "audio-file-missing";
+                        reporter.fileMissing(task.cellLabel, reason, err);
+                        missingCount++;
+                    }
                 }
                 continue;
             }
@@ -1159,7 +1187,8 @@ export async function exportAudioAttachments(
         `Export summary: ${copiedCount} files copied, ${missingCount} skipped, ` +
         `${streamFailCount} stream failures, ${notRecordedCount} cells without recorded audio, ` +
         `${noneSelectedCount} cells with audio but none selected, ` +
-        `${selectionMissingCount} cells with selected audio missing`
+        `${selectionMissingCount} cells with selected audio missing, ` +
+        `${selectedMissingWithAltCount} selected take missing with alternatives available`
     );
 
     if (streamFailCount > 0 && copiedCount === 0) {
@@ -1175,6 +1204,9 @@ export async function exportAudioAttachments(
     if (streamFailCount > 0) summaryParts.push(`${streamFailCount} failed to download`);
     if (missingCount - streamFailCount > 0) {
         summaryParts.push(`${missingCount - streamFailCount} could not be resolved`);
+    }
+    if (selectedMissingWithAltCount > 0) {
+        summaryParts.push(`${selectedMissingWithAltCount} with selected take missing (other takes available)`);
     }
     if (notRecordedCount > 0) summaryParts.push(`${notRecordedCount} cells without recorded audio`);
     if (noneSelectedCount > 0) summaryParts.push(`${noneSelectedCount} cells with audio, none selected`);

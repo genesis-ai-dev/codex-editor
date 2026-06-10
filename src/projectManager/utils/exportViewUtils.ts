@@ -1,9 +1,10 @@
 import * as vscode from "vscode";
 import { CodexNotebookAsJSONData, MilestoneInfo } from "../../../types";
 import {
-    getCellAudioState,
+    pickAudioAttachment,
     isExportableCell,
     isLabelableCell,
+    isTakeFlaggedMissing,
 } from "../../exportHandler/audioAttachmentUtils";
 import { formatCellDisplayLabel } from "../../exportHandler/cellLabelUtils";
 import {
@@ -56,6 +57,13 @@ export interface NotebookAudioStats {
      */
     noneSelectedCount: number;
     /**
+     * The selected take is flagged `isMissing`. The export will still attempt
+     * to resolve it (the flag is a stale migration-scan hint), so this is a
+     * *possibly* missing warning, not a certainty — carved out of
+     * `audioReadyCount` so the user is forewarned before committing.
+     */
+    selectedPossiblyMissingCount: number;
+    /**
      * Cells in each non-ready bucket. Used by the Step 1 drill-down popover
      * so the user can see WHICH cells are affected, not just how many.
      * `label` matches the format the export progress reporter uses, so the
@@ -71,6 +79,7 @@ export interface NotebookAudioStats {
     noAudioRecordedCells: AudioStatsCellEntry[];
     selectionMissingCells: AudioStatsCellEntry[];
     noneSelectedCells: AudioStatsCellEntry[];
+    selectedPossiblyMissingCells: AudioStatsCellEntry[];
 }
 
 /** Per-cell entry surfaced by the Step 1 drill-down popover. */
@@ -182,25 +191,38 @@ export function analyzeNotebookAudioStats(
     const noAudioRecordedCells: AudioStatsCellEntry[] = [];
     const selectionMissingCells: AudioStatsCellEntry[] = [];
     const noneSelectedCells: AudioStatsCellEntry[] = [];
+    const selectedPossiblyMissingCells: AudioStatsCellEntry[] = [];
 
     for (const cell of notebook.cells) {
         if (!isExportableCell(cell)) continue;
         eligibleCellCount += 1;
-        const state = getCellAudioState(cell);
-        if (state === "ready") {
-            audioReadyCount += 1;
-            continue;
-        }
+        const outcome = pickAudioAttachment(cell);
+        const state = outcome.state;
+
         // Mirror the exporter: cells we can't label aren't surfaced as
         // missing-audio rows, so they shouldn't inflate the Step 1 counts.
-        if (!isLabelableCell(cell)) continue;
-        const cellId: string | undefined = (cell.metadata as any)?.id;
-        if (!cellId) continue;
-        const label = formatCellDisplayLabel(cell, cellId, bookCode);
         // Belt-and-suspenders: `isLabelableCell` should match
         // `formatCellDisplayLabel`'s null contract, but defending here keeps
         // the array contents consistent with the counts even if those drift.
-        if (!label) continue;
+        const cellId: string | undefined = (cell.metadata as any)?.id;
+        const label = isLabelableCell(cell) && cellId
+            ? formatCellDisplayLabel(cell, cellId, bookCode)
+            : null;
+
+        if (state === "ready") {
+            // The picker ignores `isMissing`, so a selected take flagged
+            // missing still resolves as "ready". When we can label/list it,
+            // carve it into a *possibly missing* warning so the user is
+            // forewarned; otherwise treat it as ready (it may still resolve).
+            if (label && cellId && outcome.pick && isTakeFlaggedMissing(cell, outcome.pick.id)) {
+                selectedPossiblyMissingCells.push({ label, cellId });
+            } else {
+                audioReadyCount += 1;
+            }
+            continue;
+        }
+
+        if (!label || !cellId) continue;
         const entry: AudioStatsCellEntry = { label, cellId };
         if (state === "selection-missing") {
             selectionMissingCells.push(entry);
@@ -217,9 +239,11 @@ export function analyzeNotebookAudioStats(
         noAudioRecordedCount: noAudioRecordedCells.length,
         selectionMissingCount: selectionMissingCells.length,
         noneSelectedCount: noneSelectedCells.length,
+        selectedPossiblyMissingCount: selectedPossiblyMissingCells.length,
         noAudioRecordedCells,
         selectionMissingCells,
         noneSelectedCells,
+        selectedPossiblyMissingCells,
     };
 }
 

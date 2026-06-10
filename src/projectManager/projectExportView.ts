@@ -980,6 +980,95 @@ function getWebviewContent(
                 .export-extra-messages div { padding: 2px 0; }
 
                 /*
+                 * Post-export "issues" list. Each problem category (one per
+                 * ExportMissingReason) renders as a collapsible group whose
+                 * header shows a severity-coloured icon, a human label, a
+                 * one-line explanation, and a count badge. Collapsed by
+                 * default — the user expands to see the affected cells/files.
+                 * Severity colours mirror the Step 1 stat pills above.
+                 */
+                .export-issues {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                }
+                .export-issue-group {
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 6px;
+                    overflow: hidden;
+                    background: var(--vscode-input-background);
+                }
+                .export-issue-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 8px 10px;
+                    cursor: pointer;
+                    user-select: none;
+                    font-size: 0.88em;
+                }
+                .export-issue-header:hover { background: var(--vscode-list-hoverBackground); }
+                .export-issue-header .export-issue-chevron {
+                    flex-shrink: 0;
+                    opacity: 0.7;
+                    transition: transform 120ms ease;
+                }
+                .export-issue-group.open .export-issue-header .export-issue-chevron { transform: rotate(90deg); }
+                .export-issue-header .export-issue-icon { flex-shrink: 0; }
+                .export-issue-title { font-weight: 600; }
+                .export-issue-count {
+                    margin-left: auto;
+                    flex-shrink: 0;
+                    font-size: 0.85em;
+                    padding: 0 7px;
+                    border-radius: 10px;
+                    border: 1px solid transparent;
+                }
+                .export-issue-desc {
+                    font-size: 0.82em;
+                    color: var(--vscode-descriptionForeground);
+                    padding: 0 10px 8px 34px;
+                    margin-top: -2px;
+                }
+                .export-issue-list {
+                    display: none;
+                    flex-direction: column;
+                    gap: 2px;
+                    padding: 0 10px 8px 34px;
+                    max-height: 220px;
+                    overflow-y: auto;
+                }
+                .export-issue-group.open .export-issue-list { display: flex; }
+                .export-issue-item {
+                    font-size: 0.82em;
+                    color: var(--vscode-foreground);
+                    padding: 2px 0;
+                }
+                .export-issue-item .export-issue-item-detail {
+                    display: block;
+                    color: var(--vscode-descriptionForeground);
+                    font-size: 0.95em;
+                }
+                .export-issue-group.sev-error .export-issue-icon { color: var(--vscode-errorForeground, #dc2626); }
+                .export-issue-group.sev-error .export-issue-count {
+                    color: var(--vscode-errorForeground, #dc2626);
+                    background-color: rgba(220, 38, 38, 0.10);
+                    border-color: rgba(220, 38, 38, 0.32);
+                }
+                .export-issue-group.sev-warn .export-issue-icon { color: var(--vscode-charts-yellow, #ca8a04); }
+                .export-issue-group.sev-warn .export-issue-count {
+                    color: var(--vscode-charts-yellow, #ca8a04);
+                    background-color: rgba(202, 138, 4, 0.10);
+                    border-color: rgba(202, 138, 4, 0.32);
+                }
+                .export-issue-group.sev-info .export-issue-icon { color: var(--vscode-descriptionForeground); }
+                .export-issue-group.sev-info .export-issue-count {
+                    color: var(--vscode-descriptionForeground);
+                    background-color: var(--vscode-input-background);
+                    border-color: var(--vscode-input-border);
+                }
+
+                /*
                  * Clickable Step 1 audio-stat counters. Styled as actual
                  * tags (matching the existing .file-status-tag pattern in
                  * this view) so the affordance reads immediately. The
@@ -1473,6 +1562,8 @@ function getWebviewContent(
 
                             <div class="export-extra-messages" id="exportExtraMessages" style="display:none;"></div>
 
+                            <div class="export-issues" id="exportIssues" style="display:none;"></div>
+
                             <div class="export-output-path" id="exportOutputPath" style="display:none;"></div>
 
                             <div class="export-action-row" id="exportCancelRow">
@@ -1825,6 +1916,7 @@ function getWebviewContent(
                     scrollMemory: new Map(),
                     bucketKeys: {
                         selectionMissing: 'selectionMissingCells',
+                        selectedPossiblyMissing: 'selectedPossiblyMissingCells',
                         noneSelected: 'noneSelectedCells',
                         noAudioRecorded: 'noAudioRecordedCells'
                     }
@@ -2145,6 +2237,16 @@ function getWebviewContent(
                                         f.audioStats.selectionMissingCount,
                                         'with selected audio missing',
                                         f.displayName + ' — selected audio is missing'
+                                    ));
+                                }
+                                if (f.audioStats.selectedPossiblyMissingCount > 0) {
+                                    parts.push(renderStatPill(
+                                        gIdx, fIdx,
+                                        'selectedPossiblyMissing',
+                                        'warn',
+                                        f.audioStats.selectedPossiblyMissingCount,
+                                        'with selected take possibly missing',
+                                        f.displayName + ' — selected take flagged as possibly missing'
                                     ));
                                 }
                                 if (f.audioStats.noneSelectedCount > 0) {
@@ -2596,6 +2698,10 @@ function getWebviewContent(
                     cancelled: false,
                     stageIndex: -1,
                     extraMessages: [],
+                    // Per-cell/per-file problems collected from exportFileMissing
+                    // events during the run, rendered as a grouped, expandable
+                    // list once the export completes.
+                    missingFiles: [],
                     outputPath: null,
                     lastTitle: 'Exporting...',
                     lastSubtitle: 'This may take a moment. Please keep this view open.',
@@ -2609,6 +2715,7 @@ function getWebviewContent(
                     exportState.cancelled = false;
                     exportState.stageIndex = -1;
                     exportState.extraMessages = [];
+                    exportState.missingFiles = [];
                     exportState.outputPath = null;
                     exportState.lastTitle = 'Exporting...';
                     exportState.lastSubtitle = 'This may take a moment. Please keep this view open.';
@@ -2633,6 +2740,9 @@ function getWebviewContent(
 
                     const extras = document.getElementById('exportExtraMessages');
                     if (extras) { extras.style.display = 'none'; extras.innerHTML = ''; }
+
+                    const issues = document.getElementById('exportIssues');
+                    if (issues) { issues.style.display = 'none'; issues.innerHTML = ''; }
 
                     const outPath = document.getElementById('exportOutputPath');
                     if (outPath) { outPath.style.display = 'none'; outPath.textContent = ''; }
@@ -2731,6 +2841,148 @@ function getWebviewContent(
                         .map(m => '<div>' + String(m).replace(/</g, '&lt;') + '</div>')
                         .join('');
                     extras.style.display = 'block';
+                }
+
+                // Human-readable metadata for each ExportMissingReason emitted by
+                // the exporters. Severity drives colour + ordering (error >
+                // warn > info); the description spells out what the category
+                // means so the count in the summary line is actionable. Keep in
+                // sync with ExportMissingReason / severityForReason in
+                // src/exportHandler/exportProgress.ts.
+                const EXPORT_REASON_META = {
+                    'download-failed': {
+                        severity: 'error',
+                        icon: 'cloud-download',
+                        label: 'Failed to download',
+                        description: "The audio is stored remotely but couldn't be downloaded — usually a network drop or sign-in issue. Re-running the export often recovers these.",
+                    },
+                    'audio-file-missing': {
+                        severity: 'error',
+                        icon: 'circle-slash',
+                        label: 'Audio could not be resolved',
+                        description: "A take is selected for the cell, but its audio file couldn't be found locally or on the server. The recording may need to be re-synced or re-recorded.",
+                    },
+                    'transcode-failed': {
+                        severity: 'error',
+                        icon: 'error',
+                        label: 'Audio conversion failed',
+                        description: 'The audio was found but could not be trimmed/converted for export. The source file may be corrupt or in an unsupported format.',
+                    },
+                    'write-failed': {
+                        severity: 'error',
+                        icon: 'error',
+                        label: 'Could not write file',
+                        description: 'The audio was resolved but writing the output file to disk failed (e.g. permissions or disk space).',
+                    },
+                    'error': {
+                        severity: 'error',
+                        icon: 'error',
+                        label: 'Export error',
+                        description: 'These files could not be exported due to an unexpected error. See the detail next to each entry.',
+                    },
+                    'selected-audio-missing-alternatives': {
+                        severity: 'warn',
+                        icon: 'warning',
+                        label: 'Selected recording missing — other takes available',
+                        description: "The recording selected for these cells couldn't be found, but each cell has other recordings. Open the cell and select a different take to export it (no re-recording needed).",
+                    },
+                    'no-audio-selected': {
+                        severity: 'warn',
+                        icon: 'warning',
+                        label: 'Audio recorded, none selected',
+                        description: 'These cells have one or more recordings but no take was selected to export. Open the cell to choose a take.',
+                    },
+                    'pointer-corrupt': {
+                        severity: 'warn',
+                        icon: 'warning',
+                        label: 'Corrupt media pointer',
+                        description: "The reference to this audio is malformed, so its bytes can't be located. The file likely needs to be re-synced.",
+                    },
+                    'source-not-found': {
+                        severity: 'warn',
+                        icon: 'warning',
+                        label: 'Source not found',
+                        description: 'The source file backing this export could not be found, so it was skipped.',
+                    },
+                    'no-audio-recorded': {
+                        severity: 'info',
+                        icon: 'info',
+                        label: 'No audio recorded',
+                        description: 'These cells have no recorded audio, so there was nothing to export for them.',
+                    },
+                    'no-text-recorded': {
+                        severity: 'info',
+                        icon: 'info',
+                        label: 'No text recorded',
+                        description: 'These files have no translated text, so there was nothing to export for them.',
+                    },
+                };
+                const EXPORT_SEVERITY_ORDER = { error: 0, warn: 1, info: 2 };
+
+                function toggleExportIssue(headerEl) {
+                    const group = headerEl.closest('.export-issue-group');
+                    if (group) group.classList.toggle('open');
+                }
+
+                function renderExportIssues() {
+                    const container = document.getElementById('exportIssues');
+                    if (!container) return;
+                    const items = exportState.missingFiles || [];
+                    if (items.length === 0) {
+                        container.style.display = 'none';
+                        container.innerHTML = '';
+                        return;
+                    }
+
+                    // Group by reason, preserving first-seen order within a group.
+                    const groups = new Map();
+                    for (const it of items) {
+                        const reason = it.reason || 'error';
+                        if (!groups.has(reason)) groups.set(reason, []);
+                        groups.get(reason).push(it);
+                    }
+
+                    // Order groups by severity (error first), then alphabetically
+                    // by label for stable output.
+                    const ordered = Array.from(groups.entries()).sort((a, b) => {
+                        const ma = EXPORT_REASON_META[a[0]] || { severity: 'error', label: a[0] };
+                        const mb = EXPORT_REASON_META[b[0]] || { severity: 'error', label: b[0] };
+                        const sa = EXPORT_SEVERITY_ORDER[ma.severity] ?? 0;
+                        const sb = EXPORT_SEVERITY_ORDER[mb.severity] ?? 0;
+                        if (sa !== sb) return sa - sb;
+                        return String(ma.label).localeCompare(String(mb.label));
+                    });
+
+                    container.innerHTML = ordered.map(([reason, list]) => {
+                        const meta = EXPORT_REASON_META[reason] || {
+                            severity: 'error',
+                            icon: 'error',
+                            label: reason,
+                            description: '',
+                        };
+                        const itemsHtml = list.map(it => {
+                            const name = escapeHtml(String(it.file || ''));
+                            const detail = it.detail
+                                ? '<span class="export-issue-item-detail">' + escapeHtml(String(it.detail)) + '</span>'
+                                : '';
+                            return '<div class="export-issue-item">' + name + detail + '</div>';
+                        }).join('');
+                        return (
+                            '<div class="export-issue-group sev-' + meta.severity + '">' +
+                                '<div class="export-issue-header" onclick="toggleExportIssue(this)">' +
+                                    '<i class="codicon codicon-chevron-right export-issue-chevron"></i>' +
+                                    '<i class="codicon codicon-' + meta.icon + ' export-issue-icon"></i>' +
+                                    '<span class="export-issue-title">' + escapeHtml(meta.label) + '</span>' +
+                                    '<span class="export-issue-count">' + list.length + '</span>' +
+                                '</div>' +
+                                (meta.description
+                                    ? '<div class="export-issue-desc">' + escapeHtml(meta.description) + '</div>'
+                                    : '') +
+                                '<div class="export-issue-list">' + itemsHtml + '</div>' +
+                            '</div>'
+                        );
+                    }).join('');
+                    container.style.display = 'flex';
                 }
 
                 function showOutputPath(path) {
@@ -2909,11 +3161,19 @@ function getWebviewContent(
                         return;
                     }
                     if (message.command === 'exportFileMissing') {
-                        // Per-cell missing/info events are intentionally ignored
-                        // in the UI now. Each exporter rolls these counts up
-                        // into its single extraMessages summary line (see
-                        // audioExporter.ts, htmlExporter.ts, etc.), which we
-                        // render via showExtraMessages on completion.
+                        // Collect per-cell/per-file problems as they arrive.
+                        // They're rolled up into the single extraMessages
+                        // summary line by the exporters; here we keep the
+                        // individual entries so the completion screen can show
+                        // an expandable, grouped breakdown. Stop collecting once
+                        // we've reached a terminal state (late events from
+                        // in-flight work draining after a cancel).
+                        if (exportState.finished || exportState.cancelled) return;
+                        exportState.missingFiles.push({
+                            file: message.file,
+                            reason: message.reason,
+                            detail: message.detail,
+                        });
                         return;
                     }
                     if (message.command === 'exportCompleted') {
@@ -2926,6 +3186,9 @@ function getWebviewContent(
                             showExtraMessages(summary.extraMessages);
                         }
                         showExportFinished(true);
+                        // Render after marking finished so the grouped issue
+                        // list reflects everything collected during the run.
+                        renderExportIssues();
                         return;
                     }
                     if (message.command === 'exportError') {

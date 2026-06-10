@@ -2529,6 +2529,7 @@ export type ExportMissingFileReason =
     | "no-text-recorded"
     // Tier 2 — soft warning
     | "no-audio-selected"
+    | "selected-audio-missing-alternatives"
     | "audio-file-missing"
     | "pointer-corrupt"
     | "source-not-found"

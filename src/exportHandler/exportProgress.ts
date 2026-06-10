@@ -14,6 +14,10 @@ export type ExportMissingReason =
     | "no-text-recorded"
     // Tier 2 — soft warning (yellow)
     | "no-audio-selected"
+    // The selected take's bytes couldn't be resolved, but the cell still has
+    // other usable (non-deleted, non-missing) recordings the user can switch
+    // to — recoverable without re-recording, hence a warning rather than error.
+    | "selected-audio-missing-alternatives"
     | "audio-file-missing"
     | "pointer-corrupt"
     | "source-not-found"
@@ -35,6 +39,7 @@ export function severityForReason(reason: ExportMissingReason): ExportMissingSev
         case "no-text-recorded":
             return "info";
         case "no-audio-selected":
+        case "selected-audio-missing-alternatives":
         case "pointer-corrupt":
         case "source-not-found":
             return "warn";

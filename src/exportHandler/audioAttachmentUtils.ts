@@ -127,6 +127,62 @@ export function getCellAudioState(cell: unknown): CellAudioState {
 }
 
 /**
+ * Counts a cell's *other* usable audio takes — non-deleted, not flagged
+ * `isMissing`, with a url — excluding the given attachment id.
+ *
+ * Used at export time to tell the user, when their selected take can't be
+ * resolved, whether the cell still has recordings they could switch to (vs.
+ * needing a re-record / re-sync). Unlike `pickAudioAttachment` — which ignores
+ * `isMissing` on purpose so the resolver gets the final say — this DOES honor
+ * `isMissing`, because here we only want to point the user at takes that are
+ * likely to actually resolve.
+ */
+export function countAvailableAlternativeTakes(cell: unknown, excludeId: string): number {
+    const meta = (cell as { metadata?: Record<string, unknown> } | undefined)?.metadata;
+    if (!meta || typeof meta !== "object") return 0;
+
+    const attachments = (meta as { attachments?: Record<string, unknown> }).attachments;
+    if (!attachments || typeof attachments !== "object") return 0;
+
+    let count = 0;
+    for (const [attId, attVal] of Object.entries(attachments)) {
+        if (attId === excludeId) continue;
+        if (!attVal || typeof attVal !== "object") continue;
+        const att = attVal as {
+            type?: string;
+            isDeleted?: boolean;
+            isMissing?: boolean;
+            url?: string;
+        };
+        if (att.type !== "audio") continue;
+        if (att.isDeleted) continue;
+        if (att.isMissing) continue;
+        if (!att.url || typeof att.url !== "string") continue;
+        count++;
+    }
+    return count;
+}
+
+/**
+ * Returns true when the given attachment on a cell is flagged `isMissing`.
+ *
+ * `pickAudioAttachment` deliberately ignores this flag (the resolver gets the
+ * final say at access time), so a selected take whose bytes are flagged missing
+ * still resolves as `"ready"`. The Step 1 pre-flight uses this to warn that the
+ * selected take is *possibly* missing — the flag is a stale migration-scan hint,
+ * so the export may still recover it, but the user should know before committing.
+ */
+export function isTakeFlaggedMissing(cell: unknown, attachmentId: string): boolean {
+    const meta = (cell as { metadata?: Record<string, unknown> } | undefined)?.metadata;
+    if (!meta || typeof meta !== "object") return false;
+    const attachments = (meta as { attachments?: Record<string, unknown> }).attachments;
+    if (!attachments || typeof attachments !== "object") return false;
+    const att = (attachments as Record<string, unknown>)[attachmentId];
+    if (!att || typeof att !== "object") return false;
+    return (att as { isMissing?: boolean }).isMissing === true;
+}
+
+/**
  * Returns true when a cell is an audio recording target. Mirrors the predicate
  * used by `computeDialogueLineNumbers` in `audioExporter.ts` so chapter-start
  * milestones and paratext (book intros, headings, etc.) are never counted as
