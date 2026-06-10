@@ -4,7 +4,7 @@ import * as fs from "fs";
 import * as vscode from "vscode";
 import { safePostMessageToPanel } from "../utils/webviewUtils";
 import { EXPORT_OPTIONS_BY_FILE_TYPE } from "../../sharedUtils/exportOptionsEligibility";
-import { groupCodexFilesByImporterType, type FileGroup } from "./utils/exportViewUtils";
+import { groupCodexFilesByImporterType, analyzeCodexFileAudio, type FileGroup } from "./utils/exportViewUtils";
 import { readCodexNotebookFromUri } from "../exportHandler/exportHandlerUtils";
 import { compareHtmlStructure } from "../../sharedUtils/htmlStructureUtils";
 import { getMediaFilesStrategy } from "../utils/localProjectSettings";
@@ -139,6 +139,50 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
         }
     );
     activeExportPanel = panel;
+
+    // Live Step 1 counts: watch `.codex` files and push a per-file audio-stat
+    // refresh whenever one is saved while the wizard is open (e.g. the user
+    // picks a different take, records, or deletes a take in the cell editor).
+    // We recompute only the changed file and patch that row, so this stays
+    // cheap even on large projects.
+    const codexWatcher = vscode.workspace.createFileSystemWatcher("**/*.codex");
+    const audioStatsRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const scheduleAudioStatsRefresh = (uri: vscode.Uri) => {
+        const key = uri.fsPath;
+        const existing = audioStatsRefreshTimers.get(key);
+        if (existing) {
+            clearTimeout(existing);
+        }
+        // Debounce: the document save path does a tmp-write + atomic rename
+        // (often surfacing as a create+change pair) and autosave can burst —
+        // coalesce into a single recompute per file.
+        audioStatsRefreshTimers.set(
+            key,
+            setTimeout(async () => {
+                audioStatsRefreshTimers.delete(key);
+                const result = await analyzeCodexFileAudio(uri);
+                // null = transient read/parse race or broken file; leave the
+                // existing count in place until the next save.
+                if (!result) {
+                    return;
+                }
+                safePostMessageToPanel(
+                    panel,
+                    {
+                        command: "fileAudioStatsUpdated",
+                        path: uri.fsPath,
+                        hasAudio: result.hasAudio,
+                        hasTranslations: result.hasTranslations,
+                        audioStats: result.audioStats,
+                    },
+                    "ProjectExport"
+                );
+            }, 400)
+        );
+    };
+    codexWatcher.onDidChange(scheduleAudioStatsRefresh);
+    codexWatcher.onDidCreate(scheduleAudioStatsRefresh);
+
     panel.onDidDispose(() => {
         // Closing the tab while an export is running aborts it (and triggers the
         // engine's partial-output cleanup). This also prevents a stale run from
@@ -146,6 +190,11 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
         if (isExporting) {
             activeExportCts?.cancel();
         }
+        codexWatcher.dispose();
+        for (const timer of audioStatsRefreshTimers.values()) {
+            clearTimeout(timer);
+        }
+        audioStatsRefreshTimers.clear();
         if (activeExportPanel === panel) {
             activeExportPanel = undefined;
         }
@@ -1922,6 +1971,69 @@ function getWebviewContent(
                     }
                 };
 
+                /*
+                 * Builds the popover body markup for a list of affected cells.
+                 * Shared by the initial open and the in-place refresh so both
+                 * render identical rows. Entries are { label, cellId } (see
+                 * analyzeNotebookAudioStats); when cellId + filePath are both
+                 * present we render a clickable button that deep-links into the
+                 * editor, otherwise a static row (defensive for older shapes).
+                 */
+                function renderCellListPopoverBody(cells, filePath) {
+                    if (!cells || cells.length === 0) {
+                        return '<div class="cell-list-popover-empty">No cells in this bucket.</div>';
+                    }
+                    return cells.map(entry => {
+                        const label = (entry && typeof entry === 'object') ? entry.label : entry;
+                        const cellId = (entry && typeof entry === 'object') ? entry.cellId : '';
+                        const clickable = !!(cellId && filePath);
+                        if (clickable) {
+                            return [
+                                '<button type="button" class="cell-list-popover-item is-clickable"',
+                                ' data-cell-id="' + escapeHtml(String(cellId)) + '"',
+                                ' data-file-path="' + escapeHtml(String(filePath)) + '"',
+                                ' title="Open this cell in the editor">',
+                                '<span class="cell-list-popover-item-label">' + escapeHtml(String(label || '')) + '</span>',
+                                '<i class="codicon codicon-arrow-right cell-list-popover-item-icon" aria-hidden="true"></i>',
+                                '</button>'
+                            ].join('');
+                        }
+                        return '<div class="cell-list-popover-item">' + escapeHtml(String(label || '')) + '</div>';
+                    }).join('');
+                }
+
+                /*
+                 * Refreshes the OPEN popover's contents in place when the file
+                 * it's showing gets a live stats update (e.g. the user fixed a
+                 * take, so it drops out of the list). Does NOT reposition — the
+                 * panel may be hidden in the background (layout rects read 0
+                 * there), and the popover should stay anchored where the user
+                 * left it. Closes the popover only if its bucket is now empty.
+                 */
+                function refreshOpenCellListPopover(path, audioStats) {
+                    if (!cellListPopoverState.open || typeof cellListPopoverState.currentKey !== 'string') return;
+                    // currentKey is 'filePath|bucket'; paths never contain '|',
+                    // so split on the last separator.
+                    const sep = cellListPopoverState.currentKey.lastIndexOf('|');
+                    if (sep < 0) return;
+                    const openPath = cellListPopoverState.currentKey.slice(0, sep);
+                    const openBucket = cellListPopoverState.currentKey.slice(sep + 1);
+                    if (openPath !== path) return;
+                    const statsKey = cellListPopoverState.bucketKeys[openBucket];
+                    const cells = (audioStats && statsKey && Array.isArray(audioStats[statsKey])) ? audioStats[statsKey] : [];
+                    if (cells.length === 0) {
+                        closeCellListPopover();
+                        return;
+                    }
+                    const countEl = document.getElementById('cellListPopoverCount');
+                    const bodyEl = document.getElementById('cellListPopoverBody');
+                    const footerEl = document.getElementById('cellListPopoverFooter');
+                    if (!countEl || !bodyEl || !footerEl) return;
+                    countEl.textContent = String(cells.length);
+                    bodyEl.innerHTML = renderCellListPopoverBody(cells, path);
+                    footerEl.textContent = cells.length === 1 ? '1 cell' : cells.length + ' cells';
+                }
+
                 function openCellListPopover(anchorEl, title, severity, cells, memoryKey, filePath) {
                     const root = document.getElementById('cellListPopover');
                     const backdrop = document.getElementById('cellListPopoverBackdrop');
@@ -1934,35 +2046,7 @@ function getWebviewContent(
                     titleEl.className = 'cell-list-popover-title title-' + severity;
                     titleEl.textContent = title;
                     countEl.textContent = String(cells.length);
-                    if (cells.length === 0) {
-                        bodyEl.innerHTML = '<div class="cell-list-popover-empty">No cells in this bucket.</div>';
-                    } else {
-                        // Entries are { label, cellId } now (see
-                        // analyzeNotebookAudioStats). When cellId + filePath
-                        // are both present we render a clickable button that
-                        // deep-links into the editor; otherwise we fall back
-                        // to a static row so older payload shapes don't
-                        // crash the popover.
-                        bodyEl.innerHTML = cells
-                            .map(entry => {
-                                const label = (entry && typeof entry === 'object') ? entry.label : entry;
-                                const cellId = (entry && typeof entry === 'object') ? entry.cellId : '';
-                                const clickable = !!(cellId && filePath);
-                                if (clickable) {
-                                    return [
-                                        '<button type="button" class="cell-list-popover-item is-clickable"',
-                                        ' data-cell-id="' + escapeHtml(String(cellId)) + '"',
-                                        ' data-file-path="' + escapeHtml(String(filePath)) + '"',
-                                        ' title="Open this cell in the editor">',
-                                        '<span class="cell-list-popover-item-label">' + escapeHtml(String(label || '')) + '</span>',
-                                        '<i class="codicon codicon-arrow-right cell-list-popover-item-icon" aria-hidden="true"></i>',
-                                        '</button>'
-                                    ].join('');
-                                }
-                                return '<div class="cell-list-popover-item">' + escapeHtml(String(label || '')) + '</div>';
-                            })
-                            .join('');
-                    }
+                    bodyEl.innerHTML = renderCellListPopoverBody(cells, filePath);
                     footerEl.textContent = cells.length === 1
                         ? '1 cell'
                         : cells.length + ' cells';
@@ -2086,8 +2170,13 @@ function getWebviewContent(
                         if (!target || !target.closest) return;
 
                         // Clickable cell row inside the popover — deep-link
-                        // into the codex editor. Handled BEFORE the outside-
-                        // click check below so the popover closes cleanly.
+                        // into the codex editor. We intentionally KEEP the
+                        // popover open: opening the cell sends the export tab
+                        // to the background, and the user wants the list still
+                        // there when they return so they can work through the
+                        // affected cells one by one. (As each cell is fixed and
+                        // saved, the live stats refresh drops it from the list.)
+                        // Handled before the outside-click fallback below.
                         const cellRow = target.closest('button.cell-list-popover-item.is-clickable');
                         if (cellRow) {
                             const cellId = cellRow.getAttribute('data-cell-id');
@@ -2098,7 +2187,6 @@ function getWebviewContent(
                                     cellId: cellId,
                                     filePath: filePath,
                                 });
-                                closeCellListPopover();
                                 event.stopPropagation();
                                 return;
                             }
@@ -2182,6 +2270,172 @@ function getWebviewContent(
                     }, true);
                 }
 
+                /*
+                 * Builds the audio-stat pill row for one file. Shared between
+                 * the initial render and the live per-file patch
+                 * (applyFileAudioStatsUpdate) so both always agree on layout,
+                 * severity ordering, and which buckets get a drill-down pill.
+                 * Returns '' when there's nothing to show.
+                 */
+                function buildAudioStatsHtml(f, gIdx, fIdx) {
+                    if (!f.audioStats || !(f.audioStats.eligibleCellCount > 0)) return '';
+                    const parts = [];
+                    if (f.audioStats.audioReadyCount > 0) {
+                        // No drill-down for the "ready" bucket — these
+                        // cells will export fine, nothing actionable.
+                        parts.push('<span>' + f.audioStats.audioReadyCount + ' with audio</span>');
+                    }
+                    // Severity ordering matches the post-export
+                    // summary: errors first, then warns, then info.
+                    if (f.audioStats.selectionMissingCount > 0) {
+                        parts.push(renderStatPill(
+                            gIdx, fIdx,
+                            'selectionMissing',
+                            'error',
+                            f.audioStats.selectionMissingCount,
+                            'with selected audio missing',
+                            f.displayName + ' — selected audio is missing'
+                        ));
+                    }
+                    if (f.audioStats.selectedPossiblyMissingCount > 0) {
+                        parts.push(renderStatPill(
+                            gIdx, fIdx,
+                            'selectedPossiblyMissing',
+                            'warn',
+                            f.audioStats.selectedPossiblyMissingCount,
+                            'with selected take possibly missing',
+                            f.displayName + ' — selected take flagged as possibly missing'
+                        ));
+                    }
+                    if (f.audioStats.noneSelectedCount > 0) {
+                        parts.push(renderStatPill(
+                            gIdx, fIdx,
+                            'noneSelected',
+                            'warn',
+                            f.audioStats.noneSelectedCount,
+                            'with audio, none selected',
+                            f.displayName + ' — audio available, none selected'
+                        ));
+                    }
+                    if (f.audioStats.noAudioRecordedCount > 0) {
+                        parts.push(renderStatPill(
+                            gIdx, fIdx,
+                            'noAudioRecorded',
+                            'info',
+                            f.audioStats.noAudioRecordedCount,
+                            'without audio',
+                            f.displayName + ' — cells without audio'
+                        ));
+                    }
+                    if (parts.length === 0) return '';
+                    return '<div class="file-audio-stats">' + parts.join(' \u00b7 ') + '</div>';
+                }
+
+                /*
+                 * Builds the markup for a single file row. Extracted so the
+                 * live patch can re-render just one row when a .codex is saved.
+                 */
+                function renderFileItem(group, f, gIdx, fIdx) {
+                    const id = 'file-' + gIdx + '-' + fIdx;
+                    const isEmpty = !f.hasTranslations && !f.hasAudio;
+                    const isAudioOnly = !f.hasTranslations && f.hasAudio;
+                    const isTextOnly = f.hasTranslations && !f.hasAudio;
+                    const isTextAudio = f.hasTranslations && f.hasAudio;
+                    const contentType = isEmpty ? 'none' : (isAudioOnly ? 'audio-only' : (isTextOnly ? 'text-only' : 'text-audio'));
+                    const disabledAttr = isEmpty ? 'disabled' : '';
+                    const itemClass = 'file-item' + (isEmpty ? ' file-item-disabled' : '');
+                    let tooltip = f.displayName;
+                    if (isEmpty) tooltip = 'No translations or audio to export';
+                    else if (isAudioOnly) tooltip = f.displayName + ' (audio only)';
+                    else if (isTextOnly) tooltip = f.displayName + ' (text only)';
+                    else if (isTextAudio) tooltip = f.displayName + ' (text + audio)';
+                    let statusTag = '';
+                    if (isEmpty) {
+                        statusTag = '<span class="file-status-tag no-content-tag">No content</span>';
+                    } else if (isAudioOnly) {
+                        statusTag = '<span class="file-status-tag audio-only-tag">Audio only</span>';
+                    } else if (isTextOnly) {
+                        statusTag = '<span class="file-status-tag text-only-tag">Text only</span>';
+                    } else if (isTextAudio) {
+                        statusTag = '<span class="file-status-tag text-audio-tag">Text + Audio</span>';
+                    }
+                    const audioStatsHtml = buildAudioStatsHtml(f, gIdx, fIdx);
+                    return \`
+                                <div class="\${itemClass}" data-content-type="\${contentType}">
+                                    <input type="checkbox" id="\${id}" value="\${f.path}" data-group-key="\${group.groupKey}" data-content-type="\${contentType}" \${disabledAttr} onchange="onFileCheckboxChange()">
+                                    <div class="file-item-main">
+                                        <label for="\${id}" title="\${tooltip}">\${f.displayName}</label>
+                                        \${audioStatsHtml}
+                                    </div>
+                                    \${statusTag}
+                                </div>
+                            \`;
+                }
+
+                /*
+                 * Live patch: a .codex was saved while the wizard is open, so
+                 * re-render just that file's row (keeping its checkbox selection
+                 * and refreshing filter/footer state). Falls back silently when
+                 * the file isn't on screen (e.g. a brand-new .codex — picked up
+                 * on the next time the wizard opens).
+                 */
+                function applyFileAudioStatsUpdate(path, hasAudio, hasTranslations, audioStats) {
+                    let gIdx = -1, fIdx = -1, group = null, f = null;
+                    for (let gi = 0; gi < fileGroups.length; gi++) {
+                        const files = fileGroups[gi].files;
+                        for (let fi = 0; fi < files.length; fi++) {
+                            if (files[fi].path === path) {
+                                gIdx = gi; fIdx = fi; group = fileGroups[gi]; f = files[fi];
+                                break;
+                            }
+                        }
+                        if (f) break;
+                    }
+                    if (!f) return;
+
+                    f.hasAudio = hasAudio;
+                    f.hasTranslations = hasTranslations;
+                    f.audioStats = audioStats;
+
+                    const cb = document.getElementById('file-' + gIdx + '-' + fIdx);
+                    const item = cb ? cb.closest('.file-item') : null;
+                    if (!item) return;
+
+                    const wasChecked = !!(cb && cb.checked);
+                    const tmp = document.createElement('div');
+                    tmp.innerHTML = renderFileItem(group, f, gIdx, fIdx).trim();
+                    const fresh = tmp.firstElementChild;
+                    if (!fresh) return;
+                    item.replaceWith(fresh);
+
+                    // Restore selection: the template renders unchecked, but the
+                    // file may still be selected. If it just became empty
+                    // (no content), drop it from the selection instead.
+                    const newCb = document.getElementById('file-' + gIdx + '-' + fIdx);
+                    const isEmptyNow = !f.hasTranslations && !f.hasAudio;
+                    if (newCb) {
+                        if (isEmptyNow) {
+                            newCb.checked = false;
+                            selectedFiles.delete(path);
+                        } else {
+                            newCb.checked = wasChecked;
+                            if (wasChecked) selectedFiles.add(path); else selectedFiles.delete(path);
+                        }
+                    }
+
+                    // Refresh dependent UI (group lock, compatibility, footer).
+                    updateSelectedGroup();
+                    syncHeaderCheckboxes();
+                    updateStep1Button();
+
+                    // If the drill-down popover is open for THIS file, refresh
+                    // its list in place (the popover is a separate top-level
+                    // element, so re-rendering the row above didn't disturb it).
+                    // This keeps the list open while the user fixes cells, with
+                    // fixed cells dropping out as their saves arrive.
+                    refreshOpenCellListPopover(path, audioStats);
+                }
+
                 function renderFileGroups() {
                     const container = document.getElementById('fileGroupsContainer');
                     if (!container) return;
@@ -2195,95 +2449,7 @@ function getWebviewContent(
                         const groupDisabled = enabledCount === 0;
                         const hasTextFiles = group.files.some(f => f.hasTranslations);
                         const hasAudioFiles = group.files.some(f => f.hasAudio);
-                        const filesHtml = group.files.map((f, fIdx) => {
-                            const id = 'file-' + gIdx + '-' + fIdx;
-                            const isEmpty = !f.hasTranslations && !f.hasAudio;
-                            const isAudioOnly = !f.hasTranslations && f.hasAudio;
-                            const isTextOnly = f.hasTranslations && !f.hasAudio;
-                            const isTextAudio = f.hasTranslations && f.hasAudio;
-                            const contentType = isEmpty ? 'none' : (isAudioOnly ? 'audio-only' : (isTextOnly ? 'text-only' : 'text-audio'));
-                            const disabledAttr = isEmpty ? 'disabled' : '';
-                            const itemClass = 'file-item' + (isEmpty ? ' file-item-disabled' : '');
-                            let tooltip = f.displayName;
-                            if (isEmpty) tooltip = 'No translations or audio to export';
-                            else if (isAudioOnly) tooltip = f.displayName + ' (audio only)';
-                            else if (isTextOnly) tooltip = f.displayName + ' (text only)';
-                            else if (isTextAudio) tooltip = f.displayName + ' (text + audio)';
-                            let statusTag = '';
-                            if (isEmpty) {
-                                statusTag = '<span class="file-status-tag no-content-tag">No content</span>';
-                            } else if (isAudioOnly) {
-                                statusTag = '<span class="file-status-tag audio-only-tag">Audio only</span>';
-                            } else if (isTextOnly) {
-                                statusTag = '<span class="file-status-tag text-only-tag">Text only</span>';
-                            } else if (isTextAudio) {
-                                statusTag = '<span class="file-status-tag text-audio-tag">Text + Audio</span>';
-                            }
-                            let audioStatsHtml = '';
-                            if (f.audioStats && f.audioStats.eligibleCellCount > 0) {
-                                const parts = [];
-                                if (f.audioStats.audioReadyCount > 0) {
-                                    // No drill-down for the "ready" bucket — these
-                                    // cells will export fine, nothing actionable.
-                                    parts.push('<span>' + f.audioStats.audioReadyCount + ' with audio</span>');
-                                }
-                                // Severity ordering matches the post-export
-                                // summary: errors first, then warns, then info.
-                                if (f.audioStats.selectionMissingCount > 0) {
-                                    parts.push(renderStatPill(
-                                        gIdx, fIdx,
-                                        'selectionMissing',
-                                        'error',
-                                        f.audioStats.selectionMissingCount,
-                                        'with selected audio missing',
-                                        f.displayName + ' — selected audio is missing'
-                                    ));
-                                }
-                                if (f.audioStats.selectedPossiblyMissingCount > 0) {
-                                    parts.push(renderStatPill(
-                                        gIdx, fIdx,
-                                        'selectedPossiblyMissing',
-                                        'warn',
-                                        f.audioStats.selectedPossiblyMissingCount,
-                                        'with selected take possibly missing',
-                                        f.displayName + ' — selected take flagged as possibly missing'
-                                    ));
-                                }
-                                if (f.audioStats.noneSelectedCount > 0) {
-                                    parts.push(renderStatPill(
-                                        gIdx, fIdx,
-                                        'noneSelected',
-                                        'warn',
-                                        f.audioStats.noneSelectedCount,
-                                        'with audio, none selected',
-                                        f.displayName + ' — audio available, none selected'
-                                    ));
-                                }
-                                if (f.audioStats.noAudioRecordedCount > 0) {
-                                    parts.push(renderStatPill(
-                                        gIdx, fIdx,
-                                        'noAudioRecorded',
-                                        'info',
-                                        f.audioStats.noAudioRecordedCount,
-                                        'without audio',
-                                        f.displayName + ' — cells without audio'
-                                    ));
-                                }
-                                if (parts.length > 0) {
-                                    audioStatsHtml = '<div class="file-audio-stats">' + parts.join(' \u00b7 ') + '</div>';
-                                }
-                            }
-                            return \`
-                                <div class="\${itemClass}" data-content-type="\${contentType}">
-                                    <input type="checkbox" id="\${id}" value="\${f.path}" data-group-key="\${group.groupKey}" data-content-type="\${contentType}" \${disabledAttr} onchange="onFileCheckboxChange()">
-                                    <div class="file-item-main">
-                                        <label for="\${id}" title="\${tooltip}">\${f.displayName}</label>
-                                        \${audioStatsHtml}
-                                    </div>
-                                    \${statusTag}
-                                </div>
-                            \`;
-                        }).join('');
+                        const filesHtml = group.files.map((f, fIdx) => renderFileItem(group, f, gIdx, fIdx)).join('');
                         return \`
                             <div class="file-group" id="\${groupId}" data-group-key="\${group.groupKey}">
                                 <div class="file-group-header">
@@ -3135,6 +3301,17 @@ function getWebviewContent(
                         const el = document.getElementById('exportPath');
                         if (el) el.textContent = message.path;
                         updateExportButton();
+                        return;
+                    }
+                    if (message.command === 'fileAudioStatsUpdated') {
+                        // A .codex was saved while the wizard is open — patch
+                        // just that file's row so the Step 1 counts stay live.
+                        applyFileAudioStatsUpdate(
+                            message.path,
+                            message.hasAudio,
+                            message.hasTranslations,
+                            message.audioStats
+                        );
                         return;
                     }
                     if (message.command === 'htmlStructureCheckResult') {

@@ -398,6 +398,38 @@ function getGroupKeyFromMetadata(metadata: Record<string, unknown>): string {
 }
 
 /**
+ * Recomputes a single `.codex` file's audio/translation summary — the same
+ * per-file work `groupCodexFilesByImporterType` does, scoped to one URI.
+ *
+ * Used by the export wizard's live refresh: when a `.codex` is saved while the
+ * wizard is open (e.g. the user picks a different take in the cell editor), the
+ * host re-runs just this for the changed file and patches that row's pills,
+ * instead of re-scanning every notebook. `bookCode` is derived identically to
+ * the bulk path so labels stay aligned with the export's missing-files report.
+ *
+ * Returns `null` when the file can't be read/parsed (transient write race or a
+ * genuinely broken file) so callers can simply leave the existing count in place.
+ */
+export async function analyzeCodexFileAudio(uri: vscode.Uri): Promise<{
+    hasTranslations: boolean;
+    hasAudio: boolean;
+    audioStats: NotebookAudioStats | undefined;
+} | null> {
+    try {
+        const notebook = await readCodexNotebookFromUri(uri);
+        const name = uri.fsPath.split(/[/\\]/).pop() || "";
+        const { hasTranslations, hasAudio } = analyzeNotebookContent(notebook);
+        const bookCode = name.split(".")[0] || "BOOK";
+        const audioStats = hasAudio
+            ? analyzeNotebookAudioStats(notebook, bookCode)
+            : undefined;
+        return { hasTranslations, hasAudio, audioStats };
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Groups codex files by their importer type for the export view.
  * Returns an array of groups, each with a display name and list of files.
  */
