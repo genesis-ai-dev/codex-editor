@@ -1161,28 +1161,46 @@ function getWebviewContent(
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
-                    gap: 8px;
-                    padding: 0 2px 2px;
+                    gap: 12px;
+                    /* Extra bottom space so the toggle's hover/active fill never
+                     * crowds the first group's header/description below it. */
+                    padding: 2px 2px 10px;
                 }
                 .export-issues-summary {
                     font-size: 0.82em;
                     color: var(--vscode-descriptionForeground);
                 }
+                /*
+                 * Rendered as a compact secondary button rather than a bare text
+                 * link. A link-coloured label became unreadable once selected
+                 * (blue text on the blue selection highlight); a solid button
+                 * background + matching foreground stays legible in every state,
+                 * and user-select:none stops it being text-selected at all.
+                 */
                 .export-issues-toggle-all {
                     display: inline-flex;
                     align-items: center;
                     gap: 5px;
                     font: inherit;
                     font-size: 0.82em;
-                    color: var(--vscode-textLink-foreground);
-                    background: transparent;
-                    border: none;
+                    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+                    background: var(--vscode-button-secondaryBackground, transparent);
+                    border: 1px solid var(--vscode-input-border, transparent);
+                    border-radius: 4px;
                     cursor: pointer;
-                    padding: 2px 4px;
+                    padding: 3px 8px;
+                    user-select: none;
                     -webkit-appearance: none;
                     appearance: none;
                 }
-                .export-issues-toggle-all:hover { text-decoration: underline; }
+                .export-issues-toggle-all:hover {
+                    background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground, rgba(0,0,0,0.06)));
+                    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+                }
+                .export-issues-toggle-all:focus-visible {
+                    outline: 1px solid var(--vscode-focusBorder, transparent);
+                    outline-offset: 1px;
+                }
                 .export-issues-toggle-all .codicon { font-size: 0.95em; }
                 .export-issue-group {
                     border: 1px solid var(--vscode-input-border);
@@ -3208,15 +3226,17 @@ function getWebviewContent(
                         setExportTitle(message, exportState.lastSubtitle);
                     }
 
+                    // The progress count now lives in the title (message); this
+                    // line shows only the specific item in flight — a cell label
+                    // while writing, or a file name for text exports. Audio
+                    // downloads run concurrently (no single item) so the exporter
+                    // omits the file and this line stays hidden, which removes the
+                    // duplicate count and the misleading ".codex" name that isn't
+                    // actually what's being downloaded.
                     const currentFile = document.getElementById('exportCurrentFile');
                     if (currentFile) {
-                        const parts = [];
-                        if (typeof current === 'number' && typeof total === 'number' && total > 0) {
-                            parts.push('(' + current + '/' + total + ')');
-                        }
-                        if (file) parts.push(file);
-                        if (parts.length > 0) {
-                            currentFile.textContent = parts.join(' ');
+                        if (file) {
+                            currentFile.textContent = file;
                             currentFile.style.display = 'block';
                         } else {
                             currentFile.style.display = 'none';

@@ -514,6 +514,109 @@ export function tokenToAbortSignal(
 }
 
 /**
+ * Sleeps for `ms`, resolving early (without throwing) if the signal aborts —
+ * so a cancellation during a retry backoff doesn't have to wait out the delay.
+ */
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+        if (signal?.aborted) {
+            resolve();
+            return;
+        }
+        const timer = setTimeout(() => {
+            signal?.removeEventListener("abort", onAbort);
+            resolve();
+        }, ms);
+        const onAbort = () => {
+            clearTimeout(timer);
+            resolve();
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
+    });
+}
+
+/**
+ * Decides whether a failed LFS download is worth retrying. Transient
+ * server/network hiccups (5xx, 429, timeouts, reset connections) usually
+ * succeed on a second attempt; permanent conditions (404, auth, a corrupt
+ * pointer, or a user-initiated abort) do not, so we fail fast on those.
+ */
+function isRetryableDownloadError(error: unknown, signal?: AbortSignal): boolean {
+    // Never retry something the user cancelled.
+    if (signal?.aborted) return false;
+    const name = (error as { name?: string; })?.name;
+    if (name === "AbortError") return false;
+
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    const haystack = message.toLowerCase();
+
+    // Permanent / non-retryable signals — bail out immediately.
+    if (/\b(400|401|403|404|409|410|422)\b/.test(message)) return false;
+    if (haystack.includes("invalid lfs pointer")) return false;
+
+    // Transient signals worth another attempt.
+    return (
+        /\b(429|500|502|503|504)\b/.test(message) ||
+        haystack.includes("internal server error") ||
+        haystack.includes("bad gateway") ||
+        haystack.includes("service unavailable") ||
+        haystack.includes("gateway timeout") ||
+        haystack.includes("timeout") ||
+        haystack.includes("timed out") ||
+        haystack.includes("econnreset") ||
+        haystack.includes("econnrefused") ||
+        haystack.includes("etimedout") ||
+        haystack.includes("enotfound") ||
+        haystack.includes("socket hang up") ||
+        haystack.includes("network") ||
+        haystack.includes("fetch failed")
+    );
+}
+
+/** Max LFS download attempts (1 initial + retries) and the base backoff. */
+const LFS_DOWNLOAD_MAX_ATTEMPTS = 4;
+const LFS_DOWNLOAD_BACKOFF_BASE_MS = 600;
+
+/**
+ * Downloads an LFS object with bounded exponential backoff + jitter. The
+ * Frontier server occasionally returns a transient 500 for an object that
+ * downloads fine moments later; retrying here lets a whole-project audio
+ * export ride over those blips instead of surfacing them as "couldn't be
+ * downloaded" and forcing a manual retry.
+ */
+async function downloadLfsWithRetry(
+    frontierApi: { downloadLFSFile: (projectPath: string, oid: string, size: number, signal?: AbortSignal) => Promise<Uint8Array>; },
+    projectPath: string,
+    oid: string,
+    size: number,
+    signal?: AbortSignal
+): Promise<Uint8Array> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= LFS_DOWNLOAD_MAX_ATTEMPTS; attempt++) {
+        try {
+            return await frontierApi.downloadLFSFile(projectPath, oid, size, signal);
+        } catch (error) {
+            lastError = error;
+            const canRetry =
+                attempt < LFS_DOWNLOAD_MAX_ATTEMPTS &&
+                isRetryableDownloadError(error, signal);
+            if (!canRetry) break;
+            // Exponential backoff (0.6s, 1.2s, 2.4s …) with up to 50% jitter to
+            // avoid 30 concurrent workers hammering the server in lockstep.
+            const base = LFS_DOWNLOAD_BACKOFF_BASE_MS * 2 ** (attempt - 1);
+            const wait = base + Math.floor(Math.random() * base * 0.5);
+            debug(
+                `LFS download for ${oid} failed (attempt ${attempt}/${LFS_DOWNLOAD_MAX_ATTEMPTS}), ` +
+                `retrying in ${wait}ms: ${error instanceof Error ? error.message : String(error)}`
+            );
+            await delay(wait, signal);
+            if (signal?.aborted) break;
+        }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+/**
  * Runs async tasks with a sliding-window concurrency pool.
  * Keeps exactly `concurrency` tasks active at all times — as soon as one
  * finishes, the next pending task starts immediately.
@@ -616,7 +719,9 @@ async function resolveAudioBytes(
             return { error: "Frontier API not available — cannot stream audio for export" };
         }
 
-        const lfsData = await frontierApi.downloadLFSFile(projectPath, pointer.oid, pointer.size, signal);
+        const lfsData = await downloadLfsWithRetry(
+            frontierApi, projectPath, pointer.oid, pointer.size, signal
+        );
         setCachedLfsBytes(pointer.oid, lfsData);
         return { data: lfsData };
     };
@@ -742,8 +847,9 @@ export async function exportAudioAttachments(
         if (token?.isCancellationRequested) break;
         reporter.report({
             stage: "processing",
+            // Count lives in the title; `file` is omitted so the book name isn't
+            // echoed again on the secondary line.
             message: `Processing ${basename(file.fsPath)} (${index + 1}/${selectedFiles.length})`,
-            file: basename(file.fsPath),
             current: index + 1,
             total: selectedFiles.length,
         });
@@ -1014,10 +1120,13 @@ export async function exportAudioAttachments(
                 return { data: resolved.data };
             },
             (completed, total) => {
+                // Downloads run concurrently, so there's no single "current"
+                // file — surface the recording count (in the title) and omit
+                // `file` so the secondary line doesn't show the misleading
+                // ".codex" name (which isn't what's being downloaded).
                 reporter.report({
                     stage: "downloading",
-                    message: `${basename(file.fsPath)}: downloading audio (${completed}/${total})`,
-                    file: basename(file.fsPath),
+                    message: `Downloading ${bookCode} audio (${completed}/${total})`,
                     current: completed,
                     total,
                 });
@@ -1037,8 +1146,10 @@ export async function exportAudioAttachments(
 
             reporter.report({
                 stage: "writing",
-                message: `${basename(file.fsPath)}: writing audio (${ti + 1}/${tasks.length})`,
-                file: basename(file.fsPath),
+                // Writing is sequential per cell, so the secondary line can show
+                // the specific cell being written; the count stays in the title.
+                message: `Writing ${bookCode} audio (${ti + 1}/${tasks.length})`,
+                file: task.cellLabel ?? undefined,
                 current: ti + 1,
                 total: tasks.length,
             });
