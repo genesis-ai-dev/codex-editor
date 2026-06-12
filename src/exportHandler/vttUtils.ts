@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { CodexNotebookAsJSONData, QuillCellContent } from "@types";
 import { CodexCellTypes } from "../../types/enums";
 import { removeHtmlTags } from "./subtitleUtils";
+import { formatTimecode } from "../../sharedUtils/timeUtils";
 
 /**
  * Inserts line breaks for dialogue patterns when missing.
@@ -76,11 +77,6 @@ export const generateVttData = (
 ): string => {
     if (!cells.length) return "";
 
-    const formatTime = (seconds: number): string => {
-        const date = new Date(seconds * 1000);
-        return date.toISOString().substr(11, 12);
-    };
-
     const units: ProcessedUnit[] = cells
         .filter((unit) => {
             const metadata = unit.metadata;
@@ -112,12 +108,12 @@ export const generateVttData = (
 
     const cues =
         cueSplitting && units.length > 0
-            ? buildSplitCues(units, formatTime)
+            ? buildSplitCues(units)
             : units
                 .map(
                     (unit) =>
                         `${unit.id}
-${formatTime(unit.startTime)} --> ${formatTime(unit.endTime)}
+${formatTimecode(unit.startTime)} --> ${formatTimecode(unit.endTime)}
 ${unit.payload}
 
 `
@@ -165,7 +161,7 @@ export const hasOverlappingCues = (cells: CodexNotebookAsJSONData["cells"]): boo
  * emits one cue containing the concatenated text of all units active in that time range.
  * Cue is active in [tStart, tEnd) when unit.startTime < tEnd && unit.endTime > tStart.
  */
-function buildSplitCues(units: ProcessedUnit[], formatTime: (s: number) => string): string {
+function buildSplitCues(units: ProcessedUnit[]): string {
     const timestamps = new Set<number>();
     for (const unit of units) {
         timestamps.add(unit.startTime);
@@ -187,7 +183,7 @@ function buildSplitCues(units: ProcessedUnit[], formatTime: (s: number) => strin
         const text = active.map((unit) => unit.payload).join("\n");
         const cueId = `${active[0].id}-split`;
         parts.push(`${cueId}
-${formatTime(tStart)} --> ${formatTime(tEnd)}
+${formatTimecode(tStart)} --> ${formatTimecode(tEnd)}
 ${text}
 
 `);

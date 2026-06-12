@@ -10,6 +10,7 @@ import {
 import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import Editor, { EditorHandles } from "./Editor";
 import { getCleanedHtml } from "./utils";
+import { formatTimecode } from "@sharedUtils";
 import { CodexCellTypes } from "../../../../types/enums";
 import { AddParatextButton } from "./AddParatextButton";
 import ReactMarkdown from "react-markdown";
@@ -4103,8 +4104,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     }}
                 />
                 <div className="flex justify-between text-xs text-muted-foreground mt-4">
-                    <span>Min: {formatTime(audioMinBound)}</span>
-                    <span>Max: {formatTime(audioMaxBound)}</span>
+                    <span>Min: {formatTimecode(audioMinBound)}</span>
+                    <span>Max: {formatTimecode(audioMaxBound)}</span>
                 </div>
             </>
         );
@@ -4210,8 +4211,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         }}
                     />
                     <div className="flex justify-between text-xs text-muted-foreground mt-2">
-                        <span>Min: {formatTime(Math.max(0, previousEndBound))}</span>
-                        <span>Max: {formatTime(computedMaxBound)}</span>
+                        <span>Min: {formatTimecode(Math.max(0, previousEndBound))}</span>
+                        <span>Max: {formatTimecode(computedMaxBound)}</span>
                     </div>
                 </>
             );
@@ -5092,7 +5093,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             />
                                                             <div className="flex min-w-max text-xs text-muted-foreground">
                                                                 <span>
-                                                                    End: {formatTime(prevEndTime)}
+                                                                    End: {formatTimecode(prevEndTime)}
                                                                 </span>
                                                             </div>
                                                         </div>
@@ -5136,7 +5137,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             <div className="flex min-w-max text-xs text-muted-foreground">
                                                                 <span>
                                                                     End:{" "}
-                                                                    {formatTime(
+                                                                    {formatTimecode(
                                                                         prevAudioTimestamps.endTime
                                                                     )}
                                                                 </span>
@@ -5189,9 +5190,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                         undefined &&
                                                                     (effectiveTimestamps.endTime as number) >
                                                                         (effectiveTimestamps.startTime as number)
-                                                                        ? `${formatTime(
+                                                                        ? `${formatTimecode(
                                                                               effectiveTimestamps.startTime as number
-                                                                          )} → ${formatTime(
+                                                                          )} → ${formatTimecode(
                                                                               effectiveTimestamps.endTime as number
                                                                           )}`
                                                                         : ""}
@@ -5226,9 +5227,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                         undefined &&
                                                                     (effectiveAudioTimestamps.endTime as number) >
                                                                         (effectiveAudioTimestamps.startTime as number)
-                                                                        ? `${formatTime(
+                                                                        ? `${formatTimecode(
                                                                               effectiveAudioTimestamps.startTime as number
-                                                                          )} → ${formatTime(
+                                                                          )} → ${formatTimecode(
                                                                               effectiveAudioTimestamps.endTime as number
                                                                           )}`
                                                                         : ""}
@@ -5281,7 +5282,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             <div className="flex min-w-max text-xs text-muted-foreground">
                                                                 <span>
                                                                     Start:{" "}
-                                                                    {formatTime(nextStartTime)}
+                                                                    {formatTimecode(nextStartTime)}
                                                                 </span>
                                                             </div>
                                                         </div>
@@ -5330,7 +5331,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             <div className="flex min-w-max text-xs text-muted-foreground">
                                                                 <span>
                                                                     Start:{" "}
-                                                                    {formatTime(
+                                                                    {formatTimecode(
                                                                         nextAudioTimestamps.startTime
                                                                     )}
                                                                 </span>
@@ -5930,16 +5931,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
             )}
         </Card>
     );
-};
-
-// Helper function to format time in MM:SS.mmm format
-const formatTime = (timeInSeconds: number): string => {
-    const minutes = Math.floor(timeInSeconds / 60);
-    const seconds = Math.floor(timeInSeconds % 60);
-    const milliseconds = Math.floor((timeInSeconds % 1) * 1000);
-    return `${minutes.toString().padStart(2, "0")}:${seconds
-        .toString()
-        .padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
 };
 
 export default CellEditor;
