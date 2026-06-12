@@ -144,7 +144,8 @@ beforeAll(() => {
 });
 
 // Mock @sharedUtils
-vi.mock("@sharedUtils", () => ({
+vi.mock("@sharedUtils", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("@sharedUtils")>()),
     shouldDisableValidation: vi.fn().mockReturnValue(false),
     getCellValueData: vi.fn(),
 }));
