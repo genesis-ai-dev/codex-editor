@@ -3369,6 +3369,25 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // actually on disk (e.g. auto-download -> [stream-only, not applied]
                         // -> stream-and-save prompts as auto-download -> stream-and-save).
                         const appliedStrategy = flags?.lastModeRun ?? currentStrategy;
+
+                        // Counting downloaded/video/audio files walks the entire
+                        // attachments/files tree and reads each file to test
+                        // pointer-ness, which can take seconds on large projects.
+                        // Signal the webview so the dropdown shows a disabled
+                        // "Calculating..." state until the next prompt appears.
+                        const setCalculating = (calculating: boolean) => {
+                            try {
+                                this.safeSendMessage({
+                                    command: "project.mediaStrategyCalculating",
+                                    projectPath,
+                                    calculating,
+                                } as any);
+                            } catch {
+                                /* non-fatal UI hint */
+                            }
+                        };
+                        setCalculating(true);
+
                         const { countDownloadedMediaFiles, countLocalVideoFiles, countSyncedDeletableAudioFiles } = await import("../../utils/mediaStrategyManager");
                         const { readLocalProjectSettings, writeLocalProjectSettings } = await import("../../utils/localProjectSettings");
 
@@ -3379,6 +3398,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         let streamAndSavePreserveVideos: boolean | undefined;
 
                         const cancelSwitch = () => {
+                            setCalculating(false);
                             this.safeSendMessage({
                                 command: "project.setMediaStrategyResult",
                                 success: false,
@@ -3507,6 +3527,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 }
                             }
                         }
+
+                        // Counting + prompts are done; stop the "Calculating..."
+                        // hint before persisting (the result message also clears it).
+                        setCalculating(false);
 
                         // Persist the choices for this transition and clear any choice
                         // flags that don't apply, so a stale choice from an earlier
