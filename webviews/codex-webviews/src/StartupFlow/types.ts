@@ -186,7 +186,8 @@ export interface FrontierAPI {
     downloadLFSFile: (
         projectPath: string,
         oid: string,
-        size: number
+        size: number,
+        signal?: AbortSignal
     ) => Promise<Buffer>;
 
     /**
