@@ -1,5 +1,10 @@
 import * as assert from "assert";
-import { runWithConcurrencyPool } from "../../../exportHandler/audioExporter";
+import * as vscode from "vscode";
+import {
+    runWithConcurrencyPool,
+    tokenToAbortSignal,
+    ExportCancelledError,
+} from "../../../exportHandler/audioExporter";
 
 suite("Audio Exporter - runWithConcurrencyPool", () => {
     test("should process all items and return results in input order", async () => {
@@ -209,5 +214,104 @@ suite("Audio Exporter - runWithConcurrencyPool", () => {
         // Verify we actually used all slots at some point
         const hitMax = activeSamples.some((s) => s === concurrency);
         assert.ok(hitMax, `Should have reached max concurrency of ${concurrency}`);
+    });
+
+    test("should stop scheduling new tasks after the token is cancelled mid-run", async () => {
+        const concurrency = 2;
+        const items = Array.from({ length: 20 }, (_, i) => i);
+        const cts = new vscode.CancellationTokenSource();
+        let processed = 0;
+
+        const results = await runWithConcurrencyPool(
+            items,
+            concurrency,
+            async (item) => {
+                processed++;
+                // Cancel partway through; subsequent slots should be skipped.
+                if (processed === 3) {
+                    cts.cancel();
+                }
+                await new Promise((resolve) => setTimeout(resolve, 5));
+                return item;
+            },
+            undefined,
+            cts.token
+        );
+
+        // Results array stays dense (one entry per input item).
+        assert.strictEqual(results.length, items.length);
+        // We must have processed fewer than all items (the rest were skipped).
+        assert.ok(
+            processed < items.length,
+            `Expected to short-circuit, but processed all ${processed} items`
+        );
+        // Skipped slots are rejected with ExportCancelledError.
+        const cancelledSlots = results.filter(
+            (r) => r.status === "rejected" &&
+                (r as PromiseRejectedResult).reason instanceof ExportCancelledError
+        );
+        assert.ok(
+            cancelledSlots.length > 0,
+            "Expected at least one slot marked as cancelled"
+        );
+        cts.dispose();
+    });
+
+    test("should run zero processors when the token is already cancelled", async () => {
+        const items = Array.from({ length: 10 }, (_, i) => i);
+        const cts = new vscode.CancellationTokenSource();
+        cts.cancel();
+        let processed = 0;
+
+        const results = await runWithConcurrencyPool(
+            items,
+            4,
+            async (item) => {
+                processed++;
+                return item;
+            },
+            undefined,
+            cts.token
+        );
+
+        assert.strictEqual(processed, 0, "No processor should run for a pre-cancelled token");
+        assert.strictEqual(results.length, items.length);
+        assert.ok(
+            results.every(
+                (r) => r.status === "rejected" &&
+                    (r as PromiseRejectedResult).reason instanceof ExportCancelledError
+            ),
+            "Every slot should be marked cancelled"
+        );
+        cts.dispose();
+    });
+});
+
+suite("Audio Exporter - tokenToAbortSignal", () => {
+    test("aborts the signal when the token is cancelled", () => {
+        const cts = new vscode.CancellationTokenSource();
+        const { signal, dispose } = tokenToAbortSignal(cts.token);
+        assert.ok(signal, "Signal should be created for a live token");
+        assert.strictEqual(signal!.aborted, false);
+        cts.cancel();
+        assert.strictEqual(signal!.aborted, true, "Signal should abort with the token");
+        dispose();
+        cts.dispose();
+    });
+
+    test("returns an already-aborted signal for a pre-cancelled token", () => {
+        const cts = new vscode.CancellationTokenSource();
+        cts.cancel();
+        const { signal } = tokenToAbortSignal(cts.token);
+        assert.ok(signal, "Signal should be created");
+        assert.strictEqual(signal!.aborted, true);
+        cts.dispose();
+    });
+
+    test("returns no signal when no token is provided", () => {
+        const { signal, dispose } = tokenToAbortSignal(undefined);
+        assert.strictEqual(signal, undefined);
+        // dispose should be a safe no-op
+        dispose();
     });
 });
