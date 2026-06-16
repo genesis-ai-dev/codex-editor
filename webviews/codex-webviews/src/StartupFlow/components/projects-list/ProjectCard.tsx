@@ -79,6 +79,10 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const userInitiatedStrategyChangeRef = React.useRef<boolean>(false);
     const [isApplyingStrategyDuringOtherOp, setIsApplyingStrategyDuringOtherOp] =
         useState<boolean>(false);
+    // True while the host is counting downloaded media files to decide which
+    // keep/free prompt to show. Surfaces a disabled "Calculating..." state so
+    // the delay before the prompt appears isn't silent.
+    const [isCalculatingStrategy, setIsCalculatingStrategy] = useState<boolean>(false);
     // CRITICAL: If we're offline, "orphaned" is not trustworthy -- the server couldn't
     // be reached to confirm the project is genuinely missing. Override to "serverUnreachable"
     // to prevent destructive actions like "Fix & Open".
@@ -113,7 +117,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         isZipping ||
         isZippingMini ||
         isCleaning ||
-        isApplyingStrategyDuringOtherOp;
+        isApplyingStrategyDuringOtherOp ||
+        isCalculatingStrategy;
 
     // Sync local state with project.mediaStrategy when it changes from backend
     // This ensures the UI always reflects the persisted value from localProjectSettings.json
@@ -172,8 +177,16 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     React.useEffect(() => {
         const onMessage = (event: MessageEvent) => {
             const msg = event.data;
+            if (msg?.command === "project.mediaStrategyCalculating") {
+                if (msg.projectPath === project.path) {
+                    setIsCalculatingStrategy(!!msg.calculating && isProjectLocal);
+                }
+                return;
+            }
             if (msg?.command === "project.mediaStrategyApplying") {
                 if (msg.projectPath === project.path) {
+                    // Applying supersedes the calculating hint.
+                    setIsCalculatingStrategy(false);
                     if (msg.applying && isProjectLocal) {
                         // Check if this was user-initiated (user changed dropdown) or auto-applied (mismatch detected)
                         if (userInitiatedStrategyChangeRef.current) {
@@ -202,6 +215,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                 // Success case: parent component will update the project prop via its message handler
                 setPendingStrategy(null);
                 setPreviousStrategy(null); // Clear previous strategy after handling result
+                setIsCalculatingStrategy(false);
                 userInitiatedStrategyChangeRef.current = false;
             }
             if (msg?.command === "project.updatingInProgress") {
@@ -288,9 +302,17 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
 
     const renderMediaStrategyDropdown = () => {
         // Highlight dropdown when strategy is being changed/applied (either explicitly or during open/clone)
-        const isStrategyHighlighted = isChangingStrategy || isApplyingStrategyDuringOtherOp;
+        const isStrategyHighlighted =
+            isChangingStrategy || isApplyingStrategyDuringOtherOp || isCalculatingStrategy;
         // Disable media strategy changes if user is update (swap) initiator (must keep auto-download until update completes)
         const isDisabled = disableControls || disableMediaStrategyForSwap;
+        // Busy label shown in place of the strategy name while the host works.
+        let strategyBusyLabel: string | null = null;
+        if (isCalculatingStrategy) {
+            strategyBusyLabel = "Calculating...";
+        } else if (isChangingStrategy) {
+            strategyBusyLabel = "Applying...";
+        }
 
         const dropdown = (
             <DropdownMenu>
@@ -306,10 +328,10 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         )}
                         disabled={isDisabled}
                     >
-                        {isChangingStrategy ? (
+                        {strategyBusyLabel ? (
                             <>
                                 <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                Applying...
+                                {strategyBusyLabel}
                             </>
                         ) : (
                             <>

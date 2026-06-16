@@ -424,6 +424,35 @@ export async function replaceFilesWithPointers(
 ): Promise<number> {
     let replacedCount = 0;
 
+    // Diagnostic tally so the summary log can explain *why* media was kept.
+    // Users report synced audio "lingering" after a stream-only switch; this
+    // reveals which guard retained each file (persisted / unsynced / already a
+    // pointer) without changing any behaviour.
+    type MediaKind = "audio" | "video";
+    type PointerizeResult =
+        | "replaced"
+        | "skip-restricted"
+        | "skip-persisted"
+        | "skip-unsynced"
+        | "skip-already-pointer"
+        | "error";
+    type PointerizeOutcome = { kind: MediaKind; result: PointerizeResult; };
+    const emptyTally = (): Record<PointerizeResult, number> => ({
+        replaced: 0,
+        "skip-restricted": 0,
+        "skip-persisted": 0,
+        "skip-unsynced": 0,
+        "skip-already-pointer": 0,
+        error: 0,
+    });
+    const tally: Record<MediaKind, Record<PointerizeResult, number>> = {
+        audio: emptyTally(),
+        video: emptyTally(),
+    };
+    const tallyOutcome = (outcome: PointerizeOutcome) => {
+        tally[outcome.kind][outcome.result]++;
+    };
+
     try {
         const pointersDir = path.join(projectPath, ".project", "attachments", "pointers");
         const filesDir = path.join(projectPath, ".project", "attachments", "files");
@@ -441,12 +470,11 @@ export async function replaceFilesWithPointers(
                 (await getPersistedMediaFiles(vscode.Uri.file(projectPath))).map(normalizePersistedMediaRelPath)
             );
 
-        // When restricting by media kind, resolve the ambiguous `.webm` extension
-        // against real notebook video references so audio takes aren't treated
-        // as videos (and vice-versa).
-        const videoRefs = options?.restrictToVideos || options?.restrictToAudio
-            ? await collectVideoReferenceRelPaths(projectPath)
-            : new Set<string>();
+        // Resolve the ambiguous `.webm` extension against real notebook video
+        // references so audio takes aren't treated as videos (and vice-versa).
+        // Always computed (not just for restricted runs) so the diagnostic
+        // summary below can split outcomes by media kind accurately.
+        const videoRefs = await collectVideoReferenceRelPaths(projectPath);
 
         await vscode.window.withProgress(
             {
@@ -467,30 +495,34 @@ export async function replaceFilesWithPointers(
 
                 for (const batch of batches) {
                     const results = await Promise.allSettled(
-                        batch.map(async (relPath) => {
+                        batch.map(async (relPath): Promise<PointerizeOutcome> => {
                             const pointerPath = path.join(pointersDir, relPath);
                             const filesPath = path.join(filesDir, relPath);
+                            // Track whether files/ currently holds real bytes so the
+                            // diagnostic summary can distinguish "kept real audio"
+                            // (what the user notices) from no-op pointer entries.
+                            const relIsVideo = isVideoRelPath(relPath.replace(/\\/g, "/"), videoRefs);
+                            const kind: MediaKind = relIsVideo ? "video" : "audio";
 
                             try {
                                 // When restricted to videos (e.g. stream-only ->
                                 // stream-and-save "don't preserve"), leave non-video
                                 // media exactly as-is.
-                                const relIsVideo = isVideoRelPath(relPath.replace(/\\/g, "/"), videoRefs);
                                 if (options?.restrictToVideos && !relIsVideo) {
-                                    return false;
+                                    return { kind, result: "skip-restricted" };
                                 }
                                 // When restricted to audio (e.g. auto-download ->
                                 // stream-and-save "keep video, free audio"), leave
                                 // videos exactly as-is.
                                 if (options?.restrictToAudio && relIsVideo) {
-                                    return false;
+                                    return { kind, result: "skip-restricted" };
                                 }
 
                                 // PROTECTED: user explicitly saved this file via
                                 // "Save to project" — never revert it to a pointer.
                                 if (persisted.has(normalizePersistedMediaRelPath(relPath))) {
                                     debug(`PROTECTED: Skipping user-saved media file: ${relPath}`);
-                                    return false;
+                                    return { kind, result: "skip-persisted" };
                                 }
 
                                 // CRITICAL: Check if this is a locally recorded, unsynced file
@@ -505,7 +537,7 @@ export async function replaceFilesWithPointers(
 
                                     if (status === "local-unsynced") {
                                         debug(`PROTECTED: Skipping local unsynced recording: ${relPath}`);
-                                        return false; // Do NOT replace local recordings!
+                                        return { kind, result: "skip-unsynced" };
                                     }
                                 }
 
@@ -514,7 +546,7 @@ export async function replaceFilesWithPointers(
                                     const stat = await vscode.workspace.fs.stat(vscode.Uri.file(filesPath));
                                     if (stat.size < 200) { // Pointer files are tiny (~130 bytes)
                                         // Likely already a pointer, skip
-                                        return false;
+                                        return { kind, result: "skip-already-pointer" };
                                     }
                                 } catch {
                                     // files/ doesn't exist, continue
@@ -528,16 +560,22 @@ export async function replaceFilesWithPointers(
                                 const pointerContent = await vscode.workspace.fs.readFile(vscode.Uri.file(pointerPath));
                                 await vscode.workspace.fs.writeFile(vscode.Uri.file(filesPath), pointerContent);
 
-                                return true;
+                                return { kind, result: "replaced" };
                             } catch {
-                                return false;
+                                return { kind, result: "error" };
                             }
                         })
                     );
 
                     for (const result of results) {
-                        if (result.status === 'fulfilled' && result.value) {
-                            replacedCount++;
+                        if (result.status === "fulfilled") {
+                            const outcome = result.value;
+                            tallyOutcome(outcome);
+                            if (outcome.result === "replaced") {
+                                replacedCount++;
+                            }
+                        } else {
+                            tallyOutcome({ kind: "audio", result: "error" });
                         }
                     }
 
@@ -550,6 +588,26 @@ export async function replaceFilesWithPointers(
 
                 progress.report({ increment: 100, message: "Complete" });
             }
+        );
+
+        let scopeLabel = "all media";
+        if (options?.restrictToVideos) {
+            scopeLabel = "videos only";
+        } else if (options?.restrictToAudio) {
+            scopeLabel = "audio only";
+        }
+        const a = tally.audio;
+        // Always-on summary (not behind the debug flag): when audio "lingers"
+        // after a stream-only switch, the kept[...] counts pinpoint the guard
+        // that retained it — persisted (saved), unsynced (local recording), or
+        // alreadyPointer (no real bytes to free).
+        console.log(
+            `[MediaStrategy] replaceFilesWithPointers (${scopeLabel}): ` +
+            `audio replaced=${a.replaced}, kept[persisted=${a["skip-persisted"]}, ` +
+            `unsynced=${a["skip-unsynced"]}, alreadyPointer=${a["skip-already-pointer"]}, ` +
+            `restricted=${a["skip-restricted"]}, error=${a.error}]; ` +
+            `video replaced=${tally.video.replaced}, kept[persisted=${tally.video["skip-persisted"]}, ` +
+            `unsynced=${tally.video["skip-unsynced"]}, alreadyPointer=${tally.video["skip-already-pointer"]}]`
         );
 
         debug(`Replaced ${replacedCount} files with pointers`);
