@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.27.0",
+    "version": "0.28.0",
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"
@@ -464,6 +464,11 @@
             {
                 "command": "codex-editor-extension.runVerseRangeLabelsAndPositionsMigration",
                 "title": "Codex: Fix Verse Range Labels and Positions",
+                "category": "Codex Maintenance"
+            },
+            {
+                "command": "codex-editor-extension.recoverMissingMergedChildren",
+                "title": "Codex: Recover Missing Merged Verses",
                 "category": "Codex Maintenance"
             },
             {
@@ -1036,7 +1041,7 @@
         "vscode:prepublish": "npm run build:webviews && npm run test:webviews && npm run test && npm run package",
         "compile": "webpack --config webpack.config.js",
         "watch": "webpack --config webpack.config.js --watch",
-        "package": "rm -rf out && webpack --config webpack.config.js --config-name extension --mode production",
+        "package": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\" && webpack --config webpack.config.js --config-name extension --mode production",
         "lint": "eslint src --ext ts",
         "pretest": "npm run compile && npm run lint",
         "test": "node ./out/test/runTest.js",

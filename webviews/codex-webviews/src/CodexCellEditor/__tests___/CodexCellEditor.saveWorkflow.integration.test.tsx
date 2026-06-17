@@ -144,7 +144,8 @@ beforeAll(() => {
 });
 
 // Mock @sharedUtils
-vi.mock("@sharedUtils", () => ({
+vi.mock("@sharedUtils", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("@sharedUtils")>()),
     shouldDisableValidation: vi.fn().mockReturnValue(false),
     getCellValueData: vi.fn(),
 }));
@@ -255,6 +256,7 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             scrollSyncEnabled: true,
             currentUsername: "test-user",
             requiredValidations: 1,
+            highlightedGlobalReferences: [],
         };
 
         const { container } = render(<CellList {...mockProps} />);
@@ -458,6 +460,7 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             scrollSyncEnabled: true,
             currentUsername: "test-user",
             requiredValidations: 1,
+            highlightedGlobalReferences: [],
         };
 
         render(<CellList {...mockProps} />);
@@ -566,6 +569,7 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             scrollSyncEnabled: true,
             currentUsername: "test-user",
             requiredValidations: 1,
+            highlightedGlobalReferences: [],
         };
 
         render(<CellList {...cellListProps} />);

@@ -1,11 +1,5 @@
-import React, { useContext, useEffect, useRef, useState, useMemo, useCallback } from "react";
-import {
-    EditorCellContent,
-    EditorPostMessages,
-    Timestamps,
-    EditHistory,
-    QuillCellContent,
-} from "../../../../types";
+import React, { useContext, useEffect, useRef, useState, useCallback } from "react";
+import { EditorPostMessages, QuillCellContent } from "../../../../types";
 import { processHtmlContent, updateFootnoteNumbering } from "./footnoteUtils";
 import { CodexCellTypes } from "../../../../types/enums";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
@@ -13,7 +7,7 @@ import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { WebviewApi } from "vscode-webview";
 import ValidationButton from "./ValidationButton";
 import AudioValidationButton from "./AudioValidationButton";
-import { shouldDisableValidation } from "@sharedUtils";
+import { shouldDisableValidation, formatTimecode } from "@sharedUtils";
 import { Button } from "../components/ui/button";
 import { getTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
 import { CELL_DISPLAY_MODES } from "../lib/types";
@@ -32,8 +26,9 @@ import {
     DialogHeader,
     DialogTitle,
 } from "../components/ui/dialog";
-import { MessageCircle } from "lucide-react";
 import AudioPlayButton from "./AudioPlayButton";
+import { MessageCircle } from "lucide-react";
+import type { AudioAvailability } from "./utils/audioViewMode";
 
 const SHOW_VALIDATION_BUTTON = true;
 interface CellContentDisplayProps {
@@ -53,13 +48,7 @@ interface CellContentDisplayProps {
     handleCellTranslation?: (cellId: string) => void;
     handleCellClick: (cellId: string) => void;
     audioAttachments?: {
-        [cellId: string]:
-            | "available"
-            | "available-local"
-            | "available-pointer"
-            | "deletedOnly"
-            | "none"
-            | "missing";
+        [cellId: string]: AudioAvailability;
     };
     footnoteOffset?: number; // Starting footnote number for this cell
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
@@ -75,6 +64,8 @@ interface CellContentDisplayProps {
     showInlineBacktranslations?: boolean;
     backtranslation?: any;
     htmlStructureError?: string;
+    // Audio playback state from other webview type (source or target)
+    isOtherTypeAudioPlaying?: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -137,8 +128,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         showInlineBacktranslations = false,
         backtranslation,
         htmlStructureError,
+        isOtherTypeAudioPlaying = false,
     }) => {
-        // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
         const cellIds = cell.cellMarkers;
         // Lock state is ONLY honored from top-level metadata.isLocked
         const isCellLocked = !!cell.metadata?.isLocked;
@@ -159,7 +150,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
         // Effect to attach event listeners to footnote markers
         useEffect(() => {
-            if (!contentRef.current) return;
+            // Add type guard to ensure contentRef.current is a DOM element
+            if (!contentRef.current || !(contentRef.current instanceof Element)) return;
 
             // Find all footnote markers in the rendered content
             const markers = contentRef.current.querySelectorAll("sup.footnote-marker");
@@ -189,7 +181,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             });
 
             // Use the proper footnote numbering utility
-            if (contentRef.current) {
+            if (contentRef.current instanceof Element) {
                 updateFootnoteNumbering(contentRef.current, footnoteOffset + 1, false);
             }
 
@@ -545,6 +537,43 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
         // Function to render the content with footnote markers and proper spacing
         const renderContent = () => {
+            const timestamps = () => {
+                if (
+                    cell.timestamps &&
+                    (cell.timestamps.startTime !== undefined ||
+                        cell.timestamps.endTime !== undefined)
+                ) {
+                    return (
+                        <div
+                            className="timestamp-display"
+                            style={{
+                                fontSize: "0.75rem",
+                                color: "var(--vscode-descriptionForeground)",
+                                marginTop: "0.25rem",
+                                fontFamily: "monospace",
+                                opacity: 0.8,
+                                textAlign: "start",
+                                width: "100%",
+                            }}
+                        >
+                            {cell.timestamps.startTime !== undefined &&
+                            cell.timestamps.endTime !== undefined ? (
+                                <span>
+                                    {formatTimecode(cell.timestamps.startTime)} →{" "}
+                                    {formatTimecode(cell.timestamps.endTime)}
+                                </span>
+                            ) : cell.timestamps.startTime !== undefined ? (
+                                <span>Start: {formatTimecode(cell.timestamps.startTime)}</span>
+                            ) : cell.timestamps.endTime !== undefined ? (
+                                <span>End: {formatTimecode(cell.timestamps.endTime)}</span>
+                            ) : null}
+                        </div>
+                    );
+                }
+
+                return null;
+            };
+
             // Handle empty cell case
             if (
                 (!cell.cellContent || cell.cellContent.trim() === "") &&
@@ -552,16 +581,19 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 (!isSourceText || !isAudioOnly)
             ) {
                 return (
-                    <div
-                        ref={contentRef}
-                        className="cell-content empty-cell-content"
-                        style={{
-                            color: "var(--vscode-descriptionForeground)",
-                            fontStyle: "italic",
-                            opacity: 0.8,
-                        }}
-                    >
-                        {isSourceText ? "No text" : "Click to translate"}
+                    <div className="flex flex-col gap-[0.5rem]">
+                        <div
+                            ref={contentRef}
+                            className="cell-content empty-cell-content"
+                            style={{
+                                color: "var(--vscode-descriptionForeground)",
+                                fontStyle: "italic",
+                                opacity: 0.8,
+                            }}
+                        >
+                            {isSourceText ? "No text" : "Click to translate"}
+                        </div>
+                        {timestamps()}
                     </div>
                 );
             }
@@ -591,8 +623,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             // Render content with timestamp display when timestamps are present
             return (
                 <div
-                    onClick={handleCellContentClick}
-                    style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
+                    className="flex flex-col gap-[0.5rem]"
+                    onClick={() => {
+                        hideTooltip();
+                        handleCellClick(cellIds[0]);
+                    }}
                 >
                     <div
                         ref={contentRef}
@@ -601,34 +636,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             __html: processedHtml,
                         }}
                     />
-                    {cell.timestamps &&
-                        (cell.timestamps.startTime !== undefined ||
-                            cell.timestamps.endTime !== undefined) && (
-                            <div
-                                className="timestamp-display"
-                                style={{
-                                    fontSize: "0.75rem",
-                                    color: "var(--vscode-descriptionForeground)",
-                                    marginTop: "0.25rem",
-                                    fontFamily: "monospace",
-                                    opacity: 0.8,
-                                    textAlign: "start",
-                                    width: "100%",
-                                }}
-                            >
-                                {cell.timestamps.startTime !== undefined &&
-                                cell.timestamps.endTime !== undefined ? (
-                                    <span>
-                                        {formatTime(cell.timestamps.startTime)} →{" "}
-                                        {formatTime(cell.timestamps.endTime)}
-                                    </span>
-                                ) : cell.timestamps.startTime !== undefined ? (
-                                    <span>Start: {formatTime(cell.timestamps.startTime)}</span>
-                                ) : cell.timestamps.endTime !== undefined ? (
-                                    <span>End: {formatTime(cell.timestamps.endTime)}</span>
-                                ) : null}
-                            </div>
-                        )}
+                    {timestamps()}
                 </div>
             );
         };
@@ -822,16 +830,24 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                 disabled={
                                                     isInTranslationProcess ||
                                                     audioState === "none" ||
-                                                    audioState === "deletedOnly"
+                                                    audioState === "deletedOnly" ||
+                                                    audioState === "unselected" ||
+                                                    audioState === "missing"
                                                 }
                                                 disabledReason={
                                                     isInTranslationProcess
                                                         ? "Translation in progress"
+                                                        : audioState === "missing"
+                                                        ? "Selected audio is missing"
+                                                        : audioState === "unselected"
+                                                        ? "No audio selected"
                                                         : audioState === "none" ||
                                                           audioState === "deletedOnly"
                                                         ? "Audio validation requires audio"
                                                         : undefined
                                                 }
+                                                readOnly={audioState === "available-pointer"}
+                                                readOnlyReason="Download audio to validate"
                                             />
                                         </div>
                                     )}
@@ -846,6 +862,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     audioState === "available" ||
                                                     audioState === "available-local" ||
                                                     audioState === "available-pointer" ||
+                                                    audioState === "available-cached" ||
                                                     audioState === "missing"
                                                 )
                                             )
@@ -871,6 +888,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                             (window as any).openCellById;
                                                         if (typeof open === "function") open(id);
                                                     }}
+                                                    disabled={isOtherTypeAudioPlaying}
+                                                    isSourceText={isSourceText}
                                                 />
                                             );
                                         })()}
@@ -1137,15 +1156,5 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         );
     }
 );
-
-// Helper function to format time in MM:SS.mmm format
-const formatTime = (timeInSeconds: number): string => {
-    const minutes = Math.floor(timeInSeconds / 60);
-    const seconds = Math.floor(timeInSeconds % 60);
-    const milliseconds = Math.floor((timeInSeconds % 1) * 1000);
-    return `${minutes.toString().padStart(2, "0")}:${seconds
-        .toString()
-        .padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
-};
 
 export default CellContentDisplay;

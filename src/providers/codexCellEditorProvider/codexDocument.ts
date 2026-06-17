@@ -26,6 +26,7 @@ import { getSQLiteIndexManager, isDBShuttingDown } from "../../activationHelpers
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
 import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./utils/cellUtils";
 import { formatJsonForNotebookFile, normalizeNotebookFileText } from "../../utils/notebookFileFormattingUtils";
+import { serializeNotebookWithCellCache } from "./utils/cachedNotebookSerializer";
 import { atomicWriteUriText, readExistingFileOrThrow } from "../../utils/notebookSafeSaveUtils";
 
 // Define debug function locally
@@ -69,6 +70,24 @@ export class CodexCellDocument implements vscode.CustomDocument {
     // Track cell IDs that have been modified since last save to avoid re-indexing ALL cells.
     // Only cells in this set will be synced to the database on save.
     private _dirtyCellIds: Set<string> = new Set();
+
+    // Per-cell serialized JSON cache, keyed by cell.metadata.id. Avoids
+    // re-stringifying every cell on every save when only a handful changed.
+    // Invalidated by markCellMutated(); cleared on revert.
+    private _serializedCellCache: Map<string, string> = new Map();
+
+    // Last text we successfully wrote to disk. When the on-disk content still
+    // matches this value at the start of the next save, no concurrent writer
+    // has touched the file and we can skip the merge step entirely.
+    // Reset to null after a merge-write since _documentData no longer fully
+    // reflects what landed on disk.
+    private _lastWrittenContent: string | null = null;
+
+    // Save coalescing: a single in-flight save chain handles concurrent
+    // saveCustomDocument() callers, with at most one extra save queued behind
+    // the in-flight one to capture changes that arrived during the save.
+    private _saveChainPromise: Promise<void> | null = null;
+    private _pendingSaveRequested: boolean = false;
 
     // Pending index operations that failed because the index manager was unavailable.
     // These are replayed when the index manager becomes available again, ensuring
@@ -117,6 +136,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
         try {
             this._documentData = JSON.parse(initialContent);
             this._edits = [];
+            // Seed the "last written" content with the on-disk text we just
+            // loaded. As long as no concurrent writer touches the file, the
+            // first save can short-circuit the merge step (existing.content
+            // will byte-equal this snapshot).
+            this._lastWrittenContent = initialContent;
             debug(
                 "Constructed CodexCellDocument from json document, cells count: ",
                 this._documentData.cells.length
@@ -364,7 +388,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // This avoids side effects (e.g., merge logic using edit history) from updating the stored value.
             // If the UI needs to reflect the preview, it should use a separate webview-only channel.
             this._isDirty = true;
-            this._dirtyCellIds.add(cellId);
+            this.markCellMutated(cellId);
             // Notify both VS Code and the webview that edits changed, so the provider can mark dirty and VS Code can autosave
             this._onDidChangeForVsCodeAndWebview.fire({
                 edits: [{ cellId, newContent, editType }],
@@ -481,7 +505,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, newContent, editType }],
         });
@@ -571,6 +595,28 @@ export class CodexCellDocument implements vscode.CustomDocument {
      */
     private invalidateIndexCaches(): void {
         this._cachedFileId = null;
+    }
+
+    /**
+     * Record that a cell has been mutated. Adds the cell to the dirty set
+     * (so it will be re-synced to the SQLite index on the next save) and
+     * invalidates its cached serialization (so the next save re-stringifies
+     * it instead of using the stale cached JSON).
+     *
+     * This is the centralized replacement for `this._dirtyCellIds.add(cellId)`;
+     * always prefer this helper over touching `_dirtyCellIds` directly so that
+     * the serialization cache stays consistent with the in-memory state.
+     *
+     * Public so callers that perform direct cell mutations (bypassing the
+     * normal update methods — e.g. the cell-merge handler in
+     * `codexCellEditorMessagehandling.ts`) can mark their writes. Skipping
+     * this call after a direct mutation will leak stale serializations into
+     * the next `save()` / `getText()` and silently drop the mutation from
+     * what's written to disk.
+     */
+    public markCellMutated(cellId: string): void {
+        this._dirtyCellIds.add(cellId);
+        this._serializedCellCache.delete(cellId);
     }
 
     /**
@@ -782,15 +828,85 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return { ...this._documentData, metadata };
     }
 
+    /**
+     * Produce the canonical on-disk text for this document, using the
+     * per-cell serialization cache to avoid re-stringifying unchanged cells.
+     *
+     * Output is byte-identical to
+     * `formatJsonForNotebookFile(this.getDocumentDataForSerialization())`.
+     */
+    private serializeForDisk(): string {
+        return serializeNotebookWithCellCache(
+            this.getDocumentDataForSerialization(),
+            this._serializedCellCache
+        );
+    }
+
+    /**
+     * Public save entry point. Coalesces concurrent callers so at most one
+     * save is in flight at a time, with a single coalesced follow-up save if
+     * any new caller arrives while a save is running. This prevents redundant
+     * work when, for example, a webview save lands while a sync-triggered
+     * save is already partway through serialization.
+     */
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
-        const ourContent = formatJsonForNotebookFile(this.getDocumentDataForSerialization());
+        if (this._saveChainPromise) {
+            // A save is already running. Mark a follow-up so the running
+            // chain will do one more save after it completes, capturing any
+            // mutations that arrived while the current save was in-flight.
+            this._pendingSaveRequested = true;
+            return this._saveChainPromise;
+        }
+
+        this._saveChainPromise = this._runSaveChain(cancellation);
+        try {
+            await this._saveChainPromise;
+        } finally {
+            this._saveChainPromise = null;
+        }
+    }
+
+    /**
+     * Drive a save loop that runs the actual save once, then keeps running
+     * additional saves as long as new mutations arrive (signalled by
+     * `_pendingSaveRequested`). The loop terminates when no new save was
+     * requested during the previous iteration.
+     */
+    private async _runSaveChain(cancellation: vscode.CancellationToken): Promise<void> {
+        do {
+            this._pendingSaveRequested = false;
+            await this._doSave(cancellation);
+        } while (this._pendingSaveRequested);
+    }
+
+    /**
+     * The actual save logic. Do NOT call directly — go through `save()` so
+     * coalescing is honoured.
+     */
+    private async _doSave(cancellation: vscode.CancellationToken): Promise<void> {
+        const ourContent = this.serializeForDisk();
 
         // If a file exists but can't be read, we must not overwrite (this can permanently nuke data).
         const existing = await readExistingFileOrThrow(this.uri);
 
+        // Skip-merge fast path: if the on-disk content byte-equals what we
+        // last successfully wrote, no concurrent writer has touched the file
+        // and `ourContent` is a valid superset of the on-disk state. We can
+        // skip `resolveCodexCustomMerge` entirely (which involves parsing
+        // both sides and walking every cell) and go straight to writing.
+        const canSkipMerge =
+            existing.kind === "readable" &&
+            this._lastWrittenContent !== null &&
+            existing.content === this._lastWrittenContent;
+
         if (existing.kind === "missing") {
             // Initial write when file does not yet exist
             await atomicWriteUriText(this.uri, ourContent);
+            this._lastWrittenContent = ourContent;
+        } else if (canSkipMerge) {
+            // Disk reflects our last write; safe to write our state directly.
+            await atomicWriteUriText(this.uri, ourContent);
+            this._lastWrittenContent = ourContent;
         } else {
             const { resolveCodexCustomMerge } = await import("../../projectManager/utils/merge/resolvers");
             const mergedContent = await resolveCodexCustomMerge(ourContent, existing.content);
@@ -815,6 +931,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
             }
 
             await atomicWriteUriText(this.uri, candidate);
+
+            // After a merge, the on-disk content may include "their" edits
+            // that aren't in our `_documentData` — so we cannot use it as
+            // the next-save fast-path baseline (writing `ourContent`
+            // directly would silently drop those edits). Fall back to the
+            // conservative path: null out the baseline so the next save
+            // re-merges. The save after that one (assuming no new
+            // concurrent writer) will re-establish the fast path.
+            this._lastWrittenContent = null;
         }
 
         // Record save timestamp to prevent file watcher from reverting our own save
@@ -833,7 +958,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         cancellation: vscode.CancellationToken,
         backup: boolean = false
     ): Promise<void> {
-        const text = formatJsonForNotebookFile(this.getDocumentDataForSerialization());
+        const text = this.serializeForDisk();
         await atomicWriteUriText(targetResource, text);
 
         // Sync only modified cells for non-backup saves
@@ -856,12 +981,20 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     public async revert(cancellation?: vscode.CancellationToken): Promise<void> {
         const diskContent = await vscode.workspace.fs.readFile(this.uri);
-        this._documentData = JSON.parse(diskContent.toString());
+        const diskText = diskContent.toString();
+        this._documentData = JSON.parse(diskText);
         // Invalidate milestone index cache since document was reverted from disk
         this.invalidateMilestoneIndexCache();
         this._edits = [];
         this._isDirty = false; // Reset dirty flag
         this._dirtyCellIds.clear(); // Discard stale dirty IDs — document is back to saved state
+        // Reset the per-cell serialization cache: every cell object was just
+        // replaced with a fresh parse, so the cached strings keyed by id no
+        // longer match the in-memory references.
+        this._serializedCellCache.clear();
+        // Disk now reflects what we have in memory; the next save can
+        // skip-merge as long as no other writer touches the file in between.
+        this._lastWrittenContent = diskText;
         this._onDidChangeForWebview.fire({
             content: this.getText(),
             edits: [],
@@ -880,7 +1013,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public getText(): string {
-        return formatJsonForNotebookFile(this.getDocumentDataForSerialization());
+        return this.serializeForDisk();
     }
 
     public getCellContent(cellId: string): QuillCellContent | undefined {
@@ -888,12 +1021,21 @@ export class CodexCellDocument implements vscode.CustomDocument {
         if (!cell) {
             return undefined;
         }
+        const audioTimestamps: Timestamps | undefined =
+            cell.metadata.data?.audioStartTime !== undefined || cell.metadata.data?.audioEndTime !== undefined
+                ? {
+                    startTime: cell.metadata.data.audioStartTime,
+                    endTime: cell.metadata.data.audioEndTime,
+                }
+                : undefined;
+
         return {
             cellMarkers: [cell.metadata.id],
             cellContent: cell.value,
             cellType: cell.metadata.type,
             editHistory: cell.metadata.edits || [],
             timestamps: cell.metadata.data,
+            audioTimestamps,
             cellLabel: cell.metadata.cellLabel,
             data: cell.metadata.data,
             attachments: cell.metadata.attachments || {},
@@ -1016,9 +1158,126 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, timestamps }],
+        });
+    }
+
+    public updateCellAudioTimestamps(cellId: string, timestamps: Timestamps) {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error("Could not find cell to update");
+        }
+
+        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+
+        // Block timestamp updates to locked cells
+        if (cellToUpdate.metadata?.isLocked) {
+            console.warn(`Attempted to update audio timestamps of locked cell ${cellId}. Operation blocked.`);
+            return;
+        }
+
+        // Capture previous values before updating so comparisons are correct
+        const previousAudioStartTime = cellToUpdate.metadata.data?.audioStartTime;
+        const previousAudioEndTime = cellToUpdate.metadata.data?.audioEndTime;
+
+        // Add edit to cell's edit history
+        if (!cellToUpdate.metadata.edits) {
+            cellToUpdate.metadata.edits = [];
+        }
+        const currentTimestamp = Date.now();
+
+        // Only add edit if audioStartTime is different from previous value
+        if (timestamps.startTime !== undefined && timestamps.startTime !== previousAudioStartTime) {
+            // Ensure initial import exists for audioStartTime
+            const hasInitialAudioStart = (cellToUpdate.metadata.edits || []).some((e) =>
+                e.type === EditType.INITIAL_IMPORT && EditMapUtils.equals(e.editMap, EditMapUtils.dataAudioStartTime())
+            );
+            if (!hasInitialAudioStart && previousAudioStartTime !== undefined) {
+                cellToUpdate.metadata.edits.push({
+                    editMap: EditMapUtils.dataAudioStartTime(),
+                    value: previousAudioStartTime,
+                    timestamp: currentTimestamp - 1000,
+                    type: EditType.INITIAL_IMPORT,
+                    author: this._author,
+                    validatedBy: [],
+                });
+            }
+            const audioStartTimeEditMap = EditMapUtils.dataAudioStartTime();
+            cellToUpdate.metadata.edits.push({
+                editMap: audioStartTimeEditMap,
+                value: timestamps.startTime,
+                timestamp: currentTimestamp,
+                type: EditType.USER_EDIT,
+                author: this._author,
+                validatedBy: [
+                    {
+                        username: this._author,
+                        creationTimestamp: currentTimestamp,
+                        updatedTimestamp: currentTimestamp,
+                        isDeleted: false,
+                    },
+                ],
+            });
+        }
+
+        // Only add edit if audioEndTime is different from previous value
+        if (timestamps.endTime !== undefined && timestamps.endTime !== previousAudioEndTime) {
+            // Ensure initial import exists for audioEndTime
+            const hasInitialAudioEnd = (cellToUpdate.metadata.edits || []).some((e) =>
+                e.type === EditType.INITIAL_IMPORT && EditMapUtils.equals(e.editMap, EditMapUtils.dataAudioEndTime())
+            );
+            if (!hasInitialAudioEnd && previousAudioEndTime !== undefined) {
+                cellToUpdate.metadata.edits.push({
+                    editMap: EditMapUtils.dataAudioEndTime(),
+                    value: previousAudioEndTime,
+                    timestamp: currentTimestamp - 1000,
+                    type: EditType.INITIAL_IMPORT,
+                    author: this._author,
+                    validatedBy: [],
+                });
+            }
+            const audioEndTimeEditMap = EditMapUtils.dataAudioEndTime();
+            cellToUpdate.metadata.edits.push({
+                editMap: audioEndTimeEditMap,
+                value: timestamps.endTime,
+                timestamp: currentTimestamp,
+                type: EditType.USER_EDIT,
+                author: this._author,
+                validatedBy: [
+                    {
+                        username: this._author,
+                        creationTimestamp: currentTimestamp,
+                        updatedTimestamp: currentTimestamp,
+                        isDeleted: false,
+                    },
+                ],
+            });
+        }
+
+        // Now apply the audio timestamp updates to the document data
+        cellToUpdate.metadata.data = {
+            ...cellToUpdate.metadata.data,
+            audioStartTime: timestamps.startTime,
+            audioEndTime: timestamps.endTime,
+        };
+
+        // Record the edit
+        this._edits.push({
+            type: "updateCellAudioTimestamps",
+            cellId,
+            timestamps,
+        });
+
+        // Set dirty flag and notify listeners about the change
+        this._isDirty = true;
+        this.markCellMutated(cellId);
+        this._onDidChangeForVsCodeAndWebview.fire({
+            edits: [{ cellId, audioTimestamps: timestamps }],
         });
     }
 
@@ -1091,7 +1350,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         });
 
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, deleted: true }],
         });
@@ -1157,7 +1416,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
-        this._dirtyCellIds.add(newCellId);
+        this.markCellMutated(newCellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ newCellId, referenceCellId, cellType, data }],
         });
@@ -1179,8 +1438,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const currentTimestamp = Date.now();
 
         // Track which fields are editable (exclude system fields like id, sourceFsPath, etc.)
-        // Note: autoDownloadAudioOnOpen is excluded as it's a project-level setting stored in localProjectSettings.json,
-        // not a file-level metadata field
+        // Note: autoDownloadAudioOnOpen is excluded as it's a per-user setting stored in
+        // globalState (see src/utils/globalUserSettings.ts), not a file-level metadata field
         const editableFields = [
             "videoUrl",
             "textDirection",
@@ -2231,7 +2490,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, newLabel }],
         });
@@ -2311,7 +2570,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, isLocked }],
         });
@@ -2454,7 +2713,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark document as dirty
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
 
         // Notify listeners that the document has changed
         this._onDidChangeForVsCodeAndWebview.fire({
@@ -2485,7 +2744,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     // Method to validate a cell's audio by a user
-    public async validateCellAudio(cellId: string, validate: boolean = true) {
+    public async validateCellAudio(cellId: string, validate: boolean = true, targetAttachmentId?: string) {
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
         );
@@ -2496,13 +2755,22 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
 
-        // Get the current audio attachment for this cell
-        const currentAttachment = this.getCurrentAttachment(cellId, "audio");
-        if (!currentAttachment) {
-            throw new Error("No audio attachment found for cell to validate");
-        }
+        let attachmentId: string;
+        let attachment: any;
 
-        const { attachmentId, attachment } = currentAttachment;
+        if (targetAttachmentId) {
+            attachment = cellToUpdate.metadata?.attachments?.[targetAttachmentId];
+            if (!attachment) {
+                throw new Error("Specified audio attachment not found");
+            }
+            attachmentId = targetAttachmentId;
+        } else {
+            const currentAttachment = this.getCurrentAttachment(cellId, "audio");
+            if (!currentAttachment) {
+                throw new Error("No audio attachment found for cell to validate");
+            }
+            ({ attachmentId, attachment } = currentAttachment);
+        }
 
         // Initialize validation array if it doesn't exist
         if (!attachment.validatedBy) {
@@ -2564,7 +2832,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark document as dirty
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
 
         // Notify listeners that the document has changed
         this._onDidChangeForVsCodeAndWebview.fire({
@@ -2572,12 +2840,14 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 cellId,
                 type: "audioValidation",
                 validatedBy: attachment.validatedBy,
+                attachmentId,
             }),
             edits: [
                 {
                     cellId,
                     type: "audioValidation",
                     validatedBy: attachment.validatedBy,
+                    attachmentId,
                 },
             ],
         });
@@ -2660,7 +2930,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     edit.validatedBy = finalValidatedBy;
                     changesDetected = true;
                     if (cell.metadata?.id) {
-                        this._dirtyCellIds.add(cell.metadata.id);
+                        this.markCellMutated(cell.metadata.id);
                     }
                 }
             }
@@ -2823,13 +3093,22 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public getCellAudioValidatedBy(cellId: string): ValidationEntry[] {
-        const currentAttachment = this.getCurrentAttachment(cellId, "audio");
+        const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
+        const selectedAudioId = cell?.metadata?.selectedAudioId;
+        const selectedAttachment = selectedAudioId
+            ? cell?.metadata?.attachments?.[selectedAudioId]
+            : undefined;
 
-        if (!currentAttachment || !Array.isArray(currentAttachment.attachment?.validatedBy)) {
+        if (
+            !selectedAttachment ||
+            selectedAttachment.type !== "audio" ||
+            selectedAttachment.isDeleted ||
+            !Array.isArray(selectedAttachment.validatedBy)
+        ) {
             return [];
         }
 
-        return currentAttachment.attachment.validatedBy.filter((entry: any) =>
+        return selectedAttachment.validatedBy.filter((entry: any) =>
             this.isValidValidationEntry(entry)
         );
     }
@@ -2949,7 +3228,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
 
         // Emit change events
         this._onDidChangeForVsCodeAndWebview.fire({
@@ -3021,7 +3300,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify listeners
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3054,10 +3333,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
         attachment.isDeleted = true;
         attachment.updatedAt = Date.now();
 
-        // If we're deleting the selected audio, clear the selection (fall back to automatic)
+        // If we're deleting the selected audio, clear the selection (fall back to automatic).
+        // Preserve the keys with an empty string + fresh timestamp so the deselection is
+        // explicit and CRDT-mergeable rather than a silent key removal.
         if (attachment.type === "audio" && cell.metadata?.selectedAudioId === attachmentId) {
-            delete cell.metadata.selectedAudioId;
-            delete cell.metadata.selectionTimestamp;
+            cell.metadata.selectedAudioId = "";
+            cell.metadata.selectionTimestamp = Date.now();
         }
 
         // Record the edit
@@ -3069,7 +3350,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify both VS Code and webview so the change is persisted
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3092,25 +3373,34 @@ export class CodexCellDocument implements vscode.CustomDocument {
             return null;
         }
 
-        // STEP 1: Check for explicit selection first
+        // STEP 1: Check for explicit selection first. We deliberately do NOT
+        // filter on `isMissing` — that flag is a stale hint from the last
+        // migration scan, and the resolver (audioRequest handler /
+        // resolveAudioBytes) attempts an end-to-end LFS fetch at access time.
+        // Filtering here would prematurely demote the user's explicit choice
+        // to a fallback that may not even be what they intended.
         if (cell.metadata?.selectedAudioId && attachmentType === "audio") {
             const selectedAttachment = cell.metadata.attachments?.[cell.metadata.selectedAudioId];
 
-            // Validate selection is still valid and the file isn't missing
             if (selectedAttachment &&
                 selectedAttachment.type === attachmentType &&
-                !selectedAttachment.isDeleted &&
-                !selectedAttachment.isMissing) {
+                !selectedAttachment.isDeleted) {
                 return {
                     attachmentId: cell.metadata.selectedAudioId,
                     attachment: selectedAttachment
                 };
             }
 
-            // Selection is invalid or missing — fall through to automatic resolution
+            // Selection is invalid (deleted or unknown id) — fall through to
+            // automatic resolution.
         }
 
-        // STEP 2: Fall back to latest non-deleted, non-missing attachment (prefer available files)
+        // STEP 2: Fall back to newest non-deleted attachment by createdAt. Same
+        // `isMissing` rationale as above — let the resolver decide what's
+        // actually playable rather than filter on a potentially-stale flag.
+        // Sort by `createdAt` (not `updatedAt`) so this matches the audio
+        // history viewer's "CURRENT" badge and doesn't bleed through from
+        // `updatedAt` bumps caused by `isMissing` migration scans.
         const attachments = Object.entries(cell.metadata.attachments)
             .filter(([_, attachment]: [string, any]) =>
                 attachment &&
@@ -3118,10 +3408,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 !attachment.isDeleted
             )
             .sort(([_, a]: [string, any], [__, b]: [string, any]) => {
-                const aMissing = a.isMissing ? 1 : 0;
-                const bMissing = b.isMissing ? 1 : 0;
-                if (aMissing !== bMissing) return aMissing - bMissing;
-                return (b.updatedAt || 0) - (a.updatedAt || 0);
+                return (b.createdAt || 0) - (a.createdAt || 0);
             });
 
         if (attachments.length === 0) {
@@ -3199,7 +3486,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify VS Code (so the file is persisted) and the webview
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3250,7 +3537,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify VS Code (so the file is persisted) and the webview
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3273,12 +3560,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cell = this._documentData.cells[indexOfCellToUpdate];
 
+        // Preserve existing "nothing to clear" short-circuit: undefined AND "" both return.
+        // This avoids churning the file/edit log when deselect is called on a cell that
+        // was never selected or has already been explicitly cleared.
         if (!cell.metadata?.selectedAudioId) {
-            return; // Nothing to clear
+            return;
         }
 
-        delete cell.metadata.selectedAudioId;
-        delete cell.metadata.selectionTimestamp;
+        cell.metadata.selectedAudioId = "";
+        cell.metadata.selectionTimestamp = Date.now();
 
         // Record the edit
         this._edits.push({
@@ -3288,7 +3578,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify listeners
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3304,66 +3594,23 @@ export class CodexCellDocument implements vscode.CustomDocument {
             (cell) => cell.metadata?.id === cellId
         );
 
-        return cell?.metadata?.selectedAudioId ?? null;
+        // Treat an empty string (explicitly cleared) the same as an absent key, so callers
+        // that check for a "real" explicit selection don't get fooled by the sentinel "".
+        const val = cell?.metadata?.selectedAudioId;
+        return val ? val : null;
     }
 
     /**
-     * Cleans up invalid audio selections for all cells (safe to call during document operations)
-     * This is separated from getCurrentAttachment to avoid modifying state during read operations.
-     *
-     * When the selected audio is missing but a valid non-missing alternative exists,
-     * the selection is automatically updated to the best available attachment.
+     * Returns the per-cell `selectionTimestamp` (set on every audio
+     * select/clear) from the in-memory document. Used by message handlers to
+     * stamp broadcasts so the webview can discard out-of-order updates.
      */
-    public cleanupInvalidAudioSelections(): void {
-        try {
-            let hasChanges = false;
-
-            for (const cell of this._documentData.cells) {
-                if (!cell.metadata?.selectedAudioId || !cell.metadata.attachments) {
-                    continue;
-                }
-
-                const selectedAttachment = cell.metadata.attachments[cell.metadata.selectedAudioId];
-
-                const isInvalid = !selectedAttachment ||
-                    selectedAttachment.type !== "audio" ||
-                    selectedAttachment.isDeleted;
-
-                const isMissing = !isInvalid && selectedAttachment.isMissing === true;
-
-                if (isInvalid || isMissing) {
-                    // Look for a valid non-missing audio attachment to auto-select
-                    const validAlternative = Object.entries(cell.metadata.attachments)
-                        .filter(([_, att]: [string, any]) =>
-                            att?.type === "audio" && !att.isDeleted && !att.isMissing
-                        )
-                        .sort(([_, a]: [string, any], [__, b]: [string, any]) =>
-                            (b.updatedAt || 0) - (a.updatedAt || 0)
-                        )[0];
-
-                    if (validAlternative) {
-                        cell.metadata.selectedAudioId = validAlternative[0];
-                        cell.metadata.selectionTimestamp = Date.now();
-                    } else {
-                        delete cell.metadata.selectedAudioId;
-                        delete cell.metadata.selectionTimestamp;
-                    }
-                    hasChanges = true;
-                    if (cell.metadata?.id) {
-                        this._dirtyCellIds.add(cell.metadata.id);
-                    }
-                }
-            }
-
-            if (hasChanges) {
-                this._isDirty = true;
-                this._onDidChangeForVsCodeAndWebview.fire({
-                    edits: this._edits,
-                });
-            }
-        } catch (error) {
-            console.error("Error cleaning up invalid audio selections:", error);
-        }
+    public getSelectionTimestamp(cellId: string): number | undefined {
+        const cell = this._documentData.cells.find(
+            (cell) => cell.metadata?.id === cellId
+        );
+        const ts = (cell?.metadata as any)?.selectionTimestamp;
+        return typeof ts === "number" ? ts : undefined;
     }
 
     /**
@@ -3405,7 +3652,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify listeners
         this._isDirty = true;
-        this._dirtyCellIds.add(cellId);
+        this.markCellMutated(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
