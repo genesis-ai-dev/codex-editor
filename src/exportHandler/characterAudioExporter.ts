@@ -12,11 +12,11 @@ import {
     sanitizeFileComponent,
     getTargetLanguageCode,
     pickAudioAttachmentForCell,
-    isActiveCell,
     readNotebook,
     pathExists,
     getAudioExporterContext,
 } from "./audioExporter";
+import { isExportableCell } from "./audioAttachmentUtils";
 
 const execFileAsync = promisify(execFile);
 
@@ -123,8 +123,7 @@ function resolveCellLabel(cell: any): string | undefined {
 function computeEpisodeDurationSeconds(cells: CodexNotebookAsJSONData["cells"]): number {
     let maxEnd = 0;
     for (const cell of cells) {
-        if (cell.kind !== 2 && cell.kind !== 1) continue;
-        if (!isActiveCell(cell)) continue;
+        if (!isExportableCell(cell)) continue;
         const data = (cell?.metadata?.data || {}) as { startTime?: unknown; endTime?: unknown; };
         const end = coerceFiniteNumber(data.endTime) ?? coerceFiniteNumber(data.startTime);
         if (end !== undefined && end > maxEnd) maxEnd = end;
@@ -145,13 +144,12 @@ function groupClipsByCharacter(
     let skipped = 0;
 
     for (const cell of cells) {
-        if (cell.kind !== 2 && cell.kind !== 1) continue;
-        if (!isActiveCell(cell)) continue;
+        if (!isExportableCell(cell)) continue;
         const cellId: string | undefined = cell?.metadata?.id;
         if (!cellId) continue;
 
-        const pick = pickAudioAttachmentForCell(cell);
-        if (!pick) continue;
+        const outcome = pickAudioAttachmentForCell(cell);
+        if (outcome.state !== "ready" || !outcome.pick) continue;
 
         const data = (cell?.metadata?.data || {}) as { startTime?: unknown; endTime?: unknown; };
         const startSec = coerceFiniteNumber(data.startTime);
@@ -162,7 +160,7 @@ function groupClipsByCharacter(
         }
         const endSec = coerceFiniteNumber(data.endTime);
 
-        const srcPath = pick.url;
+        const srcPath = outcome.pick.url;
         const absoluteSrc = srcPath.startsWith("/") || /^[A-Za-z]:\\/.test(srcPath)
             ? vscode.Uri.file(srcPath)
             : vscode.Uri.joinPath(workspaceFolder.uri, srcPath);
@@ -421,8 +419,7 @@ function scanCharactersForPreview(
 ): Map<string, PreviewBuckets> {
     const buckets = new Map<string, PreviewBuckets>();
     for (const cell of cells) {
-        if (cell.kind !== 2 && cell.kind !== 1) continue;
-        if (!isActiveCell(cell)) continue;
+        if (!isExportableCell(cell)) continue;
         const cellId: string | undefined = cell?.metadata?.id;
         if (!cellId) continue;
 
@@ -446,7 +443,8 @@ function scanCharactersForPreview(
         const data = (cell?.metadata?.data || {}) as { startTime?: unknown; endTime?: unknown; };
         const startSec = coerceFiniteNumber(data.startTime);
         const endSec = coerceFiniteNumber(data.endTime);
-        const hasAudio = !!pickAudioAttachmentForCell(cell);
+        const audioOutcome = pickAudioAttachmentForCell(cell);
+        const hasAudio = audioOutcome.state === "ready" && !!audioOutcome.pick;
 
         if (startSec === undefined) {
             bucket.untimedCellCount++;
