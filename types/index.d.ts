@@ -2529,6 +2529,7 @@ export type ExportMissingFileReason =
     | "no-text-recorded"
     // Tier 2 — soft warning
     | "no-audio-selected"
+    | "selected-audio-missing-alternatives"
     | "audio-file-missing"
     | "pointer-corrupt"
     | "source-not-found"
@@ -2553,10 +2554,15 @@ export interface ExportMissingFilePayload {
     file: string;
     reason: ExportMissingFileReason;
     detail?: string;
+    /** Cell + codex path the entry came from, when known. Enables a deep-link. */
+    cellId?: string;
+    codexPath?: string;
 }
 
 export interface ExportSummaryPayload {
     exportPath: string;
+    /** Folder audio landed in (an `audio/` subfolder in multi-format). Used for targeted retry. */
+    audioExportPath?: string;
     filesExported?: number;
     audioCopied?: number;
     audioMissing?: number;
@@ -2570,9 +2576,10 @@ export type MessagesToProjectExportView =
     | { command: "htmlStructureCheckResult"; mismatches: { totalMismatches: number; fileDetails: { file: string; count: number; }[]; }; }
     | { command: "exportStarted"; }
     | { command: "exportProgress"; event: ExportProgressEventPayload; }
-    | { command: "exportFileMissing"; file: string; reason: ExportMissingFileReason; detail?: string; }
+    | { command: "exportFileMissing"; file: string; reason: ExportMissingFileReason; detail?: string; cellId?: string; codexPath?: string; }
     | { command: "exportCompleted"; summary: ExportSummaryPayload; }
-    | { command: "exportError"; message: string; };
+    | { command: "exportError"; message: string; }
+    | { command: "retryCompleted"; summary?: ExportSummaryPayload; error?: string; cancelled?: boolean; };
 
 export type MessagesFromProjectExportView =
     | { command: "selectExportPath"; }
@@ -2582,4 +2589,5 @@ export type MessagesFromProjectExportView =
     | { command: "openExportFolder"; path: string; }
     | { command: "closeExportView"; }
     | { command: "openCellInEditor"; cellId: string; filePath: string; }
+    | { command: "retryExport"; audioOutputPath: string; targets: { cellId: string; codexPath: string; }[]; options?: Record<string, unknown>; }
     | { command: "cancel"; };
