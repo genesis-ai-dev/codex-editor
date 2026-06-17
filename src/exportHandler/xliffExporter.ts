@@ -37,7 +37,8 @@ export async function exportCodexContentAsXliff(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    options?: ExportOptions
+    options?: ExportOptions,
+    token?: vscode.CancellationToken
 ) {
     try {
         debug("Starting exportCodexContentAsXliff function");
@@ -77,6 +78,7 @@ export async function exportCodexContentAsXliff(
         await vscode.workspace.fs.createDirectory(exportFolder);
 
         for (const [index, file] of selectedFiles.entries()) {
+            if (token?.isCancellationRequested) return;
             reporter.report({
                 stage: "writing",
                 message: `Processing file ${index + 1}/${selectedFiles.length}`,

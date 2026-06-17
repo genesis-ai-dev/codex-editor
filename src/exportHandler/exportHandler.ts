@@ -255,6 +255,9 @@ export interface ExportOptions {
     removeIds?: boolean;
     includeAudio?: boolean;
     includeTimestamps?: boolean;
+    consolidateByCharacter?: boolean;
+    consolidatedAudioFormat?: "wav" | "flac" | "opus";
+    excludeLabels?: boolean;
     /** Per-file 0-based milestone indices to include when exporting audio. An empty array skips that file entirely. Files omitted from this map are exported in full (no milestone step). */
     selectedMilestonesByFile?: Record<string, number[]>;
 }
@@ -1509,7 +1512,8 @@ async function exportCodexContentAsRebuild(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    options?: ExportOptions
+    options?: ExportOptions,
+    token?: vscode.CancellationToken
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
@@ -1525,6 +1529,7 @@ async function exportCodexContentAsRebuild(
 
     // Analyze each file's corpusMarker
     for (const filePath of filesToExport) {
+        if (token?.isCancellationRequested) return;
         try {
             const file = vscode.Uri.file(filePath);
             const codexNotebook = await readCodexNotebookFromUri(file);
@@ -1641,9 +1646,10 @@ async function exportCodexContentAsRebuild(
     // a single overall summary at the bottom of this orchestrator.
     const childReporter: ExportProgressReporter = {
         report: (event) => reporter.report(event),
-        fileMissing: (file, reason, detail) => reporter.fileMissing(file, reason, detail),
+        fileMissing: (file, reason, detail, location) => reporter.fileMissing(file, reason, detail, location),
         complete: () => undefined,
         error: (message) => reporter.fileMissing(message, "error"),
+        cancelled: () => undefined,
     };
 
     let processedCount = 0;
@@ -1664,6 +1670,7 @@ async function exportCodexContentAsRebuild(
         ];
 
     for (const group of groups) {
+        if (token?.isCancellationRequested) return;
         const paths = filesByType[group.key];
         if (!paths || paths.length === 0) continue;
         console.log(`[Rebuild Export] Exporting ${paths.length} ${group.label} file(s)...`);
@@ -1710,7 +1717,8 @@ export async function exportCodexContent(
     userSelectedPath: string,
     filesToExport: string[],
     options?: ExportOptions,
-    reporter: ExportProgressReporter = createNoopReporter()
+    reporter: ExportProgressReporter = createNoopReporter(),
+    token?: vscode.CancellationToken
 ) {
     const includeAudio = options?.includeAudio === true && format !== CodexExportFormat.AUDIO;
     const isMulti = includeAudio;
@@ -1756,9 +1764,9 @@ export async function exportCodexContent(
 
     const childReporter: ExportProgressReporter = {
         report: (event) => reporter.report(event),
-        fileMissing: (file, reason, detail) => {
-            aggregated.missingFiles.push({ file, reason, detail });
-            reporter.fileMissing(file, reason, detail);
+        fileMissing: (file, reason, detail, location) => {
+            aggregated.missingFiles.push({ file, reason, detail, ...location });
+            reporter.fileMissing(file, reason, detail, location);
         },
         complete: (summary) => {
             if (summary.extraMessages) aggregated.extraMessages.push(...summary.extraMessages);
@@ -1779,68 +1787,100 @@ export async function exportCodexContent(
         error: (message) => {
             aggregated.errorMessages.push(message);
         },
+        cancelled: () => undefined,
     };
 
     const exportPromises: Promise<void>[] = [];
 
     switch (format) {
         case CodexExportFormat.PLAINTEXT:
-            exportPromises.push(exportCodexContentAsPlaintext(formatPath, filesToExport, childReporter, options));
+            exportPromises.push(exportCodexContentAsPlaintext(formatPath, filesToExport, childReporter, options, token));
             break;
         case CodexExportFormat.USFM:
-            exportPromises.push(exportCodexContentAsUsfm(formatPath, filesToExport, childReporter, options));
+            exportPromises.push(exportCodexContentAsUsfm(formatPath, filesToExport, childReporter, options, token));
             break;
         case CodexExportFormat.HTML:
-            exportPromises.push(exportCodexContentAsHtml(formatPath, filesToExport, childReporter, options));
+            exportPromises.push(exportCodexContentAsHtml(formatPath, filesToExport, childReporter, options, token));
             break;
         case CodexExportFormat.AUDIO: {
-            const { exportAudioAttachments } = await import("./audioExporter");
-            exportPromises.push(exportAudioAttachments(wrapperPath, filesToExport, childReporter, {
-                includeTimestamps: options?.includeTimestamps,
-                selectedMilestonesByFile: options?.selectedMilestonesByFile,
-            }));
+            if (options?.consolidateByCharacter) {
+                const { exportAudioByCharacter } = await import("./characterAudioExporter");
+                exportPromises.push(exportAudioByCharacter(wrapperPath, filesToExport, {
+                    format: options?.consolidatedAudioFormat,
+                }));
+            } else {
+                const { exportAudioAttachments } = await import("./audioExporter");
+                exportPromises.push(exportAudioAttachments(wrapperPath, filesToExport, childReporter, {
+                    includeTimestamps: options?.includeTimestamps,
+                    selectedMilestonesByFile: options?.selectedMilestonesByFile,
+                }, token));
+            }
             break;
         }
         case CodexExportFormat.SUBTITLES_VTT_WITH_STYLES:
-            exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, childReporter, options, true));
+            exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, childReporter, options, true, false, token));
             break;
         case CodexExportFormat.SUBTITLES_VTT_WITHOUT_STYLES:
-            exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, childReporter, options, false));
+            exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, childReporter, options, false, false, token));
             break;
         case CodexExportFormat.SUBTITLES_VTT_WITH_CUE_SPLITTING:
-            exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, childReporter, options, false, true));
+            exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, childReporter, options, false, true, token));
             break;
         case CodexExportFormat.SUBTITLES_SRT:
-            exportPromises.push(exportCodexContentAsSubtitlesSrt(formatPath, filesToExport, childReporter, options));
+            exportPromises.push(exportCodexContentAsSubtitlesSrt(formatPath, filesToExport, childReporter, options, token));
             break;
         case CodexExportFormat.XLIFF:
-            exportPromises.push(exportCodexContentAsXliff(formatPath, filesToExport, childReporter, options));
+            exportPromises.push(exportCodexContentAsXliff(formatPath, filesToExport, childReporter, options, token));
             break;
         case CodexExportFormat.CSV:
-            exportPromises.push(exportCodexContentAsCsv(formatPath, filesToExport, childReporter, options));
+            exportPromises.push(exportCodexContentAsCsv(formatPath, filesToExport, childReporter, options, token));
             break;
         case CodexExportFormat.TSV:
-            exportPromises.push(exportCodexContentAsTsv(formatPath, filesToExport, childReporter, options));
+            exportPromises.push(exportCodexContentAsTsv(formatPath, filesToExport, childReporter, options, token));
             break;
         case CodexExportFormat.REBUILD_EXPORT:
-            exportPromises.push(exportCodexContentAsRebuild(formatPath, filesToExport, childReporter, options));
+            exportPromises.push(exportCodexContentAsRebuild(formatPath, filesToExport, childReporter, options, token));
             break;
         case CodexExportFormat.BACKTRANSLATIONS:
-            exportPromises.push(exportCodexContentAsBacktranslations(formatPath, filesToExport, childReporter, options));
+            exportPromises.push(exportCodexContentAsBacktranslations(formatPath, filesToExport, childReporter, options, token));
             break;
     }
 
     if (includeAudio) {
-        const { exportAudioAttachments } = await import("./audioExporter");
-        exportPromises.push(
-            exportAudioAttachments(audioPath, filesToExport, childReporter, {
-                includeTimestamps: options?.includeTimestamps,
-                selectedMilestonesByFile: options?.selectedMilestonesByFile,
-            })
-        );
+        if (options?.consolidateByCharacter) {
+            const { exportAudioByCharacter } = await import("./characterAudioExporter");
+            exportPromises.push(exportAudioByCharacter(audioPath, filesToExport, {
+                format: options?.consolidatedAudioFormat,
+            }));
+        } else {
+            const { exportAudioAttachments } = await import("./audioExporter");
+            exportPromises.push(
+                exportAudioAttachments(audioPath, filesToExport, childReporter, {
+                    includeTimestamps: options?.includeTimestamps,
+                    selectedMilestonesByFile: options?.selectedMilestonesByFile,
+                }, token)
+            );
+        }
     }
 
     await Promise.all(exportPromises);
+
+    // If the user cancelled, delete the freshly-created (and unique) wrapper
+    // folder so no partial export is left behind, and report a terminal
+    // "cancelled" state instead of complete/error. All sub-export promises
+    // have already settled above, so there is no write/delete race here.
+    if (token?.isCancellationRequested) {
+        try {
+            await vscode.workspace.fs.delete(vscode.Uri.file(wrapperPath), {
+                recursive: true,
+                useTrash: false,
+            });
+        } catch (e) {
+            debug("Failed to delete partial export folder after cancellation:", e);
+        }
+        reporter.cancelled({ exportPath: wrapperPath });
+        return;
+    }
 
     // Write NOTICE.txt in per-file folders that will be empty due to missing content,
     // and emit fileMissing events for them so the webview sees a complete list.
@@ -1867,6 +1907,7 @@ export async function exportCodexContent(
 
     reporter.complete({
         exportPath: wrapperPath,
+        audioExportPath: isAudioExport ? audioPath : undefined,
         filesExported: aggregated.filesExported || filesToExport.length,
         audioCopied: aggregated.audioCopied,
         audioMissing: aggregated.audioMissing,
@@ -1958,7 +1999,8 @@ export const exportCodexContentAsSubtitlesSrt = async (
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    options?: ExportOptions
+    options?: ExportOptions,
+    token?: vscode.CancellationToken
 ) => {
     try {
         debug("Starting exportCodexContentAsSubtitlesSrt function");
@@ -1981,6 +2023,7 @@ export const exportCodexContentAsSubtitlesSrt = async (
         await vscode.workspace.fs.createDirectory(exportFolder);
 
         for (const [index, file] of selectedFiles.entries()) {
+            if (token?.isCancellationRequested) return;
             reporter.report({
                 stage: "writing",
                 message: `Processing file ${index + 1}/${selectedFiles.length}`,
@@ -2027,7 +2070,8 @@ export const exportCodexContentAsSubtitlesVtt = async (
     reporter: ExportProgressReporter,
     options?: ExportOptions,
     includeStyles: boolean = true,
-    cueSplitting: boolean = false
+    cueSplitting: boolean = false,
+    token?: vscode.CancellationToken
 ) => {
     try {
         debug("Starting exportCodexContentAsSubtitlesVtt function");
@@ -2050,6 +2094,7 @@ export const exportCodexContentAsSubtitlesVtt = async (
         await vscode.workspace.fs.createDirectory(exportFolder);
 
         for (const [index, file] of selectedFiles.entries()) {
+            if (token?.isCancellationRequested) return;
             reporter.report({
                 stage: "writing",
                 message: `Processing file ${index + 1}/${selectedFiles.length}`,
@@ -2066,8 +2111,15 @@ export const exportCodexContentAsSubtitlesVtt = async (
             totalCells += cells.length;
             debug(`File has ${cells.length} active cells`);
 
-            const vttContent = generateVttData(cells, includeStyles, cueSplitting, file.fsPath);
-            debug({ vttContent, cells, includeStyles });
+                    // Generate VTT content
+                    const vttContent = generateVttData(
+                        cells,
+                        includeStyles,
+                        cueSplitting,
+                        file.fsPath,
+                        options?.excludeLabels === true
+                    );
+                    debug({ vttContent, cells, includeStyles });
 
             const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
             const fileName = basename(file.fsPath).replace(".codex", "") || "unknown";
@@ -2178,18 +2230,20 @@ async function exportCodexContentAsCsv(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    options?: ExportOptions
+    options?: ExportOptions,
+    token?: vscode.CancellationToken
 ) {
-    await exportCodexContentAsDelimited(userSelectedPath, filesToExport, 'csv', reporter, options);
+    await exportCodexContentAsDelimited(userSelectedPath, filesToExport, 'csv', reporter, options, token);
 }
 
 async function exportCodexContentAsTsv(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    options?: ExportOptions
+    options?: ExportOptions,
+    token?: vscode.CancellationToken
 ) {
-    await exportCodexContentAsDelimited(userSelectedPath, filesToExport, 'tsv', reporter, options);
+    await exportCodexContentAsDelimited(userSelectedPath, filesToExport, 'tsv', reporter, options, token);
 }
 
 async function exportCodexContentAsDelimited(
@@ -2197,7 +2251,8 @@ async function exportCodexContentAsDelimited(
     filesToExport: string[],
     format: 'csv' | 'tsv',
     reporter: ExportProgressReporter,
-    options?: ExportOptions
+    options?: ExportOptions,
+    token?: vscode.CancellationToken
 ) {
     try {
         const formatName = format.toUpperCase();
@@ -2229,6 +2284,7 @@ async function exportCodexContentAsDelimited(
         await vscode.workspace.fs.createDirectory(exportFolder);
 
         for (const [index, file] of selectedFiles.entries()) {
+            if (token?.isCancellationRequested) return;
             reporter.report({
                 stage: "writing",
                 message: `Processing file ${index + 1}/${selectedFiles.length}`,
@@ -2431,9 +2487,11 @@ async function exportCodexContentAsBacktranslations(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    options?: ExportOptions
+    options?: ExportOptions,
+    token?: vscode.CancellationToken
 ) {
     try {
+        if (token?.isCancellationRequested) return;
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
             reporter.error("No project folder found. Please open a project first.");
@@ -2484,6 +2542,7 @@ async function exportCodexContentAsBacktranslations(
         let filesWritten = 0;
 
         for (const [targetPath, entries] of fileGroups) {
+            if (token?.isCancellationRequested) return;
             try {
                 reporter.report({
                     stage: "writing",
