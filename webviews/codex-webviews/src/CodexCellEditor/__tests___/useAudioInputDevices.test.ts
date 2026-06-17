@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
-import { useAudioInputDevices } from "../hooks/useAudioInputDevices";
+import {
+    useAudioInputDevices,
+    __resetProbeCacheForTesting,
+} from "../hooks/useAudioInputDevices";
 
 /**
  * Tests for the microphone availability hook used by the audio recorder.
@@ -12,7 +15,17 @@ import { useAudioInputDevices } from "../hooks/useAudioInputDevices";
 
 type FakeMediaDevices = EventTarget & {
     enumerateDevices: ReturnType<typeof vi.fn>;
+    getUserMedia?: ReturnType<typeof vi.fn>;
 };
+
+/** Make a fake MediaStream whose tracks can be stopped. */
+function fakeStream(): MediaStream {
+    const trackStops: Array<() => void> = [];
+    const tracks: MediaStreamTrack[] = [
+        { stop: () => trackStops.forEach((s) => s()) } as MediaStreamTrack,
+    ];
+    return { getTracks: () => tracks } as MediaStream;
+}
 
 type FakePermissionStatus = EventTarget & { state: "granted" | "denied" | "prompt" };
 type FakePermissions = {
@@ -70,6 +83,13 @@ function videoInputDevice(): MediaDeviceInfo {
 describe("useAudioInputDevices", () => {
     const originalMediaDevices = (navigator as any).mediaDevices;
     const originalPermissions = (navigator as any).permissions;
+
+    beforeEach(() => {
+        // The probe cache is module-scoped and persists across renders. Tests
+        // must start clean or earlier tests' cached values leak in and create
+        // confusing failures.
+        __resetProbeCacheForTesting();
+    });
 
     afterEach(() => {
         if (originalMediaDevices) {
@@ -285,6 +305,202 @@ describe("useAudioInputDevices", () => {
                 );
             });
             expect(result.current.availability).toBe("permission-denied");
+        });
+    });
+
+    describe("probeMicAccess (silent getUserMedia probe)", () => {
+        it("flips to permission-denied when probe getUserMedia throws NotAllowedError, even though Permissions API says granted", async () => {
+            // This is the central reviewer-reported case: macOS OS-level mic
+            // denial is invisible to enumerateDevices and Permissions API.
+            // The probe catches it by attempting a real getUserMedia call.
+            const fake = createFakeMediaDevices([audioInputDevice()]);
+            const getUserMediaSpy = vi
+                .fn()
+                .mockRejectedValue(
+                    Object.assign(new Error("denied"), { name: "NotAllowedError" })
+                );
+            fake.getUserMedia = getUserMediaSpy;
+            (navigator as any).mediaDevices = fake;
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            await act(async () => {
+                await result.current.probeMicAccess();
+            });
+
+            expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
+            expect(result.current.availability).toBe("permission-denied");
+            expect(result.current.micPermissionDenied).toBe(true);
+        });
+
+        it("flips to no-device when probe throws NotFoundError", async () => {
+            const fake = createFakeMediaDevices([audioInputDevice()]);
+            fake.getUserMedia = vi.fn().mockRejectedValue(
+                Object.assign(new Error("gone"), { name: "NotFoundError" })
+            );
+            (navigator as any).mediaDevices = fake;
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            await act(async () => {
+                await result.current.probeMicAccess();
+            });
+
+            expect(result.current.availability).toBe("no-device");
+        });
+
+        it("stops the returned stream's tracks immediately after a successful probe", async () => {
+            const stopSpy = vi.fn();
+            const fake = createFakeMediaDevices([audioInputDevice()]);
+            fake.getUserMedia = vi.fn().mockResolvedValue({
+                getTracks: () => [{ stop: stopSpy } as MediaStreamTrack],
+            } as MediaStream);
+            (navigator as any).mediaDevices = fake;
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            await act(async () => {
+                await result.current.probeMicAccess();
+            });
+
+            expect(stopSpy).toHaveBeenCalled();
+        });
+
+        it("caches the probe result so repeated calls don't re-trigger getUserMedia", async () => {
+            const fake = createFakeMediaDevices([audioInputDevice()]);
+            const getUserMediaSpy = vi.fn().mockResolvedValue(fakeStream());
+            fake.getUserMedia = getUserMediaSpy;
+            (navigator as any).mediaDevices = fake;
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            await act(async () => {
+                await result.current.probeMicAccess();
+                await result.current.probeMicAccess();
+                await result.current.probeMicAccess();
+            });
+
+            // Only the FIRST call actually probed; rest were cache hits.
+            expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it("dedupes concurrent probe calls into a single getUserMedia invocation", async () => {
+            const fake = createFakeMediaDevices([audioInputDevice()]);
+            // Resolve on a microtask delay so concurrent probes race.
+            const getUserMediaSpy = vi.fn().mockImplementation(
+                () =>
+                    new Promise<MediaStream>((resolve) =>
+                        setTimeout(() => resolve(fakeStream()), 10)
+                    )
+            );
+            fake.getUserMedia = getUserMediaSpy;
+            (navigator as any).mediaDevices = fake;
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            await act(async () => {
+                await Promise.all([
+                    result.current.probeMicAccess(),
+                    result.current.probeMicAccess(),
+                    result.current.probeMicAccess(),
+                ]);
+            });
+
+            // All three calls awaited the single in-flight probe.
+            expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it("re-probes after a devicechange event invalidates the cache", async () => {
+            const fake = createFakeMediaDevices([audioInputDevice()]);
+            const getUserMediaSpy = vi.fn().mockResolvedValue(fakeStream());
+            fake.getUserMedia = getUserMediaSpy;
+            (navigator as any).mediaDevices = fake;
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            await act(async () => {
+                await result.current.probeMicAccess();
+            });
+            expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
+
+            // Simulate a device hot-plug — cache should be invalidated.
+            act(() => {
+                fake.dispatchEvent(new Event("devicechange"));
+            });
+
+            await act(async () => {
+                await result.current.probeMicAccess();
+            });
+            expect(getUserMediaSpy).toHaveBeenCalledTimes(2);
+        });
+
+        it("preserves availability when probe getUserMedia is unavailable", async () => {
+            // No getUserMedia attached at all — probe should no-op silently.
+            (navigator as any).mediaDevices = createFakeMediaDevices([audioInputDevice()]);
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            await act(async () => {
+                await result.current.probeMicAccess();
+            });
+
+            expect(result.current.availability).toBe("available");
+        });
+
+        it("freshly-mounted hook inherits cached probe state from a prior mount", async () => {
+            // First mount: probe gets NotAllowedError, caches "permission-denied".
+            const fake = createFakeMediaDevices([audioInputDevice()]);
+            fake.getUserMedia = vi.fn().mockRejectedValue(
+                Object.assign(new Error(), { name: "NotAllowedError" })
+            );
+            (navigator as any).mediaDevices = fake;
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const first = renderHook(() => useAudioInputDevices());
+            await waitFor(() =>
+                expect(first.result.current.availability).toBe("available")
+            );
+            await act(async () => {
+                await first.result.current.probeMicAccess();
+            });
+            expect(first.result.current.availability).toBe("permission-denied");
+            first.unmount();
+
+            // Second mount (simulating opening a different cell): no extra
+            // probe should be needed; cached state pins immediately.
+            const second = renderHook(() => useAudioInputDevices());
+            expect(second.result.current.availability).toBe("permission-denied");
+            expect(second.result.current.micPermissionDenied).toBe(true);
         });
     });
 });

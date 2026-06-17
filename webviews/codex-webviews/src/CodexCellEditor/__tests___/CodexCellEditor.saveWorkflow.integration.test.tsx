@@ -230,9 +230,16 @@ const mockTranslationUnits: QuillCellContent[] = [
 ];
 
 describe("Real Cell Editor Save Workflow Integration Tests", () => {
-    beforeEach(() => {
+    beforeEach(async () => {
         vi.clearAllMocks();
         cleanup();
+        // The mic-availability hook keeps its probe result in a module-scoped
+        // cache; reset between tests so one test's permission state doesn't
+        // bleed into another.
+        const { __resetProbeCacheForTesting } = await import(
+            "../hooks/useAudioInputDevices"
+        );
+        __resetProbeCacheForTesting();
     });
 
     it("should render CellList with real translation units", async () => {
@@ -1011,9 +1018,29 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
                 toJSON: () => ({}),
             })) as MediaDeviceInfo[]
         );
-        fakeMediaDevices.getUserMedia =
-            opts.getUserMediaSpy ??
-            vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] });
+        // Default `getUserMedia` matches the permission/device state so the
+        // tab-open probe (introduced in the silent-probe fix) returns a
+        // realistic answer. Pass `getUserMediaSpy` to override.
+        const defaultGetUserMedia = () => {
+            if (opts.permission === "denied") {
+                return vi
+                    .fn()
+                    .mockRejectedValue(
+                        Object.assign(new Error("denied"), { name: "NotAllowedError" })
+                    );
+            }
+            if (opts.audioInputs === 0) {
+                return vi
+                    .fn()
+                    .mockRejectedValue(
+                        Object.assign(new Error("no device"), { name: "NotFoundError" })
+                    );
+            }
+            return vi
+                .fn()
+                .mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] });
+        };
+        fakeMediaDevices.getUserMedia = opts.getUserMediaSpy ?? defaultGetUserMedia();
         (navigator as any).mediaDevices = fakeMediaDevices;
 
         if (opts.permission === "missing") {
@@ -1059,11 +1086,9 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             audioAttachments: { "cell-1": "none" as const },
         };
 
-        const getUserMediaSpy = vi.fn();
         mockMicEnvironment({
             audioInputs: 0,
             permission: "granted",
-            getUserMediaSpy,
         });
 
         render(
@@ -1084,6 +1109,11 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             await screen.findByText(/Connect an input device to record/i)
         ).toBeTruthy();
 
+        // Probe fired on tab open and threw NotFoundError; that's how the
+        // warning got there. We now want to assert that *clicking the
+        // disabled button* doesn't separately reach `getUserMedia`.
+        const getUserMediaSpy = (navigator as any).mediaDevices.getUserMedia;
+        getUserMediaSpy.mockClear();
         fireEvent.click(startBtn);
         expect(getUserMediaSpy).not.toHaveBeenCalled();
     });
@@ -1119,11 +1149,11 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         };
 
         // Mic exists but permission denied — different state from no-device.
-        const getUserMediaSpy = vi.fn();
+        // Default mock returns NotAllowedError from getUserMedia so the probe
+        // catches the OS-level block exactly like a real macOS denial.
         mockMicEnvironment({
             audioInputs: 1,
             permission: "denied",
-            getUserMediaSpy,
         });
 
         render(
@@ -1148,8 +1178,81 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             screen.queryByText(/Connect an input device/i)
         ).toBeNull();
 
+        const getUserMediaSpy = (navigator as any).mediaDevices.getUserMedia;
+        getUserMediaSpy.mockClear();
         fireEvent.click(startBtn);
         expect(getUserMediaSpy).not.toHaveBeenCalled();
+    });
+
+    it("OS-level denial (macOS scenario): tab-open probe disables button even when Permissions API misreports as granted", async () => {
+        // This is the reviewer-reported bug: on macOS, denying mic access in
+        // System Settings doesn't propagate to Chromium's Permissions API,
+        // which keeps reporting "granted". The passive detection path
+        // (enumerateDevices + permissions.query) sees no problem, so the
+        // record button used to stay enabled until the user clicked it and
+        // it crashed. The probe-on-tab-open fix discovers the block by
+        // actually calling getUserMedia and observing the NotAllowedError.
+        sessionStorage.setItem("preferred-editor-tab", "audio");
+
+        const props = {
+            cellMarkers: ["cell-1"],
+            cellContent: "<p>Test content</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-1"],
+                cellContent: "<p>Test content</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Test Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            audioAttachments: { "cell-1": "none" as const },
+        };
+
+        // Mic IS enumerated and Permissions API reports "granted" — the
+        // exact pre-probe passive view. Only `getUserMedia` knows the truth.
+        const getUserMediaSpy = vi.fn().mockRejectedValue(
+            Object.assign(new Error("denied at OS"), { name: "NotAllowedError" })
+        );
+        mockMicEnvironment({
+            audioInputs: 1,
+            permission: "granted",
+            getUserMediaSpy,
+        });
+
+        render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        // After the tab-open probe runs, the button should flip to the
+        // permission-denied state without the user ever having clicked it.
+        const startBtn = await screen.findByRole("button", {
+            name: /Microphone access denied/i,
+        });
+        expect(startBtn.hasAttribute("disabled")).toBe(true);
+        expect(
+            await screen.findByText(/Enable microphone permissions/i)
+        ).toBeTruthy();
+        // The probe is the only thing that should have touched the API.
+        expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
     });
 
     it("auto-start with no mic: does not display countdown or call getUserMedia", async () => {
@@ -1161,11 +1264,9 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         // Default to 3s countdown so we'd see digits if the suppression failed.
         (window as any).__recordingCountdownSeconds = 3;
 
-        const getUserMediaSpy = vi.fn();
         mockMicEnvironment({
             audioInputs: 0,
             permission: "granted",
-            getUserMediaSpy,
         });
 
         const props = {
@@ -1205,9 +1306,13 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             </MockUnsavedChangesProvider>
         );
 
-        // Wait for the auto-start setTimeout (300ms) to fire and any
-        // subsequent renders to settle.
+        // Wait for the probe to land and the warning to render. The auto-
+        // start setTimeout is 300ms; wait past that so any countdown would
+        // have appeared if the suppression failed.
         await screen.findByText(/Connect an input device to record/i);
+        const getUserMediaSpy = (navigator as any).mediaDevices.getUserMedia;
+        // Probe ran; clear so the next assertion targets the auto-start path.
+        getUserMediaSpy.mockClear();
         await new Promise((r) => setTimeout(r, 400));
 
         // No countdown digits should ever have rendered.
@@ -1216,7 +1321,7 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         expect(
             screen.queryByRole("button", { name: /Starting in/i })
         ).toBeNull();
-        // And of course the stream API must never have been touched.
+        // And the auto-start path must not have touched the stream API.
         expect(getUserMediaSpy).not.toHaveBeenCalled();
     });
 

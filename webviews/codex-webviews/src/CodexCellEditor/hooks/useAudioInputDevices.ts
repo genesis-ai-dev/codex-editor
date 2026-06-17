@@ -13,16 +13,21 @@ import { useCallback, useEffect, useState } from "react";
  *     "assume available" by callers so we never false-positive disable on a
  *     working machine.
  *
- * Reacts live to three signals so the UI stays in sync without a reload:
+ * Reacts live to four signals so the UI stays in sync without a reload:
  *   - `devicechange` on `navigator.mediaDevices` (mic plugged / unplugged)
  *   - `change` on the `microphone` PermissionStatus (user grants/revokes
  *     access via the address bar or browser-level settings)
- *   - Runtime reports from the recorder via `reportRecorderError(err)` — the
- *     only reliable way to observe an OS-level block on macOS / Linux (the
- *     Permissions API only reflects browser-level state, not OS settings,
- *     so a user who denies in System Settings will still see `"granted"`
- *     from `navigator.permissions.query`; we only learn the real state
- *     when `getUserMedia()` throws `NotAllowedError`).
+ *   - `probeMicAccess()` — caller-initiated probe via a silent
+ *     `getUserMedia({ audio: true })` + immediate `track.stop()`. The
+ *     ONLY way to detect OS-level mic blocks (macOS System Settings /
+ *     Windows Privacy settings) because Chromium's Permissions API
+ *     reflects browser-level state, not the OS's. Result is cached at
+ *     module scope so we don't re-probe (and re-flash the OS recording
+ *     indicator) on every cell switch.
+ *   - Runtime reports from the recorder via `reportRecorderError(err)` —
+ *     a complementary path: the user clicked record and `getUserMedia`
+ *     threw. Updates the cache so the rest of the session reflects the
+ *     newly-discovered state.
  *
  * Devices typically show up in `enumerateDevices()` even before the user has
  * granted permission (their labels are blank, but the entries still count).
@@ -71,6 +76,21 @@ export interface UseAudioInputDevicesResult {
      * (e.g. after a successful `getUserMedia` call).
      */
     reportRecorderError: (err: unknown | null) => void;
+    /**
+     * Silently probe whether mic access actually works by calling
+     * `getUserMedia({ audio: true })` and immediately stopping the
+     * resulting tracks. Updates `availability` based on the outcome. The
+     * result is cached at module scope so repeated calls within the same
+     * webview session are no-ops (returns the cached state). This is the
+     * recommended fix for the macOS / Windows OS-level permission gap:
+     * call it when the user opens the audio recording UI so the button
+     * disables before they click.
+     *
+     * Side effect to be aware of: triggers the OS permission prompt on
+     * first ever call for a user who has never been asked, and briefly
+     * flashes the OS recording indicator. Cache prevents repetition.
+     */
+    probeMicAccess: () => Promise<void>;
 }
 
 type PermissionState = "granted" | "denied" | "prompt" | "unknown";
@@ -135,6 +155,64 @@ function classifyRecorderError(err: unknown): MicAvailability | null {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Module-level probe cache.
+//
+// Shared across all hook instances in the webview so opening multiple cells
+// during a session doesn't trigger a probe (and the recording-indicator
+// flash) on every cell switch. Lifetime = webview lifetime, which is
+// typically one work session.
+//
+// Invalidated by:
+//   - `devicechange` events (hardware presence may have changed)
+//   - `reportRecorderError` calls (recorder learned real state from
+//     a record-button click)
+// ─────────────────────────────────────────────────────────────────────────
+let probeCache: MicAvailability | null = null;
+let inflightProbe: Promise<MicAvailability> | null = null;
+
+/** Test-only: reset module state between cases. Not part of public API. */
+export function __resetProbeCacheForTesting(): void {
+    probeCache = null;
+    inflightProbe = null;
+}
+
+async function performProbe(): Promise<MicAvailability> {
+    if (
+        typeof navigator === "undefined" ||
+        !navigator.mediaDevices?.getUserMedia
+    ) {
+        // No API to probe with — fall back to optimistic so we never disable
+        // recording on a working machine just because we couldn't check.
+        return "available";
+    }
+    try {
+        // Minimal constraints: this is a permission probe, not a recording.
+        // Less to negotiate = less time the mic indicator flashes.
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Stop tracks in the same microtask as the resolution to release
+        // the mic immediately. OS recording indicator turns off as soon as
+        // the last track on a stream transitions to "ended".
+        stream.getTracks().forEach((t) => t.stop());
+        return "available";
+    } catch (err) {
+        return classifyRecorderError(err) ?? "available";
+    }
+}
+
+async function getOrRunProbe(): Promise<MicAvailability> {
+    if (probeCache !== null) return probeCache;
+    if (inflightProbe) return inflightProbe;
+    inflightProbe = performProbe();
+    try {
+        const result = await inflightProbe;
+        probeCache = result;
+        return result;
+    } finally {
+        inflightProbe = null;
+    }
+}
+
 export function useAudioInputDevices(): UseAudioInputDevicesResult {
     const isSupported =
         typeof navigator !== "undefined" &&
@@ -144,12 +222,16 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
     const [availability, setAvailability] = useState<MicAvailability>(
         isSupported ? "checking" : "unsupported"
     );
-    // When the recorder reports an error, we pin the state until cleared.
-    // Passive signals (`devicechange`, permission `change`) won't override it,
-    // because on macOS those signals are unreliable for OS-level mic blocks.
-    // The recorder calls `reportRecorderError(null)` after a successful
-    // `getUserMedia` to release the pin.
-    const [runtimeOverride, setRuntimeOverride] = useState<MicAvailability | null>(null);
+    // Pinned state set by either the explicit probe or by a real
+    // `getUserMedia` failure reported by the recorder. Passive signals
+    // (`devicechange`, permission `change`) won't override it, because on
+    // macOS / Windows those signals are unreliable for OS-level mic blocks.
+    // Initial value reads from the module cache so a freshly-mounted hook
+    // instance (e.g. opening a new cell) inherits whatever the last cell
+    // discovered, with no re-probe required.
+    const [runtimeOverride, setRuntimeOverride] = useState<MicAvailability | null>(
+        () => (probeCache !== null && probeCache !== "available" ? probeCache : null)
+    );
 
     useEffect(() => {
         if (FORCE_STATE_FOR_REVIEW !== null) {
@@ -195,7 +277,12 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
 
         evaluate();
 
-        const handleDeviceChange = () => evaluate();
+        const handleDeviceChange = () => {
+            // Hardware changed — the cached probe is no longer trustworthy.
+            // The next time the user opens the audio tab, we'll re-probe.
+            probeCache = null;
+            evaluate();
+        };
         mediaDevices.addEventListener("devicechange", handleDeviceChange);
 
         let unsubscribePermission: (() => void) | null = null;
@@ -216,11 +303,26 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
 
     const reportRecorderError = useCallback((err: unknown | null) => {
         if (err === null) {
+            // Successful getUserMedia is ground truth that the mic works.
+            // Update the cache so other hook instances learn the good news
+            // on next render, and clear the local pin.
+            probeCache = "available";
             setRuntimeOverride(null);
             return;
         }
         const classified = classifyRecorderError(err);
-        if (classified) setRuntimeOverride(classified);
+        if (classified) {
+            probeCache = classified;
+            setRuntimeOverride(classified);
+        }
+    }, []);
+
+    const probeMicAccess = useCallback(async () => {
+        const result = await getOrRunProbe();
+        // "available" is the absence-of-block state, so we clear the local
+        // pin and let passive layers report normally. Any non-available
+        // result pins so the UI accurately reflects the block.
+        setRuntimeOverride(result === "available" ? null : result);
     }, []);
 
     // Runtime override (from a real `getUserMedia` failure) takes precedence
@@ -240,5 +342,6 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
         noMicDetected,
         micPermissionDenied,
         reportRecorderError,
+        probeMicAccess,
     };
 }

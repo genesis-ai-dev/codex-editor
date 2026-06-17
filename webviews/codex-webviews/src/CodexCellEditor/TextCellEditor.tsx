@@ -541,8 +541,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // `hooks/useAudioInputDevices.ts` (top of file) for the in-code constant
     // reviewers can flip to simulate "no microphone" / "permission denied"
     // on machines with a working mic.
-    const { noMicDetected, micPermissionDenied, micUnavailable, reportRecorderError } =
-        useAudioInputDevices();
+    const {
+        noMicDetected,
+        micPermissionDenied,
+        micUnavailable,
+        reportRecorderError,
+        probeMicAccess,
+    } = useAudioInputDevices();
     // Mirror `micUnavailable` into a ref so guards inside callbacks (and
     // setTimeout-deferred work like the auto-start path) can read the
     // latest value without becoming stale closures.
@@ -558,6 +563,20 @@ const CellEditor: React.FC<CellEditorProps> = ({
     useEffect(() => {
         reportRecorderErrorRef.current = reportRecorderError;
     }, [reportRecorderError]);
+
+    // Probe real mic access (via a silent `getUserMedia` + immediate stop)
+    // whenever the user opens the audio tab. Chromium's Permissions API
+    // misreports the OS-level state on macOS and Windows, so this is the
+    // only way to disable the record button before the user clicks. The
+    // hook caches the result at module scope, so repeated tab opens and
+    // cell switches don't re-prompt or re-flash the OS recording indicator.
+    // Skipped for locked cells (the button is already disabled for other
+    // reasons; no point asking the OS for permission we won't use).
+    useEffect(() => {
+        if (activeTab !== "audio") return;
+        if (isCellLocked) return;
+        probeMicAccess();
+    }, [activeTab, isCellLocked, probeMicAccess]);
 
     const centerEditor = useCallback(() => {
         const el = cellEditorRef.current;
