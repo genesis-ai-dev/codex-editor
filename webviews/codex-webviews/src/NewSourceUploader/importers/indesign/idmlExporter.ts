@@ -21,7 +21,7 @@ import {
 import {
     applySegmentTranslationToParagraphBlock,
     findParagraphBlockInStoryXml,
-} from './contentSegmentUtils';
+} from '../common/contentSegmentUtils';
 
 // Import JSZip for Node.js environment
 import JSZip from 'jszip';

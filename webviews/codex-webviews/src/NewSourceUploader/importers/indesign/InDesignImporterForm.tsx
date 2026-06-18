@@ -26,7 +26,7 @@ import {
     extractContentSegmentStructureFromParagraph,
     getSegmentCharacterStylesForParagraph,
     joinContentSegments,
-} from "./contentSegmentUtils";
+} from "../common/contentSegmentUtils";
 import type {
     IDMLCharacterStyleRange,
     IDMLDocument,

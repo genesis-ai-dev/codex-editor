@@ -12,7 +12,7 @@ import {
     extractContentSegmentsFromParagraph,
     extractContentSegmentStructureFromParagraph,
     joinContentSegments,
-} from './contentSegmentUtils';
+} from '../common/contentSegmentUtils';
 
 /**
  * Parameters for creating InDesign verse cell metadata

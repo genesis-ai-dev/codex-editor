@@ -7,7 +7,7 @@
  * without rebuilding CharacterStyleRange XML.
  */
 
-import type { IDMLCharacterStyleRange, IDMLParagraph } from "./types";
+import type { IDMLParagraph } from "../indesign/types";
 
 /** Plain-text/metadata delimiter (stored in metadata only, not in editor HTML). */
 export const END_OF_CONTENT = "\u001E";
@@ -107,6 +107,26 @@ export function extractContentSegmentsFromParagraph(paragraph: IDMLParagraph): s
 }
 
 /**
+ * Extract one character style per <Content> node from paragraph XML (document order).
+ */
+export function extractSegmentStylesFromParagraphXml(paragraphBlock: string): string[] {
+    const styles: string[] = [];
+    const csrRegex =
+        /<CharacterStyleRange\b[^>]*AppliedCharacterStyle="([^"]*)"[^>]*>([\s\S]*?)<\/CharacterStyleRange>/gi;
+    let csrMatch: RegExpExecArray | null;
+    while ((csrMatch = csrRegex.exec(paragraphBlock)) !== null) {
+        const style = csrMatch[1] ?? "";
+        const inner = csrMatch[2] ?? "";
+        const contentRegex = /<Content>([\s\S]*?)<\/Content>/gi;
+        let contentMatch: RegExpExecArray | null;
+        while ((contentMatch = contentRegex.exec(inner)) !== null) {
+            styles.push(style);
+        }
+    }
+    return styles;
+}
+
+/**
  * Replace only inner text of <Content> nodes; leave Br, style ranges, and all
  * other markup byte-identical unless the translated slot explicitly changed.
  */
@@ -114,13 +134,15 @@ export function replaceParagraphContentBySegments(
     paragraphBlock: string,
     segments: string[],
     xmlEscape: (value: string) => string,
-    originalSegments?: string[]
+    originalSegments?: string[],
+    forceClearSegmentIndexes?: number[]
 ): string {
     const xmlOriginals = extractContentSegmentsFromParagraphXml(paragraphBlock);
     const originals =
         originalSegments && originalSegments.length > 0
             ? padSegmentArray(originalSegments, xmlOriginals.length, xmlOriginals)
             : xmlOriginals;
+    const forceClear = new Set(forceClearSegmentIndexes ?? []);
 
     let segmentIndex = 0;
     return paragraphBlock.replace(/<Content>([\s\S]*?)<\/Content>/g, (match, oldInner: string) => {
@@ -128,10 +150,18 @@ export function replaceParagraphContentBySegments(
         const slotOriginal = originals[segmentIndex] ?? xmlOriginal;
         const translated =
             segmentIndex < segments.length ? segments[segmentIndex] : undefined;
+        const currentIndex = segmentIndex;
         segmentIndex += 1;
 
         if (translated === undefined) {
             return match;
+        }
+
+        if (forceClear.has(currentIndex)) {
+            if (translated === "" && xmlOriginal === "") {
+                return match;
+            }
+            return `<Content>${xmlEscape("")}</Content>`;
         }
 
         // Empty slot with original text usually means a mapping failure — keep XML as-is.
@@ -197,7 +227,8 @@ export function applySegmentTranslationToParagraphBlock(
     paragraphBlock: string,
     translatedHtml: string,
     originalSegments?: string[],
-    xmlEscape?: (value: string) => string
+    xmlEscape?: (value: string) => string,
+    forceClearSegmentIndexes?: number[]
 ): string {
     const escape = xmlEscape ?? defaultXmlEscape;
     const xmlSegments = extractContentSegmentsFromParagraphXml(paragraphBlock);
@@ -216,11 +247,17 @@ export function applySegmentTranslationToParagraphBlock(
         originals
     );
 
+    const forceClear = new Set(forceClearSegmentIndexes ?? []);
+    const clearedSegments = translatedSegments.map((text, index) =>
+        forceClear.has(index) ? "" : text
+    );
+
     return replaceParagraphContentBySegments(
         paragraphBlock,
-        translatedSegments,
+        clearedSegments,
         escape,
-        originals
+        originals,
+        forceClearSegmentIndexes
     );
 }
 
@@ -401,19 +438,34 @@ export function buildSegmentedParagraphHtml(
     paragraphStyle: string,
     storyId: string,
     segmentStyles?: string[],
-    breakBefore?: boolean[]
+    breakBefore?: boolean[],
+    options?: {
+        segmentIndexOffset?: number;
+        totalSegmentCount?: number;
+        /** Original segment indexes to omit from editor HTML (structural apostrophes). */
+        skipSegmentIndexes?: number[];
+    }
 ): string {
     if (segments.length === 0) {
         return "";
     }
 
+    const segmentIndexOffset = options?.segmentIndexOffset ?? 0;
+    const totalSegmentCount = options?.totalSegmentCount ?? segments.length;
+    const skipIndexes = new Set(options?.skipSegmentIndexes ?? []);
     const defaultStyle = "CharacterStyle/$ID/[No character style]";
     const spanParts: string[] = [];
+    let previousVisibleIndex = -1;
+
     for (let i = 0; i < segments.length; i++) {
+        if (skipIndexes.has(segmentIndexOffset + i)) {
+            continue;
+        }
+
         const segmentText = segments[i] ?? "";
         const charStyle = segmentStyles?.[i] ?? defaultStyle;
 
-        if (i > 0) {
+        if (previousVisibleIndex >= 0) {
             const isLineBreak = breakBefore?.[i] ?? false;
             if (isLineBreak) {
                 spanParts.push(`<br class="idml-eoc" data-eoc="1" />`);
@@ -423,11 +475,16 @@ export function buildSegmentedParagraphHtml(
         }
 
         spanParts.push(
-            `<span class="idml-segment" data-segment-index="${i}" data-character-style="${escapeHtml(charStyle)}">${escapeHtml(segmentText)}</span>`
+            `<span class="idml-segment" data-segment-index="${segmentIndexOffset + i}" data-character-style="${escapeHtml(charStyle)}">${escapeHtml(segmentText)}</span>`
         );
+        previousVisibleIndex = i;
     }
 
-    return `<p class="indesign-paragraph" data-paragraph-style="${escapeHtml(paragraphStyle)}" data-story-id="${escapeHtml(storyId)}" data-segment-count="${segments.length}">${spanParts.join("")}</p>`;
+    if (spanParts.length === 0) {
+        return "";
+    }
+
+    return `<p class="indesign-paragraph" data-paragraph-style="${escapeHtml(paragraphStyle)}" data-story-id="${escapeHtml(storyId)}" data-segment-count="${totalSegmentCount}">${spanParts.join("")}</p>`;
 }
 
 /**
@@ -521,6 +578,35 @@ export function resolveTranslatedSegments(
     return mergeTranslatedSegments([trimmed], expectedSegmentCount, originalSegments);
 }
 
+/**
+ * Merge translated HTML from multiple cells that split one paragraph at line breaks.
+ * Preserves original segment indices for surgical export.
+ */
+export function mergeSplitCellTranslations(
+    cellHtmlList: string[],
+    originalSegments: string[],
+    breakBefore?: boolean[]
+): string {
+    const merged = [...originalSegments];
+
+    for (const html of cellHtmlList) {
+        const parsed = parseSegmentsFromCellHtml(html);
+        if (!parsed) {
+            continue;
+        }
+        for (let i = 0; i < parsed.length; i++) {
+            const text = parsed[i];
+            if (typeof text === "string" && text.trim().length > 0) {
+                merged[i] = text;
+            }
+        }
+    }
+
+    return buildSegmentedParagraphHtml(merged, "", "", undefined, breakBefore, {
+        totalSegmentCount: originalSegments.length,
+    });
+}
+
 function stripCellHtmlToPlainText(html: string): string {
     return html
         .replace(/<span[^>]*\bdata-eoc=["']1["'][^>]*>[\s\S]*?<\/span>/gi, END_OF_CONTENT)
@@ -569,4 +655,3 @@ function mergeTranslatedSegments(
         return candidate ?? "";
     });
 }
-

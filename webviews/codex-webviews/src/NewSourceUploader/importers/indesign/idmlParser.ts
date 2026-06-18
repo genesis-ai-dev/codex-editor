@@ -19,7 +19,7 @@ import {
     IDMLParseError,
     IDMLImportConfig
 } from './types';
-import { extractContentSegmentStructureFromParagraphXml } from './contentSegmentUtils';
+import { extractContentSegmentStructureFromParagraphXml } from '../common/contentSegmentUtils';
 
 // Local hashing helpers to avoid test-only imports
 function toArrayBufferForHash(input: string | ArrayBuffer): ArrayBuffer {
