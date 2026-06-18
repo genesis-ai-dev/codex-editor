@@ -23,6 +23,10 @@ export const initializeAudioExporter = (context: vscode.ExtensionContext): void 
     extensionContext = context;
 };
 
+export function getAudioExporterContext(): vscode.ExtensionContext | undefined {
+    return extensionContext;
+}
+
 // Debug logging for audio export diagnostics
 const DEBUG = false;
 function debug(...args: any[]) {
@@ -52,7 +56,7 @@ type AudioCellData = {
     audioEndTime?: number;
 };
 
-function sanitizeFileComponent(input: string): string {
+export function sanitizeFileComponent(input: string): string {
     return input
         .replace(/\s+/g, "_")
         .replace(/[^a-zA-Z0-9._-]/g, "-")
@@ -120,7 +124,7 @@ function formatChapterVerseSuffix(chapter?: number, verse?: number): string {
 // `./cellLabelUtils.ts` so the export wizard's pre-flight scan can reuse the
 // same identifiers — see that file for the rules and rationale.
 
-function getTargetLanguageCode(): string {
+export function getTargetLanguageCode(): string {
     const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
     const lang = projectConfig.get<any>("targetLanguage") || {};
     const code: string = lang.tag || lang.refName || "lang";
@@ -671,16 +675,16 @@ function predictOutputExt(originalExt: string, includeTimestamps: boolean): stri
     return originalExt;
 }
 
-async function readNotebook(uri: vscode.Uri): Promise<CodexNotebookAsJSONData> {
+export async function readNotebook(uri: vscode.Uri): Promise<CodexNotebookAsJSONData> {
     const bytes = await vscode.workspace.fs.readFile(uri);
     return JSON.parse(Buffer.from(bytes).toString());
 }
 
-function pickAudioAttachmentForCell(cell: any): AudioPickOutcome {
+export function pickAudioAttachmentForCell(cell: any): AudioPickOutcome {
     return pickAudioAttachment(cell);
 }
 
-async function pathExists(uri: vscode.Uri): Promise<boolean> {
+export async function pathExists(uri: vscode.Uri): Promise<boolean> {
     try { await vscode.workspace.fs.stat(uri); return true; } catch { return false; }
 }
 

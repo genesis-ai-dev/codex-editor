@@ -533,6 +533,32 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                 );
                 break;
             }
+            case "previewCharacterAudio": {
+                try {
+                    const { getCharacterAudioPreview } = await import(
+                        "../exportHandler/characterAudioExporter"
+                    );
+                    const preview = await getCharacterAudioPreview(
+                        (message.filesToExport as string[]) || []
+                    );
+                    safePostMessageToPanel(
+                        panel,
+                        { command: "characterAudioPreviewResult", preview },
+                        "ProjectExport"
+                    );
+                } catch (err) {
+                    safePostMessageToPanel(
+                        panel,
+                        {
+                            command: "characterAudioPreviewResult",
+                            preview: { files: [] },
+                            error: err instanceof Error ? err.message : String(err),
+                        },
+                        "ProjectExport"
+                    );
+                }
+                break;
+            }
             case "checkSubtitleOverlaps": {
                 const proceed = await checkSubtitleOverlapsAndConfirm(
                     message.filesToExport as string[]
@@ -978,11 +1004,93 @@ function getWebviewContent(
                     padding: 20px 24px;
                     max-width: 480px;
                     width: 90%;
-                    max-height: 85vh;
+                    max-height: 90vh;
                     display: flex;
                     flex-direction: column;
                     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
                 }
+                .popup-card .popup-header { flex: 0 0 auto; }
+                .popup-card .popup-body {
+                    flex: 1 1 auto;
+                    min-height: 0;
+                    overflow-y: auto;
+                }
+                .popup-card.wide { max-width: 900px; }
+                .char-preview-file { margin-bottom: 18px; }
+                .char-preview-file h5 {
+                    margin: 0 0 6px 0;
+                    color: var(--vscode-foreground);
+                    font-size: 0.95em;
+                }
+                .char-preview-meta {
+                    color: var(--vscode-descriptionForeground);
+                    font-size: 0.8em;
+                    margin-bottom: 8px;
+                }
+                .char-row {
+                    display: grid;
+                    grid-template-columns: 160px 1fr 80px;
+                    gap: 10px;
+                    align-items: center;
+                    padding: 3px 0;
+                    font-size: 0.85em;
+                }
+                .char-row .char-label {
+                    color: var(--vscode-foreground);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .char-row .char-timeline {
+                    position: relative;
+                    height: 14px;
+                    background: var(--vscode-input-background);
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 2px;
+                    overflow: hidden;
+                }
+                .char-row .speech-segment {
+                    position: absolute;
+                    top: 0;
+                    bottom: 0;
+                    min-width: 1px;
+                    opacity: 0.85;
+                }
+                .char-row .speech-segment.has-audio {
+                    background: var(--vscode-charts-blue, #3b82f6);
+                }
+                .char-row .speech-segment.no-audio {
+                    background: var(--vscode-descriptionForeground, #6b7280);
+                    opacity: 0.45;
+                }
+                .char-row.no-audio .char-label {
+                    color: var(--vscode-descriptionForeground);
+                    font-style: italic;
+                }
+                .char-row .char-stats {
+                    color: var(--vscode-descriptionForeground);
+                    font-size: 0.8em;
+                    text-align: right;
+                    font-variant-numeric: tabular-nums;
+                }
+                .char-legend {
+                    display: flex;
+                    gap: 14px;
+                    margin: 4px 0 12px 0;
+                    font-size: 0.78em;
+                    color: var(--vscode-descriptionForeground);
+                    align-items: center;
+                }
+                .char-legend .swatch {
+                    display: inline-block;
+                    width: 12px;
+                    height: 10px;
+                    border-radius: 2px;
+                    margin-right: 4px;
+                    vertical-align: middle;
+                }
+                .char-legend .swatch.has-audio { background: var(--vscode-charts-blue, #3b82f6); }
+                .char-legend .swatch.no-audio { background: var(--vscode-descriptionForeground, #6b7280); opacity: 0.45; }
                 .popup-header {
                     flex-shrink: 0;
                     display: flex;
@@ -1733,6 +1841,26 @@ function getWebviewContent(
                                             <p>Export per-cell audio attachments alongside the selected export format, and embed timestamps in audio metadata (WAV, WebM, M4A)</p>
                                         </div>
                                     </div>
+                                    <div class="format-option audio-option" data-audio-mode="audio-by-character">
+                                        <div class="format-option-content">
+                                            <strong>Consolidate by Character</strong>
+                                            <p>One file per character label. All files start at 0:00 so they drop into a DAW aligned; each is trimmed to that character's last spoken line. Named &lt;file&gt;_&lt;lang&gt;_&lt;character&gt;.&lt;ext&gt;.</p>
+                                            <div id="characterAudioControls" style="display:none; margin-top:8px; flex-direction:column; gap:6px;">
+                                                <label style="display:flex; align-items:center; gap:8px; font-size:0.9em;">
+                                                    <span>Format:</span>
+                                                    <select id="characterAudioFormat" onclick="event.stopPropagation()" onchange="event.stopPropagation()" style="background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border); border-radius:3px; padding:2px 6px;">
+                                                        <option value="flac" selected>FLAC (lossless, small)</option>
+                                                        <option value="wav">WAV (PCM, largest)</option>
+                                                        <option value="opus">Opus (lossy, smallest)</option>
+                                                    </select>
+                                                </label>
+                                                <button type="button" class="secondary" onclick="event.stopPropagation(); openCharacterPreview();" style="align-self:flex-start;">
+                                                    <i class="codicon codicon-preview"></i>
+                                                    Preview characters
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1897,6 +2025,28 @@ function getWebviewContent(
                 </div>
             </div>
 
+            <div class="popup-overlay" id="characterPreviewPopup" onclick="if(event.target===this)closeCharacterPreviewPopup()">
+                <div class="popup-card wide">
+                    <div class="popup-header" style="color: var(--vscode-foreground);">
+                        <i class="codicon codicon-preview"></i>
+                        <h4>Character Audio Preview</h4>
+                        <button class="popup-close" onclick="closeCharacterPreviewPopup()" title="Close">
+                            <i class="codicon codicon-close"></i>
+                        </button>
+                    </div>
+                    <div class="popup-body">
+                        <p style="color: var(--vscode-descriptionForeground); font-size: 0.85em; margin-top: 0;">
+                            One row per character per file. Blue bars are speaking turns with audio attached. Grey bars are lines that have timing but no audio yet — these characters won't be exported until recordings are added. Files start at 0:00 and are trimmed to that character's last <em>recorded</em> line.
+                        </p>
+                        <div class="char-legend">
+                            <span><span class="swatch has-audio"></span>has audio (exports)</span>
+                            <span><span class="swatch no-audio"></span>timed line, no audio (skipped)</span>
+                        </div>
+                        <div id="characterPreviewBody"></div>
+                    </div>
+                </div>
+            </div>
+
             <div class="popup-overlay" id="htmlMismatchPopup" onclick="if(event.target===this)closeHtmlMismatchPopup()">
                 <div class="popup-card">
                     <div class="popup-header">
@@ -1948,7 +2098,7 @@ function getWebviewContent(
                 const isStreamOnly = ${JSON.stringify(isStreamOnly)};
                 let currentStep = 1;
                 let selectedFormat = null;
-                let selectedAudioMode = null; // null | 'audio' | 'audio-timestamps'
+                let selectedAudioMode = null; // null | 'audio' | 'audio-timestamps' | 'audio-by-character'
                 let exportPath = ${initialExportFolderJson};
                 let selectedFiles = new Set();
                 let selectedGroupKey = null;
@@ -2919,6 +3069,7 @@ function getWebviewContent(
                             opt.style.borderColor = '';
                         });
                     }
+                    try { updateCharacterAudioControls(); } catch (e) {}
                     updateStep2Button();
                 }
 
@@ -3786,7 +3937,149 @@ function getWebviewContent(
                             advanceToNextStepAfterFormat();
                         }
                     }
+                    if (message.command === 'characterAudioPreviewResult') {
+                        renderCharacterPreview(message.preview, message.error);
+                    }
                 });
+
+                function updateCharacterAudioControls() {
+                    const controls = document.getElementById('characterAudioControls');
+                    if (!controls) return;
+                    controls.style.display = selectedAudioMode === 'audio-by-character' ? 'flex' : 'none';
+                }
+
+                function openCharacterPreview() {
+                    if (selectedFiles.size === 0) return;
+                    const body = document.getElementById('characterPreviewBody');
+                    if (body) {
+                        body.replaceChildren();
+                        const loading = document.createElement('p');
+                        loading.style.color = 'var(--vscode-descriptionForeground)';
+                        loading.textContent = 'Loading preview...';
+                        body.appendChild(loading);
+                    }
+                    const popup = document.getElementById('characterPreviewPopup');
+                    if (popup) popup.classList.add('visible');
+                    vscode.postMessage({
+                        command: 'previewCharacterAudio',
+                        filesToExport: Array.from(selectedFiles)
+                    });
+                }
+
+                function closeCharacterPreviewPopup() {
+                    const popup = document.getElementById('characterPreviewPopup');
+                    if (popup) popup.classList.remove('visible');
+                }
+
+                function formatMmSs(totalSeconds) {
+                    if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '0:00';
+                    const total = Math.floor(totalSeconds);
+                    const m = Math.floor(total / 60);
+                    const s = total % 60;
+                    return m + ':' + String(s).padStart(2, '0');
+                }
+
+                function makeFileBlock(f) {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'char-preview-file';
+                    const title = document.createElement('h5');
+                    title.textContent = f.fileBase;
+                    wrapper.appendChild(title);
+                    const meta = document.createElement('div');
+                    meta.className = 'char-preview-meta';
+                    if (f.missingTiming) {
+                        meta.textContent = 'No timing data — this file will be skipped.';
+                        wrapper.appendChild(meta);
+                        return wrapper;
+                    }
+                    if (!f.characters || f.characters.length === 0) {
+                        meta.textContent = 'Episode length: ' + formatMmSs(f.episodeDurationSec) + ' — no character audio found.';
+                        wrapper.appendChild(meta);
+                        return wrapper;
+                    }
+                    const exportingCount = (f.characters || []).filter(function(c) { return c.willExport; }).length;
+                    const totalCount = f.characters.length;
+                    const skippedNote = f.skippedCells > 0
+                        ? ' • ' + f.skippedCells + ' cell' + (f.skippedCells === 1 ? '' : 's') + ' missing timing'
+                        : '';
+                    meta.textContent = 'Episode length: ' + formatMmSs(f.episodeDurationSec) +
+                        ' • ' + totalCount + ' character' + (totalCount === 1 ? '' : 's') +
+                        ' (' + exportingCount + ' will export)' + skippedNote;
+                    wrapper.appendChild(meta);
+
+                    const dur = f.episodeDurationSec;
+                    for (const c of f.characters) {
+                        const row = document.createElement('div');
+                        row.className = 'char-row' + (c.willExport ? '' : ' no-audio');
+
+                        const label = document.createElement('div');
+                        label.className = 'char-label';
+                        const audioCount = c.audioCellCount || 0;
+                        const noAudioCount = c.noAudioCellCount || 0;
+                        const untimed = c.untimedCellCount || 0;
+                        const tooltipParts = [c.label];
+                        if (audioCount) tooltipParts.push(audioCount + ' with audio');
+                        if (noAudioCount) tooltipParts.push(noAudioCount + ' timed, no audio');
+                        if (untimed) tooltipParts.push(untimed + ' untimed');
+                        label.title = tooltipParts.join(' • ');
+                        label.textContent = c.label;
+                        row.appendChild(label);
+
+                        const timeline = document.createElement('div');
+                        timeline.className = 'char-timeline';
+                        for (const iv of (c.intervals || [])) {
+                            const seg = document.createElement('div');
+                            seg.className = 'speech-segment ' + (iv.hasAudio ? 'has-audio' : 'no-audio');
+                            const left = dur > 0 ? Math.max(0, Math.min(100, (iv.startSec / dur) * 100)) : 0;
+                            const widthRaw = dur > 0 ? ((iv.endSec - iv.startSec) / dur) * 100 : 0;
+                            const width = Math.max(0.2, Math.min(100 - left, widthRaw));
+                            seg.style.left = left.toFixed(3) + '%';
+                            seg.style.width = width.toFixed(3) + '%';
+                            timeline.appendChild(seg);
+                        }
+                        row.appendChild(timeline);
+
+                        const stats = document.createElement('div');
+                        stats.className = 'char-stats';
+                        if (c.willExport) {
+                            const trim = formatMmSs(c.lastEndSec);
+                            const audioSpeaking = formatMmSs(c.speakingSecAudio || 0);
+                            const noAudioSpeaking = (c.speakingSecNoAudio || 0) > 0 ? ' • ' + formatMmSs(c.speakingSecNoAudio) + ' no audio' : '';
+                            stats.title = 'Trim: ' + trim + ' • Speaking (audio): ' + audioSpeaking + noAudioSpeaking;
+                            stats.textContent = trim;
+                        } else {
+                            stats.title = 'No audio recorded yet — not exported';
+                            stats.textContent = 'no audio';
+                        }
+                        row.appendChild(stats);
+
+                        wrapper.appendChild(row);
+                    }
+                    return wrapper;
+                }
+
+                function renderCharacterPreview(preview, error) {
+                    const body = document.getElementById('characterPreviewBody');
+                    if (!body) return;
+                    body.replaceChildren();
+                    if (error) {
+                        const p = document.createElement('p');
+                        p.style.color = 'var(--vscode-errorForeground)';
+                        p.textContent = error;
+                        body.appendChild(p);
+                        return;
+                    }
+                    if (!preview || !preview.files || preview.files.length === 0) {
+                        const p = document.createElement('p');
+                        p.style.color = 'var(--vscode-descriptionForeground)';
+                        p.textContent = 'No files to preview.';
+                        body.appendChild(p);
+                        return;
+                    }
+                    for (const f of preview.files) {
+                        body.appendChild(makeFileBlock(f));
+                    }
+                }
 
                 document.addEventListener('DOMContentLoaded', () => {
                     renderFileGroups();
@@ -3817,7 +4110,7 @@ function getWebviewContent(
                                 option.classList.add('selected');
                                 checkAudioSelectionMismatch();
                             }
-                            try { updateStep2Button(); updateExportButton(); } catch (e) {}
+                            try { updateStep2Button(); updateExportButton(); updateCharacterAudioControls(); } catch (e) {}
                         });
                     });
 
@@ -3954,6 +4247,11 @@ function getWebviewContent(
                     if (selectedAudioMode) {
                         options.includeAudio = true;
                         options.includeTimestamps = selectedAudioMode === 'audio-timestamps';
+                        options.consolidateByCharacter = selectedAudioMode === 'audio-by-character';
+                        if (options.consolidateByCharacter) {
+                            const fmtEl = document.getElementById('characterAudioFormat');
+                            options.consolidatedAudioFormat = (fmtEl && fmtEl.value) ? fmtEl.value : 'flac';
+                        }
                     }
                     if (selectedFormat && selectedFormat.startsWith('subtitles-vtt-')) {
                         const cb = document.getElementById('vttExcludeLabelsCb');
