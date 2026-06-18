@@ -1286,11 +1286,21 @@ export async function resolveCodexCustomMerge(
     // Re-apply verse-range reordering (and idempotent cellLabel/chapterNumber autofill) so
     // that the migrated cell ordering survives git syncs regardless of which side is "ours".
     // The helper:
+    //   - no-ops for known non-Bible importer types (documents, subtitles, spreadsheets, …);
     //   - bails out as a no-op on files with no milestones and no verse-range cells;
+    //   - bails out when no content cell has a parseable verse ref (book-only globalReferences,
+    //     e.g. IDML imports) or when no milestone can be matched to any content chapter;
+    //   - keeps cells it cannot place (headings, markers, style cells) anchored next to their
+    //     original neighbors instead of moving them to the end of the file;
     //   - never adds edit-history entries;
     //   - never soft-deletes cells (orphan paratext handling stays in the migration);
     //   - skips cellLabel autofill on cells the user has hand-labeled.
-    const reordered = reorderVerseRangeCells(resultCells);
+    const reordered = reorderVerseRangeCells(resultCells, {
+        importerType:
+            mergedMetadata?.importerType ??
+            ourMetadata?.importerType ??
+            theirMetadata?.importerType,
+    });
     const finalCells = reordered.cells;
 
     // Return the full notebook structure with merged cells and metadata

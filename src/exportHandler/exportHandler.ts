@@ -255,6 +255,8 @@ export interface ExportOptions {
     removeIds?: boolean;
     includeAudio?: boolean;
     includeTimestamps?: boolean;
+    consolidateByCharacter?: boolean;
+    consolidatedAudioFormat?: "wav" | "flac" | "opus";
     excludeLabels?: boolean;
     /** Per-file 0-based milestone indices to include when exporting audio. An empty array skips that file entirely. Files omitted from this map are exported in full (no milestone step). */
     selectedMilestonesByFile?: Record<string, number[]>;
@@ -1793,11 +1795,18 @@ export async function exportCodexContent(
             exportPromises.push(exportCodexContentAsHtml(formatPath, filesToExport, childReporter, options, token));
             break;
         case CodexExportFormat.AUDIO: {
-            const { exportAudioAttachments } = await import("./audioExporter");
-            exportPromises.push(exportAudioAttachments(wrapperPath, filesToExport, childReporter, {
-                includeTimestamps: options?.includeTimestamps,
-                selectedMilestonesByFile: options?.selectedMilestonesByFile,
-            }, token));
+            if (options?.consolidateByCharacter) {
+                const { exportAudioByCharacter } = await import("./characterAudioExporter");
+                exportPromises.push(exportAudioByCharacter(wrapperPath, filesToExport, {
+                    format: options?.consolidatedAudioFormat,
+                }));
+            } else {
+                const { exportAudioAttachments } = await import("./audioExporter");
+                exportPromises.push(exportAudioAttachments(wrapperPath, filesToExport, childReporter, {
+                    includeTimestamps: options?.includeTimestamps,
+                    selectedMilestonesByFile: options?.selectedMilestonesByFile,
+                }, token));
+            }
             break;
         }
         case CodexExportFormat.SUBTITLES_VTT_WITH_STYLES:
@@ -1830,13 +1839,20 @@ export async function exportCodexContent(
     }
 
     if (includeAudio) {
-        const { exportAudioAttachments } = await import("./audioExporter");
-        exportPromises.push(
-            exportAudioAttachments(audioPath, filesToExport, childReporter, {
-                includeTimestamps: options?.includeTimestamps,
-                selectedMilestonesByFile: options?.selectedMilestonesByFile,
-            }, token)
-        );
+        if (options?.consolidateByCharacter) {
+            const { exportAudioByCharacter } = await import("./characterAudioExporter");
+            exportPromises.push(exportAudioByCharacter(audioPath, filesToExport, {
+                format: options?.consolidatedAudioFormat,
+            }));
+        } else {
+            const { exportAudioAttachments } = await import("./audioExporter");
+            exportPromises.push(
+                exportAudioAttachments(audioPath, filesToExport, childReporter, {
+                    includeTimestamps: options?.includeTimestamps,
+                    selectedMilestonesByFile: options?.selectedMilestonesByFile,
+                }, token)
+            );
+        }
     }
 
     await Promise.all(exportPromises);

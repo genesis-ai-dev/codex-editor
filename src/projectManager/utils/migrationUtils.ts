@@ -2120,21 +2120,6 @@ function getLocalizedBookName(bookAbbr: string): string {
 }
 
 /**
- * Extracts chapter number from a milestone value (e.g. "John 4", "4", "GEN 2").
- * Used for verse-range migration to associate milestones with content chapters.
- */
-function extractChapterNumberFromMilestoneValue(value: string | undefined): number | null {
-    if (value == null || typeof value !== "string") return null;
-    const matches = value.match(/(\d+)(?!.*\d)/);
-    if (matches?.[1]) {
-        const n = parseInt(matches[1], 10);
-        return !isNaN(n) && n > 0 ? n : null;
-    }
-    const parsed = parseInt(value, 10);
-    return !isNaN(parsed) && parsed > 0 ? parsed : null;
-}
-
-/**
  * Creates a milestone cell with book name and chapter number derived from the cell below it.
  * Format: "BookName ChapterNumber" (e.g., "Isaiah 1")
  * @param cell - The cell to derive chapter information from
@@ -3222,7 +3207,9 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
         // ---- Reorder + relabel pass ----------------------------------------------------------
         // Delegated to the shared helper so the codex merge resolver can run the same logic and
         // keep the migrated ordering / cellLabel after every git sync.
-        const reordered = reorderVerseRangeCells(cells);
+        const reordered = reorderVerseRangeCells(cells, {
+            importerType: notebookData?.metadata?.importerType,
+        });
         const newCells = reordered.cells;
         const orderChanged = reordered.orderChanged;
         if (reordered.mutated) hasChanges = true;
