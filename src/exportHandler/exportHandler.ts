@@ -1807,7 +1807,8 @@ export async function exportCodexContent(
                 const { exportAudioByCharacter } = await import("./characterAudioExporter");
                 exportPromises.push(exportAudioByCharacter(wrapperPath, filesToExport, {
                     format: options?.consolidatedAudioFormat,
-                }));
+                    selectedMilestonesByFile: options?.selectedMilestonesByFile,
+                }, token));
             } else {
                 const { exportAudioAttachments } = await import("./audioExporter");
                 exportPromises.push(exportAudioAttachments(wrapperPath, filesToExport, childReporter, {
@@ -1851,7 +1852,8 @@ export async function exportCodexContent(
             const { exportAudioByCharacter } = await import("./characterAudioExporter");
             exportPromises.push(exportAudioByCharacter(audioPath, filesToExport, {
                 format: options?.consolidatedAudioFormat,
-            }));
+                selectedMilestonesByFile: options?.selectedMilestonesByFile,
+            }, token));
         } else {
             const { exportAudioAttachments } = await import("./audioExporter");
             exportPromises.push(
