@@ -684,9 +684,27 @@ function resolveMetadataConflictsUsingEditHistory(
         }
     }
 
-    // Start with our cell as the base
-    // Shallow copy is sufficient - attachments are merged separately later
-    const resolvedCell = { ...ourCell };
+    // Start with a UNION of both metadatas so any field present on either side
+    // (attachments, milestoneIndex, selectedAudioId, future fields, etc.) is
+    // preserved by default. ourCell wins on overlapping keys; metadata.data is
+    // also unioned so sub-fields like milestoneIndex / startTime survive.
+    // Phase 2 in mergeTwoCellsUsingResolverLogic still overrides specific fields
+    // with intelligent merging (mergeAttachments, resolveAudioSelection) on top.
+    //
+    // This union also creates a fresh metadata object, so subsequent
+    // applyEditToCell mutations no longer alias ourCell.metadata.
+    const resolvedCell: CustomNotebookCellData = {
+        ...theirCell,
+        ...ourCell,
+        metadata: {
+            ...(theirCell.metadata ?? {}),
+            ...(ourCell.metadata ?? {}),
+            data: {
+                ...((theirCell.metadata ?? {}).data ?? {}),
+                ...((ourCell.metadata ?? {}).data ?? {}),
+            },
+        } as CustomNotebookCellData["metadata"],
+    };
 
     // For each metadata path, apply the most recent edit
     for (const [pathKey, edits] of editsByPath.entries()) {
@@ -2640,6 +2658,17 @@ export async function resolveConflictFiles(
                         } else {
                             // Use non-empty content (prefer ours, fallback to theirs)
                             const content = conflict.ours || conflict.theirs;
+                            if (content.length === 0) {
+                                // Defense in depth: we were asked to create a new file but neither
+                                // side has content. This usually means a remote blob couldn't be
+                                // read at conflict-analysis time (incomplete fetch). The BLOB_READ_FAILED:
+                                // prefix routes this through the retry layer in stageAndCommitAllAndSync.
+                                failedFiles.push({
+                                    filepath: conflict.filepath,
+                                    error: "BLOB_READ_FAILED: empty content for new file (likely incomplete fetch)",
+                                });
+                                return;
+                            }
                             await vscode.workspace.fs.writeFile(filePath, Buffer.from(content));
                             resolvedFiles.push({
                                 filepath: conflict.filepath,
