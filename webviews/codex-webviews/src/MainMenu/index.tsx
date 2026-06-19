@@ -559,90 +559,90 @@ function MainMenu() {
                     }}
                 >
                     <CardContent className="p-4">
-                        <div className="flex items-start gap-4">
-                            <div className="flex-shrink-0">
+                        <div className="flex flex-col items-center text-center gap-3">
+                            <div className="flex items-center justify-center gap-2">
                                 <i
                                     className={`${updateInfo.icon} text-xl`}
                                     style={{ color: "var(--ring)" }}
                                 />
+                                <h3
+                                    className="font-semibold text-sm break-words"
+                                    style={{ color: "var(--foreground)" }}
+                                >
+                                    {updateInfo.title}
+                                </h3>
                             </div>
-                            <div className="flex-1 space-y-1">
-                                <div className="flex flex-row flex-wrap items-center justify-between gap-2">
-                                    <h3
-                                        className="font-semibold text-sm"
-                                        style={{ color: "var(--foreground)" }}
+                            {projectState.updateVersion && (
+                                <p
+                                    className="text-xs"
+                                    style={{ color: "var(--muted-foreground)" }}
+                                >
+                                    Version {projectState.updateVersion}
+                                </p>
+                            )}
+                            <div className="flex flex-wrap items-center justify-center gap-2">
+                                {SHOULD_SHOW_RELEASE_NOTES_LINK && (
+                                    <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={() => {
+                                            // Open external URL in default browser
+                                            vscode.postMessage({
+                                                command: "openExternal",
+                                                url: RELEASE_NOTES_URL,
+                                            });
+                                        }}
+                                        disabled={projectState.isCheckingForUpdates}
+                                        className="text-xs px-2 py-1 h-7"
+                                        style={{
+                                            backgroundColor: "var(--muted)",
+                                            color: "var(--muted-foreground)",
+                                        }}
                                     >
-                                        {updateInfo.title}
-                                    </h3>
-                                    <div className="flex items-center gap-2 ml-4">
-                                        {SHOULD_SHOW_RELEASE_NOTES_LINK && (
-                                            <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                onClick={() => {
-                                                    // Open external URL in default browser
-                                                    vscode.postMessage({
-                                                        command: "openExternal",
-                                                        url: RELEASE_NOTES_URL,
-                                                    });
-                                                }}
-                                                disabled={projectState.isCheckingForUpdates}
-                                                className="text-xs px-2 py-1 h-7"
-                                            >
-                                                Release Notes
-                                            </Button>
-                                        )}
-                                        <Button
-                                            size="sm"
-                                            variant={updateInfo.variant}
-                                            onClick={() =>
-                                                handleProjectAction(updateInfo.primaryCommand)
-                                            }
-                                            disabled={
-                                                projectState.isCheckingForUpdates ||
-                                                projectState.updateState === "downloading" ||
-                                                projectState.updateState === "updating"
-                                            }
-                                            className={`text-xs px-3 py-1 h-7 ${
-                                                updateInfo?.isPrimary
-                                                    ? "button-primary"
-                                                    : "button-outline"
-                                            }`}
-                                        >
-                                            {projectState.isCheckingForUpdates ? (
-                                                <>
-                                                    <i className="codicon codicon-loading codicon-modifier-spin mr-1 text-xs" />
-                                                    Checking...
-                                                </>
-                                            ) : projectState.updateState === "downloading" ? (
-                                                <>
-                                                    <i className="codicon codicon-loading codicon-modifier-spin mr-1 text-xs" />
-                                                    Downloading...
-                                                </>
-                                            ) : projectState.updateState === "updating" ? (
-                                                <>
-                                                    <i className="codicon codicon-loading codicon-modifier-spin mr-1 text-xs" />
-                                                    Installing...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <i
-                                                        className={`${updateInfo.icon} mr-1 text-xs`}
-                                                    />
-                                                    {updateInfo.primaryAction}
-                                                </>
-                                            )}
-                                        </Button>
-                                    </div>
-                                </div>
-                                {projectState.updateVersion && (
-                                    <p
-                                        className="text-xs"
-                                        style={{ color: "var(--muted-foreground)" }}
-                                    >
-                                        Version {projectState.updateVersion}
-                                    </p>
+                                        Release Notes
+                                    </Button>
                                 )}
+                                <Button
+                                    size="sm"
+                                    variant={updateInfo.variant}
+                                    onClick={() =>
+                                        handleProjectAction(updateInfo.primaryCommand)
+                                    }
+                                    disabled={
+                                        projectState.isCheckingForUpdates ||
+                                        projectState.updateState === "downloading" ||
+                                        projectState.updateState === "updating"
+                                    }
+                                    className={`text-xs px-3 py-1 h-7 ${
+                                        updateInfo?.isPrimary
+                                            ? "button-primary"
+                                            : "button-outline"
+                                    }`}
+                                >
+                                    {projectState.isCheckingForUpdates ? (
+                                        <>
+                                            <i className="codicon codicon-loading codicon-modifier-spin mr-1 text-xs" />
+                                            Checking...
+                                        </>
+                                    ) : projectState.updateState === "downloading" ? (
+                                        <>
+                                            <i className="codicon codicon-loading codicon-modifier-spin mr-1 text-xs" />
+                                            Downloading...
+                                        </>
+                                    ) : projectState.updateState === "updating" ? (
+                                        <>
+                                            <i className="codicon codicon-loading codicon-modifier-spin mr-1 text-xs" />
+                                            Installing...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <i
+                                                className={`${updateInfo.icon} mr-1 text-xs`}
+                                            />
+                                            {updateInfo.primaryAction}
+                                        </>
+                                    )}
+                                </Button>
                             </div>
                         </div>
                     </CardContent>

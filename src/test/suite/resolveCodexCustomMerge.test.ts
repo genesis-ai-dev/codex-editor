@@ -482,4 +482,190 @@ suite("Codex Custom Merge - Verse Range Order Preservation Across Sync", () => {
         const range = JSON.parse(merged).cells.find((c: any) => c.metadata?.id === "RANGE");
         assert.strictEqual(range.metadata.cellLabel, customLabel, "Resolver must not overwrite a user-edited cellLabel");
     });
+
+    test("merge preserves interleaved milestone order when text cells have book-only globalReferences", async () => {
+        // IDML-imported files carry book-only refs like ["JOB"], which parseVerseRef cannot
+        // parse. The reorder helper used to hoist every milestone to the top of the file and
+        // append all text cells after the last milestone, so each section appeared empty in
+        // the editor after a sync merge.
+        const milestone = (id: string, value: string) => ({
+            kind: 2,
+            languageId: "html",
+            value,
+            metadata: { id, type: "milestone", edits: [] },
+        });
+        const bookOnlyText = (id: string, value: string) => ({
+            kind: 2,
+            languageId: "scripture",
+            value,
+            metadata: {
+                id,
+                type: "text",
+                data: { globalReferences: ["JOB"] },
+                edits: [],
+            },
+        });
+        const content = JSON.stringify({
+            cells: [
+                milestone("M1", "Job 1"),
+                bookOnlyText("T1", "<span>section one a</span>"),
+                bookOnlyText("T2", "<span>section one b</span>"),
+                milestone("M2", "Job 2"),
+                bookOnlyText("T3", "<span>section two</span>"),
+                milestone("M3", "Job 3"),
+                bookOnlyText("T4", "<span>section three</span>"),
+            ],
+            metadata: { id: "TEST", originalName: "TEST" },
+        });
+
+        const merged1 = await resolveCodexCustomMerge(content, content);
+        const ids = JSON.parse(merged1).cells.map((c: any) => c.metadata?.id);
+        assert.deepStrictEqual(
+            ids,
+            ["M1", "T1", "T2", "M2", "T3", "M3", "T4"],
+            "Milestones must stay interleaved with their text cells"
+        );
+
+        // And the result must be stable across repeated sync merges
+        const merged2 = await resolveCodexCustomMerge(merged1, merged1);
+        const ids2 = JSON.parse(merged2).cells.map((c: any) => c.metadata?.id);
+        assert.deepStrictEqual(ids2, ids, "Repeated merges must not change the cell order");
+    });
+
+    test("merge preserves order when milestones are chapter ranges like 'Job 4-31'", async () => {
+        const cells = [
+            {
+                kind: 2,
+                languageId: "html",
+                value: "Job 1-3",
+                metadata: { id: "M1", type: "milestone", edits: [] },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "<span>1:1</span>",
+                metadata: {
+                    id: "T1",
+                    type: "text",
+                    data: { globalReferences: ["JOB 1:1"] },
+                    edits: [],
+                },
+            },
+            {
+                kind: 2,
+                languageId: "html",
+                value: "Job 4-31",
+                metadata: { id: "M2", type: "milestone", edits: [] },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "<span>4:1</span>",
+                metadata: {
+                    id: "T2",
+                    type: "text",
+                    data: { globalReferences: ["JOB 4:1"] },
+                    edits: [],
+                },
+            },
+        ];
+        const content = JSON.stringify({
+            cells,
+            metadata: { id: "TEST", originalName: "TEST" },
+        });
+
+        const merged = await resolveCodexCustomMerge(content, content);
+        const ids = JSON.parse(merged).cells.map((c: any) => c.metadata?.id);
+        assert.deepStrictEqual(
+            ids,
+            ["M1", "T1", "M2", "T2"],
+            "Content chapters must stay under their covering range milestone"
+        );
+    });
+
+    test("merge keeps USFM heading/marker cells (empty globalReferences) next to their verses", async () => {
+        // The USFM importer writes section headings and paragraph markers as TEXT cells with
+        // empty globalReferences, interleaved between verse cells. A sync merge must not move
+        // them to the end of the file.
+        const verse = (id: string, ref: string) => ({
+            kind: 2,
+            languageId: "scripture",
+            value: `<span>${ref}</span>`,
+            metadata: { id, type: "text", data: { globalReferences: [ref] }, edits: [] },
+        });
+        const marker = (id: string, value: string) => ({
+            kind: 2,
+            languageId: "html",
+            value,
+            metadata: { id, type: "text", data: { globalReferences: [] }, edits: [] },
+        });
+        const content = JSON.stringify({
+            cells: [
+                {
+                    kind: 2,
+                    languageId: "html",
+                    value: "Genesis 1",
+                    metadata: { id: "M1", type: "milestone", edits: [] },
+                },
+                marker("H1", "<span>The Creation</span>"),
+                verse("V1", "GEN 1:1"),
+                marker("P1", "<span></span>"),
+                verse("V2", "GEN 1:2"),
+                {
+                    kind: 2,
+                    languageId: "html",
+                    value: "Genesis 2",
+                    metadata: { id: "M2", type: "milestone", edits: [] },
+                },
+                marker("H2", "<span>The Garden</span>"),
+                verse("V3", "GEN 2:1"),
+            ],
+            metadata: { id: "TEST", originalName: "TEST", importerType: "usfm" },
+        });
+
+        const merged = await resolveCodexCustomMerge(content, content);
+        const ids = JSON.parse(merged).cells.map((c: any) => c.metadata?.id);
+        assert.deepStrictEqual(
+            ids,
+            ["M1", "H1", "V1", "P1", "V2", "M2", "H2", "V3"],
+            "Headings and markers must stay anchored next to their verses"
+        );
+    });
+
+    test("merge of a non-Bible importer notebook (markdown with citations) never reorders", async () => {
+        const para = (id: string, value: string, ref?: string) => ({
+            kind: 2,
+            languageId: "html",
+            value,
+            metadata: {
+                id,
+                type: "text",
+                data: { globalReferences: ref ? [ref] : [] },
+                edits: [],
+            },
+        });
+        const content = JSON.stringify({
+            cells: [
+                {
+                    kind: 2,
+                    languageId: "html",
+                    value: "1",
+                    metadata: { id: "M1", type: "milestone", edits: [] },
+                },
+                para("P1", "<span>intro</span>"),
+                para("P2", "<span>see Genesis 1:5</span>", "GEN 1:5"),
+                para("P3", "<span>middle</span>"),
+                para("P4", "<span>see Genesis 1:2</span>", "GEN 1:2"),
+            ],
+            metadata: { id: "TEST", originalName: "TEST", importerType: "markdown" },
+        });
+
+        const merged = await resolveCodexCustomMerge(content, content);
+        const ids = JSON.parse(merged).cells.map((c: any) => c.metadata?.id);
+        assert.deepStrictEqual(
+            ids,
+            ["M1", "P1", "P2", "P3", "P4"],
+            "Document notebooks must keep their paragraph order regardless of citations"
+        );
+    });
 });
