@@ -873,38 +873,48 @@
                         "description": "Model name selected for inference."
                     },
                     "codex-editor-extension.asrEndpoint": {
-                        "title": "ASR WebSocket Endpoint",
+                        "title": "ASR Endpoint",
                         "type": "string",
-                        "default": "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe",
-                        "description": "WebSocket endpoint for audio transcription. When authenticated with Frontier, the auth server endpoint is automatically used. This setting is used as fallback when not authenticated or for local development."
+                        "default": "https://genesis-ai-dev--codex-asr-serve.modal.run/transcribe",
+                        "description": "HTTPS endpoint for audio transcription (POST multipart with optional ?lang= query). When authenticated with Frontier, the auth server endpoint is automatically used; this setting is the fallback for unauthenticated / local development."
                     },
                     "codex-editor-extension.asrProvider": {
                         "title": "ASR Provider",
                         "type": "string",
                         "enum": [
-                            "mms",
+                            "omniasr",
                             "whisper"
                         ],
-                        "default": "mms",
-                        "description": "Provider for transcription. MMS requires a language code; Whisper auto-detects."
+                        "default": "omniasr",
+                        "description": "Provider for transcription. OmniASR accepts an optional {iso639_3}_{Script} language hint; Whisper auto-detects."
                     },
                     "codex-editor-extension.asrModel": {
                         "title": "ASR Model",
                         "type": "string",
-                        "default": "facebook/mms-1b-all",
-                        "description": "Model identifier to use for transcription (e.g., facebook/mms-1b-all)."
+                        "default": "omniASR_LLM_1B_v2",
+                        "description": "Model identifier used by the ASR service (e.g., omniASR_LLM_1B_v2)."
                     },
                     "codex-editor-extension.asrLanguage": {
                         "title": "ASR Language (ISO-639-3)",
                         "type": "string",
                         "default": "eng",
-                        "description": "Language code for transcription. MMS requires ISO-639-3 (e.g., eng, fra, spa). 2-letter codes will be mapped where possible."
+                        "description": "Legacy: ISO 639-3 hint for ASR providers. OmniASR uses the project's target language by default; configure via the gear menu on the Transcribe button."
                     },
-                    "codex-editor-extension.asrPhonetic": {
-                        "title": "Return Phonetic (IPA)",
-                        "type": "boolean",
-                        "default": false,
-                        "description": "If enabled and supported by provider, also return phonetic (IPA) transcription."
+                    "codex-editor-extension.asrLanguageMode": {
+                        "title": "ASR Language Mode",
+                        "type": "string",
+                        "enum": [
+                            "project",
+                            "auto"
+                        ],
+                        "default": "project",
+                        "description": "Whether to send the project's target language as a hint to the ASR service (\"project\"), or let the model transcribe without language conditioning (\"auto\")."
+                    },
+                    "codex-editor-extension.asrScriptPref": {
+                        "title": "ASR Script Preference",
+                        "type": "string",
+                        "default": "auto",
+                        "description": "Script subtag to pair with the ASR language code. \"auto\" picks the best-guess script per language; \"latin\" forces Latin where supported; any 4-letter ISO 15924 tag (e.g. \"Arab\", \"Cyrl\") overrides per-language."
                     },
                     "codex-editor-extension.sourceBookWhitelist": {
                         "title": "Source Book Whitelist",
