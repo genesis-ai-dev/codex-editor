@@ -3729,6 +3729,23 @@ export async function migrateCellIdsToUuidForFile(fileUri: vscode.Uri): Promise<
         }
 
         if (hasChanges) {
+            // Collision guard: generateCellIdFromHash is deterministic, so a legacy-form id
+            // (e.g. "{uuid}:paratext-{ts}-{rand}") hashes to the same UUID every time. When the
+            // same logical cell is present in both its legacy form and its already-migrated
+            // form — a common outcome of sync/merge round-trips — assigning the hashed UUID
+            // collides with the existing cell and would create an exact duplicate. Merge any
+            // cells that now share an id into one (order preserved, edit history combined) so
+            // this migration can never emit duplicate cells.
+            const { cells: dedupedCells, mergedCount } = mergeDuplicateCellsInArray(
+                notebookData.cells || []
+            );
+            if (mergedCount > 0) {
+                notebookData.cells = dedupedCells;
+                debug(
+                    `[cellIdsToUuid] Merged ${mergedCount} id collision(s) from UUID normalization in ${fileUri.fsPath}`
+                );
+            }
+
             const updatedContent = await serializer.serializeNotebook(
                 notebookData,
                 new vscode.CancellationTokenSource().token
@@ -3930,6 +3947,65 @@ async function mergeDuplicateCellsWithIterations(
 }
 
 /**
+ * Merges cells that share the same `metadata.id` into a single cell, preserving the
+ * original cell order and combining edit history via the resolver merge logic. Cells
+ * without an id are kept as-is. Returns the (possibly new) array and the number of ids
+ * that had duplicates collapsed (0 when the input had no duplicate ids).
+ */
+export function mergeDuplicateCellsInArray(cells: any[]): { cells: any[]; mergedCount: number; } {
+    // Group cells by ID to find duplicates
+    const cellsById = new Map<string, any[]>();
+    for (const cell of cells) {
+        const cellId = cell?.metadata?.id;
+        if (!cellId) continue;
+
+        if (!cellsById.has(cellId)) {
+            cellsById.set(cellId, []);
+        }
+        cellsById.get(cellId)!.push(cell);
+    }
+
+    let mergedCount = 0;
+    for (const cellList of cellsById.values()) {
+        if (cellList.length > 1) mergedCount++;
+    }
+
+    if (mergedCount === 0) {
+        return { cells, mergedCount: 0 };
+    }
+
+    // Merge duplicates: combine cells with the same ID into one cell, using the same
+    // logic as resolveCodexCustomMerge to combine edit histories. Emit each id once, at
+    // the position of its first occurrence, so cell order is preserved.
+    const mergedCells: any[] = [];
+    const processedIds = new Set<string>();
+    for (const cell of cells) {
+        const cellId = cell?.metadata?.id;
+        if (!cellId) {
+            // Cell without ID - keep as is
+            mergedCells.push(cell);
+            continue;
+        }
+
+        if (processedIds.has(cellId)) {
+            // Already processed this ID - skip duplicate
+            continue;
+        }
+
+        processedIds.add(cellId);
+        const duplicateCells = cellsById.get(cellId)!;
+
+        if (duplicateCells.length === 1) {
+            mergedCells.push(duplicateCells[0]);
+        } else {
+            mergedCells.push(mergeDuplicateCellsUsingResolverLogic(duplicateCells));
+        }
+    }
+
+    return { cells: mergedCells, mergedCount };
+}
+
+/**
  * Merges duplicate cells in a notebook file using the same logic as sync and save.
  * Cells with the same ID are merged into one cell with combined edit history.
  * Returns true if any changes were made.
@@ -3946,63 +4022,14 @@ async function mergeDuplicateCellsInFile(fileUri: vscode.Uri): Promise<boolean> 
         const cells: any[] = notebookData.cells || [];
         if (cells.length === 0) return false;
 
-        // Group cells by ID to find duplicates
-        const cellsById = new Map<string, any[]>();
-        for (const cell of cells) {
-            const cellId = cell.metadata?.id;
-            if (!cellId) continue;
-
-            if (!cellsById.has(cellId)) {
-                cellsById.set(cellId, []);
-            }
-            cellsById.get(cellId)!.push(cell);
-        }
-
-        // Find duplicate IDs
-        const duplicateIds: string[] = [];
-        for (const [cellId, cellList] of cellsById.entries()) {
-            if (cellList.length > 1) {
-                duplicateIds.push(cellId);
-            }
-        }
-
-        if (duplicateIds.length === 0) {
+        const { cells: mergedCells, mergedCount } = mergeDuplicateCellsInArray(cells);
+        if (mergedCount === 0) {
             return false; // No duplicates found
         }
 
         debug(
-            `[Cleanup] Found ${duplicateIds.length} duplicate cell ID(s) in ${fileUri.fsPath}: ${duplicateIds.join(", ")}`
+            `[Cleanup] Merged ${mergedCount} duplicate cell ID(s) in ${fileUri.fsPath}`
         );
-
-        // Merge duplicates: combine cells with the same ID into one cell
-        // Use the same logic as resolveCodexCustomMerge to combine edit histories
-        const mergedCells: any[] = [];
-        const processedIds = new Set<string>();
-
-        for (const cell of cells) {
-            const cellId = cell.metadata?.id;
-            if (!cellId) {
-                // Cell without ID - keep as is
-                mergedCells.push(cell);
-                continue;
-            }
-
-            if (processedIds.has(cellId)) {
-                // Already processed this ID - skip duplicate
-                continue;
-            }
-
-            processedIds.add(cellId);
-            const duplicateCells = cellsById.get(cellId)!;
-
-            if (duplicateCells.length === 1) {
-                // No duplicate, just add it
-                mergedCells.push(duplicateCells[0]);
-            } else {
-                const mergedCell = mergeDuplicateCellsUsingResolverLogic(duplicateCells);
-                mergedCells.push(mergedCell);
-            }
-        }
 
         // Create final notebook with merged cells
         const finalNotebook = {
@@ -4088,6 +4115,45 @@ export async function recoverTempFilesAndMergeDuplicates(
             }
         } catch (error) {
             console.warn("[Cleanup] Cell ID UUID migration failed (non-critical):", error);
+        }
+
+        // One-time repair sweep: merge any duplicate-id cells across all notebooks.
+        //
+        // The cell-ID→UUID migration (migrateCellIdsToUuidForFile) is run-once per workspace
+        // and, before the collision guard was added, could hash a legacy paratext id onto a
+        // UUID that already existed in the file — producing exact-duplicate cells that the
+        // editor surfaces as "Duplicate cells found". Already-affected projects won't re-run
+        // that migration, so repair them once here. Gated per workspace; a no-op once clean.
+        //
+        // Only run on the startup path, which passes `context`. This function is ALSO invoked
+        // after every successful sync (merge/index.ts → stageAndCommitAllAndSync) with no
+        // context; without the gate the persisted flag could never be set, so the full-file
+        // sweep would re-scan every notebook on every sync. New duplicates can't arise on the
+        // sync path anyway — the merge resolver dedupes by id and the (now-guarded) migration
+        // is the only thing that ever produced them — so startup-only repair is sufficient.
+        const dedupeRepairKey = "duplicateCellIdRepairCompleted";
+        const dedupeRepairDone = !!context?.workspaceState.get<boolean>(dedupeRepairKey);
+        if (context && !dedupeRepairDone) {
+            try {
+                const codexFiles = await vscode.workspace.findFiles(
+                    new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+                );
+                const sourceFiles = await vscode.workspace.findFiles(
+                    new vscode.RelativePattern(workspaceFolder, "**/*.source")
+                );
+                for (const file of [...codexFiles, ...sourceFiles]) {
+                    const mergeCount = await mergeDuplicateCellsWithIterations(file);
+                    if (mergeCount > 0) {
+                        result.mergedDuplicates += mergeCount;
+                        debug(
+                            `[Cleanup] Repaired duplicate cells in ${file.fsPath} (iterations ${mergeCount})`
+                        );
+                    }
+                }
+                await context?.workspaceState.update(dedupeRepairKey, true);
+            } catch (error) {
+                console.warn("[Cleanup] Duplicate cell repair sweep failed (non-critical):", error);
+            }
         }
 
         // Find all .tmp files matching the pattern: *.tmp-{timestamp}-{uuid}
