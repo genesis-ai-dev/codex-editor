@@ -19,32 +19,20 @@ import {
 } from "../../utils/workflowHelpers";
 import { extractImagesFromHtml } from "../../utils/imageProcessor";
 import { createNoteCellMetadata } from "./cellMetadata";
-
-function escapeHtml(text: string): string {
-    const div = document.createElement("div");
-    div.textContent = text;
-    return div.innerHTML.replace(/\n/g, "<br>");
-}
-
-function buildInlineHTMLFromRanges(
-    ranges: { appliedCharacterStyle?: string; content?: string }[]
-): string {
-    if (!Array.isArray(ranges) || ranges.length === 0) return "";
-
-    return ranges
-        .map((r) => {
-            const style = (r?.appliedCharacterStyle || "").toString();
-            const content = (r?.content || "").toString();
-            const text = content.replace(/\n/g, "<br />");
-            const safeStyle = escapeHtml(style);
-            const safeText = text
-                .split("<br />")
-                .map((part: string) => escapeHtml(part))
-                .join("<br />");
-            return `<span class="idml-char" data-character-style="${safeStyle}">${safeText}</span>`;
-        })
-        .join("");
-}
+import type { IDMLStory } from "./types";
+import {
+    buildSegmentedParagraphHtml,
+    extractContentSegmentStructureFromParagraph,
+    getSegmentCharacterStylesForParagraph,
+    joinContentSegments,
+} from "../common/contentSegmentUtils";
+import {
+    isBiblicaNoteSectionStyle,
+    isStructuralOnlyContent,
+    splitSegmentsAtLineBreaks,
+    getStructuralApostropheSegmentIndexes,
+    stripStructuralApostropheSegments,
+} from "./biblicaImportUtils";
 
 /**
  * Create cells from Study Bible stories (source notes only; verses inform globalReferences).
@@ -66,7 +54,7 @@ function computeChapterRangeLabel(
 }
 
 async function createCellsFromStories(
-    stories: unknown[],
+    stories: IDMLStory[],
     htmlRepresentation: { stories?: { id: string }[]; originalHash?: string },
     sourceFileName: string
 ): Promise<CustomNotebookCellData[]> {
@@ -91,19 +79,7 @@ async function createCellsFromStories(
         lastChapterInRange = chapter;
     };
 
-    for (const story of stories as Array<{
-        id: string;
-        paragraphs: Array<{
-            id: string;
-            metadata?: Record<string, unknown>;
-            paragraphStyleRange: {
-                appliedParagraphStyle: string;
-                content: string;
-                dataAfter?: string;
-            };
-            characterStyleRanges?: Array<{ appliedCharacterStyle?: string; content?: string }>;
-        }>;
-    }>) {
+    for (const story of stories) {
         for (let i = 0; i < story.paragraphs.length; i++) {
             const paragraph = story.paragraphs[i];
             const paragraphStyle = paragraph.paragraphStyleRange.appliedParagraphStyle;
@@ -236,23 +212,43 @@ async function createCellsFromStories(
                 continue;
             }
 
-            // --- From here on, this is a non-verse paragraph (note / intro / meta) ---
+            // --- From here on, this is a non-verse paragraph ---
 
-            const content = paragraph.paragraphStyleRange.content;
-            const ranges = paragraph.characterStyleRanges || [];
-            let combinedContent = content;
-            if (ranges.length > 0) {
-                combinedContent = ranges.map((r) => r.content || "").join("");
+            // Only intro/* note styles become editable cells; skip meta running headers, TOC, etc.
+            if (!isBiblicaNoteSectionStyle(paragraphStyle)) {
+                continue;
             }
 
-            const contentWithoutBreaks = combinedContent
+            const { segments: contentSegments, breakBefore: contentSegmentBreakBefore } =
+                extractContentSegmentStructureFromParagraph(paragraph);
+
+            if (isStructuralOnlyContent(contentSegments)) {
+                continue;
+            }
+
+            const allSegmentStyles =
+                paragraph.contentSegmentStyles?.length === contentSegments.length
+                    ? paragraph.contentSegmentStyles
+                    : getSegmentCharacterStylesForParagraph(paragraph, contentSegments.length);
+            const structuralApostropheIndexes = getStructuralApostropheSegmentIndexes(
+                contentSegments,
+                allSegmentStyles
+            );
+            const visibleContentSegments = stripStructuralApostropheSegments(
+                contentSegments,
+                structuralApostropheIndexes
+            );
+
+            const hasText = visibleContentSegments.some((segment) => segment.trim().length > 0);
+            if (!hasText) {
+                continue;
+            }
+
+            const contentWithoutBreaks = visibleContentSegments
+                .join("")
                 .replace(/[\r\n]+/g, "")
                 .replace(/\s+/g, " ")
                 .trim();
-
-            if (!contentWithoutBreaks || contentWithoutBreaks.length === 0) {
-                continue;
-            }
 
             // Chapter label headings (head:cl) like "Psalm 2" introduce a new
             // chapter. Force a new milestone so the heading and any following
@@ -284,95 +280,66 @@ async function createCellsFromStories(
                 currentVerseArray = [];
             }
 
-            const contentWithBreaks = combinedContent.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-            const segments = contentWithBreaks.split("\n");
-            let rangeSegments: Array<{ ranges: typeof ranges; content: string }> = [];
+            const noteGlobalReferences: string[] = currentBook ? [currentBook] : [];
+            const lineGroups = splitSegmentsAtLineBreaks(
+                contentSegments,
+                contentSegmentBreakBefore
+            );
+            const totalLineGroups = lineGroups.length;
 
-            if (ranges.length > 0) {
-                let currentSegment: { ranges: typeof ranges; content: string } = {
-                    ranges: [],
-                    content: "",
-                };
-
-                for (const range of ranges) {
-                    const rangeContent = range.content || "";
-                    if (rangeContent.includes("\n")) {
-                        const rangeParts = rangeContent.split("\n");
-                        for (let j = 0; j < rangeParts.length; j++) {
-                            const part = rangeParts[j];
-                            if (part) {
-                                currentSegment.ranges.push({ ...range, content: part });
-                                currentSegment.content += part;
-                            }
-                            if (j < rangeParts.length - 1) {
-                                rangeSegments.push({ ...currentSegment });
-                                currentSegment = { ranges: [], content: "" };
-                            }
-                        }
-                    } else {
-                        currentSegment.ranges.push(range);
-                        currentSegment.content += rangeContent;
-                    }
-                }
-
-                if (currentSegment.content || currentSegment.ranges.length > 0) {
-                    rangeSegments.push(currentSegment);
-                }
-                if (rangeSegments.length === 0) {
-                    rangeSegments = [{ ranges, content: contentWithBreaks }];
-                }
-            } else {
-                rangeSegments = segments.map((seg: string) => ({ ranges: [], content: seg }));
-            }
-
-            const finalSegments: Array<{ ranges: typeof ranges; content: string }> =
-                rangeSegments.length > 0
-                    ? rangeSegments
-                    : segments.map((seg: string) => ({ ranges: [], content: seg }));
-
-            for (let segmentIndex = 0; segmentIndex < finalSegments.length; segmentIndex++) {
-                const segment = finalSegments[segmentIndex];
-                const cleanText = segment.content
-                    .replace(/[\r\n]+/g, " ")
-                    .replace(/\s+/g, " ")
-                    .trim();
-
-                if (!cleanText && segmentIndex > 0 && segment.ranges.length === 0) {
+            for (let segmentIndex = 0; segmentIndex < lineGroups.length; segmentIndex++) {
+                const group = lineGroups[segmentIndex];
+                const groupStyles = allSegmentStyles.slice(
+                    group.startIndex,
+                    group.startIndex + group.segments.length
+                );
+                const isLastSegment = segmentIndex === totalLineGroups - 1;
+                const visibleSegments = stripStructuralApostropheSegments(
+                    group.segments,
+                    structuralApostropheIndexes
+                        .filter(
+                            (idx) =>
+                                idx >= group.startIndex &&
+                                idx < group.startIndex + group.segments.length
+                        )
+                        .map((idx) => idx - group.startIndex)
+                );
+                if (!visibleSegments.some((segment) => segment.trim().length > 0)) {
                     continue;
                 }
-
-                let inlineHTML: string;
-                if (segment.ranges.length > 0) {
-                    inlineHTML = buildInlineHTMLFromRanges(segment.ranges);
-                } else {
-                    inlineHTML = escapeHtml(segment.content);
-                }
-
-                const isLastSegment = segmentIndex === finalSegments.length - 1;
-                const htmlContent = `<p class="biblica-paragraph" data-paragraph-style="${paragraphStyle}" data-story-id="${story.id}" data-segment-index="${segmentIndex}" data-is-last-segment="${isLastSegment}">${inlineHTML}</p>`;
-
-                let noteGlobalReferences: string[] = [];
-                if (currentBook) {
-                    noteGlobalReferences = [currentBook];
-                }
+                const cellOriginalContent = joinContentSegments(visibleSegments);
 
                 const { cellId, metadata: cellMetadata } = createNoteCellMetadata({
                     cellLabel: undefined,
                     storyId: story.id,
                     paragraphId: paragraph.id,
                     appliedParagraphStyle: paragraphStyle,
-                    originalText: cleanText || segment.content,
+                    paragraph,
                     globalReferences: noteGlobalReferences,
                     sourceFileName,
-                    originalHash: htmlRepresentation.originalHash,
-                    paragraphDataAfter: paragraph.paragraphStyleRange.dataAfter,
-                    storyOrder: stories.indexOf(story),
+                    originalHash: htmlRepresentation.originalHash ?? "",
+                    stories,
                     paragraphOrder: i,
-                    segmentIndex,
-                    totalSegments: finalSegments.length,
-                    isLastSegment,
                     chapterNumber: currentMilestoneLabel ?? undefined,
+                    segmentIndex,
+                    totalSegments: totalLineGroups,
+                    isLastSegment,
+                    cellOriginalContent,
+                    structuralApostropheSegmentIndexes: structuralApostropheIndexes,
                 });
+
+                const htmlContent = buildSegmentedParagraphHtml(
+                    group.segments,
+                    paragraphStyle,
+                    story.id ?? "",
+                    groupStyles,
+                    group.breakBefore,
+                    {
+                        segmentIndexOffset: group.startIndex,
+                        totalSegmentCount: contentSegments.length,
+                        skipSegmentIndexes: structuralApostropheIndexes,
+                    }
+                );
 
                 const cell = createProcessedCell(
                     cellId,

@@ -1465,6 +1465,9 @@ function standardizeImporterType(importerType: string | undefined): string | und
     if (normalized === "obs-story") {
         return "obs";
     }
+    if (normalized === "reach4life") {
+        return "indesign";
+    }
 
     // Valid FileImporterType values (must match the FileImporterType union in types/index.d.ts)
     const validTypes: string[] = [
@@ -1487,7 +1490,6 @@ function standardizeImporterType(importerType: string | undefined): string | und
         "ebibleCorpus",
         "macula",
         "biblica",
-        "reach4life",
         "obs",
     ];
 
@@ -1520,6 +1522,7 @@ function inferImporterTypeFromCorpusMarker(corpusMarker: string | undefined): st
         "subtitle": "subtitles",
         "spreadsheet": "spreadsheet",
         "indesign": "indesign",
+        "reach4life": "indesign",
         "usfm": "usfm",
         "usfm-experimental": "usfm-experimental",
         "paratext": "paratext",
