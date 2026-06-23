@@ -1170,9 +1170,10 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             name: /Microphone access denied/i,
         });
         expect(startBtn.hasAttribute("disabled")).toBe(true);
-        // Permission-specific copy is shown, not the no-device copy.
+        // Permission-specific copy is shown, not the no-device copy, and it
+        // tells the user a full quit & reopen may be needed (macOS TCC).
         expect(
-            await screen.findByText(/Enable microphone permissions/i)
+            await screen.findByText(/Enable microphone permissions.*quit and reopen/i)
         ).toBeTruthy();
         expect(
             screen.queryByText(/Connect an input device/i)

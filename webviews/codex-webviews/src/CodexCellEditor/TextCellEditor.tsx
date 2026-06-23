@@ -5936,7 +5936,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 <AlertCircle className="h-4 w-4 shrink-0 !text-yellow-600 dark:!text-yellow-400" />
                                                                 <AlertDescription className="text-yellow-800 dark:text-yellow-200">
                                                                     {micPermissionDenied
-                                                                        ? "Microphone access denied. Enable microphone permissions in your system settings to record."
+                                                                        ? "Microphone access denied. Enable microphone permissions in your system settings to record — you may need to fully quit and reopen the app for the change to take effect."
                                                                         : "No microphone detected. Connect an input device to record."}
                                                                 </AlertDescription>
                                                             </Alert>

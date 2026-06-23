@@ -503,4 +503,86 @@ describe("useAudioInputDevices", () => {
             expect(second.result.current.micPermissionDenied).toBe(true);
         });
     });
+
+    describe("self-heal on window focus (permission-denied only)", () => {
+        // A mic permission can only change while the user is away from the
+        // window, so regaining focus is the cheapest moment to re-check.
+        // This is gated to permission-denied: hardware changes already have a
+        // live `devicechange` signal and must NOT trigger a focus probe.
+        it("re-probes on window focus and recovers to available after access is re-granted", async () => {
+            const fake = createFakeMediaDevices([audioInputDevice()]);
+            // Passive layer reports the initial blocked state...
+            (navigator as any).mediaDevices = fake;
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("denied")
+            );
+            // ...but getUserMedia would now succeed (user just granted access
+            // in OS settings and returned to the window).
+            const getUserMediaSpy = vi.fn().mockResolvedValue(fakeStream());
+            fake.getUserMedia = getUserMediaSpy;
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() =>
+                expect(result.current.availability).toBe("permission-denied")
+            );
+
+            await act(async () => {
+                window.dispatchEvent(new Event("focus"));
+            });
+
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+            expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
+            expect(result.current.micUnavailable).toBe(false);
+        });
+
+        it("does NOT re-probe on focus for no-device (devicechange covers hardware)", async () => {
+            const fake = createFakeMediaDevices([]); // no audio inputs
+            const getUserMediaSpy = vi.fn().mockResolvedValue(fakeStream());
+            fake.getUserMedia = getUserMediaSpy;
+            (navigator as any).mediaDevices = fake;
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("no-device"));
+
+            await act(async () => {
+                window.dispatchEvent(new Event("focus"));
+            });
+
+            // The focus listener only attaches for permission-denied, so a
+            // no-device state must not waste a getUserMedia call.
+            expect(getUserMediaSpy).not.toHaveBeenCalled();
+            expect(result.current.availability).toBe("no-device");
+        });
+
+        it("debounces rapid focus events into a single probe while still denied", async () => {
+            const fake = createFakeMediaDevices([audioInputDevice()]);
+            // Still denied (e.g. macOS — TCC pins the verdict to the process),
+            // so the probe keeps rejecting and the listener stays attached.
+            const getUserMediaSpy = vi.fn().mockRejectedValue(
+                Object.assign(new Error("still denied"), { name: "NotAllowedError" })
+            );
+            fake.getUserMedia = getUserMediaSpy;
+            (navigator as any).mediaDevices = fake;
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("denied")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() =>
+                expect(result.current.availability).toBe("permission-denied")
+            );
+
+            // Two focus events inside the cooldown window collapse to one probe.
+            await act(async () => {
+                window.dispatchEvent(new Event("focus"));
+                window.dispatchEvent(new Event("focus"));
+            });
+
+            expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
+            expect(result.current.availability).toBe("permission-denied");
+        });
+    });
 });

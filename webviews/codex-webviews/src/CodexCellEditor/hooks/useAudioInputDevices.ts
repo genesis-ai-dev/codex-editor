@@ -319,11 +319,76 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
 
     const probeMicAccess = useCallback(async () => {
         const result = await getOrRunProbe();
-        // "available" is the absence-of-block state, so we clear the local
-        // pin and let passive layers report normally. Any non-available
-        // result pins so the UI accurately reflects the block.
-        setRuntimeOverride(result === "available" ? null : result);
+        if (result === "available") {
+            // A successful `getUserMedia` is authoritative: mic access works
+            // right now. Clear the runtime pin AND force the passive layer to
+            // "available" so a stale `permission-denied`/`no-device` from an
+            // earlier `enumerateDevices`/permission read can't keep the UI
+            // blocked after a focus-regain recovery (see focus effect below).
+            setRuntimeOverride(null);
+            setAvailability("available");
+            return;
+        }
+        // Any non-available result pins so the UI accurately reflects the block.
+        setRuntimeOverride(result);
     }, []);
+
+    // ─── Self-heal on window focus while permission-denied ────────────────
+    // A mic *permission* can only change while the user is *away* from the
+    // editor (in OS settings / a portal dialog), and — unlike a device
+    // plug/unplug — there's no reliable event for it (Chromium's Permissions
+    // API reflects browser-level, not OS-level, state). So the moment the
+    // window regains focus is the single best, cheapest time to re-check.
+    //
+    // We deliberately DON'T do this for `no-device`: hardware changes already
+    // fire `devicechange` (see the detection effect above), which updates the
+    // UI live regardless of focus. Re-probing on focus there would be pure
+    // redundant `getUserMedia` work.
+    //
+    // The listener attaches ONLY while permission-denied, so the healthy path
+    // stays completely passive. Re-probing while denied is also flash-free: a
+    // still-denied `getUserMedia` rejects immediately without ever opening the
+    // mic, so the OS recording indicator never lights up. The one flash that
+    // can occur is the recovery itself (access just got granted), which is
+    // desirable feedback.
+    //
+    //   - Windows / Linux: re-grant takes effect live → button re-enables.
+    //   - macOS not-determined (e.g. a dismissed prompt) → re-prompts.
+    //   - macOS denied → keeps returning denied (TCC pins the verdict to the
+    //     process); the UI's "quit and reopen" message carries the fix.
+    const permissionBlocked = (runtimeOverride ?? availability) === "permission-denied";
+
+    useEffect(() => {
+        if (!permissionBlocked || typeof window === "undefined") return;
+
+        // Guard against alt-tab storms re-probing on every focus tick.
+        const COOLDOWN_MS = 2500;
+        let lastProbeAt = 0;
+
+        const onRegainFocus = () => {
+            if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+                return;
+            }
+            const now = Date.now();
+            if (now - lastProbeAt < COOLDOWN_MS) return;
+            lastProbeAt = now;
+            // Invalidate the cached verdict so the probe actually re-runs
+            // instead of returning the stale blocked result.
+            probeCache = null;
+            void probeMicAccess();
+        };
+
+        window.addEventListener("focus", onRegainFocus);
+        if (typeof document !== "undefined") {
+            document.addEventListener("visibilitychange", onRegainFocus);
+        }
+        return () => {
+            window.removeEventListener("focus", onRegainFocus);
+            if (typeof document !== "undefined") {
+                document.removeEventListener("visibilitychange", onRegainFocus);
+            }
+        };
+    }, [permissionBlocked, probeMicAccess]);
 
     // Runtime override (from a real `getUserMedia` failure) takes precedence
     // because it reflects ground truth, not Chromium's stale view of OS
