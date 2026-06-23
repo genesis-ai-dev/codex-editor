@@ -288,6 +288,7 @@ export type MessagesFromStartupFlowProvider =
     | { command: "project.renamingInProgress"; projectPath: string; renaming: boolean; }
     | { command: "project.zippingInProgress"; projectPath: string; zipType: "full" | "mini"; zipping: boolean; }
     | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; }
+    | { command: "project.deletingInProgress"; projectPath: string; deleting: boolean; stage?: "verifying" | "deleting"; }
     | {
         command: "project.swapCloneWarning";
         repoUrl: string;
