@@ -369,6 +369,44 @@ suite("Audio Exporter - parseCellIdToBookChapterVerse (issue #1055)", () => {
         assert.strictEqual(verse, undefined);
         assert.strictEqual(verseEnd, undefined);
     });
+
+    // UI-merged cells keep the kept cell's single-verse globalReference but record
+    // the merged span in cellLabel (e.g. "1-2"). The exporter should still see a range.
+    test("merged cell: single ref + range cellLabel yields the span", () => {
+        const cell = { metadata: { cellLabel: "1-2", data: { globalReferences: ["1PE 3:1"] } } };
+        const { chapter, verse, verseEnd } = parseCellIdToBookChapterVerse(cell, "x");
+        assert.strictEqual(chapter, 3);
+        assert.strictEqual(verse, 1);
+        assert.strictEqual(verseEnd, 2);
+    });
+
+    test("merged cell with multi-verse cellLabel (1-5)", () => {
+        const cell = { metadata: { cellLabel: "1-5", data: { globalReferences: ["1PE 3:1"] } } };
+        const { verse, verseEnd } = parseCellIdToBookChapterVerse(cell, "x");
+        assert.strictEqual(verse, 1);
+        assert.strictEqual(verseEnd, 5);
+    });
+
+    test("cellLabel range is ignored when it doesn't match the ref's start verse", () => {
+        const cell = { metadata: { cellLabel: "1-2", data: { globalReferences: ["1PE 3:5"] } } };
+        const { verse, verseEnd } = parseCellIdToBookChapterVerse(cell, "x");
+        assert.strictEqual(verse, 5);
+        assert.strictEqual(verseEnd, undefined);
+    });
+
+    test("non-range cellLabel leaves a single verse untouched", () => {
+        const cell = { metadata: { cellLabel: "1", data: { globalReferences: ["1PE 3:1"] } } };
+        const { verse, verseEnd } = parseCellIdToBookChapterVerse(cell, "x");
+        assert.strictEqual(verse, 1);
+        assert.strictEqual(verseEnd, undefined);
+    });
+
+    test("globalReferences range takes precedence over cellLabel", () => {
+        const cell = { metadata: { cellLabel: "1-3", data: { globalReferences: ["1PE 3:1-3"] } } };
+        const { verse, verseEnd } = parseCellIdToBookChapterVerse(cell, "x");
+        assert.strictEqual(verse, 1);
+        assert.strictEqual(verseEnd, 3);
+    });
 });
 
 suite("Audio Exporter - formatChapterVerseSuffix (issue #1055)", () => {

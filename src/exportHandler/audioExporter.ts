@@ -91,10 +91,29 @@ function fallbackParseRef(ref: string): { book: string; chapter?: number; verse?
 }
 
 /**
+ * Derive a range end from a cell's label when it encodes a numeric range
+ * (e.g. "1-2"). A UI-merged cell keeps the kept cell's single-verse
+ * globalReference but records the merged span in its cellLabel, so this lets
+ * merged cells still export with the full V{start}-{end} span. Returns the end
+ * only when the label is a clean "{start}-{end}" whose start matches the verse
+ * we already resolved and whose end is greater — otherwise undefined (so odd or
+ * mismatched labels are ignored and we fall back to the single verse).
+ */
+function rangeEndFromCellLabel(cellLabel: unknown, verseStart: number): number | undefined {
+    if (typeof cellLabel !== "string") return undefined;
+    const match = cellLabel.trim().match(/^(\d+)\s*-\s*(\d+)$/);
+    if (!match) return undefined;
+    const start = parseInt(match[1]!, 10);
+    const end = parseInt(match[2]!, 10);
+    return start === verseStart && end > start ? end : undefined;
+}
+
+/**
  * Parses a cell reference ID (from globalReferences) to extract book, chapter, and
  * verse — including verse ranges, where `verse` is the range start and `verseEnd`
  * is the range end (e.g. "1PE 3:1-2" -> { verse: 1, verseEnd: 2 }).
- * Falls back to parsing cellId if globalReferences not available (legacy support).
+ * Falls back to parsing cellId if globalReferences not available (legacy support),
+ * and to the cell's range cellLabel for UI-merged cells (single ref + "1-2" label).
  */
 export function parseCellIdToBookChapterVerse(cell: any, cellId: string): { book: string; chapter?: number; verse?: number; verseEnd?: number; } {
     // Prefer the cell's globalReferences ref, falling back to the raw cellId.
@@ -104,15 +123,20 @@ export function parseCellIdToBookChapterVerse(cell: any, cellId: string): { book
     // `parseVerseRef` handles both single verses and ranges (and strips legacy
     // cell-id suffixes), so it is the source of truth when the ref is well-formed.
     const parsed = parseVerseRef(refId);
-    if (parsed) {
-        if (parsed.kind === "range") {
-            return { book: parsed.book.toUpperCase(), chapter: parsed.chapter, verse: parsed.verseStart, verseEnd: parsed.verseEnd };
-        }
-        return { book: parsed.book.toUpperCase(), chapter: parsed.chapter, verse: parsed.verse };
+    const result = parsed
+        ? parsed.kind === "range"
+            ? { book: parsed.book.toUpperCase(), chapter: parsed.chapter, verse: parsed.verseStart, verseEnd: parsed.verseEnd as number | undefined }
+            : { book: parsed.book.toUpperCase(), chapter: parsed.chapter, verse: parsed.verse as number | undefined, verseEnd: undefined as number | undefined }
+        // MILESTONES: legacy/chapter-only fallback for ids parseVerseRef rejects.
+        : { ...fallbackParseRef(refId), verseEnd: undefined as number | undefined };
+
+    // When we only resolved a single verse, a range cellLabel (e.g. a merged
+    // cell's "1-2") supplies the span the ref itself doesn't carry.
+    if (result.verse !== undefined && result.verseEnd === undefined) {
+        result.verseEnd = rangeEndFromCellLabel(cell?.metadata?.cellLabel, result.verse);
     }
 
-    // MILESTONES: legacy/chapter-only fallback for ids parseVerseRef rejects.
-    return fallbackParseRef(refId);
+    return result;
 }
 
 /**
