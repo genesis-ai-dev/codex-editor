@@ -3761,6 +3761,80 @@ export async function migrateCellIdsToUuidForFile(fileUri: vscode.Uri): Promise<
     }
 }
 
+/**
+ * On-demand maintenance: normalize any legacy/non-UUID cell ids to their canonical
+ * UUID form and merge the resulting duplicate cells across every notebook in the
+ * workspace.
+ *
+ * Unlike `migration_cellIdsToUuid`, this is NOT gated by the run-once flag — it is
+ * invoked manually (command palette: "Codex: Merge Duplicate Cells") to repair files
+ * where legacy `{parent}:paratext-…` twins have re-appeared via sync. Idempotent and
+ * safe to run repeatedly; a clean workspace is a no-op.
+ *
+ * Per file it (1) runs migrateCellIdsToUuidForFile, which rewrites legacy ids to the
+ * deterministic hash UUID and — via its collision guard — merges any id that now
+ * collides with an existing cell, then (2) runs a same-id duplicate merge to catch
+ * any pre-existing all-UUID duplicates the id normalization didn't touch.
+ */
+export async function mergeDuplicateCellsAcrossWorkspace(): Promise<{
+    filesScanned: number;
+    filesChanged: number;
+}> {
+    const result = { filesScanned: 0, filesChanged: 0 };
+
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+        return result;
+    }
+    const workspaceFolder = workspaceFolders[0];
+
+    const codexFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+    );
+    const sourceFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(workspaceFolder, "**/*.source")
+    );
+    const allFiles = [...codexFiles, ...sourceFiles];
+
+    if (allFiles.length === 0) {
+        return result;
+    }
+
+    await vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Merging duplicate cells",
+            cancellable: false,
+        },
+        async (progress) => {
+            for (let i = 0; i < allFiles.length; i++) {
+                const file = allFiles[i];
+                progress.report({
+                    message: `Processing ${path.basename(file.fsPath)}`,
+                    increment: 100 / allFiles.length,
+                });
+                result.filesScanned++;
+                try {
+                    // 1) Normalize legacy/non-UUID ids -> UUID. The collision guard inside
+                    //    merges any id that now collides with an existing cell (the legacy
+                    //    paratext twin case).
+                    const normalized = await migrateCellIdsToUuidForFile(file);
+                    // 2) Merge any remaining same-id duplicates (covers files whose twins
+                    //    were already collided into all-UUID duplicates).
+                    const mergeIterations = await mergeDuplicateCellsWithIterations(file);
+                    if (normalized || mergeIterations > 0) {
+                        result.filesChanged++;
+                    }
+                } catch (error) {
+                    console.error(`[MergeDuplicates] Error processing ${file.fsPath}:`, error);
+                }
+            }
+        }
+    );
+
+    return result;
+}
+
 async function migrateCellIdsWithSpacesToUuidForFile(fileUri: vscode.Uri): Promise<boolean> {
     try {
         const fileContent = await vscode.workspace.fs.readFile(fileUri);
