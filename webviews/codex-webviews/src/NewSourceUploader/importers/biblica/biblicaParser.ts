@@ -19,6 +19,7 @@ import {
     IDMLParseError,
     IDMLImportConfig
 } from './types';
+import { extractContentSegmentStructureFromParagraphXml, findParagraphBlockInStoryXml, extractSegmentStylesFromParagraphXml } from '../common/contentSegmentUtils';
 
 // Local hashing helpers to avoid test-only imports
 function toArrayBufferForHash(input: string | ArrayBuffer): ArrayBuffer {
@@ -218,6 +219,9 @@ export class IDMLParser {
             const idMatch = fullMatch.match(/id="([^"]*)"/);
             const originalId = idMatch ? idMatch[1] : undefined;
 
+            const segmentStructure = extractContentSegmentStructureFromParagraphXml(paragraphContent);
+            const contentSegmentStyles = extractSegmentStylesFromParagraphXml(paragraphContent);
+
             const paragraph: IDMLParagraph = {
                 id: originalId, // Only         use ID if it existed in original
                 paragraphStyleRange: {
@@ -227,6 +231,9 @@ export class IDMLParser {
                     content: this.extractTextContentFromString(paragraphContent)
                 },
                 characterStyleRanges: this.extractCharacterRangesFromParagraph(paragraphContent),
+                contentSegments: segmentStructure.segments,
+                contentSegmentBreakBefore: segmentStructure.breakBefore,
+                contentSegmentStyles,
                 metadata: {}
             };
 
@@ -774,6 +781,48 @@ export class IDMLParser {
     }
 
     /**
+     * Extract content segments from paragraph XML (prefer raw story slice for accuracy).
+     */
+    private extractContentSegmentsForParagraph(
+        paragraphElement: Element,
+        storyXml: string,
+        paragraphIndex: number
+    ): { segments: string[]; breakBefore: boolean[] } {
+        if (storyXml && paragraphIndex >= 0) {
+            const located = findParagraphBlockInStoryXml(storyXml, { paragraphOrder: paragraphIndex });
+            if (located) {
+                return extractContentSegmentStructureFromParagraphXml(located.block);
+            }
+        }
+        return extractContentSegmentStructureFromParagraphXml(paragraphElement.outerHTML);
+    }
+
+    /**
+     * Attach content segment fields to a paragraph result.
+     */
+    private withContentSegments(
+        paragraph: IDMLParagraph,
+        paragraphElement: Element,
+        storyXml: string,
+        paragraphIndex: number
+    ): IDMLParagraph {
+        const located =
+            storyXml && paragraphIndex >= 0
+                ? findParagraphBlockInStoryXml(storyXml, { paragraphOrder: paragraphIndex })
+                : null;
+        const paragraphXml = located?.block ?? paragraphElement.outerHTML;
+        const segmentStructure = extractContentSegmentStructureFromParagraphXml(paragraphXml);
+        const contentSegmentStyles = extractSegmentStylesFromParagraphXml(paragraphXml);
+
+        return {
+            ...paragraph,
+            contentSegments: segmentStructure.segments,
+            contentSegmentBreakBefore: segmentStructure.breakBefore,
+            contentSegmentStyles,
+        };
+    }
+
+    /**
      * Extract individual paragraph
      */
     private async extractParagraph(paragraphElement: Element, currentBook: string = '', currentChapter: string = '1', storyXml: string = '', paragraphIndex: number = -1): Promise<IDMLParagraph> {
@@ -809,12 +858,17 @@ export class IDMLParser {
                 this.debugLog(`Found book abbreviation: ${bookAbbrev}`);
                 const metadata = this.extractElementMetadata(paragraphElement) || {};
                 (metadata as any).bookAbbreviation = bookAbbrev;
-                return {
-                    id: paragraphId,
-                    paragraphStyleRange,
-                    characterStyleRanges,
-                    metadata
-                };
+                return this.withContentSegments(
+                    {
+                        id: paragraphId,
+                        paragraphStyleRange,
+                        characterStyleRanges,
+                        metadata,
+                    },
+                    paragraphElement,
+                    storyXml,
+                    paragraphIndex
+                );
             }
         }
 
@@ -1320,21 +1374,31 @@ export class IDMLParser {
                 (metadata as any).lastChapterNumber = lastChapterSeen;
             }
 
-            return {
-                id: paragraphId,
-                paragraphStyleRange,
-                characterStyleRanges,
-                metadata
-            };
+            return this.withContentSegments(
+                {
+                    id: paragraphId,
+                    paragraphStyleRange,
+                    characterStyleRanges,
+                    metadata,
+                },
+                paragraphElement,
+                storyXml,
+                paragraphIndex
+            );
         } catch (err) {
             // Fallback to default behavior
             this.debugLog(`Verse segment parsing failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-            return {
-                id: paragraphId,
-                paragraphStyleRange,
-                characterStyleRanges,
-                metadata: this.extractElementMetadata(paragraphElement)
-            };
+            return this.withContentSegments(
+                {
+                    id: paragraphId,
+                    paragraphStyleRange,
+                    characterStyleRanges,
+                    metadata: this.extractElementMetadata(paragraphElement),
+                },
+                paragraphElement,
+                storyXml,
+                paragraphIndex
+            );
         }
     }
 
