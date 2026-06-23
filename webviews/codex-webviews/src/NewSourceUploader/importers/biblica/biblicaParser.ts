@@ -19,6 +19,7 @@ import {
     IDMLParseError,
     IDMLImportConfig
 } from './types';
+import { extractContentSegmentStructureFromParagraphXml, findParagraphBlockInStoryXml, extractSegmentStylesFromParagraphXml } from '../common/contentSegmentUtils';
 
 // Local hashing helpers to avoid test-only imports
 function toArrayBufferForHash(input: string | ArrayBuffer): ArrayBuffer {
@@ -218,6 +219,9 @@ export class IDMLParser {
             const idMatch = fullMatch.match(/id="([^"]*)"/);
             const originalId = idMatch ? idMatch[1] : undefined;
 
+            const segmentStructure = extractContentSegmentStructureFromParagraphXml(paragraphContent);
+            const contentSegmentStyles = extractSegmentStylesFromParagraphXml(paragraphContent);
+
             const paragraph: IDMLParagraph = {
                 id: originalId, // Only         use ID if it existed in original
                 paragraphStyleRange: {
@@ -227,6 +231,9 @@ export class IDMLParser {
                     content: this.extractTextContentFromString(paragraphContent)
                 },
                 characterStyleRanges: this.extractCharacterRangesFromParagraph(paragraphContent),
+                contentSegments: segmentStructure.segments,
+                contentSegmentBreakBefore: segmentStructure.breakBefore,
+                contentSegmentStyles,
                 metadata: {}
             };
 
@@ -412,6 +419,38 @@ export class IDMLParser {
     }
 
     /**
+     * Detect whether a paragraph style indicates the start of a note/intro section.
+     * Note styles use the "intro%" prefix (e.g. intro%3aipi, intro%3aimi).
+     */
+    private isNoteSectionStyle(paragraphStyle: string): boolean {
+        return paragraphStyle.includes('intro%3a') || paragraphStyle.includes('intro:');
+    }
+
+    /**
+     * Detect whether a paragraph style indicates a new book marker (meta:bk).
+     */
+    private isBookMarkerStyle(paragraphStyle: string): boolean {
+        return paragraphStyle.includes('meta%3abk') || paragraphStyle.includes('meta:bk');
+    }
+
+    /**
+     * Auto-close all active spanning verses.
+     * Called when we detect a boundary (note section start or new book) that
+     * implies any unclosed verse must have ended.
+     */
+    private autoCloseActiveVerses(
+        activeVerses: Map<string, { startParaIndex: number; bookAbbreviation: string; chapterNumber: string; verseNumber: string }>,
+        reason: string,
+        paragraphIndex: number
+    ): void {
+        if (activeVerses.size === 0) return;
+        this.debugLog(
+            `Auto-closing ${activeVerses.size} unclosed verse(s) at paragraph ${paragraphIndex} (${reason}): ${Array.from(activeVerses.keys()).join(', ')}`
+        );
+        activeVerses.clear();
+    }
+
+    /**
      * Mark paragraphs that are part of spanning verses
      * Paragraphs between opening and closing meta%3av markers should be marked as verse content, not notes
      */
@@ -429,6 +468,16 @@ export class IDMLParser {
         // First pass: Directly scan XML for opening markers (cv%3av followed by opening meta%3av)
         for (let i = 0; i < paragraphs.length; i++) {
             const para = paragraphs[i];
+            const paraStyle = para.paragraphStyleRange.appliedParagraphStyle;
+
+            // Auto-close active verses when we hit a note section or a new book
+            if (activeVerses.size > 0) {
+                if (this.isNoteSectionStyle(paraStyle)) {
+                    this.autoCloseActiveVerses(activeVerses, 'note section start', i);
+                } else if (this.isBookMarkerStyle(paraStyle)) {
+                    this.autoCloseActiveVerses(activeVerses, 'new book marker', i);
+                }
+            }
 
             // Update current book and chapter from paragraph metadata
             if ((para.metadata as any)?.bookAbbreviation) {
@@ -515,9 +564,29 @@ export class IDMLParser {
             }
         }
 
-        // Second pass: Find closing markers and mark intermediate paragraphs
+        // Reset for second pass
+        activeVerses.clear();
+        currentBook = '';
+        currentChapter = '1';
+
+        // Re-build active verses for second pass (same logic as first pass, but now
+        // we will also check for closing markers and auto-close on boundaries)
+        // We repeat the first-pass logic here because the auto-close above may have
+        // cleared entries prematurely for the second-pass matching.
+
+        // Second pass: Find opening markers, closing markers, and auto-close at boundaries
         for (let i = 0; i < paragraphs.length; i++) {
             const para = paragraphs[i];
+            const paraStyle = para.paragraphStyleRange.appliedParagraphStyle;
+
+            // Auto-close active verses at note section or book boundaries
+            if (activeVerses.size > 0) {
+                if (this.isNoteSectionStyle(paraStyle)) {
+                    this.autoCloseActiveVerses(activeVerses, 'note section start (pass 2)', i);
+                } else if (this.isBookMarkerStyle(paraStyle)) {
+                    this.autoCloseActiveVerses(activeVerses, 'new book marker (pass 2)', i);
+                }
+            }
 
             // Update current book and chapter
             if ((para.metadata as any)?.bookAbbreviation) {
@@ -531,6 +600,42 @@ export class IDMLParser {
                 paragraphMatches[i].index || 0,
                 i + 1 < paragraphMatches.length ? (paragraphMatches[i + 1].index || storyXml.length) : storyXml.length
             ) : '';
+
+            // Detect opening markers (same logic as first pass) to populate activeVerses for this pass
+            const cvMetaPattern = /<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*cv%3av[^"]*"[^>]*>\s*<Content>(\d+)<\/Content>[\s\S]*?<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*meta%3av[^"]*"[^>]*>\s*<Content>\1<\/Content>/gi;
+            const cvMetaMatches = [...paraXml.matchAll(cvMetaPattern)];
+
+            for (const match of cvMetaMatches) {
+                const verseNum = match[1];
+                const verseKey = `${currentBook} ${currentChapter}:${verseNum}`;
+
+                const afterOpeningMeta = paraXml.substring(match.index! + match[0].length);
+                const closingMetaInSamePara = new RegExp(
+                    `<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*meta%3av[^"]*"[^>]*>\\s*<Content>${verseNum}</Content>`,
+                    'gi'
+                );
+                const closingMatchesInPara = [...afterOpeningMeta.matchAll(closingMetaInSamePara)];
+
+                let hasClosingMarker = false;
+                for (const closingMatch of closingMatchesInPara) {
+                    const beforeClosing = afterOpeningMeta.substring(0, closingMatch.index || 0);
+                    const hasContentBefore = /<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*\$ID\/\[No character style\]/i.test(beforeClosing);
+                    const hasCvBefore = /<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*cv%3av[^"]*"[^>]*>\s*<Content>\d+<\/Content>/i.test(beforeClosing);
+                    if (hasContentBefore && !hasCvBefore) {
+                        hasClosingMarker = true;
+                        break;
+                    }
+                }
+
+                if (!hasClosingMarker) {
+                    activeVerses.set(verseKey, {
+                        startParaIndex: i,
+                        bookAbbreviation: currentBook,
+                        chapterNumber: currentChapter,
+                        verseNumber: verseNum
+                    });
+                }
+            }
 
             // Check for closing meta%3av markers
             const closingMetaPattern = /<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*meta%3av[^"]*"[^>]*>\s*<Content>(\d+)<\/Content>/gi;
@@ -603,7 +708,7 @@ export class IDMLParser {
 
         // Clean up any remaining active verses
         if (activeVerses.size > 0) {
-            this.debugLog(`Warning: ${activeVerses.size} active verse(s) not closed: ${Array.from(activeVerses.keys()).join(', ')}`);
+            this.debugLog(`Warning: ${activeVerses.size} active verse(s) not closed (auto-closed at end): ${Array.from(activeVerses.keys()).join(', ')}`);
         }
     }
 
@@ -676,6 +781,48 @@ export class IDMLParser {
     }
 
     /**
+     * Extract content segments from paragraph XML (prefer raw story slice for accuracy).
+     */
+    private extractContentSegmentsForParagraph(
+        paragraphElement: Element,
+        storyXml: string,
+        paragraphIndex: number
+    ): { segments: string[]; breakBefore: boolean[] } {
+        if (storyXml && paragraphIndex >= 0) {
+            const located = findParagraphBlockInStoryXml(storyXml, { paragraphOrder: paragraphIndex });
+            if (located) {
+                return extractContentSegmentStructureFromParagraphXml(located.block);
+            }
+        }
+        return extractContentSegmentStructureFromParagraphXml(paragraphElement.outerHTML);
+    }
+
+    /**
+     * Attach content segment fields to a paragraph result.
+     */
+    private withContentSegments(
+        paragraph: IDMLParagraph,
+        paragraphElement: Element,
+        storyXml: string,
+        paragraphIndex: number
+    ): IDMLParagraph {
+        const located =
+            storyXml && paragraphIndex >= 0
+                ? findParagraphBlockInStoryXml(storyXml, { paragraphOrder: paragraphIndex })
+                : null;
+        const paragraphXml = located?.block ?? paragraphElement.outerHTML;
+        const segmentStructure = extractContentSegmentStructureFromParagraphXml(paragraphXml);
+        const contentSegmentStyles = extractSegmentStylesFromParagraphXml(paragraphXml);
+
+        return {
+            ...paragraph,
+            contentSegments: segmentStructure.segments,
+            contentSegmentBreakBefore: segmentStructure.breakBefore,
+            contentSegmentStyles,
+        };
+    }
+
+    /**
      * Extract individual paragraph
      */
     private async extractParagraph(paragraphElement: Element, currentBook: string = '', currentChapter: string = '1', storyXml: string = '', paragraphIndex: number = -1): Promise<IDMLParagraph> {
@@ -711,12 +858,17 @@ export class IDMLParser {
                 this.debugLog(`Found book abbreviation: ${bookAbbrev}`);
                 const metadata = this.extractElementMetadata(paragraphElement) || {};
                 (metadata as any).bookAbbreviation = bookAbbrev;
-                return {
-                    id: paragraphId,
-                    paragraphStyleRange,
-                    characterStyleRanges,
-                    metadata
-                };
+                return this.withContentSegments(
+                    {
+                        id: paragraphId,
+                        paragraphStyleRange,
+                        characterStyleRanges,
+                        metadata,
+                    },
+                    paragraphElement,
+                    storyXml,
+                    paragraphIndex
+                );
             }
         }
 
@@ -850,10 +1002,18 @@ export class IDMLParser {
                 // Collect "beforeVerse" metadata (meta:c and meta:v)
                 let beforeVerse = '';
 
-                // Check for chapter meta (meta:c) - only on first verse of chapter
+                // Check for chapter meta (meta:c) - only on first verse of chapter.
+                // Psalms use meta:c ("1:", "2:", …) instead of cv:dc for chapter numbers.
                 if (i < csrNodes.length && isMetaChapterStyle(csrNodes[i])) {
                     beforeVerse += serializeEl(csrNodes[i]);
-                    this.debugLog(`Found chapter meta: ${csrNodes[i].textContent}`);
+                    const metaChapterText = (csrNodes[i].textContent || '').trim();
+                    this.debugLog(`Found chapter meta: ${metaChapterText}`);
+                    const metaChapterMatch = metaChapterText.match(/^(\d+)/);
+                    if (metaChapterMatch) {
+                        chapterInParagraph = metaChapterMatch[1];
+                        lastChapterSeen = metaChapterMatch[1];
+                        this.debugLog(`Updated chapter from meta:c to: ${chapterInParagraph}`);
+                    }
                     i++;
                 }
 
@@ -1214,21 +1374,31 @@ export class IDMLParser {
                 (metadata as any).lastChapterNumber = lastChapterSeen;
             }
 
-            return {
-                id: paragraphId,
-                paragraphStyleRange,
-                characterStyleRanges,
-                metadata
-            };
+            return this.withContentSegments(
+                {
+                    id: paragraphId,
+                    paragraphStyleRange,
+                    characterStyleRanges,
+                    metadata,
+                },
+                paragraphElement,
+                storyXml,
+                paragraphIndex
+            );
         } catch (err) {
             // Fallback to default behavior
             this.debugLog(`Verse segment parsing failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-            return {
-                id: paragraphId,
-                paragraphStyleRange,
-                characterStyleRanges,
-                metadata: this.extractElementMetadata(paragraphElement)
-            };
+            return this.withContentSegments(
+                {
+                    id: paragraphId,
+                    paragraphStyleRange,
+                    characterStyleRanges,
+                    metadata: this.extractElementMetadata(paragraphElement),
+                },
+                paragraphElement,
+                storyXml,
+                paragraphIndex
+            );
         }
     }
 

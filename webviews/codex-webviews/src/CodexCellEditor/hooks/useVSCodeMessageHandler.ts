@@ -2,18 +2,43 @@ import { useEffect, useRef } from "react";
 import { Dispatch, SetStateAction } from "react";
 import { QuillCellContent, MilestoneIndex } from "../../../../../types";
 import { CustomNotebookMetadata } from "../../../../../types";
+import type { AudioAvailability } from "../utils/audioViewMode";
 
-type AudioAvailability = "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+const PROTECTED_FROM_GENERIC = new Set<AudioAvailability>([
+    "available-local", "available-pointer", "available-cached",
+    "unselected", "deletedOnly",
+]);
 
 /**
- * Derives the audio availability state for a cell based on its attachments and selection.
- * When an explicit selectedAudioId is missing, returns "missing" regardless of other entries.
- * When no explicit selection exists, checks whether the implicit current audio
- * (latest non-deleted by updatedAt) is missing—this is the one the provider would serve on play.
+ * Merge incoming availability into existing state without downgrading
+ * refined/provider-set states to the generic "available" that webview-side
+ * derivation produces (it can't do file-system checks).
+ */
+const mergeAvailabilityWithoutDowngrade = (
+    prev: Record<string, AudioAvailability> | undefined,
+    incoming: Record<string, AudioAvailability>,
+): Record<string, AudioAvailability> => {
+    if (!prev) return incoming;
+    const next = { ...prev };
+    for (const [cellId, newState] of Object.entries(incoming)) {
+        const existing = prev[cellId];
+        if (existing && PROTECTED_FROM_GENERIC.has(existing) && newState === "available") {
+            continue;
+        }
+        next[cellId] = newState;
+    }
+    return next;
+};
+
+/**
+ * Derives the audio availability state for a cell based on its attachments
+ * and explicit selection.  Mirrors the provider-side logic so that the
+ * webview-derived state matches what the provider will send, preventing
+ * icon toggling between intermediate renders.
  */
 const deriveAudioAvailability = (unit: QuillCellContent): AudioAvailability => {
     const atts = (unit?.attachments || {}) as Record<string, any>;
-    let hasAvailable = false;
+    let hasUsable = false;
     let hasMissing = false;
     let hasDeleted = false;
 
@@ -22,29 +47,27 @@ const deriveAudioAvailability = (unit: QuillCellContent): AudioAvailability => {
         if (att?.type === "audio") {
             if (att.isDeleted) hasDeleted = true;
             else if (att.isMissing) hasMissing = true;
-            else hasAvailable = true;
+            else hasUsable = true;
         }
     }
-
-    // Prefer showing available when a valid file exists,
-    // even if the user's explicit selection points to a missing file.
-    if (hasAvailable) return "available";
 
     const selectedId = unit?.metadata?.selectedAudioId;
     const selectedAtt = selectedId ? atts[selectedId] : undefined;
-    if (selectedAtt?.type === "audio" && selectedAtt?.isMissing === true) {
-        return "missing";
+
+    // Unified rule: the `missing` icon is shown ONLY when `selectedAudioId` validly
+    // resolves to an attachment with `isMissing: true`. In every other non-resolving
+    // case (no selection, empty-string deselect, invalid/dangling id) the cell icon
+    // falls back to `unselected` when any usable audio exists, else `none`. Matches
+    // `resolveSelectedAttachmentState` on the provider side.
+    const selectionResolves =
+        !!selectedAtt && selectedAtt.type === "audio" && !selectedAtt.isDeleted;
+
+    if (!selectionResolves) {
+        return hasUsable ? "unselected" : "none";
     }
 
-    if (!selectedId && hasMissing) {
-        const nonDeleted = Object.entries(atts)
-            .filter(([, att]) => att?.type === "audio" && !att.isDeleted)
-            .sort(([, a], [, b]) => (b.updatedAt || 0) - (a.updatedAt || 0));
-        if (nonDeleted.length > 0 && nonDeleted[0][1].isMissing) {
-            return "missing";
-        }
-    }
-
+    if (selectedAtt.isMissing) return "missing";
+    if (hasUsable) return "available";
     if (hasMissing) return "missing";
     if (hasDeleted) return "deletedOnly";
     return "none";
@@ -63,6 +86,15 @@ interface UseVSCodeMessageHandlerProps {
     updateTextDirection: (direction: "ltr" | "rtl") => void;
     updateNotebookMetadata: (metadata: CustomNotebookMetadata) => void;
     updateVideoUrl: (url: string) => void;
+    videoFilePicked?: (fsPath: string, fileName: string) => void;
+    videoStreamResolving?: () => void;
+    videoStreamUnavailable?: (reason: string, message?: string) => void;
+    videoNeedsDownload?: (strategy: "auto-download" | "stream-and-save" | "stream-only") => void;
+    videoReferenceStatus?: (
+        status: "none" | "url" | "local-usable" | "missing",
+        canFreeDiskSpace?: boolean,
+        videoSizeBytes?: number
+    ) => void;
 
     // New handlers for provider-centric state management
     updateAutocompletionState?: (state: {
@@ -102,7 +134,7 @@ interface UseVSCodeMessageHandlerProps {
     singleCellTranslationCompleted?: () => void;
     singleCellTranslationFailed?: () => void;
     setChapterNumber?: (chapterNumber: number) => void;
-    setAudioAttachments: Dispatch<SetStateAction<{ [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; }>>;
+    setAudioAttachments: Dispatch<SetStateAction<{ [cellId: string]: AudioAvailability; }>>;
 
     // A/B testing handlers
     showABTestVariants?: (data: { variants: string[]; cellId: string; testId: string; }) => void;
@@ -135,6 +167,11 @@ export const useVSCodeMessageHandler = ({
     updateTextDirection,
     updateNotebookMetadata,
     updateVideoUrl,
+    videoFilePicked,
+    videoStreamResolving,
+    videoStreamUnavailable,
+    videoNeedsDownload,
+    videoReferenceStatus,
 
     // New handlers
     updateAutocompletionState,
@@ -174,7 +211,7 @@ export const useVSCodeMessageHandler = ({
                             if (!cellId) continue;
                             availability[cellId] = deriveAudioAvailability(unit);
                         }
-                        setAudioAttachments(availability);
+                        setAudioAttachments((prev) => mergeAvailabilityWithoutDowngrade(prev, availability));
                     } catch { /* ignore */ }
                     break;
 
@@ -184,6 +221,17 @@ export const useVSCodeMessageHandler = ({
                         if (typeof (message?.content?.autoDownloadAudioOnOpen) === "boolean") {
                             (window as any).__autoDownloadAudioOnOpen = !!message.content.autoDownloadAudioOnOpen;
                             (window as any).__autoDownloadAudioOnOpenInitialized = true;
+                        }
+                        if (typeof (message?.content?.autoRecordOnMicClick) === "boolean") {
+                            (window as any).__autoRecordOnMicClick = !!message.content.autoRecordOnMicClick;
+                            (window as any).__autoRecordOnMicClickInitialized = true;
+                        }
+                        if (typeof (message?.content?.recordingCountdownSeconds) === "number") {
+                            (window as any).__recordingCountdownSeconds = Math.max(
+                                0,
+                                Math.min(3, Math.round(message.content.recordingCountdownSeconds))
+                            );
+                            (window as any).__recordingCountdownSecondsInitialized = true;
                         }
                     } catch { console.error("Error deriving audio attachment availability"); }
                     try { updateNotebookMetadata(message.content); } catch { console.error("Error updating notebook metadata"); }
@@ -216,6 +264,21 @@ export const useVSCodeMessageHandler = ({
                     break;
                 case "updateVideoUrlInWebview":
                     updateVideoUrl(message.content);
+                    break;
+                case "videoFilePicked":
+                    videoFilePicked?.(message.fsPath, message.fileName);
+                    break;
+                case "videoStreamResolving":
+                    videoStreamResolving?.();
+                    break;
+                case "videoStreamUnavailable":
+                    videoStreamUnavailable?.(message.reason, message.message);
+                    break;
+                case "videoNeedsDownload":
+                    videoNeedsDownload?.(message.strategy);
+                    break;
+                case "videoReferenceStatus":
+                    videoReferenceStatus?.(message.status, message.canFreeDiskSpace, message.videoSizeBytes);
                     break;
                 case "providerAutocompletionState":
                     if (updateAutocompletionState) {
@@ -295,24 +358,12 @@ export const useVSCodeMessageHandler = ({
                     break;
                 case "providerSendsAudioAttachments":
                     if (message.attachments) {
-                        // Merge incrementally and only trigger state update if a value actually changes
-                        setAudioAttachments((prev) => {
-                            try {
-                                const incoming = message.attachments as Record<string, string>;
-                                let changed = false;
-                                const next = { ...(prev || {}) } as Record<string, string>;
-                                for (const key of Object.keys(incoming)) {
-                                    const val = incoming[key as keyof typeof incoming];
-                                    if (next[key] !== val) {
-                                        next[key] = val as any;
-                                        changed = true;
-                                    }
-                                }
-                                return changed ? (next as any) : prev;
-                            } catch {
-                                return message.attachments;
-                            }
-                        });
+                        setAudioAttachments((prev) =>
+                            mergeAvailabilityWithoutDowngrade(
+                                prev,
+                                message.attachments as Record<string, AudioAvailability>
+                            )
+                        );
                     }
                     break;
                 case "providerSendsABTestVariants":
@@ -363,7 +414,7 @@ export const useVSCodeMessageHandler = ({
                             if (!cellId) continue;
                             availability[cellId] = deriveAudioAvailability(unit);
                         }
-                        setAudioAttachments(availability);
+                        setAudioAttachments((prev) => mergeAvailabilityWithoutDowngrade(prev, availability));
                     } catch { /* ignore */ }
                     break;
 
@@ -392,7 +443,7 @@ export const useVSCodeMessageHandler = ({
                             if (!cellId) continue;
                             availability[cellId] = deriveAudioAvailability(unit);
                         }
-                        setAudioAttachments((prev) => ({ ...prev, ...availability }));
+                        setAudioAttachments((prev) => mergeAvailabilityWithoutDowngrade(prev, availability));
                     } catch { /* ignore */ }
                     break;
             }
@@ -412,6 +463,10 @@ export const useVSCodeMessageHandler = ({
         updateTextDirection,
         updateNotebookMetadata,
         updateVideoUrl,
+        videoFilePicked,
+        videoStreamResolving,
+        videoStreamUnavailable,
+        videoNeedsDownload,
         updateAutocompletionState,
         updateSingleCellTranslationState,
         updateSingleCellQueueState,

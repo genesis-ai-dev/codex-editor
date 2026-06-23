@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.27.0",
+    "version": "0.29.0",
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"
@@ -464,6 +464,11 @@
             {
                 "command": "codex-editor-extension.runVerseRangeLabelsAndPositionsMigration",
                 "title": "Codex: Fix Verse Range Labels and Positions",
+                "category": "Codex Maintenance"
+            },
+            {
+                "command": "codex-editor-extension.recoverMissingMergedChildren",
+                "title": "Codex: Recover Missing Merged Verses",
                 "category": "Codex Maintenance"
             },
             {

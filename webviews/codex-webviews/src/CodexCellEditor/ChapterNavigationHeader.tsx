@@ -53,10 +53,16 @@ interface ChapterNavigationHeaderProps {
     documentHasVideoAvailable: boolean;
     metadata: CustomNotebookMetadata | undefined;
     onMetadataChange: (key: string, value: string) => void;
-    onSaveMetadata: () => void;
+    onSaveMetadata: (updated: CustomNotebookMetadata, pendingVideoFilePath?: string) => void;
     onPickFile: () => void;
-    onUpdateVideoUrl: (url: string) => void;
-    tempVideoUrl: string;
+    // A staged video pick delivered from the host (not yet imported); shown in
+    // the metadata modal as a pending video until "Save Changes".
+    pickedVideoFile?: { fsPath: string; fileName: string; } | null;
+    onPickedVideoConsumed?: () => void;
+    videoCanFreeDiskSpace: boolean;
+    onFreeVideoDiskSpace: () => void;
+    videoReferenceStatus: "none" | "url" | "local-usable" | "missing" | null;
+    videoSizeBytes?: number | null;
     toggleScrollSync: () => void;
     scrollSyncEnabled: boolean;
     translationUnitsForSection: QuillCellContent[];
@@ -126,8 +132,12 @@ export function ChapterNavigationHeader({
     onMetadataChange,
     onSaveMetadata,
     onPickFile,
-    onUpdateVideoUrl,
-    tempVideoUrl,
+    pickedVideoFile,
+    onPickedVideoConsumed,
+    videoCanFreeDiskSpace,
+    onFreeVideoDiskSpace,
+    videoReferenceStatus,
+    videoSizeBytes,
     toggleScrollSync,
     scrollSyncEnabled,
     translationUnitsForSection,
@@ -167,6 +177,9 @@ ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
     const [autoDownloadAudioOnOpen, setAutoDownloadAudioOnOpenState] = useState<boolean>(false);
+    const [autoRecordOnMicClick, setAutoRecordOnMicClickState] = useState<boolean>(false);
+    const [recordingCountdownSeconds, setRecordingCountdownSecondsState] =
+        useState<number>(3);
     const [showMilestoneAccordion, setShowMilestoneAccordion] = useState(false);
     // Stable callback so MilestoneAccordion's effect deps don't churn on every
     // render of this header — keeps inline-rename focus from being stolen when
@@ -232,6 +245,28 @@ ChapterNavigationHeaderProps) {
             setAutoDownloadAudioOnOpenState(!!metadata.autoDownloadAudioOnOpen);
         }
     }, [metadata?.autoDownloadAudioOnOpen]);
+
+    useEffect(() => {
+        if (typeof metadata?.autoRecordOnMicClick === "boolean") {
+            setAutoRecordOnMicClickState(!!metadata.autoRecordOnMicClick);
+        }
+    }, [metadata?.autoRecordOnMicClick]);
+
+    useEffect(() => {
+        if (typeof metadata?.recordingCountdownSeconds === "number") {
+            const sanitized = Math.max(
+                0,
+                Math.min(3, Math.round(metadata.recordingCountdownSeconds))
+            );
+            setRecordingCountdownSecondsState(sanitized);
+            try {
+                (window as any).__recordingCountdownSeconds = sanitized;
+                (window as any).__recordingCountdownSecondsInitialized = true;
+            } catch {
+                /* ignore */
+            }
+        }
+    }, [metadata?.recordingCountdownSeconds]);
 
     // Display milestone value directly (e.g., "Isaiah 1" or "1")
     const getDisplayTitle = useCallback(() => {
@@ -399,12 +434,12 @@ ChapterNavigationHeaderProps) {
         setIsMetadataModalOpen(false);
     };
 
-    const handleSaveMetadata = () => {
-        onSaveMetadata();
+    const handleSaveMetadata = (
+        updated: CustomNotebookMetadata,
+        pendingVideoFilePath?: string
+    ) => {
+        onSaveMetadata(updated, pendingVideoFilePath);
         setIsMetadataModalOpen(false);
-        if (metadata?.videoUrl) {
-            onUpdateVideoUrl(metadata.videoUrl);
-        }
     };
 
     const handleFontSizeChange = (value: number[]) => {
@@ -566,6 +601,46 @@ ChapterNavigationHeaderProps) {
                                 });
                             } catch (error) {
                                 console.error("Error setting auto download audio on open", error);
+                            }
+                        }}
+                        autoRecordOnMicClick={autoRecordOnMicClick}
+                        onToggleAutoRecordOnMicClick={(val) => {
+                            setAutoRecordOnMicClickState(!!val);
+                            try {
+                                vscode.postMessage({
+                                    command: "setAutoRecordOnMicClick",
+                                    content: { value: !!val },
+                                });
+                            } catch (error) {
+                                console.error("Error setting auto record on mic click", error);
+                            }
+                            try {
+                                (window as any).__autoRecordOnMicClick = !!val;
+                                (window as any).__autoRecordOnMicClickInitialized = true;
+                            } catch { /* ignore */ }
+                        }}
+                        recordingCountdownSeconds={recordingCountdownSeconds}
+                        onCycleRecordingCountdown={() => {
+                            const cycle = [0, 1, 2, 3];
+                            const idx = cycle.indexOf(recordingCountdownSeconds);
+                            const next = cycle[(idx + 1) % cycle.length] ?? 3;
+                            setRecordingCountdownSecondsState(next);
+                            try {
+                                vscode.postMessage({
+                                    command: "setRecordingCountdownSeconds",
+                                    content: { value: next },
+                                });
+                            } catch (error) {
+                                console.error(
+                                    "Error setting recording countdown seconds",
+                                    error
+                                );
+                            }
+                            try {
+                                (window as any).__recordingCountdownSeconds = next;
+                                (window as any).__recordingCountdownSecondsInitialized = true;
+                            } catch {
+                                /* ignore */
                             }
                         }}
                     />
@@ -851,19 +926,6 @@ ChapterNavigationHeaderProps) {
                     <DropdownMenuTrigger asChild>
                         <Button variant="outline" title="Advanced Settings" className="relative">
                             <i className="codicon codicon-settings-gear" />
-                            {autoDownloadAudioOnOpen ? (
-                                <span
-                                    className="absolute rounded-full"
-                                    style={{
-                                        width: 8,
-                                        height: 8,
-                                        right: 6,
-                                        top: 6,
-                                        backgroundColor: "var(--vscode-charts-blue)",
-                                    }}
-                                    title="Auto-download enabled"
-                                />
-                            ) : null}
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
@@ -930,6 +992,94 @@ ChapterNavigationHeaderProps) {
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             onClick={() => {
+                                const next = !autoRecordOnMicClick;
+                                setAutoRecordOnMicClickState(next);
+                                try {
+                                    vscode.postMessage({
+                                        command: "setAutoRecordOnMicClick",
+                                        content: { value: next },
+                                    });
+                                } catch (error) {
+                                    console.error(
+                                        "Error setting auto record on mic click",
+                                        error
+                                    );
+                                }
+                                try {
+                                    (window as any).__autoRecordOnMicClick = next;
+                                    (window as any).__autoRecordOnMicClickInitialized = true;
+                                } catch { /* ignore */ }
+                            }}
+                            className="cursor-pointer"
+                        >
+                            <i className="codicon codicon-record mr-2 h-4 w-4" />
+                            <span className="flex-1">Auto-record on mic click</span>
+                            <span
+                                className="text-xs px-2 py-0.5 rounded-full"
+                                style={{
+                                    backgroundColor: autoRecordOnMicClick
+                                        ? "var(--vscode-charts-blue)"
+                                        : "var(--vscode-editorHoverWidget-border)",
+                                    color: autoRecordOnMicClick
+                                        ? "var(--vscode-editor-background)"
+                                        : "var(--vscode-foreground)",
+                                }}
+                            >
+                                {autoRecordOnMicClick ? "On" : "Off"}
+                            </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onSelect={(e) => {
+                                // Keep the menu open so the user can iterate
+                                // through values without having to re-open the
+                                // menu after each click.
+                                e.preventDefault();
+                                const cycle = [0, 1, 2, 3];
+                                const idx = cycle.indexOf(recordingCountdownSeconds);
+                                const next = cycle[(idx + 1) % cycle.length] ?? 3;
+                                setRecordingCountdownSecondsState(next);
+                                try {
+                                    vscode.postMessage({
+                                        command: "setRecordingCountdownSeconds",
+                                        content: { value: next },
+                                    });
+                                } catch (error) {
+                                    console.error(
+                                        "Error setting recording countdown seconds",
+                                        error
+                                    );
+                                }
+                                try {
+                                    (window as any).__recordingCountdownSeconds = next;
+                                    (window as any).__recordingCountdownSecondsInitialized = true;
+                                } catch {
+                                    /* ignore */
+                                }
+                            }}
+                            className="cursor-pointer"
+                        >
+                            <i className="codicon codicon-clock mr-2 h-4 w-4" />
+                            <span className="flex-1">Recording countdown</span>
+                            <span
+                                className="text-xs px-2 py-0.5 rounded-full"
+                                style={{
+                                    backgroundColor:
+                                        recordingCountdownSeconds > 0
+                                            ? "var(--vscode-charts-blue)"
+                                            : "var(--vscode-editorHoverWidget-border)",
+                                    color:
+                                        recordingCountdownSeconds > 0
+                                            ? "var(--vscode-editor-background)"
+                                            : "var(--vscode-foreground)",
+                                }}
+                            >
+                                {recordingCountdownSeconds === 0
+                                    ? "Off"
+                                    : `${recordingCountdownSeconds}s`}
+                            </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => {
                                 if (onToggleInlineBacktranslations) {
                                     onToggleInlineBacktranslations();
                                 }
@@ -985,7 +1135,6 @@ ChapterNavigationHeaderProps) {
                                     : "Show Line Numbers"}
                             </span>
                         </DropdownMenuItem>
-
                         {documentHasVideoAvailable && (
                             <>
                                 <DropdownMenuSeparator />
@@ -1061,10 +1210,14 @@ ChapterNavigationHeaderProps) {
                     isOpen={isMetadataModalOpen}
                     onClose={handleCloseMetadataModal}
                     metadata={metadata}
-                    onMetadataChange={onMetadataChange}
                     onSave={handleSaveMetadata}
                     onPickFile={onPickFile}
-                    tempVideoUrl={tempVideoUrl}
+                    pickedVideoFile={pickedVideoFile}
+                    onPickedVideoConsumed={onPickedVideoConsumed}
+                    canFreeDiskSpace={videoCanFreeDiskSpace}
+                    onFreeDiskSpace={onFreeVideoDiskSpace}
+                    videoReferenceStatus={videoReferenceStatus}
+                    videoSizeBytes={videoSizeBytes}
                 />
             )}
 

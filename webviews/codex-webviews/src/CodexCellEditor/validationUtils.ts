@@ -115,6 +115,21 @@ export const audioPopoverTracker = {
     },
 };
 
+// Shared tracker to ensure only one read-only validation tooltip is visible at a time.
+// Each component registers a dismiss callback; when a new tooltip opens it dismisses the previous one.
+export const readOnlyTooltipTracker = {
+    _dismissCurrent: null as (() => void) | null,
+    show(dismiss: () => void) {
+        this._dismissCurrent?.();
+        this._dismissCurrent = dismiss;
+    },
+    clear(dismiss: () => void) {
+        if (this._dismissCurrent === dismiss) {
+            this._dismissCurrent = null;
+        }
+    },
+};
+
 // Shared tracker to ensure only one text validators popover is active
 export const textPopoverTracker = {
     activePopoverId: null as string | null,

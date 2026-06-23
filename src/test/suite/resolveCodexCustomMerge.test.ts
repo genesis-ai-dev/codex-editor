@@ -258,3 +258,414 @@ suite("Codex Custom Merge - Paratextual Cell Position Preservation", () => {
         );
     });
 });
+
+suite("Codex Custom Merge - Verse Range Order Preservation Across Sync", () => {
+    /**
+     * Build a notebook with a chapter milestone and three single-verse cells.
+     * `cellOrder` lets us reorder them to simulate the unmigrated/migrated sides of a sync.
+     */
+    function buildScriptureNotebook(cellOrder: Array<"M" | "V1" | "V2" | "V3R">): string {
+        const byKey: Record<string, any> = {
+            M: {
+                kind: 2,
+                languageId: "html",
+                value: "John 4",
+                metadata: { id: "M1", type: "milestone", edits: [] },
+            },
+            V1: {
+                kind: 2,
+                languageId: "scripture",
+                value: "<span>v1</span>",
+                metadata: {
+                    id: "V1",
+                    type: "text",
+                    cellLabel: "1",
+                    data: { globalReferences: ["JHN 4:1"] },
+                    edits: [],
+                },
+            },
+            V2: {
+                kind: 2,
+                languageId: "scripture",
+                value: "<span>v2</span>",
+                metadata: {
+                    id: "V2",
+                    type: "text",
+                    cellLabel: "2",
+                    data: { globalReferences: ["JHN 4:2"] },
+                    edits: [],
+                },
+            },
+            // Verse-range cell at "JHN 4:3-5" — the migrated side should place this in verse order
+            V3R: {
+                kind: 2,
+                languageId: "scripture",
+                value: "<span>v3-5</span>",
+                metadata: {
+                    id: "V3R",
+                    type: "text",
+                    data: { globalReferences: ["JHN 4:3-5"] },
+                    edits: [],
+                },
+            },
+        };
+        return JSON.stringify({
+            cells: cellOrder.map((k) => byKey[k]),
+            metadata: { id: "TEST", originalName: "TEST" },
+        });
+    }
+
+    test("ours-unmigrated vs theirs-migrated yields migrated order", async () => {
+        // Ours: range cell appears AFTER all single verses (unmigrated layout)
+        const oursUnmigrated = buildScriptureNotebook(["M", "V1", "V2", "V3R"]);
+        // Theirs: range cell already placed between V2 and (would-be) verse 6 — but here it's
+        // simply right after V2 in correct verse-start order.
+        const theirsMigrated = buildScriptureNotebook(["M", "V1", "V2", "V3R"]);
+
+        const merged = await resolveCodexCustomMerge(oursUnmigrated, theirsMigrated);
+        const notebook = JSON.parse(merged);
+        const ids = notebook.cells.map((c: any) => c.metadata?.id);
+        // Expected order: milestone, then verses in start-verse order under that chapter.
+        assert.deepStrictEqual(ids, ["M1", "V1", "V2", "V3R"]);
+        const range = notebook.cells.find((c: any) => c.metadata?.id === "V3R");
+        assert.strictEqual(range.metadata.cellLabel, "3-5", "Verse-range cellLabel should be auto-derived");
+        assert.strictEqual(range.metadata.chapterNumber, "4", "Chapter number should be auto-derived");
+    });
+
+    test("theirs-unmigrated vs ours-migrated still yields migrated order regardless of which side is ours", async () => {
+        // Cross-side scenario A: ours has range at the wrong end
+        const oursWrong = buildScriptureNotebook(["V3R", "M", "V1", "V2"]);
+        const theirsCorrect = buildScriptureNotebook(["M", "V1", "V2", "V3R"]);
+
+        const mergedA = await resolveCodexCustomMerge(oursWrong, theirsCorrect);
+        const idsA = JSON.parse(mergedA).cells.map((c: any) => c.metadata?.id);
+        // Even though "ours" had the range cell first, the helper places it under the milestone.
+        assert.deepStrictEqual(idsA, ["M1", "V1", "V2", "V3R"]);
+
+        // Cross-side scenario B: swapped — ours is correct, theirs is wrong
+        const mergedB = await resolveCodexCustomMerge(theirsCorrect, oursWrong);
+        const idsB = JSON.parse(mergedB).cells.map((c: any) => c.metadata?.id);
+        assert.deepStrictEqual(idsB, ["M1", "V1", "V2", "V3R"]);
+    });
+
+    test("merge of two already-migrated sides is stable (no order or label changes)", async () => {
+        const a = buildScriptureNotebook(["M", "V1", "V2", "V3R"]);
+        const b = buildScriptureNotebook(["M", "V1", "V2", "V3R"]);
+        const merged1 = await resolveCodexCustomMerge(a, b);
+        const merged2 = await resolveCodexCustomMerge(merged1, merged1);
+
+        const ids1 = JSON.parse(merged1).cells.map((c: any) => c.metadata?.id);
+        const ids2 = JSON.parse(merged2).cells.map((c: any) => c.metadata?.id);
+        assert.deepStrictEqual(ids1, ["M1", "V1", "V2", "V3R"]);
+        assert.deepStrictEqual(ids2, ids1);
+
+        // No new edits should be added by the resolver pass
+        const cells2 = JSON.parse(merged2).cells;
+        for (const c of cells2) {
+            const labelEdits = (c.metadata?.edits || []).filter(
+                (e: any) => e.editMap?.join(".") === "metadata.cellLabel"
+            );
+            assert.strictEqual(
+                labelEdits.length,
+                0,
+                `Resolver must not add cellLabel edits (cell ${c.metadata?.id})`
+            );
+        }
+    });
+
+    test("merge of a notebook with no milestones and no range cells is byte-stable", async () => {
+        // No milestone and no range cell -> helper early-exits, output mirrors merge result only
+        const ourContent = createNotebook([
+            createCell("CELL-1", "First"),
+            createCell("CELL-2", "Second"),
+            createCell("CELL-3", "Third"),
+        ]);
+        const merged1 = await resolveCodexCustomMerge(ourContent, ourContent);
+        const merged2 = await resolveCodexCustomMerge(merged1, merged1);
+        assert.strictEqual(merged1, merged2, "Repeated merges of a non-scripture notebook must be byte-stable");
+        const ids = JSON.parse(merged1).cells.map((c: any) => c.metadata?.id);
+        assert.deepStrictEqual(ids, ["CELL-1", "CELL-2", "CELL-3"]);
+    });
+
+    test("orphan paratext is NOT soft-deleted by the resolver path", async () => {
+        // Notebook contains a milestone (so the helper does NOT early-exit) AND an orphan
+        // paratext whose parent verse is missing. The helper must keep the orphan intact —
+        // soft-delete is the migration's job, not the resolver's.
+        const orphanedContent = JSON.stringify({
+            cells: [
+                {
+                    kind: 2,
+                    languageId: "html",
+                    value: "Genesis 1",
+                    metadata: { id: "M1", type: "milestone", edits: [] },
+                },
+                {
+                    kind: 2,
+                    languageId: "scripture",
+                    value: "<span>verse</span>",
+                    metadata: {
+                        id: "V1",
+                        type: "text",
+                        cellLabel: "1",
+                        data: { globalReferences: ["GEN 1:1"] },
+                        edits: [],
+                    },
+                },
+                {
+                    kind: 2,
+                    languageId: "html",
+                    value: "<span>orphan note</span>",
+                    metadata: {
+                        id: "ORPH",
+                        type: "paratext",
+                        parentId: "missing-id",
+                        data: {},
+                        edits: [],
+                    },
+                },
+            ],
+            metadata: { id: "TEST", originalName: "TEST" },
+        });
+        const merged = await resolveCodexCustomMerge(orphanedContent, orphanedContent);
+        const orphan = JSON.parse(merged).cells.find((c: any) => c.metadata?.id === "ORPH");
+        assert.ok(orphan, "Orphan paratext must still be present");
+        assert.notStrictEqual(
+            orphan.metadata?.data?.deleted,
+            true,
+            "Resolver must NOT soft-delete orphan paratext"
+        );
+        const orphanDeleteEdits = (orphan.metadata?.edits || []).filter(
+            (e: any) => e.editMap?.join(".") === "metadata.data.deleted"
+        );
+        assert.strictEqual(
+            orphanDeleteEdits.length,
+            0,
+            "Resolver must NOT add a soft-delete edit for orphan paratext"
+        );
+    });
+
+    test("user-edited cellLabel on a verse-range cell is preserved across a merge", async () => {
+        const customLabel = "1a";
+        const a = JSON.stringify({
+            cells: [
+                {
+                    kind: 2,
+                    languageId: "html",
+                    value: "Genesis 1",
+                    metadata: { id: "M1", type: "milestone", edits: [] },
+                },
+                {
+                    kind: 2,
+                    languageId: "scripture",
+                    value: "<span>1-3</span>",
+                    metadata: {
+                        id: "RANGE",
+                        type: "text",
+                        cellLabel: customLabel,
+                        data: { globalReferences: ["GEN 1:1-3"] },
+                        edits: [
+                            {
+                                editMap: ["metadata", "cellLabel"],
+                                value: customLabel,
+                                timestamp: 1,
+                                type: "user-edit",
+                                author: "translator",
+                                validatedBy: [],
+                            },
+                        ],
+                    },
+                },
+            ],
+            metadata: { id: "TEST", originalName: "TEST" },
+        });
+        const merged = await resolveCodexCustomMerge(a, a);
+        const range = JSON.parse(merged).cells.find((c: any) => c.metadata?.id === "RANGE");
+        assert.strictEqual(range.metadata.cellLabel, customLabel, "Resolver must not overwrite a user-edited cellLabel");
+    });
+
+    test("merge preserves interleaved milestone order when text cells have book-only globalReferences", async () => {
+        // IDML-imported files carry book-only refs like ["JOB"], which parseVerseRef cannot
+        // parse. The reorder helper used to hoist every milestone to the top of the file and
+        // append all text cells after the last milestone, so each section appeared empty in
+        // the editor after a sync merge.
+        const milestone = (id: string, value: string) => ({
+            kind: 2,
+            languageId: "html",
+            value,
+            metadata: { id, type: "milestone", edits: [] },
+        });
+        const bookOnlyText = (id: string, value: string) => ({
+            kind: 2,
+            languageId: "scripture",
+            value,
+            metadata: {
+                id,
+                type: "text",
+                data: { globalReferences: ["JOB"] },
+                edits: [],
+            },
+        });
+        const content = JSON.stringify({
+            cells: [
+                milestone("M1", "Job 1"),
+                bookOnlyText("T1", "<span>section one a</span>"),
+                bookOnlyText("T2", "<span>section one b</span>"),
+                milestone("M2", "Job 2"),
+                bookOnlyText("T3", "<span>section two</span>"),
+                milestone("M3", "Job 3"),
+                bookOnlyText("T4", "<span>section three</span>"),
+            ],
+            metadata: { id: "TEST", originalName: "TEST" },
+        });
+
+        const merged1 = await resolveCodexCustomMerge(content, content);
+        const ids = JSON.parse(merged1).cells.map((c: any) => c.metadata?.id);
+        assert.deepStrictEqual(
+            ids,
+            ["M1", "T1", "T2", "M2", "T3", "M3", "T4"],
+            "Milestones must stay interleaved with their text cells"
+        );
+
+        // And the result must be stable across repeated sync merges
+        const merged2 = await resolveCodexCustomMerge(merged1, merged1);
+        const ids2 = JSON.parse(merged2).cells.map((c: any) => c.metadata?.id);
+        assert.deepStrictEqual(ids2, ids, "Repeated merges must not change the cell order");
+    });
+
+    test("merge preserves order when milestones are chapter ranges like 'Job 4-31'", async () => {
+        const cells = [
+            {
+                kind: 2,
+                languageId: "html",
+                value: "Job 1-3",
+                metadata: { id: "M1", type: "milestone", edits: [] },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "<span>1:1</span>",
+                metadata: {
+                    id: "T1",
+                    type: "text",
+                    data: { globalReferences: ["JOB 1:1"] },
+                    edits: [],
+                },
+            },
+            {
+                kind: 2,
+                languageId: "html",
+                value: "Job 4-31",
+                metadata: { id: "M2", type: "milestone", edits: [] },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "<span>4:1</span>",
+                metadata: {
+                    id: "T2",
+                    type: "text",
+                    data: { globalReferences: ["JOB 4:1"] },
+                    edits: [],
+                },
+            },
+        ];
+        const content = JSON.stringify({
+            cells,
+            metadata: { id: "TEST", originalName: "TEST" },
+        });
+
+        const merged = await resolveCodexCustomMerge(content, content);
+        const ids = JSON.parse(merged).cells.map((c: any) => c.metadata?.id);
+        assert.deepStrictEqual(
+            ids,
+            ["M1", "T1", "M2", "T2"],
+            "Content chapters must stay under their covering range milestone"
+        );
+    });
+
+    test("merge keeps USFM heading/marker cells (empty globalReferences) next to their verses", async () => {
+        // The USFM importer writes section headings and paragraph markers as TEXT cells with
+        // empty globalReferences, interleaved between verse cells. A sync merge must not move
+        // them to the end of the file.
+        const verse = (id: string, ref: string) => ({
+            kind: 2,
+            languageId: "scripture",
+            value: `<span>${ref}</span>`,
+            metadata: { id, type: "text", data: { globalReferences: [ref] }, edits: [] },
+        });
+        const marker = (id: string, value: string) => ({
+            kind: 2,
+            languageId: "html",
+            value,
+            metadata: { id, type: "text", data: { globalReferences: [] }, edits: [] },
+        });
+        const content = JSON.stringify({
+            cells: [
+                {
+                    kind: 2,
+                    languageId: "html",
+                    value: "Genesis 1",
+                    metadata: { id: "M1", type: "milestone", edits: [] },
+                },
+                marker("H1", "<span>The Creation</span>"),
+                verse("V1", "GEN 1:1"),
+                marker("P1", "<span></span>"),
+                verse("V2", "GEN 1:2"),
+                {
+                    kind: 2,
+                    languageId: "html",
+                    value: "Genesis 2",
+                    metadata: { id: "M2", type: "milestone", edits: [] },
+                },
+                marker("H2", "<span>The Garden</span>"),
+                verse("V3", "GEN 2:1"),
+            ],
+            metadata: { id: "TEST", originalName: "TEST", importerType: "usfm" },
+        });
+
+        const merged = await resolveCodexCustomMerge(content, content);
+        const ids = JSON.parse(merged).cells.map((c: any) => c.metadata?.id);
+        assert.deepStrictEqual(
+            ids,
+            ["M1", "H1", "V1", "P1", "V2", "M2", "H2", "V3"],
+            "Headings and markers must stay anchored next to their verses"
+        );
+    });
+
+    test("merge of a non-Bible importer notebook (markdown with citations) never reorders", async () => {
+        const para = (id: string, value: string, ref?: string) => ({
+            kind: 2,
+            languageId: "html",
+            value,
+            metadata: {
+                id,
+                type: "text",
+                data: { globalReferences: ref ? [ref] : [] },
+                edits: [],
+            },
+        });
+        const content = JSON.stringify({
+            cells: [
+                {
+                    kind: 2,
+                    languageId: "html",
+                    value: "1",
+                    metadata: { id: "M1", type: "milestone", edits: [] },
+                },
+                para("P1", "<span>intro</span>"),
+                para("P2", "<span>see Genesis 1:5</span>", "GEN 1:5"),
+                para("P3", "<span>middle</span>"),
+                para("P4", "<span>see Genesis 1:2</span>", "GEN 1:2"),
+            ],
+            metadata: { id: "TEST", originalName: "TEST", importerType: "markdown" },
+        });
+
+        const merged = await resolveCodexCustomMerge(content, content);
+        const ids = JSON.parse(merged).cells.map((c: any) => c.metadata?.id);
+        assert.deepStrictEqual(
+            ids,
+            ["M1", "P1", "P2", "P3", "P4"],
+            "Document notebooks must keep their paragraph order regardless of citations"
+        );
+    });
+});

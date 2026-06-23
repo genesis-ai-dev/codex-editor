@@ -3,8 +3,17 @@ import {
     EditorPostMessages,
     QuillCellContent,
     MilestoneIndex,
+    CustomNotebookMetadata,
 } from "../../../../types";
-import React, { useMemo, useCallback, useState, useEffect, useRef, useContext } from "react";
+import React, {
+    useMemo,
+    useCallback,
+    useState,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useContext,
+} from "react";
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
 import EmptyCellDisplay from "./EmptyCellDisplay";
@@ -22,6 +31,8 @@ import CommentsBadge from "./CommentsBadge";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { sanitizeQuillHtml } from "./utils";
 import { compareHtmlStructure, getStructureMismatchDescription } from "./utils/htmlStructureValidator";
+import type { ReactPlayerRef } from "./types/reactPlayerTypes";
+import type { AudioAvailability } from "./utils/audioViewMode";
 
 export interface CellListProps {
     translationUnits: QuillCellContent[];
@@ -42,13 +53,7 @@ export interface CellListProps {
     cellsInAutocompleteQueue?: string[]; // Cells queued for autocompletion
     successfulCompletions?: Set<string>; // Cells that completed successfully
     audioAttachments?: {
-        [cellId: string]:
-            | "available"
-            | "available-local"
-            | "available-pointer"
-            | "deletedOnly"
-            | "none"
-            | "missing";
+        [cellId: string]: AudioAvailability;
     }; // Cells that have audio attachments
     isSaving?: boolean;
     saveError?: boolean; // Whether there was a save error/timeout
@@ -75,6 +80,15 @@ export interface CellListProps {
     currentSubsectionIndex?: number;
     cellsPerPage?: number;
     onInspectSimilarWording?: (cellId: string, targetContent: string) => void;
+    // Video player props
+    playerRef?: React.RefObject<ReactPlayerRef>;
+    shouldShowVideoPlayer?: boolean;
+    videoUrl?: string;
+    muteVideoAudioDuringPlayback?: boolean;
+    setMuteVideoAudioDuringPlayback?: (value: boolean) => void;
+    // Audio playback state from other webview type
+    isOtherTypeAudioPlaying?: boolean;
+    metadata?: CustomNotebookMetadata;
 }
 
 const DEBUG_ENABLED = false;
@@ -121,10 +135,17 @@ const CellList: React.FC<CellListProps> = ({
     isAuthenticated = false,
     enforceHtmlStructure = false,
     milestoneIndex = null,
+    playerRef,
+    shouldShowVideoPlayer = false,
+    videoUrl,
+    muteVideoAudioDuringPlayback = true,
+    setMuteVideoAudioDuringPlayback,
     currentMilestoneIndex = 0,
     currentSubsectionIndex = 0,
     cellsPerPage = 50,
     onInspectSimilarWording,
+    isOtherTypeAudioPlaying = false,
+    metadata,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -721,6 +742,26 @@ const CellList: React.FC<CellListProps> = ({
         return onlyWhitespaceRegex.test(textContent);
     };
 
+    // Tracks the cell the user just clicked so we can stabilize its DOM
+    // position across the editor open/swap. Switching the active editor
+    // causes React to unmount and remount verse-group spans (their `key`
+    // changes when the active cell moves), which can break the browser's
+    // scroll anchor. We capture the clicked cell's viewport top synchronously
+    // and restore it in a useLayoutEffect after the new editor commits.
+    //
+    // We also remember the scrollTop at click time so we can restore it for
+    // clicks BELOW the previous editor — in that case we DON'T want to pin
+    // the click position (it would force previously-hidden cells above into
+    // view); we just want the new editor to land where the previous editor
+    // was. That's the natural behaviour when scrollTop is preserved.
+    const pendingCellAnchorRef = useRef<{
+        cellId: string;
+        viewportTop: number;
+        scrollTopAtClick: number;
+    } | null>(null);
+
+    const verseListRef = useRef<HTMLDivElement>(null);
+
     const openCellById = useCallback(
         (cellId: string) => {
             const cellToOpen = workingTranslationUnits.find(
@@ -733,12 +774,35 @@ const CellList: React.FC<CellListProps> = ({
 
             if (cellToOpen) {
                 debug("openCellById", { cellToOpen, text: cellToOpen.cellContent });
+
+                try {
+                    const escapedId = cellId.replace(/"/g, '\\"');
+                    const clickedEl = document.querySelector(
+                        `[data-cell-id="${escapedId}"]`
+                    ) as HTMLElement | null;
+                    if (clickedEl) {
+                        const scrollContainer = clickedEl.closest(
+                            ".scrollable-content"
+                        ) as HTMLElement | null;
+                        pendingCellAnchorRef.current = {
+                            cellId,
+                            viewportTop: clickedEl.getBoundingClientRect().top,
+                            scrollTopAtClick: scrollContainer
+                                ? scrollContainer.scrollTop
+                                : 0,
+                        };
+                    }
+                } catch {
+                    // selector failed (e.g. unusual cellId) — skip pinning
+                }
+
                 setContentBeingUpdated({
                     cellMarkers: cellToOpen.cellMarkers,
                     cellContent: cellToOpen.cellContent,
                     cellChanged: true,
                     cellLabel: cellToOpen.cellLabel,
                     timestamps: cellToOpen.timestamps,
+                    cellAudioTimestamps: cellToOpen.audioTimestamps,
                 } as EditorCellContent);
                 vscode.postMessage({
                     command: "setCurrentIdToGlobalState",
@@ -763,6 +827,97 @@ const CellList: React.FC<CellListProps> = ({
             toggleFlashingBorder,
         ]
     );
+
+    // After the active editor swap commits, stabilize the scroll position.
+    // This runs synchronously before paint, so the user never sees an
+    // intermediate jumped position.
+    //
+    // - Click ABOVE the previous editor: pinning the clicked cell at its
+    //   click viewport Y is a tiny (often zero) scrollTop adjustment because
+    //   the cell's offsetTop didn't change. We do the pin so React's
+    //   verse-group remounts can't trick the browser's scroll anchor.
+    //
+    // - Click BELOW the previous editor: the cell's offsetTop got smaller
+    //   (the previous editor above it collapsed). Pinning the click position
+    //   would require negative scrollTop and pull previously-hidden cells
+    //   above into view, which feels like a big jump. Instead we just keep
+    //   scrollTop where it was at click time, so the new editor naturally
+    //   lands where the previous editor was — the desired "swap in place"
+    //   feel — and we only smooth-scroll if the new editor would actually
+    //   be cut off at the bottom of the visible area.
+    useLayoutEffect(() => {
+        const anchor = pendingCellAnchorRef.current;
+        if (!anchor) return;
+        if (contentBeingUpdated.cellMarkers?.[0] !== anchor.cellId) return;
+
+        pendingCellAnchorRef.current = null;
+
+        // Clear any stale top padding that might have been set by earlier
+        // versions of this effect.
+        const verseList = verseListRef.current;
+        if (verseList && verseList.style.paddingTop) {
+            verseList.style.paddingTop = "";
+        }
+
+        try {
+            const escapedId = anchor.cellId.replace(/"/g, '\\"');
+            const newEditorEl = document.querySelector(
+                `[data-cell-editor-id="${escapedId}"]`
+            ) as HTMLElement | null;
+            if (!newEditorEl) return;
+
+            const newTop = newEditorEl.getBoundingClientRect().top;
+            const delta = newTop - anchor.viewportTop;
+
+            const scrollContainer = newEditorEl.closest(
+                ".scrollable-content"
+            ) as HTMLElement | null;
+            if (!scrollContainer) {
+                if (Math.abs(delta) > 1) window.scrollBy(0, delta);
+                return;
+            }
+
+            // scrollTop value that would put the new editor exactly at the
+            // clicked cell's original viewport Y.
+            const pinnedScrollTop = scrollContainer.scrollTop + delta;
+
+            if (pinnedScrollTop >= anchor.scrollTopAtClick) {
+                // Click ABOVE: pinning means scrolling DOWN (or not at all)
+                // relative to the click — perfectly safe, no new cells come
+                // into view at the top. Pin the click position.
+                if (Math.abs(pinnedScrollTop - scrollContainer.scrollTop) > 1) {
+                    scrollContainer.scrollTop = pinnedScrollTop;
+                }
+            } else {
+                // Click BELOW: pinning would scroll UP past the original
+                // scrollTop and reveal cells that weren't visible. Instead
+                // just restore the pre-click scrollTop so the new editor
+                // opens where the previous editor was.
+                if (scrollContainer.scrollTop !== anchor.scrollTopAtClick) {
+                    scrollContainer.scrollTop = anchor.scrollTopAtClick;
+                }
+            }
+
+            // Whichever branch ran above, make sure the new editor isn't
+            // cut off by the bottom of the visible area. If it is, smooth-
+            // scroll just enough to fit it (plus a little breathing room).
+            const editorRect = newEditorEl.getBoundingClientRect();
+            const containerRect = scrollContainer.getBoundingClientRect();
+            const overshootBottom = editorRect.bottom - containerRect.bottom;
+            if (overshootBottom > 0) {
+                try {
+                    scrollContainer.scrollBy({
+                        top: overshootBottom + 16,
+                        behavior: "smooth",
+                    });
+                } catch {
+                    scrollContainer.scrollTop += overshootBottom + 16;
+                }
+            }
+        } catch {
+            // measurement failed — leave scroll alone
+        }
+    }, [contentBeingUpdated.cellMarkers]);
 
     // expose to children via window
     (window as any).openCellById = openCellById;
@@ -790,6 +945,7 @@ const CellList: React.FC<CellListProps> = ({
                 cellChanged: true,
                 cellLabel: cellToOpen.cellLabel,
                 timestamps: cellToOpen.timestamps,
+                cellAudioTimestamps: cellToOpen.audioTimestamps,
             } as EditorCellContent);
 
             vscode.postMessage({
@@ -864,6 +1020,7 @@ const CellList: React.FC<CellListProps> = ({
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
                                 htmlStructureError={htmlStructureErrors.get(cellMarkers[0])}
+                                isOtherTypeAudioPlaying={isOtherTypeAudioPlaying}
                             />
                         </span>
                     );
@@ -936,6 +1093,7 @@ const CellList: React.FC<CellListProps> = ({
                 result.push(
                     <span
                         key={`${cellMarkers.join(" ")}:editor`}
+                        data-cell-editor-id={cellMarkers[0]}
                         style={{ display: "inline-flex", alignItems: "center", width: "100%" }}
                     >
                         <CellEditor
@@ -950,6 +1108,10 @@ const CellList: React.FC<CellListProps> = ({
                             cellTimestamps={timestamps}
                             prevEndTime={workingTranslationUnits[i - 1]?.timestamps?.endTime}
                             nextStartTime={workingTranslationUnits[i + 1]?.timestamps?.startTime}
+                            prevCellId={workingTranslationUnits[i - 1]?.cellMarkers[0]}
+                            prevStartTime={workingTranslationUnits[i - 1]?.timestamps?.startTime}
+                            nextCellId={workingTranslationUnits[i + 1]?.cellMarkers[0]}
+                            nextEndTime={workingTranslationUnits[i + 1]?.timestamps?.endTime}
                             contentBeingUpdated={contentBeingUpdated}
                             setContentBeingUpdated={setContentBeingUpdated}
                             handleCloseEditor={handleCloseEditor}
@@ -969,6 +1131,12 @@ const CellList: React.FC<CellListProps> = ({
                             isSourceText={isSourceText}
                             isAuthenticated={isAuthenticated}
                             onInspectSimilarWording={onInspectSimilarWording}
+                            playerRef={playerRef}
+                            videoUrl={videoUrl}
+                            shouldShowVideoPlayer={shouldShowVideoPlayer}
+                            metadata={metadata}
+                            muteVideoAudioDuringPlayback={muteVideoAudioDuringPlayback}
+                            setMuteVideoAudioDuringPlayback={setMuteVideoAudioDuringPlayback}
                         />
                     </span>
                 );
@@ -1019,7 +1187,7 @@ const CellList: React.FC<CellListProps> = ({
                                 allTranslationsComplete={successfulCompletions.size > 0}
                                 handleCellTranslation={handleCellTranslation}
                                 handleCellClick={openCellById}
-                                audioAttachments={audioAttachments as any}
+                                audioAttachments={audioAttachments}
                                 footnoteOffset={calculateFootnoteOffset(i)}
                                 isCorrectionEditorMode={isCorrectionEditorMode}
                                 translationUnits={workingTranslationUnits}
@@ -1033,6 +1201,7 @@ const CellList: React.FC<CellListProps> = ({
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
                                 htmlStructureError={htmlStructureErrors.get(cellMarkers[0])}
+                                isOtherTypeAudioPlaying={isOtherTypeAudioPlaying}
                             />
                         </span>
                     );
@@ -1080,6 +1249,12 @@ const CellList: React.FC<CellListProps> = ({
         isAudioOnly,
         isAuthenticated,
         onInspectSimilarWording,
+        muteVideoAudioDuringPlayback,
+        setMuteVideoAudioDuringPlayback,
+        metadata,
+        playerRef,
+        shouldShowVideoPlayer,
+        videoUrl,
     ]);
 
     // Fetch comments count for all visible cells (batched)
@@ -1164,6 +1339,7 @@ const CellList: React.FC<CellListProps> = ({
 
     return (
         <div
+            ref={verseListRef}
             className="verse-list ql-editor"
             style={{
                 direction: textDirection,

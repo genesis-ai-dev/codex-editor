@@ -73,6 +73,11 @@ type GlobalContentType =
     | {
         type: "commentsFileChanged";
         timestamp: string;
+    }
+    | {
+        type: "audioPlaying";
+        webviewType: "source" | "target";
+        isPlaying: boolean;
     };
 
 interface GlobalMessage {
@@ -374,6 +379,7 @@ type EditorCellContent = {
     cellLabel?: string;
     uri?: string;
     cellTimestamps?: Timestamps;
+    cellAudioTimestamps?: Timestamps;
 };
 
 interface EditHistoryEntry {
@@ -408,11 +414,28 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
     | { command: "resolveHtmlStructure"; content: { cellId: string; }; }
-    | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
-    | { command: "pickVideoFile"; }
+    | {
+        command: "updateNotebookMetadata";
+        content: CustomNotebookMetadata;
+        skipVideoConfirm?: boolean;
+        /**
+         * Absolute path of a video file the user picked but hasn't committed yet.
+         * The picker stages the selection (it is NOT written on pick); the host
+         * imports it into the project as part of this save, so cancelling the
+         * modal leaves nothing behind.
+         */
+        pendingVideoFilePath?: string;
+    }
+    | { command: "pickVideoFile"; skipVideoConfirm?: boolean; }
+    | { command: "deleteVideoFile"; }
+    | { command: "freeVideoDiskSpace"; }
+    | { command: "requestVideoStreamUrl"; }
+    | { command: "requestVideoReferenceStatus"; }
+    | { command: "downloadVideoFile"; persist?: boolean; }
     | { command: "getSourceText"; content: { cellId: string; }; }
     | { command: "searchSimilarCellIds"; content: { cellId: string; }; }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
+    | { command: "updateCellAudioTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
     | { command: "deleteCell"; content: { cellId: string; }; }
     | { command: "executeCommand"; content: { command: string; args: any[]; }; }
     | { command: "togglePrimarySidebar"; }
@@ -421,7 +444,7 @@ export type EditorPostMessages =
     | { command: "toggleSidebar"; content?: { isOpening: boolean; }; }
     | { command: "getEditorPosition"; }
     | { command: "validateCell"; content: { cellId: string; validate: boolean; }; }
-    | { command: "validateAudioCell"; content: { cellId: string; validate: boolean; }; }
+    | { command: "validateAudioCell"; content: { cellId: string; validate: boolean; attachmentId?: string; }; }
     | {
         command: "queueValidation";
         content: { cellId: string; validate: boolean; pending: boolean; };
@@ -458,7 +481,7 @@ export type EditorPostMessages =
     | { command: "updateTextDirection"; direction: "ltr" | "rtl"; }
     | { command: "openSourceText"; content: { chapterNumber: number; }; }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
-    | { command: "pickVideoFile"; }
+    | { command: "pickVideoFile"; skipVideoConfirm?: boolean; }
     | {
         command: "exportFile";
         content: { subtitleData: string; format: string; includeStyles: boolean; };
@@ -496,6 +519,7 @@ export type EditorPostMessages =
     | { command: "triggerSync"; }
     // removed: requestAudioAttachments
     | { command: "requestAudioForCell"; content: { cellId: string; audioId?: string; }; }
+    | { command: "requestCellAudioTimestamps"; content: { cellId: string; }; }
     | { command: "getCommentsForCell"; content: { cellId: string; }; }
     | { command: "getCommentsForCells"; content: { cellIds: string[]; }; }
     | {
@@ -555,6 +579,12 @@ export type EditorPostMessages =
         content: {
             cellId: string;
             audioId: string;
+        };
+    }
+    | {
+        command: "deselectAudioAttachment";
+        content: {
+            cellId: string;
         };
     }
     | {
@@ -877,6 +907,8 @@ type CodexData = Timestamps & {
      * rename their own copy.
      */
     subdivisionNamesFromSource?: { [subdivisionKey: string]: string; };
+    audioStartTime?: number;
+    audioEndTime?: number;
 };
 
 /**
@@ -981,6 +1013,13 @@ export interface CustomNotebookMetadata {
     lineNumbersEnabledSource?: "global" | "local"; // Track whether line numbers visibility was set globally or locally
     /** When true, the editor will download/stream audio as soon as a cell opens */
     autoDownloadAudioOnOpen?: boolean;
+    /** When true, clicking the microphone icon in the cell list auto-starts recording */
+    autoRecordOnMicClick?: boolean;
+    /**
+     * Number of seconds to count down before recording begins. 0 disables
+     * the visible countdown but a 250ms click-debounce is still enforced.
+     */
+    recordingCountdownSeconds?: number;
     /** When true, backtranslations will be displayed inline below cells */
     showInlineBacktranslations?: boolean;
     fileDisplayName?: string;
@@ -1057,7 +1096,6 @@ type FileImporterType =
     | "ebibleCorpus"
     | "macula"
     | "biblica"
-    | "reach4life"
     | "obs";
 
 /**
@@ -1146,6 +1184,7 @@ interface QuillCellContent {
     cellType: CodexCellTypes;
     editHistory: Array<EditHistory>;
     timestamps?: Timestamps;
+    audioTimestamps?: Timestamps;
     cellLabel?: string;
     merged?: boolean;
     deleted?: boolean;
@@ -2051,6 +2090,30 @@ interface CodexItem {
     sortOrder?: string;
     fileDisplayName?: string;
     enforceHtmlStructure?: boolean;
+    /** True when this document references a chapter video (remote URL or local file). */
+    hasVideo?: boolean;
+    /**
+     * How the referenced chapter video is currently available:
+     *  - "url"        → remote streamed URL
+     *  - "saved"      → downloaded real bytes in the project
+     *  - "streamable" → LFS pointer only (download/stream on demand)
+     *  - "missing"    → local reference resolving to neither bytes nor a pointer
+     */
+    videoAvailability?: "url" | "saved" | "streamable" | "missing";
+    /**
+     * True when a streamable (not-downloaded) video currently has a temporary
+     * copy in this session's video cache (i.e. it was "loaded" this session).
+     * Lets the card distinguish "loaded (temporary)" from "available to download".
+     */
+    videoCached?: boolean;
+    /** Size of a local video in bytes when known (real bytes or LFS pointer size). */
+    videoSizeBytes?: number;
+    /**
+     * Internal: the raw stored video reference, kept on the host so video
+     * availability can be recomputed on demand (download/free) without
+     * re-reading the notebook. Stripped before sending to the webview.
+     */
+    videoUrl?: string;
 }
 type EditorReceiveMessages =
     | {
@@ -2246,6 +2309,27 @@ type EditorReceiveMessages =
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
+    | { type: "videoStreamResolving"; }
+    | {
+          // The user picked a video file in the OS dialog. It is staged (not yet
+          // imported into the project); the editor shows it as pending until the
+          // metadata modal is saved.
+          type: "videoFilePicked";
+          fsPath: string;
+          fileName: string;
+      }
+    | { type: "videoStreamUnavailable"; reason: "offline" | "not-authenticated" | "not-found" | "error"; message?: string; }
+    | { type: "videoNeedsDownload"; strategy: "auto-download" | "stream-and-save" | "stream-only"; }
+    | {
+          type: "videoReferenceStatus";
+          status: "none" | "url" | "local-usable" | "missing";
+          // True only in stream-and-save when a downloaded local copy exists and is
+          // LFS-backed, so it can be reverted to a pointer to free space and re-streamed.
+          canFreeDiskSpace?: boolean;
+          // Size of the referenced video in bytes when known (real local bytes or the
+          // size recorded in the LFS pointer). Omitted for remote URLs / unknown.
+          videoSizeBytes?: number;
+      }
     | {
         type: "milestoneProgressUpdate";
         milestoneProgress: Record<number, {
@@ -2394,6 +2478,12 @@ type EditorReceiveMessages =
             cellId: string;
             validatedBy: ValidationEntry[];
             selectedAudioId?: string;
+            attachmentId?: string;
+            // Monotonic per-cell version stamp from the document
+            // (`cell.metadata.selectionTimestamp`). The webview uses it to
+            // discard out-of-order updates so a slow/stale broadcast cannot
+            // overwrite a fresher selection.
+            selectionTimestamp?: number;
         };
     }
     | {
@@ -2451,13 +2541,36 @@ type EditorReceiveMessages =
     | {
         type: "providerSendsAudioAttachments";
         // Availability now distinguishes between real local files vs LFS pointer placeholders
-        attachments: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; };
+        attachments: { [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none"; };
+        /**
+         * Per-cell `selectedAudioId` snapshot, when known by the sender.
+         *
+         * Webviews use this to detect remote selection changes that arrive via sync.
+         * Locally-driven selection paths (`selectAudioAttachment`/`deselectAudioAttachment`)
+         * already fire `audioAttachmentSelected`, which handles cache invalidation; they
+         * don't need to populate this field. The post-sync broadcast (`refreshAudioAttachmentsAfterSync`)
+         * MUST populate this field so webviews can bust their `cellId`-keyed audio caches
+         * when a teammate's selection change arrives.
+         *
+         * Values:
+         *   - `string` — the explicit `selectedAudioId` for that cell
+         *   - `null`   — the cell has no explicit selection
+         *   - key absent — the sender doesn't know / didn't include; webview treats as "no info" (no-op)
+         */
+        selections?: { [cellId: string]: string | null; };
     }
     | {
         type: "providerSendsAudioData";
         content: {
             cellId: string;
             audioId: string;
+            /**
+             * The audioId the client explicitly asked for in its `requestAudioForCell` call.
+             * Undefined when the request had no explicit id (main-editor "fetch current") or when
+             * the message is a proactive provider push (e.g. after a save). The main editor uses
+             * this to distinguish history-viewer downloads from responses meant for the main waveform.
+             */
+            requestedAudioId?: string;
             audioUrl?: string; // URL to access the audio file
             audioData?: string; // base64 data if needed
             transcription?: {
@@ -2466,6 +2579,14 @@ type EditorReceiveMessages =
                 language?: string;
             };
             fileModified?: number; // File modification timestamp for cache validation
+            createdBy?: string;
+        };
+    }
+    | {
+        type: "providerSendsCellAudioTimestamps";
+        content: {
+            cellId: string;
+            audioTimestamps?: Timestamps;
         };
     }
     | {
@@ -2494,6 +2615,7 @@ type EditorReceiveMessages =
             audioId: string;
             success: boolean;
             error?: string;
+            updatedAvailability?: string;
         };
     }
     | {
@@ -2510,10 +2632,20 @@ type EditorReceiveMessages =
                     isDeleted: boolean;
                     isMissing?: boolean;
                     validatedBy?: ValidationEntry[];
+                    createdBy?: string;
+                    metadata?: {
+                        durationSec?: number;
+                        mimeType?: string;
+                        sizeBytes?: number;
+                        sampleRate?: number;
+                        channels?: number;
+                        bitrateKbps?: number;
+                    };
                 };
             }>;
             currentAttachmentId: string | null; // The ID of the currently selected/active attachment
             hasExplicitSelection: boolean; // Whether user made explicit selection vs automatic behavior
+            entryAvailability?: Record<string, string>; // Per-entry file availability (available-local, available-pointer, etc.)
         };
     }
     | {
@@ -2523,15 +2655,21 @@ type EditorReceiveMessages =
             audioId: string;
             success: boolean;
             error?: string;
+            updatedAvailability?: string;
         };
     }
     | {
         type: "audioAttachmentSelected";
         content: {
             cellId: string;
-            audioId: string;
+            audioId: string | null;
             success: boolean;
             error?: string;
+            updatedAvailability?: string;
+            // Monotonic per-cell version stamp from the document
+            // (`cell.metadata.selectionTimestamp`). See comment on
+            // `providerUpdatesAudioValidationState.selectionTimestamp`.
+            selectionTimestamp?: number;
         };
     }
     | {
@@ -2574,27 +2712,108 @@ export interface PlatformUnsupportedFlags {
 }
 
 export type MessagesToMissingToolsWarning =
-    | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; platformUnsupported?: PlatformUnsupportedFlags }
-    | { command: "updateWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; platformUnsupported?: PlatformUnsupportedFlags }
-    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; syncInProgress?: boolean; audioProcessingInProgress?: boolean; platformUnsupported?: PlatformUnsupportedFlags }
-    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; platformUnsupported?: PlatformUnsupportedFlags }
-    | { command: "audioModeChanged"; audioToolMode: AudioToolMode; ffmpeg: boolean }
-    | { command: "gitModeChanged"; gitToolMode: GitToolMode; git: boolean; nativeGitAvailable?: boolean }
-    | { command: "sqliteModeChanged"; sqliteToolMode: SqliteToolMode; sqlite: boolean; nativeSqliteAvailable?: boolean }
-    | { command: "operationStatusChanged"; syncInProgress: boolean; audioProcessingInProgress: boolean }
-    | { command: "showDeleteButtons" }
-    | { command: "showForceBuiltinButtons" }
-    | { command: "toolDeleted"; tool: "sqlite" | "git" | "ffmpeg" };
+    | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; platformUnsupported?: PlatformUnsupportedFlags; }
+    | { command: "updateWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; platformUnsupported?: PlatformUnsupportedFlags; }
+    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; syncInProgress?: boolean; audioProcessingInProgress?: boolean; platformUnsupported?: PlatformUnsupportedFlags; }
+    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; platformUnsupported?: PlatformUnsupportedFlags; }
+    | { command: "audioModeChanged"; audioToolMode: AudioToolMode; ffmpeg: boolean; }
+    | { command: "gitModeChanged"; gitToolMode: GitToolMode; git: boolean; nativeGitAvailable?: boolean; }
+    | { command: "sqliteModeChanged"; sqliteToolMode: SqliteToolMode; sqlite: boolean; nativeSqliteAvailable?: boolean; }
+    | { command: "operationStatusChanged"; syncInProgress: boolean; audioProcessingInProgress: boolean; }
+    | { command: "showDeleteButtons"; }
+    | { command: "showForceBuiltinButtons"; }
+    | { command: "toolDeleted"; tool: "sqlite" | "git" | "ffmpeg"; };
 
 export type MessagesFromMissingToolsWarning =
-    | { command: "retry" }
-    | { command: "continue" }
-    | { command: "openDownloadPage" }
-    | { command: "close" }
-    | { command: "downloadTool"; tool: "sqlite" | "git" | "ffmpeg" }
-    | { command: "toggleAudioMode" }
-    | { command: "toggleGitMode" }
-    | { command: "toggleSqliteMode" }
-    | { command: "deleteTool"; tool: "sqlite" | "git" | "ffmpeg" }
-    | { command: "forceBuiltinTool"; tool: "sqlite" | "git" | "ffmpeg" }
-    | { command: "reloadWindow" };
+    | { command: "retry"; }
+    | { command: "continue"; }
+    | { command: "openDownloadPage"; }
+    | { command: "close"; }
+    | { command: "downloadTool"; tool: "sqlite" | "git" | "ffmpeg"; }
+    | { command: "toggleAudioMode"; }
+    | { command: "toggleGitMode"; }
+    | { command: "toggleSqliteMode"; }
+    | { command: "deleteTool"; tool: "sqlite" | "git" | "ffmpeg"; }
+    | { command: "forceBuiltinTool"; tool: "sqlite" | "git" | "ffmpeg"; }
+    | { command: "reloadWindow"; };
+
+/**
+ * Project Export view: messages exchanged between the host
+ * (`src/projectManager/projectExportView.ts`) and its webview HTML/JS payload
+ * during the new in-panel "Exporting" experience.
+ */
+export type ExportProgressStage =
+    | "preparing"
+    | "processing"
+    | "downloading"
+    | "writing"
+    | "finalizing";
+
+export type ExportMissingFileReason =
+    // Tier 1 — informational
+    | "no-audio-recorded"
+    | "no-text-recorded"
+    // Tier 2 — soft warning
+    | "no-audio-selected"
+    | "selected-audio-missing-alternatives"
+    | "audio-file-missing"
+    | "pointer-corrupt"
+    | "source-not-found"
+    // Tier 3 — hard error
+    | "download-failed"
+    | "transcode-failed"
+    | "write-failed"
+    | "error";
+
+export type ExportMissingFileSeverity = "info" | "warn" | "error";
+
+export interface ExportProgressEventPayload {
+    stage: ExportProgressStage;
+    message?: string;
+    file?: string;
+    current?: number;
+    total?: number;
+    increment?: number;
+}
+
+export interface ExportMissingFilePayload {
+    file: string;
+    reason: ExportMissingFileReason;
+    detail?: string;
+    /** Cell + codex path the entry came from, when known. Enables a deep-link. */
+    cellId?: string;
+    codexPath?: string;
+}
+
+export interface ExportSummaryPayload {
+    exportPath: string;
+    /** Folder audio landed in (an `audio/` subfolder in multi-format). Used for targeted retry. */
+    audioExportPath?: string;
+    filesExported?: number;
+    audioCopied?: number;
+    audioMissing?: number;
+    audioFailed?: number;
+    missingFiles?: ExportMissingFilePayload[];
+    extraMessages?: string[];
+}
+
+export type MessagesToProjectExportView =
+    | { command: "updateExportPath"; path: string; }
+    | { command: "htmlStructureCheckResult"; mismatches: { totalMismatches: number; fileDetails: { file: string; count: number; }[]; }; }
+    | { command: "exportStarted"; }
+    | { command: "exportProgress"; event: ExportProgressEventPayload; }
+    | { command: "exportFileMissing"; file: string; reason: ExportMissingFileReason; detail?: string; cellId?: string; codexPath?: string; }
+    | { command: "exportCompleted"; summary: ExportSummaryPayload; }
+    | { command: "exportError"; message: string; }
+    | { command: "retryCompleted"; summary?: ExportSummaryPayload; error?: string; cancelled?: boolean; };
+
+export type MessagesFromProjectExportView =
+    | { command: "selectExportPath"; }
+    | { command: "openProjectSettings"; }
+    | { command: "export"; format: string; userSelectedPath: string; filesToExport: string[]; options?: Record<string, unknown>; }
+    | { command: "checkHtmlStructure"; filesToExport: string[]; }
+    | { command: "openExportFolder"; path: string; }
+    | { command: "closeExportView"; }
+    | { command: "openCellInEditor"; cellId: string; filePath: string; }
+    | { command: "retryExport"; audioOutputPath: string; targets: { cellId: string; codexPath: string; }[]; options?: Record<string, unknown>; }
+    | { command: "cancel"; };
