@@ -312,16 +312,6 @@ function getGroupKeyFromMetadata(metadata: Record<string, unknown>): string {
         return "docx";
     }
 
-    // Reach4Life (idml) - check before Biblica and generic InDesign
-    if (
-        corpusMarker === "reach4life" ||
-        corpusMarker === "reach4life-idml" ||
-        importerType === "reach4life" ||
-        fileType === "reach4life"
-    ) {
-        return "reach4life";
-    }
-
     // Biblica Study Notes (idml) - check before generic InDesign
     if (
         corpusMarker === "biblica" ||
@@ -514,8 +504,7 @@ export async function groupCodexFilesByImporterType(
         maculabible: 9,
         obs: 10,
         biblica: 11,
-        reach4life: 12,
-        spreadsheet: 13,
+        spreadsheet: 12,
         unknown: 99,
     };
 
