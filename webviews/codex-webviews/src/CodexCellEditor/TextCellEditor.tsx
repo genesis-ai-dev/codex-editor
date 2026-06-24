@@ -23,7 +23,7 @@ import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
 import { AudioValidationBadge } from "./AudioValidationBadge";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
-import { useAudioInputDevices } from "./hooks/useAudioInputDevices";
+import { useAudioInputDevices, type MicAvailability } from "./hooks/useAudioInputDevices";
 import SourceTextDisplay from "./SourceTextDisplay";
 import { AudioHistoryViewer } from "./AudioHistoryViewer";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
@@ -92,6 +92,7 @@ import {
     RefreshCcw,
     ListOrdered,
     Mic,
+    MicOff,
     Play,
     Trash2,
     CircleDotDashed,
@@ -480,6 +481,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
             return false;
         }
     });
+    // Timestamp of the user's most recent explicit "Re-record" click. In-flight
+    // audio loads (cache hydration / provider broadcasts) normally drop us back
+    // to the waveform via `setShowRecorder(false)`; if one resolves right after
+    // the user asks to re-record, that flip yanks them back to the waveform and
+    // causes a visible flicker + scroll jump. Audio-load hides are funneled
+    // through `hideRecorderAfterAudioLoad`, which honors this intent window so
+    // the user's explicit action wins the race.
+    const userRequestedRecorderAtRef = useRef<number>(0);
     const [isAudioLoading, setIsAudioLoading] = useState(false);
     const [isPlayAudioLoading, setIsPlayAudioLoading] = useState(false);
     const [hasAudioHistory, setHasAudioHistory] = useState<boolean>(false);
@@ -555,6 +564,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     useEffect(() => {
         micUnavailableRef.current = micUnavailable;
     }, [micUnavailable]);
+    // Guards re-entry while the authoritative pre-record mic probe is running
+    // (the probe is async, so without this a second click could start a
+    // duplicate countdown).
+    const recordPrecheckInFlightRef = useRef(false);
     // Ref for the runtime classifier so `startActualRecording`'s deps stay
     // stable. `startActualRecording` is wrapped in `useCallback([audioUrl])`
     // and changing its deps to include a new function on every render would
@@ -645,6 +658,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
             scrollTimeoutRef.current = null;
         }, 120);
     }, []);
+
+    // Window (ms) during which a just-issued "Re-record" intent suppresses an
+    // audio-load-driven swap back to the waveform.
+    const RECORDER_INTENT_WINDOW_MS = 1500;
+
+    // Hide the recorder in response to audio finishing loading — but only if the
+    // user hasn't just asked to re-record. This prevents an in-flight load from
+    // oscillating waveform↔recorder (and from triggering a scroll jump). When the
+    // user's intent is active, we leave the recorder up and skip the scroll.
+    const hideRecorderAfterAudioLoad = useCallback(
+        (opts?: { scroll?: boolean }) => {
+            if (Date.now() - userRequestedRecorderAtRef.current < RECORDER_INTENT_WINDOW_MS) {
+                return;
+            }
+            setShowRecorder(false);
+            if (opts?.scroll) {
+                scrollEditorBottomIntoView();
+            }
+        },
+        [scrollEditorBottomIntoView]
+    );
 
     // Conditionally scrolls only when part of the editor is hidden. Used when
     // opening a cell so we don't "jump" the page if the editor already fits in
@@ -956,6 +990,23 @@ const CellEditor: React.FC<CellEditorProps> = ({
         },
         [clearRecordingCountdownTimer]
     );
+
+    // Switch the audio tab into the recorder view (used by the waveform's
+    // "Re-record" button and the download view's record affordance). Records
+    // the user-intent timestamp so an in-flight audio load can't immediately
+    // bounce us back to the waveform (see `hideRecorderAfterAudioLoad`).
+    const handleShowRecorder = useCallback(() => {
+        userRequestedRecorderAtRef.current = Date.now();
+        setShowRecorder(true);
+        setCountdown(null);
+        setRecordingStartTime(null);
+        setRecordingElapsedTime(0);
+        clearRecordingCountdownTimer();
+        if (recordingTimerRef.current) {
+            clearInterval(recordingTimerRef.current);
+            recordingTimerRef.current = null;
+        }
+    }, [clearRecordingCountdownTimer]);
 
     // Recording elapsed time tracker - updates every 100ms while recording
     useEffect(() => {
@@ -2855,7 +2906,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // (backtranslation tab was removed; no automatic switching needed)
 
     // Audio recording functions
-    const startRecording = () => {
+    const startRecording = async () => {
         // Prevent recording if cell is locked
         if (isCellLocked) {
             setRecordingStatus("Cannot record: cell is locked");
@@ -2881,6 +2932,41 @@ const CellEditor: React.FC<CellEditorProps> = ({
         if (isRecording || countdown !== null || isStartingRecording) {
             return;
         }
+
+        // Authoritative pre-countdown mic check. The passive guard above can be
+        // stale: a permission revoked in OS settings while the editor was open
+        // doesn't always fire a reliable event (notably on Windows), so the
+        // cached/passive state may still say "available". Probe with a real
+        // `getUserMedia` (cache-bypassing) BEFORE the countdown so we never let
+        // the user count down to zero only to fail at the last moment. The OS
+        // indicator flash is acceptable here — the user explicitly asked to
+        // record. A re-entry guard prevents a duplicate countdown from a second
+        // click landing while this async probe is in flight.
+        if (recordPrecheckInFlightRef.current) {
+            return;
+        }
+        recordPrecheckInFlightRef.current = true;
+        setRecordingStatus("Checking microphone...");
+        let access: MicAvailability;
+        try {
+            access = await probeMicAccess({ force: true });
+        } finally {
+            recordPrecheckInFlightRef.current = false;
+        }
+        if (access !== "available") {
+            setRecordingStatus(
+                access === "permission-denied"
+                    ? "Microphone access denied"
+                    : "No microphone detected"
+            );
+            return;
+        }
+        // The probe may have taken a beat; bail if state changed underneath us
+        // (e.g. the user clicked stop, or recording already began).
+        if (isRecording || countdown !== null || isStartingRecording) {
+            return;
+        }
+        setRecordingStatus("");
 
         // Read configured countdown duration (set by the chapter header /
         // mobile menu and persisted in project settings). Default to 3.
@@ -3394,7 +3480,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         const resp = await fetch(cached);
                         const blob = await resp.blob();
                         setAudioBlob(blob);
-                        setShowRecorder(false);
+                        hideRecorderAfterAudioLoad();
                         setRecordingStatus("Audio loaded");
                         setIsAudioLoading(false);
                         setAudioFetchPending(false);
@@ -3591,11 +3677,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 const resp = await fetch(attachmentCached);
                                 const blob = await resp.blob();
                                 setAudioBlob(blob);
-                                setShowRecorder(false);
                                 setRecordingStatus("Audio loaded");
                                 setIsAudioLoading(false);
                                 setAudioFetchPending(false);
-                                scrollEditorBottomIntoView();
+                                hideRecorderAfterAudioLoad({ scroll: true });
                             } catch {
                                 /* ignore, fall through to normal flow */
                             }
@@ -3838,11 +3923,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         } catch {
                             /* empty */
                         }
-                        setShowRecorder(false);
                         setRecordingStatus("Audio loaded");
                         setIsAudioLoading(false);
                         setAudioFetchPending(false);
-                        scrollEditorBottomIntoView();
+                        hideRecorderAfterAudioLoad({ scroll: true });
                         if (message.content.transcription) {
                             setSavedTranscription({
                                 content: message.content.transcription.content,
@@ -5513,7 +5597,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                     {activeTab === "audio" && (
                         <TabsContent value="audio">
-                            <div className="content-section space-y-6">
+                            {/* min-height keeps the section from collapsing when
+                                swapping the (taller) waveform card for the recorder
+                                card, which otherwise lets the browser's scroll
+                                anchoring "jump" the view during a re-record. */}
+                            <div className="content-section space-y-6 min-h-[260px]">
                                 <h3 className="text-lg font-medium">Audio Recording</h3>
 
                                 {(() => {
@@ -5538,6 +5626,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             isStartingRecording,
                                         showRecorder,
                                     });
+
+                                    // Mic-aware copy for the download-view record
+                                    // affordance (mirrors the waveform "Re-record"
+                                    // button so the option is always reachable, even
+                                    // before the existing audio is downloaded).
+                                    const recordAffordanceLabel = micPermissionDenied
+                                        ? "Microphone access denied"
+                                        : noMicDetected
+                                          ? "No microphone detected"
+                                          : "Re-record";
+                                    const recordAffordanceTitle = isCellLocked
+                                        ? "Cannot record: cell is locked"
+                                        : micUnavailable
+                                          ? `${recordAffordanceLabel} — you can still upload an audio file`
+                                          : "Re-record / Upload New";
 
                                     const renderUploadHistoryRow = () => (
                                         <div className="flex flex-wrap items-center justify-center gap-2 mt-3 px-2">
@@ -5610,6 +5713,30 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     Back
                                                 </Button>
                                             )}
+
+                                            {mode === "download" && (
+                                                <Button
+                                                    variant="outline"
+                                                    className={
+                                                        micUnavailable
+                                                            ? "flex items-center justify-center h-8 px-2 text-xs border-red-500 text-red-600 hover:text-red-600 dark:text-red-400"
+                                                            : "flex items-center justify-center h-8 px-2 text-xs"
+                                                    }
+                                                    disabled={isCellLocked}
+                                                    title={recordAffordanceTitle}
+                                                    onClick={() => {
+                                                        if (isCellLocked) return;
+                                                        handleShowRecorder();
+                                                    }}
+                                                >
+                                                    {micUnavailable ? (
+                                                        <MicOff className="h-3 w-3 mr-1" />
+                                                    ) : (
+                                                        <Mic className="h-3 w-3 mr-1" />
+                                                    )}
+                                                    {recordAffordanceLabel}
+                                                </Button>
+                                            )}
                                         </div>
                                     );
 
@@ -5632,19 +5759,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     }}
                                                     onShowHistory={() => setShowAudioHistory(true)}
                                                     historyCount={audioHistoryCount}
-                                                    onShowRecorder={() => {
-                                                        setShowRecorder(true);
-                                                        setCountdown(null);
-                                                        setRecordingStartTime(null);
-                                                        setRecordingElapsedTime(0);
-                                                        clearRecordingCountdownTimer();
-                                                        if (recordingTimerRef.current) {
-                                                            clearInterval(
-                                                                recordingTimerRef.current
-                                                            );
-                                                            recordingTimerRef.current = null;
-                                                        }
-                                                    }}
+                                                    micUnavailable={micUnavailable}
+                                                    noMicDetected={noMicDetected}
+                                                    micPermissionDenied={micPermissionDenied}
+                                                    onShowRecorder={handleShowRecorder}
                                                     disabled={!audioBlob}
                                                     validationStatusProps={audioValidationIconProps}
                                                     author={audioAuthor}

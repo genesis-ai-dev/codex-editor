@@ -89,8 +89,13 @@ export interface UseAudioInputDevicesResult {
      * Side effect to be aware of: triggers the OS permission prompt on
      * first ever call for a user who has never been asked, and briefly
      * flashes the OS recording indicator. Cache prevents repetition.
+     *
+     * Pass `{ force: true }` to bypass the cache for an authoritative
+     * re-check (e.g. right before starting a recording, in case the
+     * permission was toggled mid-session). Resolves to the resulting
+     * `MicAvailability` so callers can branch without reading state.
      */
-    probeMicAccess: () => Promise<void>;
+    probeMicAccess: (opts?: { force?: boolean }) => Promise<MicAvailability>;
 }
 
 type PermissionState = "granted" | "denied" | "prompt" | "unknown";
@@ -165,6 +170,8 @@ function classifyRecorderError(err: unknown): MicAvailability | null {
 //
 // Invalidated by:
 //   - `devicechange` events (hardware presence may have changed)
+//   - window focus regain (the user may have changed OS permissions while away)
+//   - permission `change` events that transition to granted/prompt
 //   - `reportRecorderError` calls (recorder learned real state from
 //     a record-button click)
 // ─────────────────────────────────────────────────────────────────────────
@@ -200,8 +207,12 @@ async function performProbe(): Promise<MicAvailability> {
     }
 }
 
-async function getOrRunProbe(): Promise<MicAvailability> {
-    if (probeCache !== null) return probeCache;
+async function getOrRunProbe(force = false): Promise<MicAvailability> {
+    // `force` bypasses the cached verdict for an authoritative re-check (e.g.
+    // the user clicked record and a permission may have been toggled mid-
+    // session). An in-flight probe is still shared — it hasn't resolved yet,
+    // so its result is already fresh.
+    if (!force && probeCache !== null) return probeCache;
     if (inflightProbe) return inflightProbe;
     inflightProbe = performProbe();
     try {
@@ -285,8 +296,51 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
         };
         mediaDevices.addEventListener("devicechange", handleDeviceChange);
 
+        // ─── Flash-free refresh on window focus ───────────────────────────
+        // A mic permission can only change while the user is *away* from the
+        // editor (OS settings / a portal dialog), so regaining focus is the
+        // cheapest moment to refresh and "prepare the message" before the
+        // record tab is opened. We run ONLY the passive check here (no
+        // getUserMedia), so there is never an OS recording-indicator flash.
+        // We also invalidate the probe cache so the next audio-tab open does
+        // a fresh authoritative probe (which catches macOS OS-level denial).
+        let lastFocusRefreshAt = 0;
+        const FOCUS_REFRESH_COOLDOWN_MS = 1500;
+        const onRegainFocus = () => {
+            if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+                return;
+            }
+            const now = Date.now();
+            if (now - lastFocusRefreshAt < FOCUS_REFRESH_COOLDOWN_MS) return;
+            lastFocusRefreshAt = now;
+            probeCache = null;
+            evaluate();
+        };
+        if (typeof window !== "undefined") {
+            window.addEventListener("focus", onRegainFocus);
+        }
+        if (typeof document !== "undefined") {
+            document.addEventListener("visibilitychange", onRegainFocus);
+        }
+
         let unsubscribePermission: (() => void) | null = null;
-        subscribeToMicPermission(() => evaluate()).then((unsub) => {
+        subscribeToMicPermission((state) => {
+            // A real permission transition to granted/prompt is a reliable
+            // signal that an earlier denial no longer holds, so clear a stale
+            // runtime pin and re-probe fresh. On macOS OS-level changes this
+            // `change` event typically does NOT fire, so the pin correctly
+            // persists until the app is restarted (TCC pins the verdict to
+            // the process). We deliberately do NOT clear the pin from the
+            // passive `evaluate()` "available" path, because Chromium can
+            // misreport macOS OS-level denial as granted.
+            if (state === "granted" || state === "prompt") {
+                probeCache = null;
+                setRuntimeOverride((prev) =>
+                    prev === "permission-denied" ? null : prev
+                );
+            }
+            evaluate();
+        }).then((unsub) => {
             if (cancelled) {
                 unsub?.();
                 return;
@@ -297,6 +351,12 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
         return () => {
             cancelled = true;
             mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+            if (typeof window !== "undefined") {
+                window.removeEventListener("focus", onRegainFocus);
+            }
+            if (typeof document !== "undefined") {
+                document.removeEventListener("visibilitychange", onRegainFocus);
+            }
             unsubscribePermission?.();
         };
     }, [isSupported]);
@@ -305,9 +365,14 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
         if (err === null) {
             // Successful getUserMedia is ground truth that the mic works.
             // Update the cache so other hook instances learn the good news
-            // on next render, and clear the local pin.
+            // on next render, clear the local pin, AND force the passive
+            // layer to "available". Without the last step a stale passive
+            // `permission-denied` (e.g. Chromium's Permissions API still
+            // reporting denied after the user re-enabled) would keep the UI
+            // blocked even though we just recorded successfully.
             probeCache = "available";
             setRuntimeOverride(null);
+            setAvailability("available");
             return;
         }
         const classified = classifyRecorderError(err);
@@ -317,78 +382,25 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
         }
     }, []);
 
-    const probeMicAccess = useCallback(async () => {
-        const result = await getOrRunProbe();
-        if (result === "available") {
-            // A successful `getUserMedia` is authoritative: mic access works
-            // right now. Clear the runtime pin AND force the passive layer to
-            // "available" so a stale `permission-denied`/`no-device` from an
-            // earlier `enumerateDevices`/permission read can't keep the UI
-            // blocked after a focus-regain recovery (see focus effect below).
-            setRuntimeOverride(null);
-            setAvailability("available");
-            return;
-        }
-        // Any non-available result pins so the UI accurately reflects the block.
-        setRuntimeOverride(result);
-    }, []);
-
-    // ─── Self-heal on window focus while permission-denied ────────────────
-    // A mic *permission* can only change while the user is *away* from the
-    // editor (in OS settings / a portal dialog), and — unlike a device
-    // plug/unplug — there's no reliable event for it (Chromium's Permissions
-    // API reflects browser-level, not OS-level, state). So the moment the
-    // window regains focus is the single best, cheapest time to re-check.
-    //
-    // We deliberately DON'T do this for `no-device`: hardware changes already
-    // fire `devicechange` (see the detection effect above), which updates the
-    // UI live regardless of focus. Re-probing on focus there would be pure
-    // redundant `getUserMedia` work.
-    //
-    // The listener attaches ONLY while permission-denied, so the healthy path
-    // stays completely passive. Re-probing while denied is also flash-free: a
-    // still-denied `getUserMedia` rejects immediately without ever opening the
-    // mic, so the OS recording indicator never lights up. The one flash that
-    // can occur is the recovery itself (access just got granted), which is
-    // desirable feedback.
-    //
-    //   - Windows / Linux: re-grant takes effect live → button re-enables.
-    //   - macOS not-determined (e.g. a dismissed prompt) → re-prompts.
-    //   - macOS denied → keeps returning denied (TCC pins the verdict to the
-    //     process); the UI's "quit and reopen" message carries the fix.
-    const permissionBlocked = (runtimeOverride ?? availability) === "permission-denied";
-
-    useEffect(() => {
-        if (!permissionBlocked || typeof window === "undefined") return;
-
-        // Guard against alt-tab storms re-probing on every focus tick.
-        const COOLDOWN_MS = 2500;
-        let lastProbeAt = 0;
-
-        const onRegainFocus = () => {
-            if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-                return;
+    const probeMicAccess = useCallback(
+        async (opts?: { force?: boolean }): Promise<MicAvailability> => {
+            const result = await getOrRunProbe(opts?.force ?? false);
+            if (result === "available") {
+                // A successful `getUserMedia` is authoritative: mic access works
+                // right now. Clear the runtime pin AND force the passive layer to
+                // "available" so a stale `permission-denied`/`no-device` from an
+                // earlier `enumerateDevices`/permission read can't keep the UI
+                // blocked after a focus-regain recovery (see focus effect below).
+                setRuntimeOverride(null);
+                setAvailability("available");
+                return result;
             }
-            const now = Date.now();
-            if (now - lastProbeAt < COOLDOWN_MS) return;
-            lastProbeAt = now;
-            // Invalidate the cached verdict so the probe actually re-runs
-            // instead of returning the stale blocked result.
-            probeCache = null;
-            void probeMicAccess();
-        };
-
-        window.addEventListener("focus", onRegainFocus);
-        if (typeof document !== "undefined") {
-            document.addEventListener("visibilitychange", onRegainFocus);
-        }
-        return () => {
-            window.removeEventListener("focus", onRegainFocus);
-            if (typeof document !== "undefined") {
-                document.removeEventListener("visibilitychange", onRegainFocus);
-            }
-        };
-    }, [permissionBlocked, probeMicAccess]);
+            // Any non-available result pins so the UI accurately reflects the block.
+            setRuntimeOverride(result);
+            return result;
+        },
+        []
+    );
 
     // Runtime override (from a real `getUserMedia` failure) takes precedence
     // because it reflects ground truth, not Chromium's stale view of OS

@@ -1384,6 +1384,157 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         expect(getUserMediaSpy).not.toHaveBeenCalled();
     });
 
+    it("record click: authoritative pre-countdown probe blocks a mic revoked mid-session, before any countdown", async () => {
+        // The passive/cached state can be stale: a permission revoked in OS
+        // settings while the editor was open doesn't always fire an event
+        // (notably on Windows). Clicking record must re-check with a real
+        // getUserMedia BEFORE the countdown, so the user never counts down to
+        // zero only to fail.
+        sessionStorage.setItem("preferred-editor-tab", "audio");
+        // Non-zero countdown so a missed pre-check would surface a digit.
+        (window as any).__recordingCountdownSeconds = 3;
+
+        // Start out healthy: mic present, permission granted, getUserMedia
+        // resolves — so the tab-open probe enables the record button.
+        mockMicEnvironment({ audioInputs: 1, permission: "granted" });
+
+        const props = {
+            cellMarkers: ["cell-1"],
+            cellContent: "<p>Test content</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-1"],
+                cellContent: "<p>Test content</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Test Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            audioAttachments: { "cell-1": "none" as const },
+        };
+
+        render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        // Button is enabled once the tab-open probe lands.
+        const startBtn = await screen.findByRole("button", {
+            name: /Start Recording/i,
+        });
+        expect(startBtn.hasAttribute("disabled")).toBe(false);
+
+        // Now the user revokes mic access in OS settings — no event fires, so
+        // the passive state still says available. Only a real probe knows.
+        const revokedSpy = vi.fn().mockRejectedValue(
+            Object.assign(new Error("revoked"), { name: "NotAllowedError" })
+        );
+        (navigator as any).mediaDevices.getUserMedia = revokedSpy;
+
+        fireEvent.click(startBtn);
+
+        // The forced pre-countdown probe catches the denial and surfaces the
+        // warning — without ever starting the countdown.
+        await screen.findByText(/Enable microphone permissions/i);
+        expect(revokedSpy).toHaveBeenCalledTimes(1);
+
+        // No countdown digit and no "Starting in" state ever rendered.
+        expect(screen.queryByText(/^[123]$/)).toBeNull();
+        expect(
+            screen.queryByRole("button", { name: /Starting in/i })
+        ).toBeNull();
+    });
+
+    it("download view: offers a Re-record option that switches into the recorder", async () => {
+        // When audio exists but isn't downloaded yet, the user still needs a
+        // way to record over it — not only the download/upload buttons.
+        sessionStorage.setItem("preferred-editor-tab", "audio");
+        // Force the download view deterministically (auto-download off), then
+        // restore the prior globals so we don't perturb sibling tests that
+        // rely on the leaked auto-download-on state.
+        const prevAutoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
+        const prevAutoFlag = (window as any).__autoDownloadAudioOnOpen;
+        (window as any).__autoDownloadAudioOnOpenInitialized = true;
+        (window as any).__autoDownloadAudioOnOpen = false;
+        mockMicEnvironment({ audioInputs: 1, permission: "granted" });
+
+        const props = {
+            cellMarkers: ["cell-dl"],
+            cellContent: "<p>Has remote audio</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-dl"],
+                cellContent: "<p>Has remote audio</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Download Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            audioAttachments: { "cell-dl": "available" as const },
+        };
+
+        const { container } = render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        // Confirms we're in the download view (audio not yet local).
+        await screen.findByText(/Click to download/i);
+
+        // The new record affordance is present and switches to the recorder.
+        const reRecordBtn = await screen.findByRole("button", { name: /Re-record/i });
+        fireEvent.click(reRecordBtn);
+
+        await waitFor(() => {
+            const el = container.querySelector(
+                'input#audio-file-input[type="file"]'
+            ) as HTMLInputElement | null;
+            expect(el).toBeTruthy();
+        });
+        // The recorder's "Start Recording" affordance is now shown.
+        expect(
+            await screen.findByRole("button", { name: /Start Recording/i })
+        ).toBeTruthy();
+
+        // Restore globals for sibling tests.
+        (window as any).__autoDownloadAudioOnOpenInitialized = prevAutoInit;
+        (window as any).__autoDownloadAudioOnOpen = prevAutoFlag;
+    });
+
     it("locked cell: audio upload should NOT post saveAudioAttachment", async () => {
         sessionStorage.setItem("preferred-editor-tab", "audio");
 
@@ -1527,6 +1678,108 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             (args: any[]) => args?.[0]?.command === "saveAudioAttachment"
         );
         expect(postedSave).toBe(false);
+    });
+
+    it("re-record: an in-flight provider audio broadcast does NOT yank the user back to the waveform", async () => {
+        // Repro for the re-record glitch: after the user clicks "Re-record",
+        // an audio load that resolves a moment later used to flip
+        // `showRecorder` back to false (waveform), causing a flicker + scroll
+        // jump. The intent guard must keep the recorder up within the window.
+        sessionStorage.setItem("preferred-editor-tab", "audio");
+        mockMicEnvironment({ audioInputs: 1, permission: "granted" });
+
+        const props = {
+            cellMarkers: ["cell-rr"],
+            cellContent: "<p>Re-record content</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-rr"],
+                cellContent: "<p>Re-record content</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Re-record Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            audioAttachments: { "cell-rr": "available" as const },
+        };
+
+        const { container } = render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        // Load audio so the waveform (with its "Re-record" button) renders.
+        window.dispatchEvent(
+            new MessageEvent("message", {
+                data: {
+                    type: "providerSendsAudioData",
+                    content: {
+                        cellId: "cell-rr",
+                        audioData: "data:audio/webm;base64,test",
+                        audioId: "audio-rr-1",
+                    },
+                },
+            })
+        );
+
+        // Wait for the audio to land in the waveform first (download affordance
+        // gone), so the "Re-record" we click is the stable waveform button —
+        // not the download-view button that unmounts once the waveform renders.
+        await waitFor(() => {
+            expect(screen.queryByText(/Click to download/i)).toBeNull();
+            expect(screen.getByText(/Transcribe/i)).toBeTruthy();
+        });
+
+        // User explicitly asks to re-record → recorder view.
+        fireEvent.click(screen.getByRole("button", { name: /Re-record/i }));
+
+        await waitFor(() => {
+            const el = container.querySelector(
+                'input#audio-file-input[type="file"]'
+            ) as HTMLInputElement | null;
+            expect(el).toBeTruthy();
+        });
+
+        // An in-flight load resolves right after the click — this must NOT flip
+        // the view back to the waveform within the intent window.
+        window.dispatchEvent(
+            new MessageEvent("message", {
+                data: {
+                    type: "providerSendsAudioData",
+                    content: {
+                        cellId: "cell-rr",
+                        audioData: "data:audio/webm;base64,test",
+                        audioId: "audio-rr-1",
+                    },
+                },
+            })
+        );
+
+        // Let the async audio handler run.
+        await new Promise((r) => setTimeout(r, 50));
+
+        // Still in recorder mode: file input present, no "Re-record" button.
+        expect(
+            container.querySelector('input#audio-file-input[type="file"]')
+        ).toBeTruthy();
+        expect(screen.queryByRole("button", { name: /Re-record/i })).toBeNull();
     });
 
     describe("Audio Loading State Fix Tests", () => {

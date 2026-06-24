@@ -502,41 +502,9 @@ describe("useAudioInputDevices", () => {
             expect(second.result.current.availability).toBe("permission-denied");
             expect(second.result.current.micPermissionDenied).toBe(true);
         });
-    });
 
-    describe("self-heal on window focus (permission-denied only)", () => {
-        // A mic permission can only change while the user is away from the
-        // window, so regaining focus is the cheapest moment to re-check.
-        // This is gated to permission-denied: hardware changes already have a
-        // live `devicechange` signal and must NOT trigger a focus probe.
-        it("re-probes on window focus and recovers to available after access is re-granted", async () => {
+        it("force re-runs getUserMedia even when a verdict is already cached", async () => {
             const fake = createFakeMediaDevices([audioInputDevice()]);
-            // Passive layer reports the initial blocked state...
-            (navigator as any).mediaDevices = fake;
-            (navigator as any).permissions = createFakePermissions(
-                createFakePermissionStatus("denied")
-            );
-            // ...but getUserMedia would now succeed (user just granted access
-            // in OS settings and returned to the window).
-            const getUserMediaSpy = vi.fn().mockResolvedValue(fakeStream());
-            fake.getUserMedia = getUserMediaSpy;
-
-            const { result } = renderHook(() => useAudioInputDevices());
-            await waitFor(() =>
-                expect(result.current.availability).toBe("permission-denied")
-            );
-
-            await act(async () => {
-                window.dispatchEvent(new Event("focus"));
-            });
-
-            await waitFor(() => expect(result.current.availability).toBe("available"));
-            expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
-            expect(result.current.micUnavailable).toBe(false);
-        });
-
-        it("does NOT re-probe on focus for no-device (devicechange covers hardware)", async () => {
-            const fake = createFakeMediaDevices([]); // no audio inputs
             const getUserMediaSpy = vi.fn().mockResolvedValue(fakeStream());
             fake.getUserMedia = getUserMediaSpy;
             (navigator as any).mediaDevices = fake;
@@ -545,27 +513,151 @@ describe("useAudioInputDevices", () => {
             );
 
             const { result } = renderHook(() => useAudioInputDevices());
-            await waitFor(() => expect(result.current.availability).toBe("no-device"));
+            await waitFor(() => expect(result.current.availability).toBe("available"));
 
+            await act(async () => {
+                await result.current.probeMicAccess();
+            });
+            expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
+
+            // A normal call is a cache hit (no extra probe)...
+            await act(async () => {
+                await result.current.probeMicAccess();
+            });
+            expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
+
+            // ...but `force` bypasses the cache and returns the fresh verdict.
+            let forced: string | undefined;
+            await act(async () => {
+                forced = await result.current.probeMicAccess({ force: true });
+            });
+            expect(getUserMediaSpy).toHaveBeenCalledTimes(2);
+            expect(forced).toBe("available");
+        });
+
+        it("force re-probe flips to permission-denied when access was revoked since the cached verdict", async () => {
+            // The pre-record-countdown case: passive/cached state still says
+            // available (no event fired), but the user revoked access in OS
+            // settings. A forced probe must catch it before the countdown.
+            const fake = createFakeMediaDevices([audioInputDevice()]);
+            const getUserMediaSpy = vi.fn().mockResolvedValue(fakeStream());
+            fake.getUserMedia = getUserMediaSpy;
+            (navigator as any).mediaDevices = fake;
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            await act(async () => {
+                await result.current.probeMicAccess();
+            });
+            expect(result.current.availability).toBe("available");
+
+            getUserMediaSpy.mockRejectedValue(
+                Object.assign(new Error("revoked"), { name: "NotAllowedError" })
+            );
+
+            let forced: string | undefined;
+            await act(async () => {
+                forced = await result.current.probeMicAccess({ force: true });
+            });
+            expect(forced).toBe("permission-denied");
+            expect(result.current.availability).toBe("permission-denied");
+        });
+    });
+
+    describe("flash-free passive refresh on window focus", () => {
+        // A mic permission can only change while the user is away from the
+        // window, so regaining focus is the cheapest moment to refresh. The
+        // refresh is *passive* (enumerateDevices + Permissions API) — it never
+        // calls getUserMedia, so the OS recording indicator never flashes.
+        it("re-evaluates passively on focus and recovers when permission is re-granted, without calling getUserMedia", async () => {
+            const fake = createFakeMediaDevices([audioInputDevice()]);
+            (navigator as any).mediaDevices = fake;
+            const status = createFakePermissionStatus("denied");
+            (navigator as any).permissions = createFakePermissions(status);
+            const getUserMediaSpy = vi.fn().mockResolvedValue(fakeStream());
+            fake.getUserMedia = getUserMediaSpy;
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() =>
+                expect(result.current.availability).toBe("permission-denied")
+            );
+
+            // User re-enabled the mic in OS settings while away. The Permissions
+            // API now reads granted; returning focus should pick that up.
+            status.state = "granted";
             await act(async () => {
                 window.dispatchEvent(new Event("focus"));
             });
 
-            // The focus listener only attaches for permission-denied, so a
-            // no-device state must not waste a getUserMedia call.
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+            // Flash-free: the focus refresh must not open the mic.
             expect(getUserMediaSpy).not.toHaveBeenCalled();
-            expect(result.current.availability).toBe("no-device");
+            expect(result.current.micUnavailable).toBe(false);
         });
 
-        it("debounces rapid focus events into a single probe while still denied", async () => {
+        it("nulls the probe cache on focus so the next audio-tab probe re-runs getUserMedia", async () => {
             const fake = createFakeMediaDevices([audioInputDevice()]);
-            // Still denied (e.g. macOS — TCC pins the verdict to the process),
-            // so the probe keeps rejecting and the listener stays attached.
-            const getUserMediaSpy = vi.fn().mockRejectedValue(
-                Object.assign(new Error("still denied"), { name: "NotAllowedError" })
-            );
+            const getUserMediaSpy = vi.fn().mockResolvedValue(fakeStream());
             fake.getUserMedia = getUserMediaSpy;
             (navigator as any).mediaDevices = fake;
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            // First probe caches "available".
+            await act(async () => {
+                await result.current.probeMicAccess();
+            });
+            expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
+
+            // Focus is passive — it invalidates the cache but must not probe.
+            await act(async () => {
+                window.dispatchEvent(new Event("focus"));
+            });
+            expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
+
+            // Because focus nulled the cache, the next probe re-runs fresh.
+            await act(async () => {
+                await result.current.probeMicAccess();
+            });
+            expect(getUserMediaSpy).toHaveBeenCalledTimes(2);
+        });
+
+        it("debounces rapid focus events into a single passive re-evaluate", async () => {
+            const fake = createFakeMediaDevices([audioInputDevice()]);
+            (navigator as any).mediaDevices = fake;
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            // Mount ran one evaluate (1 enumerateDevices call). Two focus events
+            // inside the cooldown window must collapse to a single extra evaluate.
+            const before = fake.enumerateDevices.mock.calls.length;
+            await act(async () => {
+                window.dispatchEvent(new Event("focus"));
+                window.dispatchEvent(new Event("focus"));
+            });
+
+            expect(fake.enumerateDevices.mock.calls.length).toBe(before + 1);
+        });
+    });
+
+    describe("recovery from a lingering denied state", () => {
+        it("reportRecorderError(null) recovers availability to available from a passively-denied state", async () => {
+            // The passive layer is stuck reporting denied (e.g. Chromium's
+            // Permissions API still says denied right after the user re-enabled
+            // the mic). A successful record is ground truth and must clear it.
+            (navigator as any).mediaDevices = createFakeMediaDevices([audioInputDevice()]);
             (navigator as any).permissions = createFakePermissions(
                 createFakePermissionStatus("denied")
             );
@@ -575,14 +667,40 @@ describe("useAudioInputDevices", () => {
                 expect(result.current.availability).toBe("permission-denied")
             );
 
-            // Two focus events inside the cooldown window collapse to one probe.
-            await act(async () => {
-                window.dispatchEvent(new Event("focus"));
-                window.dispatchEvent(new Event("focus"));
+            act(() => {
+                result.current.reportRecorderError(null);
             });
 
-            expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
+            expect(result.current.availability).toBe("available");
+            expect(result.current.micUnavailable).toBe(false);
+        });
+
+        it("clears a denied runtime-override pin when permission transitions to granted", async () => {
+            const fake = createFakeMediaDevices([audioInputDevice()]);
+            (navigator as any).mediaDevices = fake;
+            const status = createFakePermissionStatus("granted");
+            (navigator as any).permissions = createFakePermissions(status);
+
+            const { result } = renderHook(() => useAudioInputDevices());
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            // A real getUserMedia failure pins denied (outranks passive granted).
+            act(() => {
+                result.current.reportRecorderError(
+                    Object.assign(new Error(), { name: "NotAllowedError" })
+                );
+            });
             expect(result.current.availability).toBe("permission-denied");
+
+            // A genuine permission `change` to granted is a reliable signal the
+            // earlier denial no longer holds, so the pin must clear.
+            status.state = "granted";
+            act(() => {
+                status.dispatchEvent(new Event("change"));
+            });
+
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+            expect(result.current.micPermissionDenied).toBe(false);
         });
     });
 });
