@@ -8,6 +8,11 @@
 import { CodexCellTypes } from 'types/enums';
 import { v4 as uuidv4 } from 'uuid';
 import { IDMLParagraph, IDMLStory } from './types';
+import {
+    extractContentSegmentsFromParagraph,
+    extractContentSegmentStructureFromParagraph,
+    joinContentSegments,
+} from '../common/contentSegmentUtils';
 
 /**
  * Parameters for creating InDesign verse cell metadata
@@ -21,6 +26,7 @@ export interface IndesignVerseCellMetadataParams {
     paragraphId: string;
     appliedParagraphStyle: string;
     paragraph: IDMLParagraph;
+    paragraphIndex: number;
     fileName: string;
     originalHash: string;
 }
@@ -46,7 +52,9 @@ export interface IndesignParagraphCellMetadataParams {
  * Generates a UUID for the cell ID
  */
 export function createIndesignVerseCellMetadata(params: IndesignVerseCellMetadataParams): { metadata: any; cellId: string; } {
-    const { bookCode, chapter, verseNumber, originalContent, storyId, paragraphId, appliedParagraphStyle, paragraph, fileName, originalHash } = params;
+    const { bookCode, chapter, verseNumber, originalContent, storyId, paragraphId, appliedParagraphStyle, paragraph, paragraphIndex, fileName, originalHash } = params;
+    const contentSegments = extractContentSegmentsFromParagraph(paragraph);
+    const { breakBefore: contentSegmentBreakBefore } = extractContentSegmentStructureFromParagraph(paragraph);
 
     // Generate UUID for cell ID
     const cellId = uuidv4();
@@ -73,6 +81,9 @@ export function createIndesignVerseCellMetadata(params: IndesignVerseCellMetadat
                 idmlStructure: {
                     storyId,
                     paragraphId,
+                    contentSegments,
+                    contentSegmentCount: contentSegments.length,
+                    contentSegmentBreakBefore,
                     paragraphStyleRange: {
                         appliedParagraphStyle,
                         // Only keep dataAfter if present (for paragraph breaks)
@@ -83,7 +94,7 @@ export function createIndesignVerseCellMetadata(params: IndesignVerseCellMetadat
                 // Minimal relationships needed for export
                 relationships: {
                     parentStory: storyId,
-                    paragraphOrder: 0, // Will be set by importer if needed
+                    paragraphOrder: paragraphIndex,
                 },
             }
         }
@@ -96,6 +107,8 @@ export function createIndesignVerseCellMetadata(params: IndesignVerseCellMetadat
  */
 export function createIndesignParagraphCellMetadata(params: IndesignParagraphCellMetadataParams): { metadata: any; cellId: string; } {
     const { cellLabel, originalContent, storyId, paragraphId, appliedParagraphStyle, paragraph, stories, paragraphIndex, fileName, originalHash } = params;
+    const contentSegments = extractContentSegmentsFromParagraph(paragraph);
+    const { breakBefore: contentSegmentBreakBefore } = extractContentSegmentStructureFromParagraph(paragraph);
 
     // Generate UUID for cell ID
     const cellId = uuidv4();
@@ -111,12 +124,15 @@ export function createIndesignParagraphCellMetadata(params: IndesignParagraphCel
             paragraphId,
             appliedParagraphStyle,
             data: {
-                originalContent,
+                originalContent: joinContentSegments(contentSegments),
                 globalReferences: [], // Empty for InDesign files (no verse references)
                 // Minimal structure needed for export
                 idmlStructure: {
                     storyId,
                     paragraphId,
+                    contentSegments,
+                    contentSegmentCount: contentSegments.length,
+                    contentSegmentBreakBefore,
                     paragraphStyleRange: {
                         appliedParagraphStyle,
                         // Only keep dataAfter if present (for paragraph breaks)

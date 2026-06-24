@@ -1780,7 +1780,6 @@ function getWebviewContent(
                                                 <span class="format-tag format-tag-roundtrip">CSV/TSV</span>
                                                 <span class="format-tag format-tag-roundtrip">IDML</span>
                                                 <span class="format-tag format-tag-roundtrip">Biblica Study Notes</span>
-                                                <!--<span class="format-tag format-tag-roundtrip">Reach4Life</span>-->
                                             </div>
                                         </div>
                                     </div>
