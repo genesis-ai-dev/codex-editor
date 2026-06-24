@@ -388,6 +388,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // Audio-related state
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
+    // Holds the partial audio captured when a recording was cut short by the
+    // mic going away; non-null drives the keep/discard prompt.
+    const [interruptedRecording, setInterruptedRecording] = useState<Blob | null>(null);
+    const [showInterruptedRecordingModal, setShowInterruptedRecordingModal] = useState(false);
     const [audioAuthor, setAudioAuthor] = useState<string | undefined>(undefined);
     const [audioDuration, setAudioDuration] = useState<number | null>(null);
     // While awaiting provider response, avoid showing "No audio attached" to prevent flicker
@@ -408,6 +412,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [recordingElapsedTime, setRecordingElapsedTime] = useState<number>(0);
     const audioSaveRequestIdRef = useRef<string | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
+    // Set true right before we stop the recorder because the mic became
+    // unavailable mid-recording (vs. the user pressing stop). `onstop` reads
+    // this to prompt keep/discard instead of silently saving the partial clip.
+    const recordingInterruptedRef = useRef<boolean>(false);
     const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
     /** Wall-clock end time for the active pre-record countdown (performance.now()). */
     const countdownEndTimeRef = useRef<number | null>(null);
@@ -877,6 +885,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             audioChunksRef.current = [];
 
+            // If the mic disappears mid-recording — device unplugged, or OS
+            // permission revoked while capturing — the audio track fires
+            // `ended`. Stop immediately so we persist the partial clip rather
+            // than continuing with a dead/silent stream, and surface the
+            // unavailability so the UI greys out without waiting on a
+            // (sometimes unreliable) device/permission event.
+            const handleMidRecordingMicLoss = () => {
+                reportRecorderErrorRef.current?.(
+                    Object.assign(new Error("Microphone disconnected"), {
+                        name: "NotFoundError",
+                    })
+                );
+                setRecordingStatus("Microphone disconnected");
+                if (recorder.state !== "inactive") {
+                    // Mark this as an interruption so `onstop` prompts the user
+                    // to keep or discard rather than auto-saving.
+                    recordingInterruptedRef.current = true;
+                    recorder.stop();
+                }
+            };
+
             recorder.ondataavailable = (e) => {
                 if (e.data.size > 0) {
                     audioChunksRef.current.push(e.data);
@@ -899,7 +928,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 // Release the microphone immediately — no further data will
                 // arrive after stop, and holding the tracks open delays the
                 // OS-level recording indicator from turning off.
+                stream.getAudioTracks().forEach((track) => {
+                    track.removeEventListener("ended", handleMidRecordingMicLoss);
+                });
                 stream.getTracks().forEach((track) => track.stop());
+
+                const rawBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+
+                // If the mic became unavailable mid-recording we got here via an
+                // interruption, not a user-initiated stop. Don't silently save a
+                // half-finished clip — hand the raw audio to a keep/discard
+                // prompt and let the user decide. Skip the trailing trim too:
+                // there's no "stop click" to remove, and trimming would drop
+                // real audio from the abrupt end.
+                if (recordingInterruptedRef.current) {
+                    recordingInterruptedRef.current = false;
+                    setInterruptedRecording(rawBlob);
+                    setShowInterruptedRecordingModal(true);
+                    return;
+                }
 
                 // Trim a short tail off the recording to remove the click
                 // sound from the user pressing stop. Mirrors the leading
@@ -907,7 +954,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 // a small notice in the recorder UI. If the trim fails
                 // (decoder error, very short clip, etc.) the helper returns
                 // the original blob unchanged.
-                const rawBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
                 const blob = await trimRecordingTail(rawBlob, RECORDING_TAIL_TRIM_MS);
 
                 setAudioBlob(blob);
@@ -927,6 +973,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 }
                 setShowRecorder(false);
             };
+
+            stream.getAudioTracks().forEach((track) => {
+                track.addEventListener("ended", handleMidRecordingMicLoss);
+            });
 
             recorder.start();
             setMediaRecorder(recorder);
@@ -1008,6 +1058,37 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     }, [clearRecordingCountdownTimer]);
 
+    // Keep the partial audio captured before the mic was lost: run it through
+    // the normal save path (URL + cell persistence) just like a clean stop.
+    const handleKeepInterruptedRecording = useCallback(() => {
+        const blob = interruptedRecording;
+        setShowInterruptedRecordingModal(false);
+        setInterruptedRecording(null);
+        if (!blob) {
+            return;
+        }
+        setAudioBlob(blob);
+        if (audioUrl) {
+            URL.revokeObjectURL(audioUrl);
+        }
+        const url = URL.createObjectURL(blob);
+        setAudioUrl(url);
+        setRecordingStatus("Recording complete");
+        saveAudioToCellRef.current?.(blob);
+        setShowRecorder(false);
+    }, [interruptedRecording, audioUrl]);
+
+    // Discard the interrupted clip entirely and return to the recorder so the
+    // user can try again once the mic is back. Nothing is persisted, so any
+    // previously saved audio for the cell is left untouched.
+    const handleDiscardInterruptedRecording = useCallback(() => {
+        setShowInterruptedRecordingModal(false);
+        setInterruptedRecording(null);
+        audioChunksRef.current = [];
+        setRecordingStatus("");
+        setShowRecorder(true);
+    }, []);
+
     // Recording elapsed time tracker - updates every 100ms while recording
     useEffect(() => {
         if (!isRecording || recordingStartTime === null) {
@@ -1033,6 +1114,48 @@ const CellEditor: React.FC<CellEditorProps> = ({
             }
         };
     }, [isRecording, recordingStartTime]);
+
+    // React the instant the mic becomes unavailable (unplugged, or permission
+    // revoked in OS settings) rather than letting an in-progress flow run to a
+    // dead end:
+    //   • during the pre-record countdown / warmup → cancel it before it tries
+    //     (and fails) to open a stream, leaving the button greyed-out.
+    //   • mid-recording → stop the recorder now so we persist what was captured
+    //     instead of streaming silence (mid-recording device removal is also
+    //     caught immediately by the track `ended` listener in
+    //     `startActualRecording`; this covers detections surfaced by the hook).
+    useEffect(() => {
+        if (!micUnavailable) {
+            return;
+        }
+        const reason = micPermissionDenied
+            ? "Microphone access denied"
+            : "No microphone detected";
+
+        if (countdown !== null || isStartingRecording) {
+            clearRecordingCountdownTimer();
+            setCountdown(null);
+            setIsStartingRecording(false);
+            setRecordingStatus(reason);
+        }
+
+        if (isRecording && mediaRecorder && mediaRecorder.state !== "inactive") {
+            // `onstop` releases the tracks and the elapsed-time interval clears
+            // itself when `isRecording` flips false. Flag the interruption so
+            // `onstop` prompts the user to keep/discard the partial clip.
+            recordingInterruptedRef.current = true;
+            mediaRecorder.stop();
+            setRecordingStatus(reason);
+        }
+    }, [
+        micUnavailable,
+        micPermissionDenied,
+        countdown,
+        isStartingRecording,
+        isRecording,
+        mediaRecorder,
+        clearRecordingCountdownTimer,
+    ]);
 
     // Helper function to request audio timestamps for a cell
     const requestCellAudioTimestamps = useCallback((cellId: string): Promise<Timestamps | null> => {
@@ -4733,6 +4856,40 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             }}
                         >
                             Discard
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Keep/discard prompt for a recording cut short by mic loss.
+                Dismissing (Esc / backdrop) defaults to Keep so we never silently
+                throw away captured audio. */}
+            <Dialog
+                open={showInterruptedRecordingModal}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        handleKeepInterruptedRecording();
+                    }
+                }}
+            >
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Recording interrupted</DialogTitle>
+                    </DialogHeader>
+                    <div className="text-sm text-muted-foreground">
+                        Your microphone became unavailable while recording, so we
+                        stopped early. Do you want to keep what was captured up to
+                        that point, or discard it and try again?
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="destructive"
+                            onClick={handleDiscardInterruptedRecording}
+                        >
+                            Discard
+                        </Button>
+                        <Button onClick={handleKeepInterruptedRecording}>
+                            Keep recording
                         </Button>
                     </DialogFooter>
                 </DialogContent>
