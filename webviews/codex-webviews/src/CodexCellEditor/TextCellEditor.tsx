@@ -556,7 +556,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         micUnavailable,
         reportRecorderError,
         probeMicAccess,
-    } = useAudioInputDevices();
+    } = useAudioInputDevices({ active: activeTab === "audio" && !isCellLocked });
     // Mirror `micUnavailable` into a ref so guards inside callbacks (and
     // setTimeout-deferred work like the auto-start path) can read the
     // latest value without becoming stale closures.

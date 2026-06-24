@@ -568,38 +568,64 @@ describe("useAudioInputDevices", () => {
         });
     });
 
-    describe("flash-free passive refresh on window focus", () => {
+    describe("refresh on window focus", () => {
         // A mic permission can only change while the user is away from the
-        // window, so regaining focus is the cheapest moment to refresh. The
-        // refresh is *passive* (enumerateDevices + Permissions API) — it never
-        // calls getUserMedia, so the OS recording indicator never flashes.
-        it("re-evaluates passively on focus and recovers when permission is re-granted, without calling getUserMedia", async () => {
+        // window, so regaining focus is the moment to refresh. When the recorder
+        // UI is on screen (`active`) we run an authoritative probe that updates
+        // state in BOTH directions (allowed↔denied). When inactive we only
+        // invalidate the cache (no probe, no OS indicator flash).
+        it("re-probes on focus while active and recovers when permission is re-granted (denied→allowed)", async () => {
             const fake = createFakeMediaDevices([audioInputDevice()]);
             (navigator as any).mediaDevices = fake;
             const status = createFakePermissionStatus("denied");
             (navigator as any).permissions = createFakePermissions(status);
+            // Mount detects denial passively (Permissions API). getUserMedia is
+            // only hit by the focus probe, which now succeeds (re-enabled).
             const getUserMediaSpy = vi.fn().mockResolvedValue(fakeStream());
             fake.getUserMedia = getUserMediaSpy;
 
-            const { result } = renderHook(() => useAudioInputDevices());
+            const { result } = renderHook(() => useAudioInputDevices({ active: true }));
             await waitFor(() =>
                 expect(result.current.availability).toBe("permission-denied")
             );
 
-            // User re-enabled the mic in OS settings while away. The Permissions
-            // API now reads granted; returning focus should pick that up.
             status.state = "granted";
             await act(async () => {
                 window.dispatchEvent(new Event("focus"));
             });
 
             await waitFor(() => expect(result.current.availability).toBe("available"));
-            // Flash-free: the focus refresh must not open the mic.
-            expect(getUserMediaSpy).not.toHaveBeenCalled();
+            expect(getUserMediaSpy).toHaveBeenCalled();
             expect(result.current.micUnavailable).toBe(false);
         });
 
-        it("nulls the probe cache on focus so the next audio-tab probe re-runs getUserMedia", async () => {
+        it("re-probes on focus while active and detects a revocation (allowed→denied)", async () => {
+            const fake = createFakeMediaDevices([audioInputDevice()]);
+            (navigator as any).mediaDevices = fake;
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("granted")
+            );
+            // Mount sees granted (passive). The OS-level access was revoked while
+            // away, so the authoritative focus probe rejects.
+            const getUserMediaSpy = vi.fn().mockRejectedValue(
+                Object.assign(new Error("revoked"), { name: "NotAllowedError" })
+            );
+            fake.getUserMedia = getUserMediaSpy;
+
+            const { result } = renderHook(() => useAudioInputDevices({ active: true }));
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+
+            await act(async () => {
+                window.dispatchEvent(new Event("focus"));
+            });
+
+            await waitFor(() =>
+                expect(result.current.availability).toBe("permission-denied")
+            );
+            expect(getUserMediaSpy).toHaveBeenCalled();
+        });
+
+        it("does NOT probe on focus when inactive — just invalidates the cache (no flash)", async () => {
             const fake = createFakeMediaDevices([audioInputDevice()]);
             const getUserMediaSpy = vi.fn().mockResolvedValue(fakeStream());
             fake.getUserMedia = getUserMediaSpy;
@@ -608,6 +634,7 @@ describe("useAudioInputDevices", () => {
                 createFakePermissionStatus("granted")
             );
 
+            // No `active` flag → the recorder UI isn't on screen.
             const { result } = renderHook(() => useAudioInputDevices());
             await waitFor(() => expect(result.current.availability).toBe("available"));
 
@@ -617,7 +644,7 @@ describe("useAudioInputDevices", () => {
             });
             expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
 
-            // Focus is passive — it invalidates the cache but must not probe.
+            // Inactive focus must not probe (no flash) — only invalidate cache.
             await act(async () => {
                 window.dispatchEvent(new Event("focus"));
             });
@@ -630,25 +657,82 @@ describe("useAudioInputDevices", () => {
             expect(getUserMediaSpy).toHaveBeenCalledTimes(2);
         });
 
-        it("debounces rapid focus events into a single passive re-evaluate", async () => {
+        it("recovers on a host-relayed windowFocusChanged message (VS Code webview path)", async () => {
+            // Webview iframes don't get native focus events on OS app-switch, so
+            // the extension host relays `vscode.window.onDidChangeWindowState` as
+            // a `windowFocusChanged` message. It must drive the same authoritative
+            // re-probe as a native focus event.
+            const fake = createFakeMediaDevices([audioInputDevice()]);
+            (navigator as any).mediaDevices = fake;
+            const status = createFakePermissionStatus("denied");
+            (navigator as any).permissions = createFakePermissions(status);
+            const getUserMediaSpy = vi.fn().mockResolvedValue(fakeStream());
+            fake.getUserMedia = getUserMediaSpy;
+
+            const { result } = renderHook(() => useAudioInputDevices({ active: true }));
+            await waitFor(() =>
+                expect(result.current.availability).toBe("permission-denied")
+            );
+
+            status.state = "granted";
+            await act(async () => {
+                window.dispatchEvent(
+                    new MessageEvent("message", {
+                        data: { type: "windowFocusChanged", focused: true },
+                    })
+                );
+            });
+
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+            expect(getUserMediaSpy).toHaveBeenCalled();
+        });
+
+        it("ignores a windowFocusChanged message with focused=false", async () => {
             const fake = createFakeMediaDevices([audioInputDevice()]);
             (navigator as any).mediaDevices = fake;
             (navigator as any).permissions = createFakePermissions(
                 createFakePermissionStatus("granted")
             );
+            const getUserMediaSpy = vi.fn().mockResolvedValue(fakeStream());
+            fake.getUserMedia = getUserMediaSpy;
 
-            const { result } = renderHook(() => useAudioInputDevices());
+            const { result } = renderHook(() => useAudioInputDevices({ active: true }));
             await waitFor(() => expect(result.current.availability).toBe("available"));
 
-            // Mount ran one evaluate (1 enumerateDevices call). Two focus events
-            // inside the cooldown window must collapse to a single extra evaluate.
-            const before = fake.enumerateDevices.mock.calls.length;
+            await act(async () => {
+                window.dispatchEvent(
+                    new MessageEvent("message", {
+                        data: { type: "windowFocusChanged", focused: false },
+                    })
+                );
+            });
+
+            // A blur (focused=false) must not trigger a re-probe.
+            expect(getUserMediaSpy).not.toHaveBeenCalled();
+        });
+
+        it("debounces rapid focus events into a single authoritative probe", async () => {
+            const fake = createFakeMediaDevices([audioInputDevice()]);
+            (navigator as any).mediaDevices = fake;
+            (navigator as any).permissions = createFakePermissions(
+                createFakePermissionStatus("denied")
+            );
+            const getUserMediaSpy = vi.fn().mockResolvedValue(fakeStream());
+            fake.getUserMedia = getUserMediaSpy;
+
+            const { result } = renderHook(() => useAudioInputDevices({ active: true }));
+            await waitFor(() =>
+                expect(result.current.availability).toBe("permission-denied")
+            );
+
+            // Two focus events inside the cooldown window collapse to one probe.
             await act(async () => {
                 window.dispatchEvent(new Event("focus"));
                 window.dispatchEvent(new Event("focus"));
             });
 
-            expect(fake.enumerateDevices.mock.calls.length).toBe(before + 1);
+            await waitFor(() => expect(result.current.availability).toBe("available"));
+            expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
         });
     });
 

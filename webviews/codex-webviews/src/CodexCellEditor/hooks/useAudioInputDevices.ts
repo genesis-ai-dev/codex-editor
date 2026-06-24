@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * Detects whether the user can record audio right now. Reports separately
@@ -224,7 +224,18 @@ async function getOrRunProbe(force = false): Promise<MicAvailability> {
     }
 }
 
-export function useAudioInputDevices(): UseAudioInputDevicesResult {
+export function useAudioInputDevices(
+    options?: {
+        /**
+         * True when the recording UI is actually on screen (audio tab open and
+         * the cell is recordable). Gates the authoritative focus re-probe: we
+         * only re-check (and risk an OS indicator flash) when the user can see
+         * and use the recorder. When false, regaining focus just invalidates
+         * the cache so the next audio-tab open re-probes — no flash.
+         */
+        active?: boolean;
+    }
+): UseAudioInputDevicesResult {
     const isSupported =
         typeof navigator !== "undefined" &&
         !!navigator.mediaDevices &&
@@ -243,6 +254,12 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
     const [runtimeOverride, setRuntimeOverride] = useState<MicAvailability | null>(
         () => (probeCache !== null && probeCache !== "available" ? probeCache : null)
     );
+
+    // Mirror "is the recorder UI on screen?" into a ref so the focus handler
+    // (a stable closure) can decide whether to run an authoritative re-probe on
+    // focus regain.
+    const activeRef = useRef(options?.active ?? false);
+    activeRef.current = options?.active ?? false;
 
     useEffect(() => {
         if (FORCE_STATE_FOR_REVIEW !== null) {
@@ -296,14 +313,35 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
         };
         mediaDevices.addEventListener("devicechange", handleDeviceChange);
 
-        // ─── Flash-free refresh on window focus ───────────────────────────
+        // Authoritative re-probe used by the focus handler. Unlike `evaluate()`
+        // (passive, which can't see OS-level changes the Permissions API
+        // misreports), this calls getUserMedia and applies the ground-truth
+        // result in BOTH directions: it clears a denial pin when access is
+        // re-granted, and pins a denial when access was revoked. On macOS the
+        // verdict is pinned to the process by TCC, so a re-grant correctly
+        // stays denied until the app restarts (no false recovery).
+        const reprobeAuthoritative = async () => {
+            const result = await getOrRunProbe(true);
+            if (cancelled) return;
+            if (result === "available") {
+                setRuntimeOverride(null);
+                setAvailability("available");
+            } else {
+                setRuntimeOverride(result);
+            }
+        };
+
+        // ─── Refresh on window focus ──────────────────────────────────────
         // A mic permission can only change while the user is *away* from the
         // editor (OS settings / a portal dialog), so regaining focus is the
-        // cheapest moment to refresh and "prepare the message" before the
-        // record tab is opened. We run ONLY the passive check here (no
-        // getUserMedia), so there is never an OS recording-indicator flash.
-        // We also invalidate the probe cache so the next audio-tab open does
-        // a fresh authoritative probe (which catches macOS OS-level denial).
+        // moment to refresh.
+        //   - Recorder UI on screen (`active`) → run an authoritative probe so
+        //     the status updates in BOTH directions (allowed↔denied). This can
+        //     briefly flash the OS recording indicator when access is granted,
+        //     which is the cost of reliably detecting a revocation; we accept it
+        //     only while the user is actually looking at the recorder.
+        //   - Otherwise → just invalidate the cache (no probe, no flash); the
+        //     next audio-tab open re-probes authoritatively.
         let lastFocusRefreshAt = 0;
         const FOCUS_REFRESH_COOLDOWN_MS = 1500;
         const onRegainFocus = () => {
@@ -314,13 +352,31 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
             if (now - lastFocusRefreshAt < FOCUS_REFRESH_COOLDOWN_MS) return;
             lastFocusRefreshAt = now;
             probeCache = null;
-            evaluate();
+            if (activeRef.current) {
+                void reprobeAuthoritative();
+            }
         };
         if (typeof window !== "undefined") {
             window.addEventListener("focus", onRegainFocus);
         }
         if (typeof document !== "undefined") {
             document.addEventListener("visibilitychange", onRegainFocus);
+        }
+
+        // VS Code webview iframes don't reliably receive native focus /
+        // visibilitychange events when the whole app regains OS focus. The
+        // extension host relays `vscode.window.onDidChangeWindowState` as a
+        // `windowFocusChanged` message, which is the dependable trigger for the
+        // post-OS-settings refresh. Treat a focus-regain identically to a
+        // native focus event (same cooldown + refresh policy).
+        const onHostMessage = (event: MessageEvent) => {
+            const data = event?.data as { type?: string; focused?: boolean } | undefined;
+            if (data?.type === "windowFocusChanged" && data.focused) {
+                onRegainFocus();
+            }
+        };
+        if (typeof window !== "undefined") {
+            window.addEventListener("message", onHostMessage);
         }
 
         let unsubscribePermission: (() => void) | null = null;
@@ -353,6 +409,7 @@ export function useAudioInputDevices(): UseAudioInputDevicesResult {
             mediaDevices.removeEventListener("devicechange", handleDeviceChange);
             if (typeof window !== "undefined") {
                 window.removeEventListener("focus", onRegainFocus);
+                window.removeEventListener("message", onHostMessage);
             }
             if (typeof document !== "undefined") {
                 document.removeEventListener("visibilitychange", onRegainFocus);

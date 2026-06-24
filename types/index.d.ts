@@ -1950,6 +1950,17 @@ type EditorReceiveMessages =
         };
     }
     | {
+        /**
+         * Forwarded from the extension host's `vscode.window.onDidChangeWindowState`.
+         * Webview iframes don't reliably receive OS-level focus / visibilitychange
+         * events, so the host relays them. The audio recorder uses `focused: true`
+         * to refresh microphone availability (a permission can only change while
+         * the user is away in OS settings).
+         */
+        type: "windowFocusChanged";
+        focused: boolean;
+    }
+    | {
         type: "providerSendsInitialContent";
         content: QuillCellContent[];
         isSourceText: boolean;
