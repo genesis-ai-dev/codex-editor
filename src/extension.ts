@@ -353,6 +353,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
     initToolPreferences(context);
 
+    // Clear the stream-only video session cache (stored outside the project) so
+    // "Loaded" videos re-stream after a reload, like the in-memory audio cache.
+    try {
+        const { clearVideoStreamCache } = await import("./utils/videoStreamCache");
+        await clearVideoStreamCache(context);
+    } catch (e) {
+        console.warn("[Extension] Could not clear video stream cache:", e);
+    }
+
     // Per-user audio preferences (autoDownloadAudioOnOpen,
     // autoRecordOnMicClick, recordingCountdownSeconds) live in globalState.
     // Initialize before any provider reads them; the per-workspace migration

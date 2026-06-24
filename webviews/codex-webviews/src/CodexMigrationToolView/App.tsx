@@ -42,6 +42,7 @@ type AppState = {
     toFilePath: string;
     matchMode: CodexMigrationMatchMode;
     forceOverride: boolean;
+    keepValidations: boolean;
     fromStartLine: number;
     toStartLine: number;
     maxCells: string;
@@ -153,6 +154,8 @@ const App: React.FC = () => {
             toFilePath: (persisted?.toFilePath as string) || "",
             matchMode: (persisted?.matchMode as CodexMigrationMatchMode) || "globalReferences",
             forceOverride: (persisted?.forceOverride as boolean) || false,
+            // Default ON — must use ?? so a persisted `false` is not flipped back to true.
+            keepValidations: (persisted?.keepValidations as boolean) ?? true,
             fromStartLine: (persisted?.fromStartLine as number) || 1,
             toStartLine: (persisted?.toStartLine as number) || 1,
             maxCells: (persisted?.maxCells as string) || "",
@@ -215,6 +218,7 @@ const App: React.FC = () => {
             toFilePath: state.toFilePath,
             matchMode: state.matchMode,
             forceOverride: state.forceOverride,
+            keepValidations: state.keepValidations,
         };
         if (state.matchMode === "lineNumber") {
             data.fromStartLine = state.fromStartLine;
@@ -380,6 +384,23 @@ const App: React.FC = () => {
                             />
                             <Label htmlFor="forceOverride" className="cursor-pointer">
                                 Force migrated edits to supersede existing content
+                            </Label>
+                        </div>
+
+                        {/* Keep validations checkbox */}
+                        <div className="flex items-center gap-2">
+                            <Checkbox
+                                id="keepValidations"
+                                checked={state.keepValidations}
+                                onCheckedChange={(checked) =>
+                                    setState((prev) => ({
+                                        ...prev,
+                                        keepValidations: checked === true,
+                                    }))
+                                }
+                            />
+                            <Label htmlFor="keepValidations" className="cursor-pointer">
+                                Keep validation status for cells
                             </Label>
                         </div>
 
