@@ -300,6 +300,7 @@ export async function openSystemMessageEditor() {
                     vscode.window.showErrorMessage(
                         "Failed to generate instructions. Please check your API configuration."
                     );
+                    panel.webview.postMessage({ command: "generateError" });
                 }
                 break;
             }

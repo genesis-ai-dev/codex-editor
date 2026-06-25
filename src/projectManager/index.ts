@@ -354,6 +354,27 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         await setTargetFont
     );
 
+    const findLanguageInMetadata = (
+        metadata: any,
+        status: LanguageProjectStatus
+    ): LanguageMetadata | undefined => {
+        if (!metadata?.languages || !Array.isArray(metadata.languages)) return undefined;
+        return metadata.languages.find((l: any) => l?.projectStatus === status);
+    };
+
+    const triggerSystemMessageReview = async (
+        reason: "sourceLanguageChanged" | "targetLanguageChanged"
+    ) => {
+        try {
+            await vscode.commands.executeCommand(
+                "codex-editor-extension.promptSystemMessageReview",
+                reason
+            );
+        } catch (error) {
+            console.warn("Failed to open system message review:", error);
+        }
+    };
+
     const changeTargetLanguageCommand = vscode.commands.registerCommand(
         "codex-project-manager.changeTargetLanguage",
         executeWithRedirecting(async () => {
@@ -362,6 +383,10 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                 vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
                 return;
             }
+            const previousTarget = findLanguageInMetadata(
+                metadata,
+                LanguageProjectStatus.TARGET
+            );
             const projectDetails = await promptForTargetLanguage();
             const targetLanguage = projectDetails?.targetLanguage;
             if (targetLanguage) {
@@ -377,6 +402,10 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                 vscode.window.showInformationMessage(
                     `Target language set to ${targetLanguage.refName}.`
                 );
+                const tagChanged = previousTarget?.tag !== targetLanguage.tag;
+                if (tagChanged) {
+                    await triggerSystemMessageReview("targetLanguageChanged");
+                }
             }
         })
     );
@@ -390,6 +419,10 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                 return;
             }
             try {
+                const previousSource = findLanguageInMetadata(
+                    metadata,
+                    LanguageProjectStatus.SOURCE
+                );
                 const projectDetails = await promptForSourceLanguage();
                 const sourceLanguage = projectDetails?.sourceLanguage;
                 console.log("sourceLanguage", sourceLanguage);
@@ -406,6 +439,10 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                     vscode.window.showInformationMessage(
                         `Source language set to ${sourceLanguage.refName}.`
                     );
+                    const tagChanged = previousSource?.tag !== sourceLanguage.tag;
+                    if (tagChanged) {
+                        await triggerSystemMessageReview("sourceLanguageChanged");
+                    }
                 }
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to set source language: ${error}`);
