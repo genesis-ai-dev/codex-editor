@@ -3025,6 +3025,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     return;
                 }
 
+                // Mark deletion as in progress so the webview can disable the
+                // project's actions immediately — this covers the confirmation
+                // dialog window, preventing repeated Delete clicks from stacking
+                // multiple delete requests/dialogs. "verifying" reflects the
+                // pre-confirmation work (existence + sync-status checks + dialog).
+                this.safeSendMessage({
+                    command: "project.deletingInProgress",
+                    projectPath,
+                    deleting: true,
+                    stage: "verifying",
+                });
+
                 // Ensure the path exists
                 try {
                     const projectUri = vscode.Uri.file(projectPath);
@@ -3075,10 +3087,23 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     );
 
                     if (confirmResult === actionButtonText) {
+                        // Confirmed — transition the webview label from
+                        // "Verifying..." to "Deleting..." for the actual removal.
+                        this.safeSendMessage({
+                            command: "project.deletingInProgress",
+                            projectPath,
+                            deleting: true,
+                            stage: "deleting",
+                        });
                         // Perform deletion
                         await this.performProjectDeletion(projectPath, projectName);
                     } else {
                         // User cancelled deletion
+                        this.safeSendMessage({
+                            command: "project.deletingInProgress",
+                            projectPath,
+                            deleting: false,
+                        });
                         this.safeSendMessage({
                             command: "project.deleteResponse",
                             success: false,
@@ -3088,6 +3113,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 } catch (error) {
                     console.error("Project not found:", error);
                     vscode.window.showErrorMessage("The specified project could not be found.");
+
+                    this.safeSendMessage({
+                        command: "project.deletingInProgress",
+                        projectPath,
+                        deleting: false,
+                    });
 
                     // Send error response to webview
                     this.safeSendMessage({
@@ -4636,6 +4667,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 error: error instanceof Error ? error.message : String(error),
             });
         } finally {
+            // Clear the deleting flag for any card still mounted (e.g. on failure;
+            // on success the card unmounts when the refreshed list arrives).
+            this.safeSendMessage({
+                command: "project.deletingInProgress",
+                projectPath,
+                deleting: false,
+            });
             // Always refresh the projects list
             await this.sendList(this.webviewPanel!);
         }
