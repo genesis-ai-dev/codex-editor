@@ -3814,7 +3814,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
                     const autoFlag = (window as any).__autoDownloadAudioOnOpen;
                     const shouldAutoDownload = autoInit ? !!autoFlag : false;
-                    const stateForCell = audioAttachments?.[cellMarkers[0]];
+                    // Use the availability the provider just resolved for the NEWLY
+                    // selected attachment. The cell-level `audioAttachments` React
+                    // state is stale in this closure — it still reflects the
+                    // previously-selected attachment, which can be "available-local"
+                    // even when the one we just picked is only a pointer. Trusting it
+                    // would auto-download the new attachment despite the toggle being
+                    // off.
+                    const stateForCell =
+                        message.content.updatedAvailability ?? audioAttachments?.[cellMarkers[0]];
                     const isLocal = stateForCell === "available-local";
 
                     if (shouldAutoDownload || isLocal) {
