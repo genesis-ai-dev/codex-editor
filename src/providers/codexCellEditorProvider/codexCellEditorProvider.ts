@@ -804,6 +804,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Set up file system watcher (only if document is in a workspace)
         let watcher: vscode.FileSystemWatcher | undefined;
         let audioWatcher: vscode.FileSystemWatcher | undefined;
+        // Debounce handle for coalescing bursts of audio file changes (declared
+        // here so the dispose handler can clear any pending flush).
+        let audioRefreshDebounceTimer: NodeJS.Timeout | undefined;
 
         if (workspaceFolder) {
             watcher = vscode.workspace.createFileSystemWatcher(
@@ -845,48 +848,96 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Watch for audio file changes and update webview
         if (audioWatcher) {
+            // Resolve the cell that owns a changed audio file. The on-disk
+            // filename base equals the attachment id stored in cell metadata
+            // (see `saveAudioAttachment`: filename = `${sanitizedAudioId}.${ext}`
+            // and the same id is the `attachments` key). Matching on that id is
+            // layout-agnostic — it works whether the file lives under
+            // `attachments/files/{BOOK}/` (downloaded bytes) or
+            // `attachments/pointers/{BOOK}/` (LFS stub), and regardless of the
+            // id naming scheme. Falls back to the legacy `BOOK_CCC_VVV`
+            // filename convention for pre-attachment-id files.
+            const resolveCellIdForAudioFile = (
+                uri: vscode.Uri
+            ): { cellId: string; attachmentId: string; } | undefined => {
+                const fileName = vscode.workspace.asRelativePath(uri).split("/").pop() || "";
+                const attachmentId = fileName.replace(/\.[^/.]+$/, "");
+
+                try {
+                    const text = document.getText();
+                    if (text.trim().length > 0) {
+                        const data = JSON.parse(text);
+                        const cells = Array.isArray(data?.cells) ? data.cells : [];
+                        for (const cell of cells) {
+                            const atts = cell?.metadata?.attachments || {};
+                            if (Object.prototype.hasOwnProperty.call(atts, attachmentId)) {
+                                const id = cell?.metadata?.id;
+                                if (id) return { cellId: id, attachmentId };
+                            }
+                        }
+                    }
+                } catch {
+                    /* fall through to legacy filename parsing */
+                }
+
+                // Legacy fallback: `{BOOK}_{CCC}_{VVV}.ext` (no attachment id in metadata)
+                const match = fileName.match(/^(\w+)_(\d+)_(\d+)\./);
+                if (match) {
+                    const [, fileBook, chapterStr, verseStr] = match;
+                    return {
+                        cellId: `${fileBook} ${parseInt(chapterStr)}:${parseInt(verseStr)}`,
+                        attachmentId,
+                    };
+                }
+                return undefined;
+            };
+
+            // Coalesce bursts (e.g. a bulk auto-download writing many files at
+            // once) so we recompute each affected cell only once per window
+            // instead of per file event (files/ + pointers/ both fire).
+            const AUDIO_REFRESH_DEBOUNCE_MS = 250;
+            const pendingAudioCellIds = new Set<string>();
+            const flushPendingAudioRefresh = () => {
+                audioRefreshDebounceTimer = undefined;
+                const cellIds = Array.from(pendingAudioCellIds);
+                pendingAudioCellIds.clear();
+                for (const cellId of cellIds) {
+                    updateAudioAttachmentsForCell(webviewPanel, document, cellId);
+                }
+            };
+
             const handleAudioFileChange = (uri: vscode.Uri, changeType: string) => {
                 debug(`${changeType} audio file detected:`, uri.toString());
 
-                // Extract book and cell info from the file path
-                const relativePath = vscode.workspace.asRelativePath(uri);
-                const pathParts = relativePath.split('/');
-                if (pathParts.length >= 3 && pathParts[0] === '.project' && pathParts[1] === 'attachments') {
-                    const bookAbbr = pathParts[2];
-                    const fileName = pathParts[pathParts.length - 1];
+                const resolved = resolveCellIdForAudioFile(uri);
+                if (!resolved) {
+                    debug("Could not resolve owning cell for audio file:", uri.toString());
+                    return;
+                }
+                const { cellId, attachmentId } = resolved;
 
-                    // Parse filename to extract cell information
-                    const match = fileName.match(/^(\w+)_(\d+)_(\d+)\./);
-                    if (match) {
-                        const [, fileBook, chapterStr, verseStr] = match;
-                        if (fileBook === bookAbbr) {
-                            const cellId = `${fileBook} ${parseInt(chapterStr)}:${parseInt(verseStr)}`;
-
-                            // Update the webview with refreshed audio attachment information
-                            updateAudioAttachmentsForCell(webviewPanel, document, cellId);
-
-                            // If this was a deletion and it was the selected audio, clear the selection
-                            if (changeType === "Deleted") {
-                                try {
-                                    // Generate attachment ID from filename
-                                    const attachmentId = fileName.replace(/\.[^/.]+$/, ""); // Remove extension
-
-                                    // Check if this attachment is currently selected
-                                    const currentSelection = document.getExplicitAudioSelection(cellId);
-                                    if (currentSelection === attachmentId) {
-                                        // The deleted file was the selected one, clear selection
-                                        document.clearAudioSelection(cellId);
-                                        debug(`Cleared selectedAudioId for cell ${cellId} due to file deletion`);
-                                    }
-                                } catch (error) {
-                                    debug("Error checking selected audio ID on deletion:", error);
-                                }
-                            }
-
-                            debug(`Updated audio attachments for cell: ${cellId}`);
+                // Deletion of the selected attachment clears the selection
+                // immediately so the editor doesn't keep pointing at a gone file.
+                if (changeType === "Deleted") {
+                    try {
+                        const currentSelection = document.getExplicitAudioSelection(cellId);
+                        if (currentSelection === attachmentId) {
+                            document.clearAudioSelection(cellId);
+                            debug(`Cleared selectedAudioId for cell ${cellId} due to file deletion`);
                         }
+                    } catch (error) {
+                        debug("Error checking selected audio ID on deletion:", error);
                     }
                 }
+
+                pendingAudioCellIds.add(cellId);
+                if (audioRefreshDebounceTimer) {
+                    clearTimeout(audioRefreshDebounceTimer);
+                }
+                audioRefreshDebounceTimer = setTimeout(
+                    flushPendingAudioRefresh,
+                    AUDIO_REFRESH_DEBOUNCE_MS
+                );
             };
 
             audioWatcher.onDidChange((uri) => handleAudioFileChange(uri, "Modified"));
@@ -1595,6 +1646,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             }
             if (audioWatcher) {
                 audioWatcher.dispose();
+            }
+            if (audioRefreshDebounceTimer) {
+                clearTimeout(audioRefreshDebounceTimer);
+                audioRefreshDebounceTimer = undefined;
             }
         });
 
