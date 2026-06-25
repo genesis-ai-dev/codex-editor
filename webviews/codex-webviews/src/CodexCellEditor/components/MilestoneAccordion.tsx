@@ -29,13 +29,16 @@ const MAX_VALIDATION_LEVELS = 15;
 /**
  * Demote icon. Promotion reuses lucide's stock `Replace` glyph (dashed
  * square top-right, solid square bottom-left, arrow hooking down into the
- * solid square). Demotion is its visual inverse, but not via any single
- * transform: the squares are the horizontal mirror of `Replace` (dashed
- * top-LEFT, solid bottom-RIGHT) while the arrow is redrawn to point up-and-
- * left — matching the actual on-screen motion (a milestone folding up into
- * the previous one). A plain mirror would leave the arrow pointing
- * down-right, so the arrow is authored by hand here. SVG attributes mirror
- * lucide's so `className` sizing (`h-4 w-4`) and `currentColor` still apply.
+ * solid square). Demotion is its visual inverse: the squares are the
+ * horizontal mirror of `Replace` (dashed top-LEFT, solid bottom-RIGHT) and
+ * the arrow is a bent glyph — a horizontal segment with the arrowhead
+ * pointing LEFT toward the dashed square, curving into a short vertical tail
+ * that drops toward the solid square. (Geometrically it is Replace's arrow
+ * rotated 90° anticlockwise in place; baked to literal coordinates so no
+ * wrapper transform is needed.) The bend keeps the arrow hugging the top
+ * edge instead of cutting through the gap between the two squares. SVG
+ * attributes mirror lucide's so `className` sizing (`h-4 w-4`) and
+ * `currentColor` still apply.
  */
 const DemoteMilestoneIcon = ({ className }: { className?: string; }) => (
     <svg
@@ -56,10 +59,10 @@ const DemoteMilestoneIcon = ({ className }: { className?: string; }) => (
         <path d="M4 2c-1.1 0-2 .9-2 2" />
         <path d="M2 8c0 1.1.9 2 2 2" />
         <path d="M8 10c1.1 0 2-.9 2-2" />
-        {/* Arrow curving up-and-left from the solid square to the dashed one,
-            arriving along the diagonal so the arrowhead reads cleanly. */}
-        <path d="M16 14C14 14 11 11 9 9" />
-        <path d="M9 13 9 9 13 9" />
+        {/* Bent arrow: arrowhead points left, then the shaft curves down into
+            a short vertical tail above the solid square. */}
+        <path d="M15.5 9.5 12.5 6.5 15.5 3.5" />
+        <path d="M12.5 6.5h5c1.7 0 3 1.3 3 3v1" />
         {/* Solid square, bottom-right. */}
         <rect width="8" height="8" x="14" y="14" rx="2" />
     </svg>
