@@ -1497,6 +1497,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const listeners: vscode.Disposable[] = [];
         listeners.push(viewStateDisposable);
 
+        // Relay OS-level window focus changes to the webview. Webview iframes
+        // don't reliably get `window.focus` / `visibilitychange` when the whole
+        // VS Code app gains/loses OS focus, so the audio recorder can't refresh
+        // mic availability on its own. `onDidChangeWindowState` is the reliable
+        // host-side signal; forward it so the recorder re-checks permissions
+        // after the user returns from OS settings.
+        listeners.push(
+            vscode.window.onDidChangeWindowState((state) => {
+                this.postMessageToWebview(webviewPanel, {
+                    type: "windowFocusChanged",
+                    focused: state.focused,
+                });
+            })
+        );
+
         listeners.push(
             document.onDidChangeForVsCodeAndWebview((e) => {
                 debug("Document changed for VS Code and webview");

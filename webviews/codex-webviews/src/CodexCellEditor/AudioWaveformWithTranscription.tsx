@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { CustomWaveformCanvas } from "./CustomWaveformCanvas.tsx";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { MessageCircle, Copy, Loader2, Trash2, History, Mic } from "lucide-react";
+import { MessageCircle, Copy, Loader2, Trash2, History, Mic, MicOff } from "lucide-react";
 import type { ValidationStatusIconProps } from "./AudioValidationStatusIcon.tsx";
 import { AudioValidationBadge } from "./AudioValidationBadge.tsx";
 import type { AudioValidationPopoverProps } from "./AudioValidationBadge.tsx";
@@ -31,6 +31,12 @@ interface AudioWaveformWithTranscriptionProps {
     targetDuration?: number | null; // Target duration (in seconds) derived from cell timestamps.
     /** Total number of audio recordings for the cell (including soft-deleted). When > 0, a count badge is rendered on the History button. */
     historyCount?: number;
+    /** Mic unavailable (no device OR permission denied). When true, the Re-record button warns about it. */
+    micUnavailable?: boolean;
+    /** No input device detected. */
+    noMicDetected?: boolean;
+    /** Mic permission denied by the OS/browser. */
+    micPermissionDenied?: boolean;
 }
 
 const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionProps> = ({
@@ -52,6 +58,9 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     targetDuration,
     author,
     historyCount,
+    micUnavailable = false,
+    noMicDetected = false,
+    micPermissionDenied = false,
 }) => {
     const [audioSrc, setAudioSrc] = useState<string>("");
     const [audioDuration, setAudioDuration] = useState<number | null>(null);
@@ -111,6 +120,15 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
             cancelled = true;
         };
     }, [audioBlob, targetDuration]);
+
+    // The Re-record button stays clickable even when the mic is unavailable so
+    // the user can still upload an audio file from the recorder view; we only
+    // change its copy/affordance to surface the problem up front.
+    const micRecordLabel = micPermissionDenied
+        ? "Microphone access denied"
+        : noMicDetected
+          ? "No microphone detected"
+          : "Re-record";
 
     return (
         <div className="bg-[var(--vscode-editor-background)] flex flex-col gap-y-3 p-3 sm:p-4 rounded-md shadow w-full relative">
@@ -277,12 +295,24 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                 <Button
                     variant="outline"
                     size="sm"
-                    className="h-8 px-2 text-xs"
+                    className={
+                        micUnavailable
+                            ? "h-8 px-2 text-xs border-red-500 text-red-600 hover:text-red-600 dark:text-red-400"
+                            : "h-8 px-2 text-xs"
+                    }
                     onClick={() => onShowRecorder?.()}
-                    title="Re-record / Upload New"
+                    title={
+                        micUnavailable
+                            ? `${micRecordLabel} — click to upload an audio file instead`
+                            : "Re-record / Upload New"
+                    }
                 >
-                    <Mic className="h-3 w-3" />
-                    <span className="ml-1">Re-record</span>
+                    {micUnavailable ? (
+                        <MicOff className="h-3 w-3" />
+                    ) : (
+                        <Mic className="h-3 w-3" />
+                    )}
+                    <span className="ml-1">{micRecordLabel}</span>
                 </Button>
             </div>
         </div>

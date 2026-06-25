@@ -288,6 +288,7 @@ export type MessagesFromStartupFlowProvider =
     | { command: "project.renamingInProgress"; projectPath: string; renaming: boolean; }
     | { command: "project.zippingInProgress"; projectPath: string; zipType: "full" | "mini"; zipping: boolean; }
     | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; }
+    | { command: "project.deletingInProgress"; projectPath: string; deleting: boolean; stage?: "verifying" | "deleting"; }
     | {
         command: "project.swapCloneWarning";
         repoUrl: string;
@@ -2124,6 +2125,17 @@ type EditorReceiveMessages =
             success: boolean;
             error?: string;
         };
+    }
+    | {
+        /**
+         * Forwarded from the extension host's `vscode.window.onDidChangeWindowState`.
+         * Webview iframes don't reliably receive OS-level focus / visibilitychange
+         * events, so the host relays them. The audio recorder uses `focused: true`
+         * to refresh microphone availability (a permission can only change while
+         * the user is away in OS settings).
+         */
+        type: "windowFocusChanged";
+        focused: boolean;
     }
     | {
         type: "providerSendsInitialContent";
