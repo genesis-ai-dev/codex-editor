@@ -1,7 +1,13 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { WebviewHeader } from "../components/WebviewHeader";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
 import { Button } from "../components/ui/button";
 import "../tailwind.css";
@@ -100,14 +106,16 @@ function InterfaceSettingsApp() {
         return () => window.removeEventListener("message", handler);
     }, [vscode]);
 
-    const hasSelectedTextSettings = enableFontSize || enableLineNumbersToggle || enableTextDirection;
+    const hasSelectedTextSettings =
+        enableFontSize || enableLineNumbersToggle || enableTextDirection;
 
     const handleApplyTextDisplay = () => {
         const settings: TextDisplaySettings = {
             fileScope,
             updateBehavior,
             ...(enableFontSize && fontSize !== undefined && { fontSize }),
-            ...(enableLineNumbersToggle && enableLineNumbers !== undefined && { enableLineNumbers }),
+            ...(enableLineNumbersToggle &&
+                enableLineNumbers !== undefined && { enableLineNumbers }),
             ...(enableTextDirection && textDirection !== undefined && { textDirection }),
         };
         vscode.postMessage({ command: "applyTextDisplaySettings", data: settings });
@@ -183,13 +191,8 @@ function InterfaceSettingsApp() {
         if (checked) {
             // Default the input to roughly twice the current page size, which
             // is the most common "let small uneven pages stay intact" setup.
-            const seed = Math.max(
-                cellsPerPage * 2,
-                MAX_SUBDIVISION_LENGTH_MIN
-            );
-            sendMaxSubdivisionLength(
-                Math.min(seed, MAX_SUBDIVISION_LENGTH_MAX)
-            );
+            const seed = Math.max(cellsPerPage * 2, MAX_SUBDIVISION_LENGTH_MIN);
+            sendMaxSubdivisionLength(Math.min(seed, MAX_SUBDIVISION_LENGTH_MAX));
         } else {
             sendMaxSubdivisionLength(0);
         }
@@ -269,17 +272,13 @@ function InterfaceSettingsApp() {
                         <div className="flex items-center justify-between">
                             <div>
                                 <div className="font-medium">Font Size</div>
-                                <div className="text-sm opacity-70">
-                                    Text size in pixels
-                                </div>
+                                <div className="text-sm opacity-70">Text size in pixels</div>
                             </div>
                             <div className="flex items-center gap-3">
                                 {enableFontSize && (
                                     <Select
                                         value={fontSize?.toString()}
-                                        onValueChange={(value) =>
-                                            setFontSize(parseInt(value, 10))
-                                        }
+                                        onValueChange={(value) => setFontSize(parseInt(value, 10))}
                                     >
                                         <SelectTrigger className="w-32">
                                             <SelectValue />
@@ -307,9 +306,7 @@ function InterfaceSettingsApp() {
                         <div className="flex items-center justify-between">
                             <div>
                                 <div className="font-medium">Line Numbers</div>
-                                <div className="text-sm opacity-70">
-                                    Show or hide line numbers
-                                </div>
+                                <div className="text-sm opacity-70">Show or hide line numbers</div>
                             </div>
                             <div className="flex items-center gap-3">
                                 {enableLineNumbersToggle && (
@@ -355,12 +352,8 @@ function InterfaceSettingsApp() {
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="ltr">
-                                                LTR &rarr;
-                                            </SelectItem>
-                                            <SelectItem value="rtl">
-                                                &larr; RTL
-                                            </SelectItem>
+                                            <SelectItem value="ltr">LTR &rarr;</SelectItem>
+                                            <SelectItem value="rtl">&larr; RTL</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 )}
@@ -401,7 +394,6 @@ function InterfaceSettingsApp() {
                                 <div className="font-medium">Cells per page</div>
                                 <div className="text-sm opacity-70">
                                     Default page size for milestones without custom breaks
-                                    .
                                 </div>
                             </div>
                             <input
@@ -446,11 +438,10 @@ function InterfaceSettingsApp() {
                         {/* Maximum subdivision length */}
                         <div className="flex items-center justify-between gap-4">
                             <div className="min-w-0">
-                                <div className="font-medium">
-                                    Maximum subdivision length
-                                </div>
+                                <div className="font-medium">Maximum subdivision length</div>
                                 <div className="text-sm opacity-70">
-                                    Pagination allows ranges between user added subdivisions up to this length
+                                    Pagination allows ranges between user added subdivisions up to
+                                    the set length
                                 </div>
                             </div>
                             <div className="flex items-center gap-3">
@@ -487,13 +478,11 @@ function InterfaceSettingsApp() {
                         {/* Milestone placement editing */}
                         <div className="flex items-center justify-between gap-4">
                             <div className="min-w-0">
-                                <div className="font-medium">
-                                    Edit milestone placement
-                                </div>
+                                <div className="font-medium">Edit milestone placement</div>
                                 <div className="text-sm opacity-70">
                                     Show controls in the milestone accordion to add, remove,
-                                    promote, or demote milestones on source files. Edits mirror
-                                    to the paired target.
+                                    promote, or demote milestones on source files. Edits mirror to
+                                    the paired target. Names are source- or target-specific.
                                 </div>
                             </div>
                             <Switch
@@ -513,9 +502,7 @@ function InterfaceSettingsApp() {
 
                     <div className="flex items-center justify-between">
                         <div>
-                            <div className="font-medium">
-                                Highlight Search Results in Panel
-                            </div>
+                            <div className="font-medium">Highlight Search Results in Panel</div>
                             <div className="text-sm opacity-70">
                                 Highlight matching text in search results within the parallel
                                 passages panel

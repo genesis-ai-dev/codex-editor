@@ -1051,12 +1051,14 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             key: string,
             source: "auto" | "custom",
             startCellId?: string,
-            name?: string
+            name?: string,
+            startIndex: number = 0,
+            endIndex: number = 5
         ): Subsection => ({
             id,
             label,
-            startIndex: 0,
-            endIndex: 5,
+            startIndex,
+            endIndex,
             key,
             name,
             startCellId,
@@ -1104,10 +1106,13 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             cellsPerPage: 50,
         });
 
+        // startIndex is critical: the implicit first subdivision lives at index
+        // 0 and must never expose a delete button (even though the resolver
+        // marks it `source: "custom"` once any custom break exists).
         const mockSubsectionsFromIndex = () => [
-            makeSubsection("s-0", "1-5", "__start__", "auto", "v1"),
-            makeSubsection("s-1", "6-15", "v6", "custom", "v6"),
-            makeSubsection("s-2", "16-30", "v16", "custom", "v16", "Final"),
+            makeSubsection("s-0", "1-5", "__start__", "auto", "v1", undefined, 0, 5),
+            makeSubsection("s-1", "6-15", "v6", "custom", "v6", undefined, 5, 15),
+            makeSubsection("s-2", "16-30", "v16", "custom", "v16", "Final", 15, 30),
         ];
 
         it("shows remove button only for custom milestone subdivisions in source", async () => {
@@ -1119,6 +1124,27 @@ describe("MilestoneAccordion - Milestone Editing", () => {
 
             const removeButtons = await screen.findAllByLabelText("Remove Subdivision Break");
             // Only the two "custom" subsections expose the delete control.
+            expect(removeButtons).toHaveLength(2);
+        });
+
+        it("hides the remove button for the implicit first subdivision even when the resolver marks it 'custom'", async () => {
+            // The resolver re-labels the implicit first stretch as
+            // `source: "custom"` the moment any user-defined break exists
+            // (see `milestoneSubdivisions.test.ts`). The button visibility
+            // check must therefore also gate on `startIndex > 0`, not on
+            // `source` alone — otherwise reopening the accordion after
+            // adding a break shows a stray trash on row 0.
+            renderMilestoneAccordion({
+                isSourceText: true,
+                milestoneIndex: createIndexWithSubdivisions(),
+                getSubsectionsForMilestone: vi.fn(() => [
+                    makeSubsection("s-0", "1-5", "__start__", "custom", "v1", undefined, 0, 5),
+                    makeSubsection("s-1", "6-15", "v6", "custom", "v6", undefined, 5, 15),
+                    makeSubsection("s-2", "16-30", "v16", "custom", "v16", "Final", 15, 30),
+                ]),
+            });
+
+            const removeButtons = await screen.findAllByLabelText("Remove Subdivision Break");
             expect(removeButtons).toHaveLength(2);
         });
 

@@ -18,14 +18,52 @@ import {
     Undo2,
     Plus,
     Trash2,
-    ArrowUpFromLine,
-    ArrowDownToLine,
+    Replace,
 } from "lucide-react";
 import type { Subsection, ProgressPercentages } from "../../lib/types";
 import type { MilestoneIndex, MilestoneInfo } from "../../../../../types";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 const MAX_VALIDATION_LEVELS = 15;
+
+/**
+ * Demote icon. Promotion reuses lucide's stock `Replace` glyph (dashed
+ * square top-right, solid square bottom-left, arrow hooking down into the
+ * solid square). Demotion is its visual inverse, but not via any single
+ * transform: the squares are the horizontal mirror of `Replace` (dashed
+ * top-LEFT, solid bottom-RIGHT) while the arrow is redrawn to point up-and-
+ * left — matching the actual on-screen motion (a milestone folding up into
+ * the previous one). A plain mirror would leave the arrow pointing
+ * down-right, so the arrow is authored by hand here. SVG attributes mirror
+ * lucide's so `className` sizing (`h-4 w-4`) and `currentColor` still apply.
+ */
+const DemoteMilestoneIcon = ({ className }: { className?: string; }) => (
+    <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+        aria-hidden="true"
+    >
+        {/* Dashed square, top-left (horizontal mirror of Replace's corners). */}
+        <path d="M10 4c0-1.1-.9-2-2-2" />
+        <path d="M4 2c-1.1 0-2 .9-2 2" />
+        <path d="M2 8c0 1.1.9 2 2 2" />
+        <path d="M8 10c1.1 0 2-.9 2-2" />
+        {/* Arrow curving up-and-left from the solid square to the dashed one,
+            arriving along the diagonal so the arrowhead reads cleanly. */}
+        <path d="M16 14C14 14 11 11 9 9" />
+        <path d="M9 13 9 9 13 9" />
+        {/* Solid square, bottom-right. */}
+        <rect width="8" height="8" x="14" y="14" rx="2" />
+    </svg>
+);
 
 interface MilestoneAccordionProps {
     isOpen: boolean;
@@ -235,6 +273,9 @@ export function MilestoneAccordion({
         e.stopPropagation();
         if (!isSourceText) return; // Defensive: control should only render on source.
         if (!subsection.startCellId || subsection.source !== "custom") return;
+        // Implicit first subdivision shares its anchor with the milestone start,
+        // not an actual placement, so refuse to "delete" it.
+        if (subsection.startIndex === 0) return;
         const milestone = milestoneIndex?.milestones[milestoneIdx];
         const placements = getCurrentPlacements(milestone).filter(
             (p) => p.startCellId !== subsection.startCellId
@@ -1283,7 +1324,7 @@ export function MilestoneAccordion({
                                                                         <VSCodeButton
                                                                             aria-label="Demote Milestone to Subdivision"
                                                                             appearance="icon"
-                                                                            title="Demote to subdivision break of the previous milestone"
+                                                                            title="Convert this milestone into a subdivision break of the previous milestone"
                                                                             onClick={(e) =>
                                                                                 handleDemoteMilestoneClick(
                                                                                     e,
@@ -1291,7 +1332,7 @@ export function MilestoneAccordion({
                                                                                 )
                                                                             }
                                                                         >
-                                                                            <ArrowDownToLine className="h-4 w-4" />
+                                                                            <DemoteMilestoneIcon className="h-4 w-4" />
                                                                         </VSCodeButton>
                                                                         <VSCodeButton
                                                                             aria-label={
@@ -1532,7 +1573,7 @@ export function MilestoneAccordion({
                                                                                 <VSCodeButton
                                                                                     aria-label="Promote Subdivision to Milestone"
                                                                                     appearance="icon"
-                                                                                    title="Promote this subdivision break to a full milestone"
+                                                                                    title="Convert this subdivision break into a full milestone"
                                                                                     onClick={(e) =>
                                                                                         handlePromoteSubdivision(
                                                                                             e,
@@ -1541,14 +1582,16 @@ export function MilestoneAccordion({
                                                                                         )
                                                                                     }
                                                                                 >
-                                                                                    <ArrowUpFromLine className="h-4 w-4" />
+                                                                                    <Replace className="h-4 w-4" />
                                                                                 </VSCodeButton>
                                                                             )}
                                                                         {isSettingsMode &&
                                                                             (isSourceText &&
                                                                             subsection.source ===
                                                                                 "custom" &&
-                                                                            subsection.startCellId ? (
+                                                                            subsection.startCellId &&
+                                                                            subsection.startIndex >
+                                                                                0 ? (
                                                                                 <VSCodeButton
                                                                                     aria-label="Remove Subdivision Break"
                                                                                     appearance="icon"
@@ -1741,7 +1784,7 @@ export function MilestoneAccordion({
                                                                             className="flex items-center gap-1 text-xs pl-0 pr-2 py-1 rounded text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-foreground)] hover:bg-secondary transition-colors"
                                                                         >
                                                                             <Plus className="h-3 w-3" />
-                                                                            Add break…
+                                                                            Add Break
                                                                         </button>
                                                                     )
                                                                 )}
@@ -1861,7 +1904,7 @@ export function MilestoneAccordion({
                                                                             className="flex items-center gap-1 text-xs pl-0 pr-2 py-1 rounded text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-foreground)] hover:bg-secondary transition-colors"
                                                                         >
                                                                             <Plus className="h-3 w-3" />
-                                                                            Add milestone…
+                                                                            Add Milestone
                                                                         </button>
                                                                     )
                                                                 )}
