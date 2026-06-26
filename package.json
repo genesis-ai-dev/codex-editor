@@ -472,6 +472,11 @@
                 "category": "Codex Maintenance"
             },
             {
+                "command": "codex-editor-extension.mergeDuplicateCells",
+                "title": "Codex: Merge Duplicate Cells",
+                "category": "Codex Maintenance"
+            },
+            {
                 "command": "codex-editor-extension.runCommentsMigration",
                 "title": "Codex: Migrate Legacy Comments",
                 "category": "Codex Maintenance"
