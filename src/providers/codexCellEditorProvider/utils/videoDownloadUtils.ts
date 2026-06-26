@@ -17,15 +17,26 @@ const FILES_SEG = "attachments/files/";
  * opens its player mid-operation reflect the loading state instead of briefly
  * showing the "needs download" placeholder. Keyed per workspace + video ref.
  */
-const inFlightVideoOps = new Set<string>();
+const inFlightVideoOps = new Map<string, AbortController>();
 
 /** Stable key for an in-flight video operation, shared by card + editor. */
 export function videoOperationKey(workspaceUri: vscode.Uri, videoUrl: string): string {
     return `${workspaceUri.fsPath}::${videoUrl}`;
 }
 
-export function beginVideoOperation(workspaceUri: vscode.Uri, videoUrl: string): void {
-    inFlightVideoOps.add(videoOperationKey(workspaceUri, videoUrl));
+/**
+ * Mark a chapter-video fetch as in flight and return its AbortController. The
+ * controller's signal is threaded into the LFS download so the op can be
+ * cancelled when the video is deleted/replaced mid-download (issue #1038),
+ * preventing a finishing download from resurrecting the deleted file. Any prior
+ * controller for the same key is aborted first so it can't leak.
+ */
+export function beginVideoOperation(workspaceUri: vscode.Uri, videoUrl: string): AbortController {
+    const key = videoOperationKey(workspaceUri, videoUrl);
+    inFlightVideoOps.get(key)?.abort();
+    const controller = new AbortController();
+    inFlightVideoOps.set(key, controller);
+    return controller;
 }
 
 export function endVideoOperation(workspaceUri: vscode.Uri, videoUrl: string): void {
@@ -34,6 +45,27 @@ export function endVideoOperation(workspaceUri: vscode.Uri, videoUrl: string): v
 
 export function isVideoOperationInFlight(workspaceUri: vscode.Uri, videoUrl: string): boolean {
     return inFlightVideoOps.has(videoOperationKey(workspaceUri, videoUrl));
+}
+
+/**
+ * Abort an in-flight chapter-video download for this video, if any. Called when
+ * the video is deleted or replaced so the in-progress fetch stops and its bytes
+ * are never written back over the deletion (issue #1038). Returns true if an op
+ * was aborted.
+ */
+export function abortVideoOperation(
+    workspaceUri: vscode.Uri,
+    videoUrl: string | undefined | null
+): boolean {
+    if (!videoUrl) {
+        return false;
+    }
+    const controller = inFlightVideoOps.get(videoOperationKey(workspaceUri, videoUrl));
+    if (controller && !controller.signal.aborted) {
+        controller.abort();
+        return true;
+    }
+    return false;
 }
 
 /** Tail of a local video reference relative to `attachments/files/`. */
@@ -146,14 +178,18 @@ async function resolvePointer(paths: VideoPaths): Promise<LFSPointer | null> {
 /** Download + verify the LFS object bytes against the pointer's expected size. */
 async function fetchVerifiedBytes(
     workspaceUri: vscode.Uri,
-    pointer: LFSPointer
+    pointer: LFSPointer,
+    signal?: AbortSignal
 ): Promise<{ bytes: Uint8Array } | { error: string }> {
+    if (signal?.aborted) {
+        return { error: "Download cancelled." };
+    }
     const authApi = getAuthApi();
     if (!authApi?.downloadLFSFile) {
         return { error: "Cannot download: the Frontier Authentication extension is unavailable." };
     }
     try {
-        const buffer = await authApi.downloadLFSFile(workspaceUri.fsPath, pointer.oid, pointer.size);
+        const buffer = await authApi.downloadLFSFile(workspaceUri.fsPath, pointer.oid, pointer.size, signal);
         const byteLength = buffer?.byteLength ?? 0;
         if (byteLength === 0) {
             return { error: "Download returned no data." };
@@ -179,7 +215,8 @@ async function fetchVerifiedBytes(
 export async function downloadVideoToProject(
     workspaceUri: vscode.Uri,
     videoUrl: string | undefined | null,
-    extensionContext?: vscode.ExtensionContext
+    extensionContext?: vscode.ExtensionContext,
+    signal?: AbortSignal
 ): Promise<DownloadVideoResult> {
     if (!videoUrl || isHttpVideoUrl(videoUrl)) {
         return { ok: false, error: "This is not a downloadable local video reference." };
@@ -228,11 +265,18 @@ export async function downloadVideoToProject(
     }
 
     if (!bytes) {
-        const fetched = await fetchVerifiedBytes(workspaceUri, pointer);
+        const fetched = await fetchVerifiedBytes(workspaceUri, pointer, signal);
         if ("error" in fetched) {
             return { ok: false, error: fetched.error };
         }
         bytes = fetched.bytes;
+    }
+
+    // The video may have been deleted/replaced while the download was running.
+    // Never write the bytes back in that case, or we'd resurrect the deleted
+    // file (issue #1038).
+    if (signal?.aborted) {
+        return { ok: false, error: "Download cancelled." };
     }
 
     await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(paths.filesUri, ".."));
@@ -281,7 +325,8 @@ export async function downloadVideoToProject(
 export async function downloadVideoToSessionCache(
     workspaceUri: vscode.Uri,
     videoUrl: string | undefined | null,
-    extensionContext: vscode.ExtensionContext
+    extensionContext: vscode.ExtensionContext,
+    signal?: AbortSignal
 ): Promise<DownloadVideoResult> {
     if (!videoUrl || isHttpVideoUrl(videoUrl)) {
         return { ok: false, error: "This is not a downloadable local video reference." };
@@ -302,9 +347,13 @@ export async function downloadVideoToSessionCache(
         return { ok: true, alreadyPresent: true };
     }
 
-    const fetched = await fetchVerifiedBytes(workspaceUri, pointer);
+    const fetched = await fetchVerifiedBytes(workspaceUri, pointer, signal);
     if ("error" in fetched) {
         return { ok: false, error: fetched.error };
+    }
+    // Cancelled mid-download (video deleted/replaced) — don't populate the cache.
+    if (signal?.aborted) {
+        return { ok: false, error: "Download cancelled." };
     }
     await writeCachedVideo(extensionContext, pointer.oid, paths.ext, fetched.bytes);
     return { ok: true };
