@@ -33,6 +33,35 @@ interface MetadataValidationResult {
     errors: string[];
 }
 
+/**
+ * File extensions that may legitimately appear at the tail of a fileDisplayName
+ * (e.g. when the display name was originally derived from a source filename).
+ * These are stripped on load so the UI shows a clean name. Anything else after
+ * a `.` is treated as part of the user's chosen name and preserved as-is.
+ */
+const KNOWN_DISPLAY_NAME_EXTENSIONS: readonly string[] = [
+    ".codex",
+    ".source",
+    ".scripture",
+    ".bible",
+    ".usfm",
+    ".sfm",
+    ".vtt",
+    ".srt",
+    ".mp4",
+    ".mp3",
+    ".wav",
+    ".m4a",
+    ".ogg",
+    ".webm",
+    ".txt",
+    ".md",
+    ".json",
+    ".csv",
+    ".tsv",
+    ".pdf",
+];
+
 export function getNotebookMetadataManager(): NotebookMetadataManager {
     return NotebookMetadataManager.getManager();
 }
@@ -577,10 +606,16 @@ export class NotebookMetadataManager {
     }
 
     /**
-     * Strips file extensions from a display name if detected.
-     * Common extensions include: .vtt, .mp4, .mp3, .wav, .srt, .codex, .source, etc.
+     * Strips a known file extension from the end of a display name.
+     *
+     * Only the extensions in {@link KNOWN_DISPLAY_NAME_EXTENSIONS} are stripped.
+     * Using `path.extname` here would treat any text after the last `.` as an
+     * extension (e.g. `"1. New Items"` → strip `". New Items"` → `"1"`), which
+     * silently corrupts user-edited book names on every metadata reload after
+     * sync. See issue #1013.
+     *
      * @param displayName - The display name to clean
-     * @returns The display name without file extension
+     * @returns The display name without a known file extension
      */
     private stripFileExtensionFromDisplayName(displayName: string): string {
         const trimmed = displayName.trim();
@@ -588,11 +623,11 @@ export class NotebookMetadataManager {
             return trimmed;
         }
 
-        // Check if the display name has a file extension
-        const ext = path.extname(trimmed);
-        if (ext && ext.length > 0) {
-            // Strip the extension using path.basename
-            return path.basename(trimmed, ext);
+        const lower = trimmed.toLowerCase();
+        for (const ext of KNOWN_DISPLAY_NAME_EXTENSIONS) {
+            if (lower.endsWith(ext) && trimmed.length > ext.length) {
+                return trimmed.slice(0, -ext.length);
+            }
         }
 
         return trimmed;

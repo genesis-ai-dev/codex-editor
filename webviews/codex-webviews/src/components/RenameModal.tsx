@@ -19,6 +19,12 @@ interface RenameModalProps {
     placeholder?: string;
     confirmButtonLabel?: string;
     disabled?: boolean;
+    /**
+     * Optional inline validation. Returning a non-null string will display the
+     * message under the input and disable the confirm button. The component
+     * still respects `disabled` for non-validation reasons (e.g. empty input).
+     */
+    validate?: (value: string) => string | null;
     onClose: () => void;
     onConfirm: () => void;
     onValueChange: (value: string) => void;
@@ -33,10 +39,14 @@ export const RenameModal: React.FC<RenameModalProps> = ({
     placeholder,
     confirmButtonLabel = "Save",
     disabled = false,
+    validate,
     onClose,
     onConfirm,
     onValueChange,
 }) => {
+    const validationMessage = validate ? validate(value) : null;
+    const isInvalid = validationMessage !== null;
+    const isConfirmDisabled = disabled || isInvalid;
     const inputRef = useRef<HTMLInputElement>(null);
 
     // Focus input when modal opens
@@ -53,7 +63,7 @@ export const RenameModal: React.FC<RenameModalProps> = ({
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === "Enter") {
             e.preventDefault();
-            if (!disabled) {
+            if (!isConfirmDisabled) {
                 onConfirm();
             }
         } else if (e.key === "Escape") {
@@ -104,22 +114,40 @@ export const RenameModal: React.FC<RenameModalProps> = ({
                     onChange={(e) => onValueChange(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder={placeholder}
-                    className="w-full mb-5 bg-vscode-input-background placeholder:text-gray-500 text-vscode-input-foreground border-vscode-input-border"
+                    aria-invalid={isInvalid}
+                    aria-describedby={isInvalid ? "rename-modal-error" : undefined}
+                    className="w-full bg-vscode-input-background placeholder:text-gray-500 text-vscode-input-foreground border-vscode-input-border"
                     style={{
                         padding: "8px",
                         fontSize: "14px",
                         backgroundColor: "var(--vscode-input-background)",
                         color: "var(--vscode-input-foreground)",
-                        borderColor: "var(--vscode-input-border)",
+                        borderColor: isInvalid
+                            ? "var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground))"
+                            : "var(--vscode-input-border)",
                         borderRadius: "6px",
-                        marginBottom: "20px",
+                        marginBottom: isInvalid ? "8px" : "20px",
                     }}
                 />
+                {isInvalid && (
+                    <div
+                        id="rename-modal-error"
+                        role="alert"
+                        style={{
+                            color: "var(--vscode-inputValidation-errorForeground, var(--vscode-errorForeground))",
+                            fontSize: "12px",
+                            lineHeight: "1.4",
+                            marginBottom: "16px",
+                        }}
+                    >
+                        {validationMessage}
+                    </div>
+                )}
                 <DialogFooter className="flex gap-3 justify-end">
                     <Button variant="secondary" onClick={onClose}>
                         Cancel
                     </Button>
-                    <Button variant="default" onClick={onConfirm} disabled={disabled}>
+                    <Button variant="default" onClick={onConfirm} disabled={isConfirmDisabled}>
                         {confirmButtonLabel}
                     </Button>
                 </DialogFooter>
