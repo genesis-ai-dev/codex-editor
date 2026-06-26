@@ -26,6 +26,11 @@ import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 const MAX_VALIDATION_LEVELS = 15;
 
+/** Inline hint when remove-milestone is armed (tooltip keeps the longer explanation). */
+const REMOVE_MILESTONE_CONFIRM_INLINE = "Click again to confirm";
+const REMOVE_MILESTONE_CONFIRM_TOOLTIP =
+    "Click again within 3s to confirm — content merges into the previous milestone";
+
 /**
  * Demote icon. Promotion reuses lucide's stock `Replace` glyph (dashed
  * square top-right, solid square bottom-left, arrow hooking down into the
@@ -1279,7 +1284,8 @@ export function MilestoneAccordion({
                                                             {displayValue}
                                                         </span>
                                                     )}
-                                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                                    <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                                                        <div className="flex items-center gap-2">
                                                         {isEditingThisMilestone ? (
                                                             <>
                                                                 <VSCodeButton
@@ -1348,7 +1354,7 @@ export function MilestoneAccordion({
                                                                             title={
                                                                                 removeConfirmMilestoneIdx ===
                                                                                 milestoneIdx
-                                                                                    ? "Click again within 3s to confirm — content merges into the previous milestone"
+                                                                                    ? REMOVE_MILESTONE_CONFIRM_TOOLTIP
                                                                                     : "Remove this milestone (content merges into the previous milestone)"
                                                                             }
                                                                             onClick={(e) =>
@@ -1415,6 +1421,15 @@ export function MilestoneAccordion({
                                                         >
                                                             <Languages className="h-[14px] w-[14px]" />
                                                         </div>
+                                                        </div>
+                                                        {removeConfirmMilestoneIdx === milestoneIdx && (
+                                                            <span
+                                                                className="text-xs px-2 py-1 rounded transition-colors bg-inputValidation-warningBackground text-inputValidation-warningForeground whitespace-nowrap font-normal"
+                                                                aria-live="polite"
+                                                            >
+                                                                {REMOVE_MILESTONE_CONFIRM_INLINE}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>

@@ -1857,6 +1857,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 (c: any[]) => c[0]?.command === "removeMilestone"
             );
             expect(calls).toHaveLength(0);
+            expect(screen.getByText("Click again to confirm")).toBeInTheDocument();
 
             // Second click commits.
             const armed = screen.getByLabelText("Confirm Remove Milestone");
