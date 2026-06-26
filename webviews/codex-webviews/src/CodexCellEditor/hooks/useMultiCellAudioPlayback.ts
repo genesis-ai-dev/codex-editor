@@ -474,6 +474,25 @@ export function useMultiCellAudioPlayback({
             return;
         }
 
+        // A cell-scoped "Play Video" preview owns playback for a single cell's
+        // range; don't overlay other cells' recorded audio while it runs. Stop
+        // any element that may have already started (e.g. a debounced check that
+        // raced the preview start) so it can't linger past the video stop.
+        if (globalAudioController.isVideoPreviewActive()) {
+            audioElementsRef.current.forEach((data) => {
+                if (!data.audioElement.paused || data.isPlaying) {
+                    try {
+                        data.audioElement.pause();
+                        data.audioElement.currentTime = 0;
+                        data.isPlaying = false;
+                    } catch (error) {
+                        console.error(`Error stopping audio for cell ${data.cellId}:`, error);
+                    }
+                }
+            });
+            return;
+        }
+
         const currentTime = currentVideoTime;
         const tolerance = 0.1; // 100ms tolerance for starting audio
 
@@ -662,6 +681,12 @@ export function useMultiCellAudioPlayback({
                 }
             });
             restoreVideoMuteState();
+            // The video has stopped, so any cell-scoped "Play Video" preview is
+            // over. Clear the suppression flag here (rather than at the preview's
+            // endTime) so it stays set until the video is confirmed stopped —
+            // closing the race where a debounced check could start overlay audio
+            // in the gap between the flag clearing and isVideoPlaying flipping.
+            globalAudioController.setVideoPreviewActive(false);
         }
     }, [isVideoPlaying, restoreVideoMuteState]);
 

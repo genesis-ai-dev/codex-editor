@@ -14,6 +14,12 @@ interface VideoPlayerProps {
     onPause?: () => void;
     autoPlay: boolean;
     playerHeight: number;
+    /**
+     * Ask the host to (re)resolve a playable URL. Used to recover from an
+     * expired presigned stream URL: on a media error we request a fresh one
+     * before surfacing an error to the user.
+     */
+    onRequestStreamUrl?: () => void;
 }
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -26,6 +32,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     onPause,
     autoPlay,
     playerHeight,
+    onRequestStreamUrl,
 }) => {
     const { subtitleUrl } = useSubtitleData(translationUnitsForSection);
     const [error, setError] = useState<string | null>(null);
@@ -38,6 +45,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     const handleError = (error: any) => {
         console.error("Video player error:", error);
+
+        // A streamed (presigned) URL may have expired mid-watch, and an invalid
+        // user-entered URL simply won't load. Defer recovery to the parent via
+        // onRequestStreamUrl: it owns a guard that survives the player's
+        // unmount/remount cycle, so it re-resolves once and then surfaces an
+        // error instead of looping. (A guard here would reset on every remount.)
+        // Only delegate genuine remote URLs — local/webview-resource and YouTube
+        // errors are shown inline below and are not retried, so they can't loop.
+        const isRemoteStreamUrl =
+            /^https?:\/\//i.test(videoUrl) &&
+            !/vscode-resource|vscode-cdn|vscode-webview/i.test(videoUrl) &&
+            !isYouTubeUrl;
+        if (onRequestStreamUrl && isRemoteStreamUrl) {
+            onRequestStreamUrl();
+            return;
+        }
+
         // ReactPlayer onError receives an error object or event
         if (error?.target?.error) {
             const videoError = error.target.error;
