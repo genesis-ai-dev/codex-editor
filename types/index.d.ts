@@ -288,6 +288,7 @@ export type MessagesFromStartupFlowProvider =
     | { command: "project.renamingInProgress"; projectPath: string; renaming: boolean; }
     | { command: "project.zippingInProgress"; projectPath: string; zipType: "full" | "mini"; zipping: boolean; }
     | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; }
+    | { command: "project.deletingInProgress"; projectPath: string; deleting: boolean; stage?: "verifying" | "deleting"; }
     | {
         command: "project.swapCloneWarning";
         repoUrl: string;
@@ -927,7 +928,6 @@ type FileImporterType =
     | "ebibleCorpus"
     | "macula"
     | "biblica"
-    | "reach4life"
     | "obs";
 
 /**
@@ -1949,6 +1949,17 @@ type EditorReceiveMessages =
         };
     }
     | {
+        /**
+         * Forwarded from the extension host's `vscode.window.onDidChangeWindowState`.
+         * Webview iframes don't reliably receive OS-level focus / visibilitychange
+         * events, so the host relays them. The audio recorder uses `focused: true`
+         * to refresh microphone availability (a permission can only change while
+         * the user is away in OS settings).
+         */
+        type: "windowFocusChanged";
+        focused: boolean;
+    }
+    | {
         type: "providerSendsInitialContent";
         content: QuillCellContent[];
         isSourceText: boolean;
@@ -2528,6 +2539,7 @@ export type ExportMissingFileReason =
     | "no-text-recorded"
     // Tier 2 — soft warning
     | "no-audio-selected"
+    | "selected-audio-missing-alternatives"
     | "audio-file-missing"
     | "pointer-corrupt"
     | "source-not-found"
@@ -2552,10 +2564,15 @@ export interface ExportMissingFilePayload {
     file: string;
     reason: ExportMissingFileReason;
     detail?: string;
+    /** Cell + codex path the entry came from, when known. Enables a deep-link. */
+    cellId?: string;
+    codexPath?: string;
 }
 
 export interface ExportSummaryPayload {
     exportPath: string;
+    /** Folder audio landed in (an `audio/` subfolder in multi-format). Used for targeted retry. */
+    audioExportPath?: string;
     filesExported?: number;
     audioCopied?: number;
     audioMissing?: number;
@@ -2569,9 +2586,10 @@ export type MessagesToProjectExportView =
     | { command: "htmlStructureCheckResult"; mismatches: { totalMismatches: number; fileDetails: { file: string; count: number; }[]; }; }
     | { command: "exportStarted"; }
     | { command: "exportProgress"; event: ExportProgressEventPayload; }
-    | { command: "exportFileMissing"; file: string; reason: ExportMissingFileReason; detail?: string; }
+    | { command: "exportFileMissing"; file: string; reason: ExportMissingFileReason; detail?: string; cellId?: string; codexPath?: string; }
     | { command: "exportCompleted"; summary: ExportSummaryPayload; }
-    | { command: "exportError"; message: string; };
+    | { command: "exportError"; message: string; }
+    | { command: "retryCompleted"; summary?: ExportSummaryPayload; error?: string; cancelled?: boolean; };
 
 export type MessagesFromProjectExportView =
     | { command: "selectExportPath"; }
@@ -2581,4 +2599,5 @@ export type MessagesFromProjectExportView =
     | { command: "openExportFolder"; path: string; }
     | { command: "closeExportView"; }
     | { command: "openCellInEditor"; cellId: string; filePath: string; }
+    | { command: "retryExport"; audioOutputPath: string; targets: { cellId: string; codexPath: string; }[]; options?: Record<string, unknown>; }
     | { command: "cancel"; };

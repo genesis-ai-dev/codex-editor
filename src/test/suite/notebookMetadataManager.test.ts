@@ -678,6 +678,76 @@ suite("NotebookMetadataManager Test Suite", function () {
             );
         });
 
+        test("should preserve fileDisplayName containing periods (issue #1013)", async function () {
+            this.timeout(5000);
+            if (!workspaceFolder) {
+                return;
+            }
+
+            // Regression test: previously, stripFileExtensionFromDisplayName used path.extname()
+            // and treated ". New Items" as a strippable extension on every loadMetadata call,
+            // truncating the user-edited name "1. New Items" to "1" after each sync.
+            const userEditedName = "1. New Items";
+            const codexUri = await createNotebookFile("ACT", false, {
+                fileDisplayName: userEditedName,
+                originalName: "Acts",
+            });
+
+            await manager.initialize();
+            await ensureFileProcessedByLoadMetadata(codexUri);
+
+            // Force a second loadMetadata pass to mimic what happens after a sync
+            // triggers the file watcher (the original bug only manifested after
+            // the cleanup pass ran a second time).
+            await manager.loadMetadata();
+
+            const serializer = new CodexContentSerializer();
+            const content = await vscode.workspace.fs.readFile(codexUri);
+            const notebookData = await serializer.deserializeNotebook(
+                content,
+                new vscode.CancellationTokenSource().token
+            );
+            const metadata = notebookData.metadata as CustomNotebookMetadata;
+
+            assert.strictEqual(
+                metadata.fileDisplayName,
+                userEditedName,
+                "fileDisplayName containing a period should not be truncated"
+            );
+        });
+
+        test("should still strip known file extensions from fileDisplayName", async function () {
+            this.timeout(5000);
+            if (!workspaceFolder) {
+                return;
+            }
+
+            // The cleanup is intentionally narrowed to known extensions, but it
+            // must still kick in for legitimate cases (e.g. an importer accidentally
+            // wrote "Genesis.codex" into fileDisplayName).
+            const codexUri = await createNotebookFile("GE2", false, {
+                fileDisplayName: "Genesis.codex",
+                originalName: "Genesis",
+            });
+
+            await manager.initialize();
+            await ensureFileProcessedByLoadMetadata(codexUri);
+
+            const serializer = new CodexContentSerializer();
+            const content = await vscode.workspace.fs.readFile(codexUri);
+            const notebookData = await serializer.deserializeNotebook(
+                content,
+                new vscode.CancellationTokenSource().token
+            );
+            const metadata = notebookData.metadata as CustomNotebookMetadata;
+
+            assert.strictEqual(
+                metadata.fileDisplayName,
+                "Genesis",
+                "Known file extensions should be stripped from fileDisplayName"
+            );
+        });
+
         test("should update both .codex and .source files for same book", async function () {
             this.timeout(5000);
             if (!workspaceFolder) {

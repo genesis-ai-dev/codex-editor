@@ -7,7 +7,7 @@ import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { WebviewApi } from "vscode-webview";
 import ValidationButton from "./ValidationButton";
 import AudioValidationButton from "./AudioValidationButton";
-import { shouldDisableValidation } from "@sharedUtils";
+import { shouldDisableValidation, formatTimecode } from "@sharedUtils";
 import { Button } from "../components/ui/button";
 import { getTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
 import { CELL_DISPLAY_MODES } from "../lib/types";
@@ -575,13 +575,13 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             {cell.timestamps.startTime !== undefined &&
                             cell.timestamps.endTime !== undefined ? (
                                 <span>
-                                    {formatTime(cell.timestamps.startTime)} →{" "}
-                                    {formatTime(cell.timestamps.endTime)}
+                                    {formatTimecode(cell.timestamps.startTime)} →{" "}
+                                    {formatTimecode(cell.timestamps.endTime)}
                                 </span>
                             ) : cell.timestamps.startTime !== undefined ? (
-                                <span>Start: {formatTime(cell.timestamps.startTime)}</span>
+                                <span>Start: {formatTimecode(cell.timestamps.startTime)}</span>
                             ) : cell.timestamps.endTime !== undefined ? (
-                                <span>End: {formatTime(cell.timestamps.endTime)}</span>
+                                <span>End: {formatTimecode(cell.timestamps.endTime)}</span>
                             ) : null}
                         </div>
                     );
@@ -1200,15 +1200,5 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         );
     }
 );
-
-// Helper function to format time in MM:SS.mmm format
-const formatTime = (timeInSeconds: number): string => {
-    const minutes = Math.floor(timeInSeconds / 60);
-    const seconds = Math.floor(timeInSeconds % 60);
-    const milliseconds = Math.floor((timeInSeconds % 1) * 1000);
-    return `${minutes.toString().padStart(2, "0")}:${seconds
-        .toString()
-        .padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
-};
 
 export default CellContentDisplay;
