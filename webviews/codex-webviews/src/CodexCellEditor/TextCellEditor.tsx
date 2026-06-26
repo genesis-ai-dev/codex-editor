@@ -34,6 +34,7 @@ import {
     getCachedAttachmentAudioDataUrl,
     setCachedAttachmentAudioDataUrl,
 } from "../lib/audioCache";
+import { setAudioDownloading } from "../lib/audioDownloadRegistry";
 import { globalAudioController } from "../lib/audioController";
 import { trimRecordingTail } from "../utils/audioProcessing";
 import { getAudioTabMode, audioRecorderHint, type AudioAvailability } from "./utils/audioViewMode";
@@ -3624,6 +3625,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         if (shouldAutoDownload || isLocal) {
             setAudioFetchPending(true);
             setIsAudioLoading(true);
+            setAudioDownloading(cellMarkers[0], true);
             const messageContent: EditorPostMessages = {
                 command: "requestAudioForCell",
                 content: { cellId: cellMarkers[0] },
@@ -3814,12 +3816,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
                     const autoFlag = (window as any).__autoDownloadAudioOnOpen;
                     const shouldAutoDownload = autoInit ? !!autoFlag : false;
-                    const stateForCell = audioAttachments?.[cellMarkers[0]];
+                    // Use the availability the provider just resolved for the NEWLY
+                    // selected attachment. The cell-level `audioAttachments` React
+                    // state is stale in this closure — it still reflects the
+                    // previously-selected attachment, which can be "available-local"
+                    // even when the one we just picked is only a pointer. Trusting it
+                    // would auto-download the new attachment despite the toggle being
+                    // off.
+                    const stateForCell =
+                        message.content.updatedAvailability ?? audioAttachments?.[cellMarkers[0]];
                     const isLocal = stateForCell === "available-local";
 
                     if (shouldAutoDownload || isLocal) {
                         setIsAudioLoading(true);
                         setAudioFetchPending(true);
+                        setAudioDownloading(cellMarkers[0], true);
                         window.vscodeApi.postMessage({
                             command: "requestAudioForCell",
                             content: { cellId: cellMarkers[0] },
@@ -3987,6 +3998,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             shouldAutoDownload))
                 ) {
                     setIsAudioLoading(true);
+                    setAudioDownloading(cellMarkers[0], true);
                     const messageContent: EditorPostMessages = {
                         command: "requestAudioForCell",
                         content: { cellId: cellMarkers[0] },
@@ -6031,21 +6043,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 </Button>
                                                             ) : (
                                                                 <Button
-                                                                    onClick={() => {
-                                                                        setIsAudioLoading(true);
-                                                                        setAudioFetchPending(true);
-                                                                        const messageContent: EditorPostMessages =
-                                                                            {
-                                                                                command:
-                                                                                    "requestAudioForCell",
-                                                                                content: {
-                                                                                    cellId: cellMarkers[0],
-                                                                                },
-                                                                            };
-                                                                        window.vscodeApi.postMessage(
-                                                                            messageContent
-                                                                        );
-                                                                    }}
+                                                                onClick={() => {
+                                                                    setIsAudioLoading(true);
+                                                                    setAudioFetchPending(true);
+                                                                    setAudioDownloading(
+                                                                        cellMarkers[0],
+                                                                        true
+                                                                    );
+                                                                    const messageContent: EditorPostMessages =
+                                                                        {
+                                                                            command:
+                                                                                "requestAudioForCell",
+                                                                            content: {
+                                                                                cellId: cellMarkers[0],
+                                                                            },
+                                                                        };
+                                                                    window.vscodeApi.postMessage(
+                                                                        messageContent
+                                                                    );
+                                                                }}
                                                                     className="h-9 px-3 text-sm"
                                                                 >
                                                                     <i className="codicon codicon-cloud-download mr-1" />
