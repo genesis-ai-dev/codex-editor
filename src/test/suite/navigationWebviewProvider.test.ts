@@ -445,6 +445,95 @@ suite("NavigationWebviewProvider Test Suite", () => {
         }
     });
 
+    test("updateBookName rejects names containing periods (issue #1013)", async () => {
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        const codexUri = await createCodexFileWithMetadata("GEN", {
+            fileDisplayName: "Genesis",
+        });
+
+        const loadBibleBookMap = (provider as any).loadBibleBookMap.bind(provider);
+        loadBibleBookMap();
+
+        const showErrorMessageStub = sinon.stub(vscode.window, "showErrorMessage");
+        const showInformationMessageStub = sinon.stub(vscode.window, "showInformationMessage");
+        const withProgressStub = sinon.stub(vscode.window, "withProgress").callsFake(async (options, callback) => {
+            return callback({ report: () => { } } as any, new vscode.CancellationTokenSource().token);
+        });
+
+        try {
+            const updateBookName = (provider as any).updateBookName.bind(provider);
+            await updateBookName("GEN", "1. New Items");
+
+            assert.ok(
+                showErrorMessageStub.called,
+                "Should show an error when the new name contains a disallowed character"
+            );
+
+            // The original fileDisplayName should be untouched on disk.
+            const content = await vscode.workspace.fs.readFile(codexUri);
+            const serializer = new CodexContentSerializer();
+            const notebookData = await serializer.deserializeNotebook(
+                content,
+                new vscode.CancellationTokenSource().token
+            );
+            assert.strictEqual(
+                (notebookData.metadata as any).fileDisplayName,
+                "Genesis",
+                "fileDisplayName must not be changed when validation fails"
+            );
+        } finally {
+            showErrorMessageStub.restore();
+            showInformationMessageStub.restore();
+            withProgressStub.restore();
+        }
+    });
+
+    test("updateBookName accepts names with dashes and underscores", async () => {
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        const codexUri = await createCodexFileWithMetadata("EXO", {});
+
+        const loadBibleBookMap = (provider as any).loadBibleBookMap.bind(provider);
+        loadBibleBookMap();
+
+        const showErrorMessageStub = sinon.stub(vscode.window, "showErrorMessage");
+        const showInformationMessageStub = sinon.stub(vscode.window, "showInformationMessage");
+        const withProgressStub = sinon.stub(vscode.window, "withProgress").callsFake(async (options, callback) => {
+            return callback({ report: () => { } } as any, new vscode.CancellationTokenSource().token);
+        });
+
+        try {
+            const updateBookName = (provider as any).updateBookName.bind(provider);
+            await updateBookName("EXO", "1-New_Items");
+
+            assert.ok(
+                !showErrorMessageStub.called,
+                "Should not show an error for a valid name with dashes/underscores"
+            );
+
+            const content = await vscode.workspace.fs.readFile(codexUri);
+            const serializer = new CodexContentSerializer();
+            const notebookData = await serializer.deserializeNotebook(
+                content,
+                new vscode.CancellationTokenSource().token
+            );
+            assert.strictEqual(
+                (notebookData.metadata as any).fileDisplayName,
+                "1-New_Items",
+                "fileDisplayName should be updated to the valid value"
+            );
+        } finally {
+            showErrorMessageStub.restore();
+            showInformationMessageStub.restore();
+            withProgressStub.restore();
+        }
+    });
+
     test("deleteFile closes open webview panels for codex file", async () => {
         // Skip if no workspace folder
         if (!vscode.workspace.workspaceFolders?.[0]) {
