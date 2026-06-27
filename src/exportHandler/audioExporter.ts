@@ -845,6 +845,11 @@ export async function exportAudioAttachments(
     // recordings to switch to — counted separately (and reported as a warning)
     // rather than folded into the hard "could not be resolved" total.
     let selectedMissingWithAltCount = 0;
+    // Issue #1007: surface what an audio export omitted for lack of audio — at
+    // file (whole book) and chapter (milestone) granularity — in the completion
+    // summary, instead of writing empty folders / NOTICE.txt.
+    const booksWithNoAudio: string[] = [];
+    const skippedChaptersByBook = new Map<string, string[]>();
 
     for (const [index, file] of selectedFiles.entries()) {
         // Stop before starting another book once cancellation is requested.
@@ -899,6 +904,9 @@ export async function exportAudioAttachments(
         // `isExportableCell` — they would otherwise show up under
         // "no audio recorded" purely as noise.
         const audioCells: Array<{ cell: any; cellId: string; pick: AudioPick; }> = [];
+        // Milestone (chapter) indices that produced at least one audio task —
+        // used after the loop to report selected-but-empty chapters (#1007).
+        const milestonesWithAudio = new Set<number>();
         for (let cellIndex = 0; cellIndex < notebook.cells.length; cellIndex++) {
             const cell = notebook.cells[cellIndex];
             const milestoneIndex = milestoneModel.cellMilestoneIndices[cellIndex] ?? 0;
@@ -918,6 +926,7 @@ export async function exportAudioAttachments(
             const outcome = pickAudioAttachmentForCell(cell);
             if (outcome.state === "ready" && outcome.pick) {
                 audioCells.push({ cell, cellId, pick: outcome.pick });
+                milestonesWithAudio.add(milestoneIndex);
                 continue;
             }
             const label = formatCellDisplayLabel(cell, cellId, bookCode);
@@ -971,6 +980,26 @@ export async function exportAudioAttachments(
                 codexPath: file.fsPath,
             });
             notRecordedCount++;
+        }
+
+        // #1007: record the selected milestones (chapters) — or the whole book —
+        // that produced no audio, so the completion summary can report them
+        // (the empty-array opt-out already `continue`d above and is not counted).
+        {
+            const selectedMilestones =
+                Array.isArray(milestoneFilter) && milestoneFilter.length > 0
+                    ? milestoneFilter
+                    : milestoneModel.milestones.map(m => m.index);
+            if (milestonesWithAudio.size === 0) {
+                booksWithNoAudio.push(bookCode);
+            } else {
+                const skipped = selectedMilestones
+                    .filter(i => !milestonesWithAudio.has(i))
+                    .map(i => milestoneModel.milestones[i]?.value || String(i + 1));
+                if (skipped.length > 0) {
+                    skippedChaptersByBook.set(bookCode, skipped);
+                }
+            }
         }
 
         // Snapshot every audio attachment currently flagged
@@ -1366,13 +1395,31 @@ export async function exportAudioAttachments(
     if (noneSelectedCount > 0) summaryParts.push(`${noneSelectedCount} cells with audio, none selected`);
     if (selectionMissingCount > 0) summaryParts.push(`${selectionMissingCount} cells with selected audio missing`);
 
+    // #1007: report what was omitted for lack of audio (book + chapter level) as
+    // its own summary line(s), in place of the old empty folders / NOTICE.txt.
+    const skipMessages: string[] = [];
+    if (booksWithNoAudio.length > 0) {
+        skipMessages.push(
+            `Skipped (no audio): ${booksWithNoAudio.length} book(s) — ${booksWithNoAudio.join(", ")}.`
+        );
+    }
+    if (skippedChaptersByBook.size > 0) {
+        const CHAPTER_CAP = 6;
+        const parts = [...skippedChaptersByBook].map(([book, chapters]) =>
+            chapters.length > CHAPTER_CAP
+                ? `${book}: ${chapters.length} chapters`
+                : `${book} ${chapters.join("/")}`
+        );
+        skipMessages.push(`Chapters skipped (no audio): ${parts.join("; ")}.`);
+    }
+
     reporter.complete({
         exportPath: exportDir.fsPath,
         filesExported: selectedFiles.length,
         audioCopied: copiedCount,
         audioMissing: missingCount,
         audioFailed: streamFailCount,
-        extraMessages: [summaryParts.join(", ") + "."],
+        extraMessages: [summaryParts.join(", ") + ".", ...skipMessages],
     });
 }
 
