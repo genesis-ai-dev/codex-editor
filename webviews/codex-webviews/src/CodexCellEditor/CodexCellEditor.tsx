@@ -34,6 +34,7 @@ import {
 import "./TranslationAnimations.css";
 import { getVSCodeAPI } from "../shared/vscodeApi";
 import { Subsection, ProgressPercentages } from "../lib/types";
+import { buildSubsectionsForMilestone } from "./utils/subdivisionUtils";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { clearCachedAudio } from "../lib/audioCache";
@@ -284,6 +285,18 @@ const CodexCellEditor: React.FC = () => {
     const [requiredAudioValidations, setRequiredAudioValidations] = useState<number | null>(
         (window as any)?.initialData?.validationCountAudio ?? null
     );
+
+    // Workspace preference: force numeric labels on subdivisions. Initialized
+    // from the provider's first content payload and kept in sync via
+    // `updateSubdivisionLabelPreference` messages; default false when absent.
+    const [useSubdivisionNumberLabels, setUseSubdivisionNumberLabels] = useState<boolean>(false);
+
+    // Workspace opt-in for milestone-placement editing controls
+    // (add/remove/promote/demote). Initialized from the provider's first
+    // content payload and kept in sync via
+    // `updateMilestonePlacementEditingPreference` messages; default false.
+    const [enableMilestonePlacementEditing, setEnableMilestonePlacementEditing] =
+        useState<boolean>(false);
 
     // Track cells currently transcribing audio (to show the same loading effect as translations)
     const [transcribingCells, setTranscribingCells] = useState<Set<string>>(new Set());
@@ -1037,13 +1050,30 @@ const CodexCellEditor: React.FC = () => {
                 milestoneCellsCacheRef.current.clear();
                 progressCacheRef.current.clear();
 
-                // Prefer: 1) in-flight navigation (latestRequestRef), 2) refs (webview's current position).
-                // Always use refs over the provider message so our position wins when the provider sends a stale
-                // position (e.g. source doc: provider hasn't processed our request yet). Refs are updated when we
-                // navigate, use cache, or receive handleCellPage/setContentPaginated.
-                const pending = latestRequestRef.current;
+                // Position selection cascade:
+                //   1. `force: true` from server (structural edit shifted the cursor) → use
+                //      the message's position; refs are stale.
+                //   2. In-flight navigation (`latestRequestRef`) → use that.
+                //   3. Webview refs (current position).
+                // Refs win over a non-forced provider message so our position is preserved
+                // when the provider sends a stale refresh (e.g. user navigated mid-flight).
+                const forcedPosition =
+                    message.force === true &&
+                    typeof message.milestoneIndex === "number" &&
+                    typeof message.subsectionIndex === "number"
+                        ? { milestoneIdx: message.milestoneIndex, subsectionIdx: message.subsectionIndex }
+                        : null;
+                const pending = forcedPosition ?? latestRequestRef.current;
                 const milestoneIdx = pending?.milestoneIdx ?? currentMilestoneIndexRef.current;
                 const subsectionIdx = pending?.subsectionIdx ?? currentSubsectionIndexRef.current;
+
+                // Realign refs immediately on a forced refresh so a follow-up
+                // providerSendsInitialContentPaginated isn't bounced as stale.
+                if (forcedPosition) {
+                    latestRequestRef.current = null;
+                    currentMilestoneIndexRef.current = forcedPosition.milestoneIdx;
+                    currentSubsectionIndexRef.current = forcedPosition.subsectionIdx;
+                }
 
                 // Request fresh cells for the current page
                 if (requestCellsForMilestoneRef.current) {
@@ -1908,7 +1938,8 @@ const CodexCellEditor: React.FC = () => {
             currentMilestoneIdx: number,
             currentSubsectionIdx: number,
             isSourceTextValue: boolean,
-            sourceCellMapValue: { [k: string]: { content: string; versions: string[] } }
+            sourceCellMapValue: { [k: string]: { content: string; versions: string[] } },
+            force?: boolean
         ) => {
             // On first load, always accept the initial content regardless of ref values.
             // The refs start at (0,0) but the provider may send a cached position (e.g. chapter 3 → milestone 2),
@@ -1917,9 +1948,12 @@ const CodexCellEditor: React.FC = () => {
 
             // Ignore initial content when we're already on a different page (e.g. source: provider sent
             // providerSendsInitialContentPaginated (0,0) after we navigated to (0,1), which would revert us).
-            // But never reject the very first content message - that's our initial load.
+            // But never reject the very first content message - that's our initial load. `force: true`
+            // marks server-initiated structural updates (e.g. promote/demote shifts the cursor); those
+            // must apply regardless of refs and realign refs to the message's position.
             if (
                 !isFirstContent &&
+                !force &&
                 (currentMilestoneIndexRef.current !== currentMilestoneIdx ||
                     currentSubsectionIndexRef.current !== currentSubsectionIdx)
             ) {
@@ -1934,6 +1968,12 @@ const CodexCellEditor: React.FC = () => {
                     { currentMilestoneIdx, currentSubsectionIdx }
                 );
                 return;
+            }
+            if (force) {
+                // A structural edit on the server side just shifted the cursor;
+                // drop any in-flight navigation request so it doesn't reapply
+                // the pre-edit position over the new state.
+                latestRequestRef.current = null;
             }
 
             // Mark that we've received initial content so subsequent messages go through the stale guard
@@ -2189,38 +2229,8 @@ const CodexCellEditor: React.FC = () => {
             }
 
             const milestone = milestoneIndex.milestones[milestoneIdx];
-            const { cellCount, value } = milestone;
             const effectiveCellsPerPage = milestoneIndex.cellsPerPage || cellsPerPage;
-
-            // When milestone has 0 cells, return a single empty subsection (avoid invalid "1-0" label)
-            if (cellCount === 0) {
-                return [
-                    {
-                        id: `milestone-${milestoneIdx}-page-0`,
-                        label: "0",
-                        startIndex: 0,
-                        endIndex: 0,
-                    },
-                ];
-            }
-
-            // Calculate number of pages based on content cells
-            const totalPages = Math.ceil(cellCount / effectiveCellsPerPage) || 1;
-            const subsections: Subsection[] = [];
-
-            for (let i = 0; i < totalPages; i++) {
-                const startCellNumber = i * effectiveCellsPerPage + 1;
-                const endCellNumber = Math.min((i + 1) * effectiveCellsPerPage, cellCount);
-
-                subsections.push({
-                    id: `milestone-${milestoneIdx}-page-${i}`,
-                    label: `${startCellNumber}-${endCellNumber}`,
-                    startIndex: i * effectiveCellsPerPage,
-                    endIndex: endCellNumber,
-                });
-            }
-
-            return subsections;
+            return buildSubsectionsForMilestone(milestoneIdx, milestone, effectiveCellsPerPage);
         },
         [milestoneIndex, cellsPerPage]
     );
@@ -2704,6 +2714,28 @@ const CodexCellEditor: React.FC = () => {
                 if (event.data.userAccessLevel !== undefined) {
                     setUserAccessLevel(event.data.userAccessLevel);
                 }
+                if (event.data.useSubdivisionNumberLabels !== undefined) {
+                    setUseSubdivisionNumberLabels(
+                        Boolean(event.data.useSubdivisionNumberLabels)
+                    );
+                }
+                if (event.data.enableMilestonePlacementEditing !== undefined) {
+                    setEnableMilestonePlacementEditing(
+                        Boolean(event.data.enableMilestonePlacementEditing)
+                    );
+                }
+            }
+
+            if (event.data.type === "updateSubdivisionLabelPreference") {
+                setUseSubdivisionNumberLabels(
+                    Boolean(event.data.useSubdivisionNumberLabels)
+                );
+            }
+
+            if (event.data.type === "updateMilestonePlacementEditingPreference") {
+                setEnableMilestonePlacementEditing(
+                    Boolean(event.data.enableMilestonePlacementEditing)
+                );
             }
         },
         []
@@ -3737,6 +3769,8 @@ const CodexCellEditor: React.FC = () => {
                             subsectionProgress={subsectionProgress[currentMilestoneIndex]}
                             allSubsectionProgress={subsectionProgress}
                             requestSubsectionProgress={requestSubsectionProgressForMilestone}
+                            useSubdivisionNumberLabels={useSubdivisionNumberLabels}
+                            enableMilestonePlacementEditing={enableMilestonePlacementEditing}
                         />
                     </div>
                 </div>

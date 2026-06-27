@@ -96,6 +96,17 @@ interface ChapterNavigationHeaderProps {
     subsectionProgress?: Record<number, ProgressPercentages>;
     allSubsectionProgress?: Record<number, Record<number, ProgressPercentages>>;
     requestSubsectionProgress?: (milestoneIdx: number) => void;
+    /**
+     * When true, milestone subdivisions display their numeric cell range even
+     * when a user-assigned name is available. Defaults to false.
+     */
+    useSubdivisionNumberLabels?: boolean;
+    /**
+     * When true, the milestone-placement editing controls render in the
+     * MilestoneAccordion's settings mode (add/remove/promote/demote).
+     * Defaults to false; gated behind `codex-editor-extension.enableMilestonePlacementEditing`.
+     */
+    enableMilestonePlacementEditing?: boolean;
 }
 
 export function ChapterNavigationHeader({
@@ -159,6 +170,8 @@ export function ChapterNavigationHeader({
     subsectionProgress,
     allSubsectionProgress,
     requestSubsectionProgress,
+    useSubdivisionNumberLabels = false,
+    enableMilestonePlacementEditing = false,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -168,6 +181,12 @@ ChapterNavigationHeaderProps) {
     const [recordingCountdownSeconds, setRecordingCountdownSecondsState] =
         useState<number>(3);
     const [showMilestoneAccordion, setShowMilestoneAccordion] = useState(false);
+    // Stable callback so MilestoneAccordion's effect deps don't churn on every
+    // render of this header — keeps inline-rename focus from being stolen when
+    // we re-attach ESC / click-outside listeners.
+    const closeMilestoneAccordion = useCallback(() => {
+        setShowMilestoneAccordion(false);
+    }, []);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const chapterTitleRef = useRef<HTMLDivElement>(null);
     const headerContainerRef = useRef<HTMLDivElement>(null);
@@ -1218,7 +1237,7 @@ ChapterNavigationHeaderProps) {
 
             <MilestoneAccordion
                 isOpen={showMilestoneAccordion}
-                onClose={() => setShowMilestoneAccordion(false)}
+                onClose={closeMilestoneAccordion}
                 milestoneIndex={milestoneIndex}
                 currentMilestoneIndex={currentMilestoneIndex}
                 currentSubsectionIndex={currentSubsectionIndex}
@@ -1231,6 +1250,8 @@ ChapterNavigationHeaderProps) {
                 calculateSubsectionProgress={calculateSubsectionProgress}
                 requestSubsectionProgress={requestSubsectionProgress}
                 vscode={vscode}
+                useSubdivisionNumberLabels={useSubdivisionNumberLabels}
+                enableMilestonePlacementEditing={enableMilestonePlacementEditing}
             />
         </div>
     );
