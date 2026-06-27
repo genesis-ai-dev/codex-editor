@@ -1253,39 +1253,43 @@ export function MilestoneAccordion({
                                 >
                                     <AccordionItem
                                         value={milestoneIdx.toString()}
-                                        className="border-accent"
+                                        className="border-accent min-w-0 w-full overflow-hidden"
                                     >
                                         <AccordionTrigger
-                                            className={`hover:no-underline p-2 cursor-pointer [&>svg]:hidden ${
+                                            className={`hover:no-underline p-2 cursor-pointer [&>svg]:hidden min-w-0 w-full overflow-hidden ${
                                                 isCurrentMilestone ? "bg-accent font-semibold" : ""
                                             }`}
                                         >
-                                            <div className="flex items-center justify-between w-full">
-                                                <div className="flex justify-between items-center gap-3 flex-1 min-w-0">
-                                                    {isEditingThisMilestone ? (
-                                                        <input
-                                                            ref={inputRef}
-                                                            type="text"
-                                                            value={editedMilestoneValue}
-                                                            onChange={(e) =>
-                                                                setEditedMilestoneValue(
-                                                                    e.target.value
-                                                                )
-                                                            }
-                                                            onKeyDown={handleInputKeyDown}
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            className="font-medium flex-1 mr-2 bg-transparent border border-[var(--vscode-input-border)] rounded px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-[var(--vscode-focusBorder)]"
-                                                            style={{
-                                                                color: "var(--vscode-input-foreground)",
-                                                            }}
-                                                        />
-                                                    ) : (
-                                                        <span className="font-medium truncate hover:underline milestone-navigate">
+                                            <div className="flex items-center gap-2 min-w-0 w-full flex-1 overflow-hidden">
+                                                {isEditingThisMilestone ? (
+                                                    <input
+                                                        ref={inputRef}
+                                                        type="text"
+                                                        value={editedMilestoneValue}
+                                                        onChange={(e) =>
+                                                            setEditedMilestoneValue(
+                                                                e.target.value
+                                                            )
+                                                        }
+                                                        onKeyDown={handleInputKeyDown}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        className="font-medium min-w-0 w-0 flex-1 bg-transparent border border-[var(--vscode-input-border)] rounded px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-[var(--vscode-focusBorder)]"
+                                                        style={{
+                                                            color: "var(--vscode-input-foreground)",
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <div className="min-w-0 w-0 flex-1 overflow-hidden">
+                                                        <span
+                                                            className="block truncate font-medium hover:underline milestone-navigate"
+                                                            title={displayValue}
+                                                        >
                                                             {displayValue}
                                                         </span>
-                                                    )}
-                                                    <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-                                                        <div className="flex items-center gap-2">
+                                                    </div>
+                                                )}
+                                                <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                                                    <div className="flex items-center gap-2">
                                                         {isEditingThisMilestone ? (
                                                             <>
                                                                 <VSCodeButton
@@ -1432,10 +1436,9 @@ export function MilestoneAccordion({
                                                         )}
                                                     </div>
                                                 </div>
-                                            </div>
                                         </AccordionTrigger>
-                                        <AccordionContent className="pb-2">
-                                            <div className="space-y-1 pt-2">
+                                        <AccordionContent className="pb-2 min-w-0 overflow-hidden">
+                                            <div className="space-y-1 pt-2 min-w-0 overflow-hidden">
                                                 {subsections.map((subsection, subsectionIdx) => {
                                                     const progress =
                                                         calculateSubsectionProgressForMilestone(
@@ -1485,7 +1488,7 @@ export function MilestoneAccordion({
                                                                     subsectionIdx
                                                                 );
                                                             }}
-                                                            className={`group flex items-center justify-between pr-3 pl-6 py-2 rounded-md transition-colors ${
+                                                            className={`group flex items-center min-w-0 overflow-hidden pr-3 pl-6 py-2 rounded-md transition-colors ${
                                                                 isEditingThisRow
                                                                     ? "bg-secondary"
                                                                     : isActive
@@ -1512,14 +1515,20 @@ export function MilestoneAccordion({
                                                                         e.stopPropagation()
                                                                     }
                                                                     placeholder={subsection.label}
-                                                                    className="flex-1 mr-2 bg-transparent border border-[var(--vscode-input-border)] rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--vscode-focusBorder)]"
+                                                                    className="min-w-0 w-0 flex-1 bg-transparent border border-[var(--vscode-input-border)] rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--vscode-focusBorder)]"
                                                                     style={{
                                                                         color: "var(--vscode-input-foreground)",
                                                                     }}
                                                                 />
                                                             ) : (
-                                                                <span className="flex items-baseline gap-2 min-w-0 flex-1">
-                                                                    <span className="truncate">
+                                                                <div className="min-w-0 w-0 flex-1 overflow-hidden mr-2 flex items-baseline gap-2">
+                                                                    <span
+                                                                        className="block min-w-0 flex-1 truncate"
+                                                                        title={
+                                                                            displayName ||
+                                                                            subsection.label
+                                                                        }
+                                                                    >
                                                                         {displayName ||
                                                                             subsection.label}
                                                                     </span>
@@ -1528,9 +1537,9 @@ export function MilestoneAccordion({
                                                                             {subsection.label}
                                                                         </span>
                                                                     )}
-                                                                </span>
+                                                                </div>
                                                             )}
-                                                            <div className="flex items-center gap-2 flex-shrink-0">
+                                                            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                                                                 {isEditingThisRow ? (
                                                                     <>
                                                                         <VSCodeButton
