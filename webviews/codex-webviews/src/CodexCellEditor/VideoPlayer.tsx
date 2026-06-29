@@ -447,6 +447,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                                 size="sm"
                                 className="gap-1.5 bg-black/60 text-white hover:bg-black/80 backdrop-blur-sm"
                                 title="Audio language"
+                                data-testid="audio-language-selector"
                             >
                                 <Languages className="size-4" />
                                 {audioLanguageLabel}
