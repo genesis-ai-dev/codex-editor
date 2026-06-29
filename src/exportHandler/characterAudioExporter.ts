@@ -13,10 +13,18 @@ import {
     getTargetLanguageCode,
     pickAudioAttachmentForCell,
     readNotebook,
-    pathExists,
     getAudioExporterContext,
+    setupAudioStreaming,
+    resolveAudioBytes,
+    runWithConcurrencyPool,
+    tokenToAbortSignal,
+    ExportCancelledError,
+    type FrontierLfsApi,
 } from "./audioExporter";
 import { isExportableCell } from "./audioAttachmentUtils";
+import { buildMilestoneIndexModel } from "../../sharedUtils/milestoneIndexUtils";
+import type { ExportProgressReporter } from "./exportProgress";
+import { createNoopReporter } from "./exportProgress";
 
 const execFileAsync = promisify(execFile);
 
@@ -138,12 +146,22 @@ interface CharacterGroup {
 
 function groupClipsByCharacter(
     cells: CodexNotebookAsJSONData["cells"],
-    workspaceFolder: vscode.WorkspaceFolder
+    workspaceFolder: vscode.WorkspaceFolder,
+    milestoneFilter?: number[]
 ): { groups: Map<string, CharacterGroup>; skipped: number; } {
     const groups = new Map<string, CharacterGroup>();
     let skipped = 0;
 
-    for (const cell of cells) {
+    // Only build the (somewhat costly) milestone index when the user actually
+    // narrowed the export to a subset of milestones on step 3.
+    const milestoneModel = milestoneFilter ? buildMilestoneIndexModel(cells) : undefined;
+
+    for (let cellIndex = 0; cellIndex < cells.length; cellIndex++) {
+        const cell = cells[cellIndex];
+        if (milestoneFilter) {
+            const milestoneIndex = milestoneModel!.cellMilestoneIndices[cellIndex] ?? 0;
+            if (!milestoneFilter.includes(milestoneIndex)) continue;
+        }
         if (!isExportableCell(cell)) continue;
         const cellId: string | undefined = cell?.metadata?.id;
         if (!cellId) continue;
@@ -269,139 +287,333 @@ function computeTrimDurationSec(clips: CharacterClip[], fallbackSec: number): nu
     return Math.max(0.25, maxEndMs / 1000 + 0.25);
 }
 
+// Parallelism for streaming clip downloads. Mirrors the per-cell exporter.
+const CHARACTER_DOWNLOAD_CONCURRENCY = 30;
+
+interface ResolvedSource {
+    /** Local path FFmpeg can read (the original file, or a temp file holding
+     * the downloaded/cached bytes). */
+    localPath?: string;
+    error?: string;
+}
+
+/**
+ * Resolves every unique clip source to a local file path that FFmpeg can read.
+ * In auto-download mode this just reads the bytes already on disk; in
+ * stream-only / stream-and-save it downloads LFS objects (with retry + the
+ * shared in-memory cache) and materializes them as temp files, because FFmpeg
+ * consumes file paths, not in-memory buffers.
+ *
+ * Returns a map keyed by the original absolute source path so callers can map
+ * each clip back to its local copy (and dedupes downloads — a source used by
+ * multiple clips is fetched once).
+ */
+async function resolveSourcesToLocalFiles(
+    uniqueSources: string[],
+    workspaceFolderUri: vscode.Uri,
+    frontierApi: FrontierLfsApi | null,
+    tempRoot: string,
+    batchId: number,
+    signal: AbortSignal | undefined,
+    token: vscode.CancellationToken | undefined,
+    onProgress?: (completed: number, total: number) => void
+): Promise<Map<string, ResolvedSource>> {
+    const resolved = new Map<string, ResolvedSource>();
+
+    const results = await runWithConcurrencyPool<string, ResolvedSource>(
+        uniqueSources,
+        CHARACTER_DOWNLOAD_CONCURRENCY,
+        async (srcPath, idx) => {
+            const result = await resolveAudioBytes(
+                vscode.Uri.file(srcPath),
+                workspaceFolderUri,
+                frontierApi,
+                signal
+            );
+            if (result.error || !result.data) {
+                return { error: result.error ?? "No data returned" };
+            }
+            const ext = path.extname(srcPath) || ".wav";
+            const tempPath = path.join(tempRoot, `clip-${batchId}-${idx}${ext}`);
+            await fs.promises.writeFile(tempPath, result.data);
+            return { localPath: tempPath };
+        },
+        onProgress,
+        token
+    );
+
+    for (let i = 0; i < uniqueSources.length; i++) {
+        const settled = results[i];
+        if (settled.status === "fulfilled") {
+            resolved.set(uniqueSources[i], settled.value);
+        } else if (settled.reason instanceof ExportCancelledError) {
+            resolved.set(uniqueSources[i], { error: "cancelled" });
+        } else {
+            resolved.set(uniqueSources[i], {
+                error: settled.reason ? String(settled.reason) : "Failed to resolve audio",
+            });
+        }
+    }
+
+    return resolved;
+}
+
 export interface CharacterExportOptions {
     format?: CharacterAudioFormat;
+    selectedMilestonesByFile?: Record<string, number[]>;
 }
 
 export async function exportAudioByCharacter(
     userSelectedPath: string,
     filesToExport: string[],
-    options?: CharacterExportOptions
+    reporter: ExportProgressReporter = createNoopReporter(),
+    options?: CharacterExportOptions,
+    token?: vscode.CancellationToken
 ): Promise<void> {
     const format: CharacterAudioFormat = options?.format ?? "flac";
     const ext = formatExtension(format);
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
-        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+        reporter.error("No project folder found. Please open a project first.");
         return;
     }
     const workspaceFolder = workspaceFolders[0];
 
     const ffmpegBinaryPath = await getFFmpegPath(getAudioExporterContext());
     if (!ffmpegBinaryPath) {
-        vscode.window.showErrorMessage("FFmpeg is not available; cannot consolidate audio by character.");
+        reporter.error("FFmpeg is not available; cannot consolidate audio by character.");
         return;
     }
+
+    // Resolve the media strategy and (when streaming) the Frontier download API
+    // up front, so a stream-only project can pull its audio on demand exactly
+    // like the per-cell exporter. A descriptive error here means we stop with a
+    // clear message rather than silently writing zero files.
+    const { frontierApi, error: streamingSetupError } = await setupAudioStreaming(workspaceFolder.uri);
+    if (streamingSetupError) {
+        reporter.error(streamingSetupError);
+        return;
+    }
+
+    const { signal: abortSignal, dispose: disposeAbort } = tokenToAbortSignal(token);
 
     const exportDir = vscode.Uri.file(userSelectedPath);
     await vscode.workspace.fs.createDirectory(exportDir);
 
     const selectedFiles = filesToExport.map((p) => vscode.Uri.file(p));
     if (selectedFiles.length === 0) {
-        vscode.window.showInformationMessage("No files selected for export.");
+        disposeAbort();
+        reporter.error("No files selected for export.");
         return;
     }
 
-    return vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "Exporting Audio by Character",
-            cancellable: false,
-        },
-        async (progress) => {
-            const increment = 100 / selectedFiles.length;
-            let writtenCount = 0;
-            let charactersWritten = 0;
-            let skippedCellsTotal = 0;
-            const filesWithoutTiming: string[] = [];
+    const milestoneSelection = options?.selectedMilestonesByFile;
 
-            for (const [index, file] of selectedFiles.entries()) {
-                const fileBase = basename(file.fsPath).split(".")[0] || "FILE";
-                progress.report({
-                    message: `Processing ${basename(file.fsPath)} (${index + 1}/${selectedFiles.length})`,
-                    increment,
-                });
+    // One temp directory for the whole run; cleaned up in `finally`.
+    const tempRoot = path.join(
+        os.tmpdir(),
+        `codex-char-export-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+    await fs.promises.mkdir(tempRoot, { recursive: true });
 
-                let notebook: CodexNotebookAsJSONData;
-                try {
-                    notebook = await readNotebook(file);
-                } catch (e) {
-                    debug(`Failed to read notebook ${file.fsPath}:`, e);
-                    continue;
-                }
+    try {
+        let writtenCount = 0;
+        let charactersWritten = 0;
+        let skippedCellsTotal = 0;
+        let downloadFailCount = 0;
+        const filesWithoutTiming: string[] = [];
 
-                const episodeDurationSec = computeEpisodeDurationSeconds(notebook.cells);
-                if (episodeDurationSec <= 0) {
-                    filesWithoutTiming.push(fileBase);
-                    debug(`Skipping ${fileBase}: no timing data found`);
-                    continue;
-                }
+        for (const [index, file] of selectedFiles.entries()) {
+            // Stop before starting another book once cancellation is requested.
+            if (token?.isCancellationRequested) break;
+            const fileBase = basename(file.fsPath).split(".")[0] || "FILE";
+            reporter.report({
+                stage: "processing",
+                message: `Processing ${basename(file.fsPath)} (${index + 1}/${selectedFiles.length})`,
+                current: index + 1,
+                total: selectedFiles.length,
+            });
 
-                const { groups, skipped } = groupClipsByCharacter(notebook.cells, workspaceFolder);
-                skippedCellsTotal += skipped;
-
-                if (groups.size === 0) {
-                    debug(`No character audio found for ${fileBase}`);
-                    continue;
-                }
-
-                const bookFolder = vscode.Uri.joinPath(exportDir, sanitizeFileComponent(fileBase));
-                await vscode.workspace.fs.createDirectory(bookFolder);
-
-                const langCode = getTargetLanguageCode();
-                const safeFileBase = sanitizeFileComponent(fileBase);
-
-                // Verify clip files exist; drop missing ones so ffmpeg doesn't fail.
-                for (const [charKey, group] of groups.entries()) {
-                    const verified: CharacterClip[] = [];
-                    for (const clip of group.clips) {
-                        if (await pathExists(vscode.Uri.file(clip.absolutePath))) {
-                            verified.push(clip);
-                        } else {
-                            debug(`Missing audio file for ${clip.cellId}: ${clip.absolutePath}`);
-                            skippedCellsTotal++;
-                        }
-                    }
-                    if (verified.length === 0) {
-                        continue;
-                    }
-                    // Sort by start time so the filter is deterministic and easier to debug.
-                    verified.sort((a, b) => a.startMs - b.startMs);
-
-                    // Trim to this character's last endTime (with a small pad) so silent tails
-                    // don't bloat the file. Files still start at 0 so they DAW-align.
-                    const trimSec = computeTrimDurationSec(verified, episodeDurationSec);
-
-                    const destName = `${safeFileBase}_${langCode}_${charKey}${ext}`;
-                    const destUri = vscode.Uri.joinPath(bookFolder, destName);
-
-                    try {
-                        await renderCharacterTrack(
-                            ffmpegBinaryPath,
-                            verified,
-                            trimSec,
-                            destUri.fsPath,
-                            format
-                        );
-                        writtenCount++;
-                        charactersWritten++;
-                    } catch (e) {
-                        console.error(`Failed to render character track ${destName}:`, e);
-                    }
-                }
+            // Honor per-milestone selection (step 3). An explicit empty
+            // array means the user cleared every milestone for this file.
+            const milestoneFilter = milestoneSelection?.[file.fsPath];
+            if (
+                milestoneSelection &&
+                Object.prototype.hasOwnProperty.call(milestoneSelection, file.fsPath) &&
+                milestoneFilter &&
+                milestoneFilter.length === 0
+            ) {
+                continue;
             }
 
-            const parts: string[] = [];
-            parts.push(`${writtenCount} file${writtenCount === 1 ? "" : "s"} written`);
-            if (skippedCellsTotal > 0) parts.push(`${skippedCellsTotal} cell${skippedCellsTotal === 1 ? "" : "s"} skipped (missing timing or file)`);
-            if (filesWithoutTiming.length > 0) parts.push(`${filesWithoutTiming.length} file${filesWithoutTiming.length === 1 ? "" : "s"} had no timing data`);
+            let notebook: CodexNotebookAsJSONData;
+            try {
+                notebook = await readNotebook(file);
+            } catch (e) {
+                debug(`Failed to read notebook ${file.fsPath}:`, e);
+                continue;
+            }
 
-            vscode.window.showInformationMessage(
-                `Audio export by character completed: ${parts.join(", ")}. Output: ${exportDir.fsPath}`
+            const episodeDurationSec = computeEpisodeDurationSeconds(notebook.cells);
+            if (episodeDurationSec <= 0) {
+                filesWithoutTiming.push(fileBase);
+                debug(`Skipping ${fileBase}: no timing data found`);
+                continue;
+            }
+
+            const { groups, skipped } = groupClipsByCharacter(
+                notebook.cells,
+                workspaceFolder,
+                milestoneFilter
             );
-            debug(`Summary: written=${writtenCount} chars=${charactersWritten} skipped=${skippedCellsTotal} no-timing=${filesWithoutTiming.length}`);
+            skippedCellsTotal += skipped;
+
+            if (groups.size === 0) {
+                debug(`No character audio found for ${fileBase}`);
+                continue;
+            }
+
+            // Resolve every unique clip source (download LFS objects when
+            // streaming) to a local file FFmpeg can read. Dedupe so a
+            // source shared by multiple clips is only fetched once.
+            const uniqueSources = [
+                ...new Set(
+                    [...groups.values()].flatMap((g) => g.clips.map((c) => c.absolutePath))
+                ),
+            ];
+            reporter.report({
+                stage: "downloading",
+                message: `Downloading ${fileBase} audio (0/${uniqueSources.length})`,
+                current: 0,
+                total: uniqueSources.length,
+            });
+            const resolvedSources = await resolveSourcesToLocalFiles(
+                uniqueSources,
+                workspaceFolder.uri,
+                frontierApi,
+                tempRoot,
+                index,
+                abortSignal,
+                token,
+                (completed, total) => {
+                    reporter.report({
+                        stage: "downloading",
+                        message: `Downloading ${fileBase} audio (${completed}/${total})`,
+                        current: completed,
+                        total,
+                    });
+                }
+            );
+
+            if (token?.isCancellationRequested) break;
+
+            const bookFolder = vscode.Uri.joinPath(exportDir, sanitizeFileComponent(fileBase));
+            await vscode.workspace.fs.createDirectory(bookFolder);
+
+            const langCode = getTargetLanguageCode();
+            const safeFileBase = sanitizeFileComponent(fileBase);
+
+            const groupEntries = [...groups.entries()];
+            for (let gi = 0; gi < groupEntries.length; gi++) {
+                if (token?.isCancellationRequested) break;
+                const [charKey, group] = groupEntries[gi];
+                // Swap each clip's source for its resolved local copy,
+                // dropping any that failed to download/resolve so FFmpeg
+                // doesn't choke on a pointer stub or a missing file.
+                const verified: CharacterClip[] = [];
+                for (const clip of group.clips) {
+                    const resolved = resolvedSources.get(clip.absolutePath);
+                    if (resolved?.localPath) {
+                        verified.push({ ...clip, absolutePath: resolved.localPath });
+                    } else {
+                        debug(`Unresolved audio for ${clip.cellId}: ${resolved?.error ?? "unknown"}`);
+                        skippedCellsTotal++;
+                        if (resolved?.error && resolved.error !== "cancelled") {
+                            downloadFailCount++;
+                        }
+                    }
+                }
+                if (verified.length === 0) {
+                    continue;
+                }
+                // Sort by start time so the filter is deterministic and easier to debug.
+                verified.sort((a, b) => a.startMs - b.startMs);
+
+                // Trim to this character's last endTime (with a small pad) so silent tails
+                // don't bloat the file. Files still start at 0 so they DAW-align.
+                const trimSec = computeTrimDurationSec(verified, episodeDurationSec);
+
+                const destName = `${safeFileBase}_${langCode}_${charKey}${ext}`;
+                const destUri = vscode.Uri.joinPath(bookFolder, destName);
+
+                reporter.report({
+                    stage: "writing",
+                    message: `Writing ${fileBase} character audio (${gi + 1}/${groupEntries.length})`,
+                    file: group.label,
+                    current: gi + 1,
+                    total: groupEntries.length,
+                });
+
+                try {
+                    await renderCharacterTrack(
+                        ffmpegBinaryPath,
+                        verified,
+                        trimSec,
+                        destUri.fsPath,
+                        format
+                    );
+                    writtenCount++;
+                    charactersWritten++;
+                } catch (e) {
+                    console.error(`Failed to render character track ${destName}:`, e);
+                }
+            }
         }
-    );
+
+        // Cancelled: skip the terminal summary entirely. The orchestrator
+        // (exportCodexContent) observes the token after Promise.all, deletes the
+        // partial export folder, and emits the single `cancelled` event.
+        if (token?.isCancellationRequested) {
+            debug("Character audio export cancelled");
+            return;
+        }
+
+        // If streaming was required but nothing came down, surface a hard
+        // error instead of a misleading "0 files written" success message.
+        if (writtenCount === 0 && downloadFailCount > 0) {
+            reporter.error(
+                "Audio export by character failed: could not download any audio files from the server. " +
+                "Please check your network connection and try again."
+            );
+            return;
+        }
+
+        reporter.report({ stage: "finalizing", message: "Finalizing export..." });
+
+        const parts: string[] = [];
+        parts.push(`${writtenCount} character file${writtenCount === 1 ? "" : "s"} written`);
+        if (skippedCellsTotal > 0) parts.push(`${skippedCellsTotal} cell${skippedCellsTotal === 1 ? "" : "s"} skipped (missing timing or file)`);
+        if (downloadFailCount > 0) parts.push(`${downloadFailCount} clip${downloadFailCount === 1 ? "" : "s"} failed to download`);
+        if (filesWithoutTiming.length > 0) parts.push(`${filesWithoutTiming.length} file${filesWithoutTiming.length === 1 ? "" : "s"} had no timing data`);
+
+        reporter.complete({
+            exportPath: exportDir.fsPath,
+            filesExported: selectedFiles.length,
+            audioCopied: writtenCount,
+            audioMissing: skippedCellsTotal,
+            audioFailed: downloadFailCount,
+            extraMessages: [parts.join(", ") + "."],
+        });
+        debug(`Summary: written=${writtenCount} chars=${charactersWritten} skipped=${skippedCellsTotal} download-failed=${downloadFailCount} no-timing=${filesWithoutTiming.length}`);
+    } finally {
+        disposeAbort();
+        // Best-effort cleanup of the temp working directory.
+        try {
+            await fs.promises.rm(tempRoot, { recursive: true, force: true });
+        } catch (e) {
+            debug(`Failed to clean up temp dir ${tempRoot}:`, e);
+        }
+    }
 }
 
 interface PreviewBuckets {
