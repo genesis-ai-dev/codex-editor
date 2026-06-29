@@ -45,7 +45,6 @@ const PluginCard: React.FC<{
     const isBetaPlugin =
         plugin.id === "indesign-importer" ||
         plugin.id === "biblica-importer" ||
-        plugin.id === "reach4life-importer" ||
         plugin.id === "spreadsheet";
 
     return (

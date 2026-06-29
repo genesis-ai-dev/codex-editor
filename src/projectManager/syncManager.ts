@@ -1299,6 +1299,19 @@ export class SyncManager {
                 // Don't fail sync completion due to cleanup errors
             }
 
+            // Refresh the chapter video reference status in open editors so a video
+            // just uploaded to LFS this sync now offers the "Free up space" action.
+            try {
+                const { GlobalProvider } = await import("../globalProvider");
+                const provider = GlobalProvider.getInstance().getProvider("codex-cell-editor") as any;
+                if (provider && typeof provider.refreshVideoReferenceStatusAfterSync === "function") {
+                    await provider.refreshVideoReferenceStatusAfterSync();
+                }
+            } catch (error) {
+                console.error("[SyncManager] Error refreshing video reference status after sync:", error);
+                // Don't fail sync completion due to video status refresh errors
+            }
+
             // Update sync stage and splash screen
         this.currentSyncStage = "Sync complete!";
         this.notifySyncStatusListeners();
@@ -1682,6 +1695,11 @@ export class SyncManager {
                         return 'Uploading changes...';
                     }
                     if (stage.includes('Uploading media')) {
+                        // Surface connection/retry detail verbatim so the user
+                        // can see what's happening (e.g. "retrying in 9s").
+                        if (/retry|retrying|waiting|interrupted|stalled|connection/i.test(stage)) {
+                            return stage;
+                        }
                         const pctMatch = stage.match(/(\d+)%/);
                         if (pctMatch) {
                             return `Uploading media... ${pctMatch[1]}%`;

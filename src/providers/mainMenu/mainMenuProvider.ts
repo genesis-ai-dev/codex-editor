@@ -906,17 +906,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 await this.handleInstallUpdate();
                 break;
             }
-            case "openExternal": {
-                try {
-                    if (message.url) {
-                        await vscode.env.openExternal(vscode.Uri.parse(message.url));
-                    }
-                } catch (error) {
-                    console.error("Error opening external URL:", error);
-                    vscode.window.showErrorMessage(`Failed to open URL: ${error}`);
-                }
-                break;
-            }
             default:
                 console.log(`Unhandled command: ${message.command}`);
         }

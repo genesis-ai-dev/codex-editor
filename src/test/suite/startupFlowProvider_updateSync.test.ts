@@ -11,6 +11,7 @@ import { createMockExtensionContext, swallowDuplicateCommandRegistrations } from
 import * as directoryConflicts from "../../projectManager/utils/merge/directoryConflicts";
 import * as mergeResolvers from "../../projectManager/utils/merge/resolvers";
 import * as projectLocationUtils from "../../utils/projectLocationUtils";
+import * as connectivityChecker from "../../utils/connectivityChecker";
 
 suite("StartupFlowProvider Update - triggers LFS-aware sync", () => {
     suiteSetup(() => {
@@ -27,6 +28,13 @@ suite("StartupFlowProvider Update - triggers LFS-aware sync", () => {
 
         // Prevent background preflight/auth initialization from running during this test
         const initStub = sinon.stub(StartupFlowProvider.prototype as any, "initializeComponentsAsync").resolves();
+
+        // performProjectUpdate calls ensureConnectivity(), which otherwise makes a
+        // live network request and, when offline, polls forever (causing this test
+        // to hang until the mocha timeout). Stub it so the test is deterministic.
+        const ensureConnectivityStub = sinon
+            .stub(connectivityChecker, "ensureConnectivity")
+            .resolves();
 
         // Frontier auth extension activation stub (also used for update version gate)
         const activateStub = sinon.stub().resolves();
@@ -154,6 +162,7 @@ suite("StartupFlowProvider Update - triggers LFS-aware sync", () => {
         // Cleanup stubs
         infoStub.restore();
         initStub.restore();
+        ensureConnectivityStub.restore();
         getExtensionStub.restore();
         getCodexProjectsDirectoryStub.restore();
         buildConflictsStub.restore();
