@@ -3294,6 +3294,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 merged: false
             });
 
+            // Resolve the user performing the unmerge so the edit is attributed to
+            // them — matching the merge edit — instead of a hardcoded "anonymous"
+            // (PR #1024 review). Best-effort lookup with an anonymous fallback, done
+            // before the edit push so a lookup failure can't drop the edit itself.
+            let unmergeAuthor = "anonymous";
+            try {
+                const authApi = await this.getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                unmergeAuthor = userInfo?.username || "anonymous";
+            } catch (e) {
+                console.warn("Could not resolve user for unmerge edit, using 'anonymous':", e);
+            }
+
             // Append edit history entry for merged=false on the target cell
             try {
                 const cell = (targetDocument as any).getCell(cellIdToUnmerge);
@@ -3304,7 +3317,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         value: false,
                         timestamp: Date.now(),
                         type: "user-edit",
-                        author: "anonymous",
+                        author: unmergeAuthor,
                         validatedBy: []
                     });
                     // updateCellData() above already fired the change event, which can
