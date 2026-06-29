@@ -122,11 +122,10 @@ export async function openSystemMessageEditor() {
                 try {
                     const config = vscode.workspace.getConfiguration("codex-editor-extension");
                     const settings = {
-                        endpoint: config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe"),
-                        provider: config.get<string>("asrProvider", "mms"),
-                        model: config.get<string>("asrModel", "facebook/mms-1b-all"),
+                        endpoint: config.get<string>("asrEndpoint", "https://genesis-ai-dev--codex-asr-serve.modal.run/transcribe"),
+                        provider: config.get<string>("asrProvider", "omniasr"),
+                        model: config.get<string>("asrModel", "omniASR_LLM_1B_v2"),
                         language: config.get<string>("asrLanguage", "eng"),
-                        phonetic: config.get<boolean>("asrPhonetic", false),
                     };
                     panel.webview.postMessage({ command: "asrSettings", data: settings });
                 } catch (error) {
@@ -143,7 +142,6 @@ export async function openSystemMessageEditor() {
                     await config.update("asrProvider", message.data?.provider, target);
                     await config.update("asrModel", message.data?.model, target);
                     await config.update("asrLanguage", message.data?.language, target);
-                    await config.update("asrPhonetic", !!message.data?.phonetic, target);
                     panel.webview.postMessage({ command: "asrSettingsSaved" });
                 } catch (error) {
                     console.error("[CopilotSettings] Failed to save ASR settings:", error);
