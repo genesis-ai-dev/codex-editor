@@ -10,7 +10,7 @@ import { isLfsPointerContent, parsePointerContent } from "../utils/lfsHelpers";
 import { getCachedLfsBytes, setCachedLfsBytes } from "../utils/mediaCache";
 import { getMediaFilesStrategy } from "../utils/localProjectSettings";
 import type { ExportProgressReporter, ExportMissingReason } from "./exportProgress";
-import { pickAudioAttachment, isExportableCell, type AudioPick, type AudioPickOutcome } from "./audioAttachmentUtils";
+import { pickAudioAttachment, isExportableCell, countAvailableAlternativeTakes, countUsableNonMissingTakes, type AudioPick, type AudioPickOutcome } from "./audioAttachmentUtils";
 import { formatCellDisplayLabel } from "./cellLabelUtils";
 import { CodexCellTypes } from "../../types/enums";
 import { buildMilestoneIndexModel } from "../../sharedUtils/milestoneIndexUtils";
@@ -23,6 +23,10 @@ export const initializeAudioExporter = (context: vscode.ExtensionContext): void 
     extensionContext = context;
 };
 
+export function getAudioExporterContext(): vscode.ExtensionContext | undefined {
+    return extensionContext;
+}
+
 // Debug logging for audio export diagnostics
 const DEBUG = false;
 function debug(...args: any[]) {
@@ -34,6 +38,15 @@ function debug(...args: any[]) {
 type ExportAudioOptions = {
     includeTimestamps?: boolean;
     selectedMilestonesByFile?: Record<string, number[]>;
+    /**
+     * Targeted-retry filter: codex file fsPath → set of cellIds to (re)export.
+     * When present, only those cells are processed and written into the
+     * (existing) export folder; every other cell is skipped entirely — no
+     * tasks, no "no audio recorded" reporting. Used by "retry failed downloads"
+     * to re-attempt just the cells that failed, merging recovered files into
+     * the original export output.
+     */
+    retryCellFilter?: Map<string, Set<string>>;
 };
 
 type AudioCellData = {
@@ -43,7 +56,7 @@ type AudioCellData = {
     audioEndTime?: number;
 };
 
-function sanitizeFileComponent(input: string): string {
+export function sanitizeFileComponent(input: string): string {
     return input
         .replace(/\s+/g, "_")
         .replace(/[^a-zA-Z0-9._-]/g, "-")
@@ -111,7 +124,7 @@ function formatChapterVerseSuffix(chapter?: number, verse?: number): string {
 // `./cellLabelUtils.ts` so the export wizard's pre-flight scan can reuse the
 // same identifiers — see that file for the rules and rationale.
 
-function getTargetLanguageCode(): string {
+export function getTargetLanguageCode(): string {
     const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
     const lang = projectConfig.get<any>("targetLanguage") || {};
     const code: string = lang.tag || lang.refName || "lang";
@@ -473,15 +486,155 @@ async function prepareAudioForExport(
 const EXPORT_CONCURRENCY = 30;
 
 /**
+ * Error used to mark a concurrency-pool slot that was never run because the
+ * export was cancelled. Callers can recognise it to suppress per-cell failure
+ * reporting for work that simply never started.
+ */
+export class ExportCancelledError extends Error {
+    constructor(message = "Export cancelled") {
+        super(message);
+        this.name = "ExportCancelledError";
+    }
+}
+
+/**
+ * Bridges a VS Code `CancellationToken` to a DOM `AbortSignal` so it can be
+ * handed to fetch-based APIs (e.g. the Frontier LFS download). The returned
+ * `dispose` must be called to detach the listener and avoid leaks.
+ */
+export function tokenToAbortSignal(
+    token?: vscode.CancellationToken
+): { signal: AbortSignal | undefined; dispose: () => void; } {
+    if (!token) {
+        return { signal: undefined, dispose: () => undefined };
+    }
+    const controller = new AbortController();
+    if (token.isCancellationRequested) {
+        controller.abort();
+        return { signal: controller.signal, dispose: () => undefined };
+    }
+    const sub = token.onCancellationRequested(() => controller.abort());
+    return { signal: controller.signal, dispose: () => sub.dispose() };
+}
+
+/**
+ * Sleeps for `ms`, resolving early (without throwing) if the signal aborts —
+ * so a cancellation during a retry backoff doesn't have to wait out the delay.
+ */
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+        if (signal?.aborted) {
+            resolve();
+            return;
+        }
+        const timer = setTimeout(() => {
+            signal?.removeEventListener("abort", onAbort);
+            resolve();
+        }, ms);
+        const onAbort = () => {
+            clearTimeout(timer);
+            resolve();
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
+    });
+}
+
+/**
+ * Decides whether a failed LFS download is worth retrying. Transient
+ * server/network hiccups (5xx, 429, timeouts, reset connections) usually
+ * succeed on a second attempt; permanent conditions (404, auth, a corrupt
+ * pointer, or a user-initiated abort) do not, so we fail fast on those.
+ */
+function isRetryableDownloadError(error: unknown, signal?: AbortSignal): boolean {
+    // Never retry something the user cancelled.
+    if (signal?.aborted) return false;
+    const name = (error as { name?: string; })?.name;
+    if (name === "AbortError") return false;
+
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    const haystack = message.toLowerCase();
+
+    // Permanent / non-retryable signals — bail out immediately.
+    if (/\b(400|401|403|404|409|410|422)\b/.test(message)) return false;
+    if (haystack.includes("invalid lfs pointer")) return false;
+
+    // Transient signals worth another attempt.
+    return (
+        /\b(429|500|502|503|504)\b/.test(message) ||
+        haystack.includes("internal server error") ||
+        haystack.includes("bad gateway") ||
+        haystack.includes("service unavailable") ||
+        haystack.includes("gateway timeout") ||
+        haystack.includes("timeout") ||
+        haystack.includes("timed out") ||
+        haystack.includes("econnreset") ||
+        haystack.includes("econnrefused") ||
+        haystack.includes("etimedout") ||
+        haystack.includes("enotfound") ||
+        haystack.includes("socket hang up") ||
+        haystack.includes("network") ||
+        haystack.includes("fetch failed")
+    );
+}
+
+/** Max LFS download attempts (1 initial + retries) and the base backoff. */
+const LFS_DOWNLOAD_MAX_ATTEMPTS = 4;
+const LFS_DOWNLOAD_BACKOFF_BASE_MS = 600;
+
+/**
+ * Downloads an LFS object with bounded exponential backoff + jitter. The
+ * Frontier server occasionally returns a transient 500 for an object that
+ * downloads fine moments later; retrying here lets a whole-project audio
+ * export ride over those blips instead of surfacing them as "couldn't be
+ * downloaded" and forcing a manual retry.
+ */
+async function downloadLfsWithRetry(
+    frontierApi: { downloadLFSFile: (projectPath: string, oid: string, size: number, signal?: AbortSignal) => Promise<Uint8Array>; },
+    projectPath: string,
+    oid: string,
+    size: number,
+    signal?: AbortSignal
+): Promise<Uint8Array> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= LFS_DOWNLOAD_MAX_ATTEMPTS; attempt++) {
+        try {
+            return await frontierApi.downloadLFSFile(projectPath, oid, size, signal);
+        } catch (error) {
+            lastError = error;
+            const canRetry =
+                attempt < LFS_DOWNLOAD_MAX_ATTEMPTS &&
+                isRetryableDownloadError(error, signal);
+            if (!canRetry) break;
+            // Exponential backoff (0.6s, 1.2s, 2.4s …) with up to 50% jitter to
+            // avoid 30 concurrent workers hammering the server in lockstep.
+            const base = LFS_DOWNLOAD_BACKOFF_BASE_MS * 2 ** (attempt - 1);
+            const wait = base + Math.floor(Math.random() * base * 0.5);
+            debug(
+                `LFS download for ${oid} failed (attempt ${attempt}/${LFS_DOWNLOAD_MAX_ATTEMPTS}), ` +
+                `retrying in ${wait}ms: ${error instanceof Error ? error.message : String(error)}`
+            );
+            await delay(wait, signal);
+            if (signal?.aborted) break;
+        }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+/**
  * Runs async tasks with a sliding-window concurrency pool.
  * Keeps exactly `concurrency` tasks active at all times — as soon as one
  * finishes, the next pending task starts immediately.
+ *
+ * When `token` is cancelled, workers stop pulling new items; any items that
+ * were never started are recorded as rejected with `ExportCancelledError` so
+ * the results array stays dense (one entry per input item).
  */
 export async function runWithConcurrencyPool<T, R>(
     items: T[],
     concurrency: number,
     processor: (item: T, index: number) => Promise<R>,
-    onProgress?: (completed: number, total: number) => void
+    onProgress?: (completed: number, total: number) => void,
+    token?: vscode.CancellationToken
 ): Promise<Array<PromiseSettledResult<R>>> {
     const results: Array<PromiseSettledResult<R>> = new Array(items.length);
     let nextIndex = 0;
@@ -490,6 +643,13 @@ export async function runWithConcurrencyPool<T, R>(
     const runWorker = async (): Promise<void> => {
         let idx = nextIndex++;
         while (idx < items.length) {
+            if (token?.isCancellationRequested) {
+                // Stop scheduling new work; keep the slot dense so the
+                // downstream write loop never reads `undefined`.
+                results[idx] = { status: "rejected", reason: new ExportCancelledError() };
+                idx = nextIndex++;
+                continue;
+            }
             try {
                 const value = await processor(items[idx], idx);
                 results[idx] = { status: "fulfilled", value };
@@ -515,16 +675,16 @@ function predictOutputExt(originalExt: string, includeTimestamps: boolean): stri
     return originalExt;
 }
 
-async function readNotebook(uri: vscode.Uri): Promise<CodexNotebookAsJSONData> {
+export async function readNotebook(uri: vscode.Uri): Promise<CodexNotebookAsJSONData> {
     const bytes = await vscode.workspace.fs.readFile(uri);
     return JSON.parse(Buffer.from(bytes).toString());
 }
 
-function pickAudioAttachmentForCell(cell: any): AudioPickOutcome {
+export function pickAudioAttachmentForCell(cell: any): AudioPickOutcome {
     return pickAudioAttachment(cell);
 }
 
-async function pathExists(uri: vscode.Uri): Promise<boolean> {
+export async function pathExists(uri: vscode.Uri): Promise<boolean> {
     try { await vscode.workspace.fs.stat(uri); return true; } catch { return false; }
 }
 
@@ -540,7 +700,8 @@ type ResolveResult =
 async function resolveAudioBytes(
     absoluteSrc: vscode.Uri,
     workspaceFolderUri: vscode.Uri,
-    frontierApi: { downloadLFSFile: (projectPath: string, oid: string, size: number) => Promise<Uint8Array>; } | null
+    frontierApi: { downloadLFSFile: (projectPath: string, oid: string, size: number, signal?: AbortSignal) => Promise<Uint8Array>; } | null,
+    signal?: AbortSignal
 ): Promise<ResolveResult> {
     const projectPath = workspaceFolderUri.fsPath;
 
@@ -562,7 +723,9 @@ async function resolveAudioBytes(
             return { error: "Frontier API not available — cannot stream audio for export" };
         }
 
-        const lfsData = await frontierApi.downloadLFSFile(projectPath, pointer.oid, pointer.size);
+        const lfsData = await downloadLfsWithRetry(
+            frontierApi, projectPath, pointer.oid, pointer.size, signal
+        );
         setCachedLfsBytes(pointer.oid, lfsData);
         return { data: lfsData };
     };
@@ -607,8 +770,13 @@ export async function exportAudioAttachments(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    options?: ExportAudioOptions
+    options?: ExportAudioOptions,
+    token?: vscode.CancellationToken
 ): Promise<void> {
+    // The host owns the CancellationTokenSource and disposes it when the export
+    // settles, which also detaches the listener this signal registers — so an
+    // early return without an explicit dispose does not leak.
+    const { signal: abortSignal } = tokenToAbortSignal(token);
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
         reporter.error("No project folder found. Please open a project first.");
@@ -632,7 +800,7 @@ export async function exportAudioAttachments(
     const mayNeedStreaming = mediaStrategy === "stream-only" || mediaStrategy === "stream-and-save";
 
     // Obtain the Frontier API for LFS downloads (may be null if not available)
-    let frontierApi: { downloadLFSFile: (projectPath: string, oid: string, size: number) => Promise<Uint8Array>; } | null = null;
+    let frontierApi: { downloadLFSFile: (projectPath: string, oid: string, size: number, signal?: AbortSignal) => Promise<Uint8Array>; } | null = null;
     if (mayNeedStreaming) {
         // Enforce version gates before attempting any LFS operations
         try {
@@ -673,17 +841,27 @@ export async function exportAudioAttachments(
     let notRecordedCount = 0;
     let noneSelectedCount = 0;
     let selectionMissingCount = 0;
+    // Selected take's bytes couldn't be resolved, but the cell has other usable
+    // recordings to switch to — counted separately (and reported as a warning)
+    // rather than folded into the hard "could not be resolved" total.
+    let selectedMissingWithAltCount = 0;
 
     for (const [index, file] of selectedFiles.entries()) {
+        // Stop before starting another book once cancellation is requested.
+        if (token?.isCancellationRequested) break;
         reporter.report({
             stage: "processing",
+            // Count lives in the title; `file` is omitted so the book name isn't
+            // echoed again on the secondary line.
             message: `Processing ${basename(file.fsPath)} (${index + 1}/${selectedFiles.length})`,
-            file: basename(file.fsPath),
             current: index + 1,
             total: selectedFiles.length,
         });
 
         const bookCode = basename(file.fsPath).split(".")[0] || "BOOK";
+        // Targeted retry: when set, only the listed cells in this file are
+        // processed (and merged into the existing export folder).
+        const retryFilter = options?.retryCellFilter?.get(file.fsPath);
         const milestoneSelection = options?.selectedMilestonesByFile;
         const milestoneFilter = milestoneSelection?.[file.fsPath];
         // Empty array means the user cleared every milestone for this file on step 3.
@@ -735,6 +913,8 @@ export async function exportAudioAttachments(
             if (!isExportableCell(cell)) continue;
             const cellId: string | undefined = cell?.metadata?.id;
             if (!cellId) continue;
+            // Targeted retry skips everything not on the retry list.
+            if (retryFilter && !retryFilter.has(cellId)) continue;
             const outcome = pickAudioAttachmentForCell(cell);
             if (outcome.state === "ready" && outcome.pick) {
                 audioCells.push({ cell, cellId, pick: outcome.pick });
@@ -753,25 +933,43 @@ export async function exportAudioAttachments(
                 reporter.fileMissing(
                     label,
                     "audio-file-missing",
-                    "The audio file you selected for this cell cannot be found. Open the cell to choose another take or re-record."
+                    "The audio file you selected for this cell cannot be found. Open the cell to choose another take or re-record.",
+                    { cellId, codexPath: file.fsPath }
                 );
                 selectionMissingCount++;
                 continue;
             }
             if (outcome.state === "none-selected") {
+                // `none-selected` means non-deleted takes exist but none is
+                // picked. If every one of those takes is flagged `isMissing`,
+                // there's nothing the user could choose that would resolve —
+                // report it as "no audio recorded" rather than "none selected"
+                // (mirrors the Step 1 pre-flight in exportViewUtils.ts).
+                if (countUsableNonMissingTakes(cell) === 0) {
+                    reporter.fileMissing(label, "no-audio-recorded", undefined, {
+                        cellId,
+                        codexPath: file.fsPath,
+                    });
+                    notRecordedCount++;
+                    continue;
+                }
                 // There are valid takes on this cell but the user has
                 // never picked one (or their previous pick was cleared
                 // when its take was deleted). We refuse to auto-pick.
                 reporter.fileMissing(
                     label,
                     "no-audio-selected",
-                    "Audio is recorded for this cell but no take has been selected. Open the cell to choose which take to export."
+                    "Audio is recorded for this cell but no take has been selected. Open the cell to choose which take to export.",
+                    { cellId, codexPath: file.fsPath }
                 );
                 noneSelectedCount++;
                 continue;
             }
             // No usable attachment at all — Tier 1 informational.
-            reporter.fileMissing(label, "no-audio-recorded");
+            reporter.fileMissing(label, "no-audio-recorded", undefined, {
+                cellId,
+                codexPath: file.fsPath,
+            });
             notRecordedCount++;
         }
 
@@ -825,6 +1023,13 @@ export async function exportAudioAttachments(
             originalExt: string;
             start?: number;
             end?: number;
+            /**
+             * How many *other* usable takes (non-deleted, non-missing) the cell
+             * has. When the selected take fails to resolve, a value > 0 means
+             * the user can recover by selecting a different take — surfaced as a
+             * warning rather than a hard "could not be resolved" error.
+             */
+            alternativeTakeCount: number;
         };
 
         const tasks: AudioExportTask[] = [];
@@ -888,6 +1093,7 @@ export async function exportAudioAttachments(
                 originalExt,
                 start,
                 end,
+                alternativeTakeCount: countAvailableAlternativeTakes(cell, pick.id),
             });
         }
 
@@ -910,7 +1116,7 @@ export async function exportAudioAttachments(
             async (task) => {
                 debug(`Cell ${task.cellId}: downloading ${task.absoluteSrc.fsPath}`);
                 const resolved = await resolveAudioBytes(
-                    task.absoluteSrc, workspaceFolder.uri, frontierApi
+                    task.absoluteSrc, workspaceFolder.uri, frontierApi, abortSignal
                 );
                 if (resolved.error || !resolved.data) {
                     return { error: resolved.error ?? "No data returned" };
@@ -918,37 +1124,53 @@ export async function exportAudioAttachments(
                 return { data: resolved.data };
             },
             (completed, total) => {
+                // Downloads run concurrently, so there's no single "current"
+                // file — surface the recording count (in the title) and omit
+                // `file` so the secondary line doesn't show the misleading
+                // ".codex" name (which isn't what's being downloaded).
                 reporter.report({
                     stage: "downloading",
-                    message: `${basename(file.fsPath)}: downloading audio (${completed}/${total})`,
-                    file: basename(file.fsPath),
+                    message: `Downloading ${bookCode} audio (${completed}/${total})`,
                     current: completed,
                     total,
                 });
-            }
+            },
+            token
         );
 
         // Phase 2b: Convert and write each file (CPU/disk-bound, sequential
         // to avoid FFmpeg contention and show per-file progress).
         for (let ti = 0; ti < tasks.length; ti++) {
+            // Stop writing the moment cancellation is requested. The
+            // isMissing reconciliation below still runs for whatever already
+            // resolved, and the orchestrator deletes the partial folder.
+            if (token?.isCancellationRequested) break;
             const task = tasks[ti];
             const dlResult = downloadResults[ti];
 
             reporter.report({
                 stage: "writing",
-                message: `${basename(file.fsPath)}: writing audio (${ti + 1}/${tasks.length})`,
-                file: basename(file.fsPath),
+                // Writing is sequential per cell, so the secondary line can show
+                // the specific cell being written; the count stays in the title.
+                message: `Writing ${bookCode} audio (${ti + 1}/${tasks.length})`,
+                file: task.cellLabel ?? undefined,
                 current: ti + 1,
                 total: tasks.length,
             });
 
             if (dlResult.status === "rejected") {
+                // A slot skipped because of cancellation is not a real
+                // failure — don't report it as a missing/failed cell.
+                if (dlResult.reason instanceof ExportCancelledError) {
+                    continue;
+                }
                 console.error("Failed to download audio:", dlResult.reason);
                 if (task.cellLabel) {
                     reporter.fileMissing(
                         task.cellLabel,
                         "download-failed",
-                        dlResult.reason ? String(dlResult.reason) : undefined
+                        dlResult.reason ? String(dlResult.reason) : undefined,
+                        { cellId: task.cellId, codexPath: file.fsPath }
                     );
                     streamFailCount++;
                     missingCount++;
@@ -965,13 +1187,33 @@ export async function exportAudioAttachments(
                 const isPointerCorrupt = err.includes("Invalid LFS pointer");
                 if (task.cellLabel) {
                     if (isStreamFailure) streamFailCount++;
-                    const reason: ExportMissingReason = isStreamFailure
-                        ? "download-failed"
-                        : isPointerCorrupt
-                            ? "pointer-corrupt"
-                            : "audio-file-missing";
-                    reporter.fileMissing(task.cellLabel, reason, err);
-                    missingCount++;
+                    // When the selected take simply can't be found (not a stream
+                    // or pointer error) but the cell has other usable takes, the
+                    // user can recover by re-selecting — report it as a warning
+                    // and keep it out of the hard "could not be resolved" total.
+                    const recoverableViaOtherTake =
+                        !isStreamFailure && !isPointerCorrupt && task.alternativeTakeCount > 0;
+                    if (recoverableViaOtherTake) {
+                        const n = task.alternativeTakeCount;
+                        reporter.fileMissing(
+                            task.cellLabel,
+                            "selected-audio-missing-alternatives",
+                            `The recording selected for this cell is missing, but the cell has ${n} other recording${n === 1 ? "" : "s"} available. Open the cell to select a different take.`,
+                            { cellId: task.cellId, codexPath: file.fsPath }
+                        );
+                        selectedMissingWithAltCount++;
+                    } else {
+                        const reason: ExportMissingReason = isStreamFailure
+                            ? "download-failed"
+                            : isPointerCorrupt
+                                ? "pointer-corrupt"
+                                : "audio-file-missing";
+                        reporter.fileMissing(task.cellLabel, reason, err, {
+                            cellId: task.cellId,
+                            codexPath: file.fsPath,
+                        });
+                        missingCount++;
+                    }
                 }
                 continue;
             }
@@ -999,7 +1241,8 @@ export async function exportAudioAttachments(
                         reporter.fileMissing(
                             task.cellLabel,
                             "transcode-failed",
-                            e instanceof Error ? e.message : String(e)
+                            e instanceof Error ? e.message : String(e),
+                            { cellId: task.cellId, codexPath: file.fsPath }
                         );
                         missingCount++;
                     }
@@ -1028,7 +1271,8 @@ export async function exportAudioAttachments(
                     reporter.fileMissing(
                         task.cellLabel,
                         "write-failed",
-                        e instanceof Error ? e.message : String(e)
+                        e instanceof Error ? e.message : String(e),
+                        { cellId: task.cellId, codexPath: file.fsPath }
                     );
                     missingCount++;
                 }
@@ -1086,11 +1330,19 @@ export async function exportAudioAttachments(
         }
     }
 
+    // Cancelled: skip the terminal summary entirely. The orchestrator
+    // (exportCodexContent) observes the token after Promise.all, deletes the
+    // partial export folder, and emits the single `cancelled` event.
+    if (token?.isCancellationRequested) {
+        return;
+    }
+
     debug(
         `Export summary: ${copiedCount} files copied, ${missingCount} skipped, ` +
         `${streamFailCount} stream failures, ${notRecordedCount} cells without recorded audio, ` +
         `${noneSelectedCount} cells with audio but none selected, ` +
-        `${selectionMissingCount} cells with selected audio missing`
+        `${selectionMissingCount} cells with selected audio missing, ` +
+        `${selectedMissingWithAltCount} selected take missing with alternatives available`
     );
 
     if (streamFailCount > 0 && copiedCount === 0) {
@@ -1106,6 +1358,9 @@ export async function exportAudioAttachments(
     if (streamFailCount > 0) summaryParts.push(`${streamFailCount} failed to download`);
     if (missingCount - streamFailCount > 0) {
         summaryParts.push(`${missingCount - streamFailCount} could not be resolved`);
+    }
+    if (selectedMissingWithAltCount > 0) {
+        summaryParts.push(`${selectedMissingWithAltCount} with selected take missing (other takes available)`);
     }
     if (notRecordedCount > 0) summaryParts.push(`${notRecordedCount} cells without recorded audio`);
     if (noneSelectedCount > 0) summaryParts.push(`${noneSelectedCount} cells with audio, none selected`);

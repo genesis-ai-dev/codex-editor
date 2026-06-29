@@ -1,9 +1,11 @@
 import * as vscode from "vscode";
 import { CodexNotebookAsJSONData, MilestoneInfo } from "../../../types";
 import {
-    getCellAudioState,
+    pickAudioAttachment,
     isExportableCell,
     isLabelableCell,
+    isTakeFlaggedMissing,
+    countUsableNonMissingTakes,
 } from "../../exportHandler/audioAttachmentUtils";
 import { formatCellDisplayLabel } from "../../exportHandler/cellLabelUtils";
 import {
@@ -56,6 +58,13 @@ export interface NotebookAudioStats {
      */
     noneSelectedCount: number;
     /**
+     * The selected take is flagged `isMissing`. The export will still attempt
+     * to resolve it (the flag is a stale migration-scan hint), so this is a
+     * *possibly* missing warning, not a certainty — carved out of
+     * `audioReadyCount` so the user is forewarned before committing.
+     */
+    selectedPossiblyMissingCount: number;
+    /**
      * Cells in each non-ready bucket. Used by the Step 1 drill-down popover
      * so the user can see WHICH cells are affected, not just how many.
      * `label` matches the format the export progress reporter uses, so the
@@ -71,6 +80,7 @@ export interface NotebookAudioStats {
     noAudioRecordedCells: AudioStatsCellEntry[];
     selectionMissingCells: AudioStatsCellEntry[];
     noneSelectedCells: AudioStatsCellEntry[];
+    selectedPossiblyMissingCells: AudioStatsCellEntry[];
 }
 
 /** Per-cell entry surfaced by the Step 1 drill-down popover. */
@@ -182,30 +192,52 @@ export function analyzeNotebookAudioStats(
     const noAudioRecordedCells: AudioStatsCellEntry[] = [];
     const selectionMissingCells: AudioStatsCellEntry[] = [];
     const noneSelectedCells: AudioStatsCellEntry[] = [];
+    const selectedPossiblyMissingCells: AudioStatsCellEntry[] = [];
 
     for (const cell of notebook.cells) {
         if (!isExportableCell(cell)) continue;
         eligibleCellCount += 1;
-        const state = getCellAudioState(cell);
-        if (state === "ready") {
-            audioReadyCount += 1;
-            continue;
-        }
+        const outcome = pickAudioAttachment(cell);
+        const state = outcome.state;
+
         // Mirror the exporter: cells we can't label aren't surfaced as
         // missing-audio rows, so they shouldn't inflate the Step 1 counts.
-        if (!isLabelableCell(cell)) continue;
-        const cellId: string | undefined = (cell.metadata as any)?.id;
-        if (!cellId) continue;
-        const label = formatCellDisplayLabel(cell, cellId, bookCode);
         // Belt-and-suspenders: `isLabelableCell` should match
         // `formatCellDisplayLabel`'s null contract, but defending here keeps
         // the array contents consistent with the counts even if those drift.
-        if (!label) continue;
+        const cellId: string | undefined = (cell.metadata as any)?.id;
+        const label = isLabelableCell(cell) && cellId
+            ? formatCellDisplayLabel(cell, cellId, bookCode)
+            : null;
+
+        if (state === "ready") {
+            // The picker ignores `isMissing`, so a selected take flagged
+            // missing still resolves as "ready". When we can label/list it,
+            // carve it into a *possibly missing* warning so the user is
+            // forewarned; otherwise treat it as ready (it may still resolve).
+            if (label && cellId && outcome.pick && isTakeFlaggedMissing(cell, outcome.pick.id)) {
+                selectedPossiblyMissingCells.push({ label, cellId });
+            } else {
+                audioReadyCount += 1;
+            }
+            continue;
+        }
+
+        if (!label || !cellId) continue;
         const entry: AudioStatsCellEntry = { label, cellId };
         if (state === "selection-missing") {
             selectionMissingCells.push(entry);
         } else if (state === "none-selected") {
-            noneSelectedCells.push(entry);
+            // `pickAudioAttachment` ignores `isMissing`, so a cell whose only
+            // non-deleted takes are all flagged missing still reads as
+            // "none-selected". There's nothing the user could pick that would
+            // resolve, so present it as "without audio" instead. (Mirrored in
+            // audioExporter.ts so Step 1 and the export agree.)
+            if (countUsableNonMissingTakes(cell) === 0) {
+                noAudioRecordedCells.push(entry);
+            } else {
+                noneSelectedCells.push(entry);
+            }
         } else {
             noAudioRecordedCells.push(entry);
         }
@@ -217,9 +249,11 @@ export function analyzeNotebookAudioStats(
         noAudioRecordedCount: noAudioRecordedCells.length,
         selectionMissingCount: selectionMissingCells.length,
         noneSelectedCount: noneSelectedCells.length,
+        selectedPossiblyMissingCount: selectedPossiblyMissingCells.length,
         noAudioRecordedCells,
         selectionMissingCells,
         noneSelectedCells,
+        selectedPossiblyMissingCells,
     };
 }
 
@@ -276,16 +310,6 @@ function getGroupKeyFromMetadata(metadata: Record<string, unknown>): string {
         (originalFileName && /\.docx$/i.test(originalFileName))
     ) {
         return "docx";
-    }
-
-    // Reach4Life (idml) - check before Biblica and generic InDesign
-    if (
-        corpusMarker === "reach4life" ||
-        corpusMarker === "reach4life-idml" ||
-        importerType === "reach4life" ||
-        fileType === "reach4life"
-    ) {
-        return "reach4life";
     }
 
     // Biblica Study Notes (idml) - check before generic InDesign
@@ -374,6 +398,38 @@ function getGroupKeyFromMetadata(metadata: Record<string, unknown>): string {
 }
 
 /**
+ * Recomputes a single `.codex` file's audio/translation summary — the same
+ * per-file work `groupCodexFilesByImporterType` does, scoped to one URI.
+ *
+ * Used by the export wizard's live refresh: when a `.codex` is saved while the
+ * wizard is open (e.g. the user picks a different take in the cell editor), the
+ * host re-runs just this for the changed file and patches that row's pills,
+ * instead of re-scanning every notebook. `bookCode` is derived identically to
+ * the bulk path so labels stay aligned with the export's missing-files report.
+ *
+ * Returns `null` when the file can't be read/parsed (transient write race or a
+ * genuinely broken file) so callers can simply leave the existing count in place.
+ */
+export async function analyzeCodexFileAudio(uri: vscode.Uri): Promise<{
+    hasTranslations: boolean;
+    hasAudio: boolean;
+    audioStats: NotebookAudioStats | undefined;
+} | null> {
+    try {
+        const notebook = await readCodexNotebookFromUri(uri);
+        const name = uri.fsPath.split(/[/\\]/).pop() || "";
+        const { hasTranslations, hasAudio } = analyzeNotebookContent(notebook);
+        const bookCode = name.split(".")[0] || "BOOK";
+        const audioStats = hasAudio
+            ? analyzeNotebookAudioStats(notebook, bookCode)
+            : undefined;
+        return { hasTranslations, hasAudio, audioStats };
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Groups codex files by their importer type for the export view.
  * Returns an array of groups, each with a display name and list of files.
  */
@@ -448,8 +504,7 @@ export async function groupCodexFilesByImporterType(
         maculabible: 9,
         obs: 10,
         biblica: 11,
-        reach4life: 12,
-        spreadsheet: 13,
+        spreadsheet: 12,
         unknown: 99,
     };
 

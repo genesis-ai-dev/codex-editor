@@ -19,6 +19,7 @@ import {
     IDMLParseError,
     IDMLImportConfig
 } from './types';
+import { extractContentSegmentStructureFromParagraphXml } from '../common/contentSegmentUtils';
 
 // Local hashing helpers to avoid test-only imports
 function toArrayBufferForHash(input: string | ArrayBuffer): ArrayBuffer {
@@ -214,9 +215,13 @@ export class IDMLParser {
             const paragraphContent = match[2];
             const fullMatch = match[0];
 
-            // Extract ID from original XML if it exists
-            const idMatch = fullMatch.match(/id="([^"]*)"/);
+            // Extract ID from original XML (IDML uses Self; some files also have id)
+            const idMatch =
+                fullMatch.match(/\bSelf="([^"]*)"/i) ||
+                fullMatch.match(/\bid="([^"]*)"/i);
             const originalId = idMatch ? idMatch[1] : undefined;
+
+            const segmentStructure = extractContentSegmentStructureFromParagraphXml(paragraphContent);
 
             const paragraph: IDMLParagraph = {
                 id: originalId, // Only         use ID if it existed in original
@@ -227,6 +232,8 @@ export class IDMLParser {
                     content: this.extractTextContentFromString(paragraphContent)
                 },
                 characterStyleRanges: this.extractCharacterRangesFromParagraph(paragraphContent),
+                contentSegments: segmentStructure.segments,
+                contentSegmentBreakBefore: segmentStructure.breakBefore,
                 metadata: {}
             };
 
@@ -412,12 +419,47 @@ export class IDMLParser {
             (paragraphStyleRange as any).dataAfter = trailingRuns;
         }
 
+        const segmentStructure = this.extractContentSegmentStructureFromElement(paragraphElement);
+
         return {
             id: paragraphId, // undefined if no ID in original
             paragraphStyleRange,
             characterStyleRanges,
+            contentSegments: segmentStructure.segments,
+            contentSegmentBreakBefore: segmentStructure.breakBefore,
             metadata: this.extractElementMetadata(paragraphElement)
         };
+    }
+
+    /**
+     * Extract each <Content> text and whether a preceding <Br /> started this segment.
+     */
+    private extractContentSegmentStructureFromElement(paragraphElement: Element): {
+        segments: string[];
+        breakBefore: boolean[];
+    } {
+        const segments: string[] = [];
+        const breakBefore: boolean[] = [];
+        let pendingBreak = false;
+
+        const walk = (element: Element) => {
+            for (let i = 0; i < element.children.length; i++) {
+                const child = element.children[i] as Element;
+                const tag = child.tagName;
+                if (tag === "Content") {
+                    segments.push(child.textContent || "");
+                    breakBefore.push(pendingBreak);
+                    pendingBreak = false;
+                } else if (tag === "Br") {
+                    pendingBreak = true;
+                } else if (tag === "CharacterStyleRange" || tag === "Properties") {
+                    walk(child);
+                }
+            }
+        };
+
+        walk(paragraphElement);
+        return { segments, breakBefore };
     }
 
     /**

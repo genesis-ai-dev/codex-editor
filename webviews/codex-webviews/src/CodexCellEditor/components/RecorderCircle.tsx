@@ -1,5 +1,5 @@
 import React from "react";
-import { Mic, Square } from "lucide-react";
+import { Mic, MicOff, Square } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 
@@ -17,6 +17,11 @@ import { cn } from "../../lib/utils";
  * `RecorderWaveform.tsx` as a single-canvas scrolling waveform rendered
  * below the button.
  *
+ * The `unavailable` prop is distinct from `disabled`: it specifically marks
+ * "no microphone present" and swaps to a grey, slashed-mic, no-pulse visual
+ * so the user reads it as a hardware issue rather than a temporary lock.
+ * `disabled` alone (e.g. locked cell) keeps the normal mic + faded primary.
+ *
  * Geometry:
  *   - Outer container is 128x128 so the ring-pulse halo can scale past the
  *     96x96 button edge without being clipped.
@@ -33,6 +38,9 @@ export interface RecorderCircleProps {
     countdown: number | null;
     onClick: () => void;
     disabled?: boolean;
+    /** True when no microphone is connected. Implies disabled and swaps to
+     *  the slashed-mic + neutral-grey + no-pulse visual treatment. */
+    unavailable?: boolean;
     title?: string;
 }
 
@@ -41,11 +49,14 @@ export const RecorderCircle: React.FC<RecorderCircleProps> = ({
     countdown,
     onClick,
     disabled = false,
+    unavailable = false,
     title,
 }) => {
     const isRecording = state === "recording";
     const isCountdown = state === "countdown";
     const isIdle = state === "idle";
+    const isUnavailable = unavailable;
+    const effectiveDisabled = disabled || isUnavailable;
 
     return (
         <div
@@ -54,9 +65,11 @@ export const RecorderCircle: React.FC<RecorderCircleProps> = ({
         >
             {/* Ring-pulse halo for idle ("mic ready") and recording.  Skipped
                 during countdown so the per-digit animation isn't competing with
-                a continuous expanding ring.  The parent's overflow-visible lets
+                a continuous expanding ring.  Also skipped when unavailable —
+                a static "no input" state shouldn't be drawing attention with
+                a continuous animation.  The parent's overflow-visible lets
                 the halo expand past the button edge. */}
-            {!isCountdown && (
+            {!isCountdown && !isUnavailable && (
                 <span
                     aria-hidden="true"
                     className={cn(
@@ -75,19 +88,29 @@ export const RecorderCircle: React.FC<RecorderCircleProps> = ({
             {/* The button itself.  Stays scale-stable; only the halo moves. */}
             <Button
                 onClick={onClick}
-                disabled={disabled}
+                disabled={effectiveDisabled}
                 title={title}
                 className={cn(
                     "rounded-full text-2xl font-bold p-0",
                     "transition-all duration-150",
-                    "hover:scale-105 active:scale-95",
-                    isIdle &&
+                    // No hover/press affordance when there's no mic — feels
+                    // wrong to invite interaction on a hardware-blocked button.
+                    !isUnavailable && "hover:scale-105 active:scale-95",
+                    isIdle && !isUnavailable &&
                         "bg-primary hover:bg-primary text-primary-foreground border-0",
                     isCountdown &&
                         "bg-emerald-600 hover:bg-emerald-600 text-white border-0",
                     isRecording &&
                         "bg-destructive hover:bg-destructive text-destructive-foreground border-0 animate-[var(--animate-recorder-glow-breathing)]",
-                    disabled && "opacity-50 cursor-not-allowed"
+                    // Unavailable wins: solid mid-grey circle with a white
+                    // icon so it reads unmistakably as "off / unavailable"
+                    // rather than the subtler `bg-muted` faded-control look.
+                    isUnavailable &&
+                        "bg-neutral-500 hover:bg-neutral-500 text-white border-0 cursor-not-allowed",
+                    // Plain `disabled` (e.g. locked cell) keeps the existing
+                    // faded-primary treatment so users still recognize it as
+                    // a recorder button that's momentarily locked.
+                    disabled && !isUnavailable && "opacity-50 cursor-not-allowed"
                 )}
                 style={{ width: BUTTON_DIAMETER, height: BUTTON_DIAMETER }}
             >
@@ -105,7 +128,8 @@ export const RecorderCircle: React.FC<RecorderCircleProps> = ({
                         {countdown}
                     </span>
                 )}
-                {isIdle && <Mic className="h-8 w-8" />}
+                {isIdle && !isUnavailable && <Mic className="h-8 w-8" />}
+                {isIdle && isUnavailable && <MicOff className="h-8 w-8" />}
             </Button>
         </div>
     );
