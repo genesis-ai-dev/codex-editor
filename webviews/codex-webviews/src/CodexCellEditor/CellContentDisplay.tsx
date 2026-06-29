@@ -7,7 +7,7 @@ import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { WebviewApi } from "vscode-webview";
 import ValidationButton from "./ValidationButton";
 import AudioValidationButton from "./AudioValidationButton";
-import { shouldDisableValidation } from "@sharedUtils";
+import { shouldDisableValidation, formatTimecode } from "@sharedUtils";
 import { Button } from "../components/ui/button";
 import { getTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
 import { CELL_DISPLAY_MODES } from "../lib/types";
@@ -137,6 +137,13 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const [showSparkleButton, setShowSparkleButton] = useState(false);
         const [showAuthModal, setShowAuthModal] = useState(false);
         const [showOfflineModal, setShowOfflineModal] = useState(false);
+        // Pending merge awaiting in-editor confirmation (replaces the native VS Code popup)
+        const [pendingMerge, setPendingMerge] = useState<{
+            currentCellId: string;
+            previousCellId: string;
+            currentContent: string;
+            previousContent: string;
+        } | null>(null);
         const [isLockButtonGlowing, setIsLockButtonGlowing] = useState(false);
         const [isLockButtonFlashing, setIsLockButtonFlashing] = useState(false);
         const [isResolvingStructure, setIsResolvingStructure] = useState(false);
@@ -390,18 +397,27 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 return;
             }
 
-            // Send confirmation request to VS Code instead of using window.confirm
+            // Open an in-editor confirmation modal instead of the native VS Code popup
+            // (which appears in the bottom-right corner of the screen, far from the cell).
+            setPendingMerge({
+                currentCellId: currentCell.cellMarkers[0],
+                previousCellId: targetCell.cellMarkers[0],
+                currentContent: currentCell.cellContent,
+                previousContent: targetCell.cellContent,
+            });
+        };
+
+        const handleConfirmMerge = () => {
+            if (!pendingMerge) return;
             vscode.postMessage({
                 command: "confirmCellMerge",
-                content: {
-                    currentCellId: currentCell.cellMarkers[0],
-                    previousCellId: targetCell.cellMarkers[0],
-                    currentContent: currentCell.cellContent,
-                    previousContent: targetCell.cellContent,
-                    message:
-                        "Are you sure you want to merge this cell with the previous non-merged cell? This action cannot be undone.",
-                },
+                content: pendingMerge,
             } as any);
+            setPendingMerge(null);
+        };
+
+        const handleCancelMergeConfirmation = () => {
+            setPendingMerge(null);
         };
 
         // Line numbers are always generated and shown at the beginning of each line
@@ -559,13 +575,13 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             {cell.timestamps.startTime !== undefined &&
                             cell.timestamps.endTime !== undefined ? (
                                 <span>
-                                    {formatTime(cell.timestamps.startTime)} →{" "}
-                                    {formatTime(cell.timestamps.endTime)}
+                                    {formatTimecode(cell.timestamps.startTime)} →{" "}
+                                    {formatTimecode(cell.timestamps.endTime)}
                                 </span>
                             ) : cell.timestamps.startTime !== undefined ? (
-                                <span>Start: {formatTime(cell.timestamps.startTime)}</span>
+                                <span>Start: {formatTimecode(cell.timestamps.startTime)}</span>
                             ) : cell.timestamps.endTime !== undefined ? (
-                                <span>End: {formatTime(cell.timestamps.endTime)}</span>
+                                <span>End: {formatTimecode(cell.timestamps.endTime)}</span>
                             ) : null}
                         </div>
                     );
@@ -977,6 +993,34 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                             </Button>
                                         </div>
                                     )}
+                                    <Dialog
+                                        open={!!pendingMerge}
+                                        onOpenChange={(open) => {
+                                            if (!open) handleCancelMergeConfirmation();
+                                        }}
+                                    >
+                                        <DialogContent>
+                                            <DialogHeader>
+                                                <DialogTitle>Merge with previous cell</DialogTitle>
+                                                <DialogDescription>
+                                                    This cell will be merged into the previous
+                                                    non-merged cell. You can reverse this later by
+                                                    unmerging the cell.
+                                                </DialogDescription>
+                                            </DialogHeader>
+                                            <DialogFooter>
+                                                <Button
+                                                    variant="secondary"
+                                                    onClick={handleCancelMergeConfirmation}
+                                                >
+                                                    Cancel
+                                                </Button>
+                                                <Button autoFocus onClick={handleConfirmMerge}>
+                                                    Merge
+                                                </Button>
+                                            </DialogFooter>
+                                        </DialogContent>
+                                    </Dialog>
                                 </div>
                             </div>
                         )}
@@ -1156,15 +1200,5 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         );
     }
 );
-
-// Helper function to format time in MM:SS.mmm format
-const formatTime = (timeInSeconds: number): string => {
-    const minutes = Math.floor(timeInSeconds / 60);
-    const seconds = Math.floor(timeInSeconds % 60);
-    const milliseconds = Math.floor((timeInSeconds % 1) * 1000);
-    return `${minutes.toString().padStart(2, "0")}:${seconds
-        .toString()
-        .padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
-};
 
 export default CellContentDisplay;

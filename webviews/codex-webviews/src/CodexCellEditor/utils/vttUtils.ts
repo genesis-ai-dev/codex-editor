@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { QuillCellContent } from "../../../../../types";
-import { removeHtmlTags } from "@sharedUtils";
+import { removeHtmlTags, formatTimecode } from "@sharedUtils";
 
 export const useSubtitleData = (translationUnits: QuillCellContent[]) => {
     const subtitleData = useMemo(() => {
@@ -28,11 +28,6 @@ export const generateVttData = (
 ): string => {
     if (!translationUnits.length) return "";
 
-    const formatTime = (seconds: number): string => {
-        const date = new Date(seconds * 1000);
-        return date.toISOString().substr(11, 12);
-    };
-
     const cues = translationUnits
         .filter((unit) => !!unit.timestamps)
         .map((unit, index) => {
@@ -44,7 +39,7 @@ export const generateVttData = (
                 ? `<v ${escapeVoiceName(rawLabel)}>${body}</v>`
                 : body;
             return `${unit.cellMarkers[0]}
-${formatTime(Number(startTime))} --> ${formatTime(Number(endTime))}
+${formatTimecode(Number(startTime))} --> ${formatTimecode(Number(endTime))}
 ${payload}
 
 `;

@@ -166,7 +166,8 @@ export async function exportCodexContentAsUsfm(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    options?: ExportOptions
+    options?: ExportOptions,
+    token?: vscode.CancellationToken
 ) {
     try {
         debug("Starting exportCodexContentAsUsfm function");
@@ -208,6 +209,7 @@ export async function exportCodexContentAsUsfm(
         const warnings: string[] = [];
 
         for (let i = 0; i < selectedFiles.length; i++) {
+            if (token?.isCancellationRequested) return;
             const file = selectedFiles[i];
             reporter.report({
                 stage: "writing",

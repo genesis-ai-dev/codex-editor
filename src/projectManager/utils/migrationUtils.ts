@@ -1465,6 +1465,9 @@ function standardizeImporterType(importerType: string | undefined): string | und
     if (normalized === "obs-story") {
         return "obs";
     }
+    if (normalized === "reach4life") {
+        return "indesign";
+    }
 
     // Valid FileImporterType values (must match the FileImporterType union in types/index.d.ts)
     const validTypes: string[] = [
@@ -1487,7 +1490,6 @@ function standardizeImporterType(importerType: string | undefined): string | und
         "ebibleCorpus",
         "macula",
         "biblica",
-        "reach4life",
         "obs",
     ];
 
@@ -1520,6 +1522,7 @@ function inferImporterTypeFromCorpusMarker(corpusMarker: string | undefined): st
         "subtitle": "subtitles",
         "spreadsheet": "spreadsheet",
         "indesign": "indesign",
+        "reach4life": "indesign",
         "usfm": "usfm",
         "usfm-experimental": "usfm-experimental",
         "paratext": "paratext",
@@ -2114,21 +2117,6 @@ function getLocalizedBookName(bookAbbr: string): string {
 
     const bookInfo = (bibleData as any[]).find((book) => book.abbr === bookAbbr);
     return bookInfo?.name || bookAbbr;
-}
-
-/**
- * Extracts chapter number from a milestone value (e.g. "John 4", "4", "GEN 2").
- * Used for verse-range migration to associate milestones with content chapters.
- */
-function extractChapterNumberFromMilestoneValue(value: string | undefined): number | null {
-    if (value == null || typeof value !== "string") return null;
-    const matches = value.match(/(\d+)(?!.*\d)/);
-    if (matches?.[1]) {
-        const n = parseInt(matches[1], 10);
-        return !isNaN(n) && n > 0 ? n : null;
-    }
-    const parsed = parseInt(value, 10);
-    return !isNaN(parsed) && parsed > 0 ? parsed : null;
 }
 
 /**
@@ -3219,7 +3207,9 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
         // ---- Reorder + relabel pass ----------------------------------------------------------
         // Delegated to the shared helper so the codex merge resolver can run the same logic and
         // keep the migrated ordering / cellLabel after every git sync.
-        const reordered = reorderVerseRangeCells(cells);
+        const reordered = reorderVerseRangeCells(cells, {
+            importerType: notebookData?.metadata?.importerType,
+        });
         const newCells = reordered.cells;
         const orderChanged = reordered.orderChanged;
         if (reordered.mutated) hasChanges = true;
