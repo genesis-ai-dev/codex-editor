@@ -201,7 +201,8 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.fixAndOpen"; projectPath: string; }
     | { command: "project.performSwap"; projectPath: string; }
     | { command: "systemMessage.generate"; }
-    | { command: "systemMessage.save"; message: string; };
+    | { command: "systemMessage.save"; message: string; }
+    | { command: "systemMessage.dismiss"; };
 
 export type GitLabProject = {
     id: number;

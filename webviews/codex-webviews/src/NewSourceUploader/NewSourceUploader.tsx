@@ -31,7 +31,7 @@ import { SourceFileSelection } from "./components/SourceFileSelection";
 import { EmptySourceState } from "./components/EmptySourceState";
 import { PluginSelection } from "./components/PluginSelection";
 import { ImportProgressView } from "./components/ImportProgressView";
-import { SystemMessageStep } from "../StartupFlow/components/SystemMessageStep";
+import { SystemMessageStep } from "../components/SystemMessageStep";
 import { deriveTargetPathFromSource } from "../../../../sharedUtils";
 import { createDownloadHelper } from "./utils/downloadHelper";
 import { notifyImportEnded } from "./utils/importProgress";
