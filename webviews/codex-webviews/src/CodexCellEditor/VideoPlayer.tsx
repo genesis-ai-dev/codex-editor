@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import ReactPlayer from "react-player";
 import { Languages } from "lucide-react";
 import { useSubtitleData } from "./utils/vttUtils";
+import { resolveVideoElement } from "./utils/videoElement";
 import { QuillCellContent } from "../../../../types";
 import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import {
@@ -55,6 +56,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const [error, setError] = useState<string | null>(null);
     const [playing, setPlaying] = useState(false);
     const [volume, setVolume] = useState(1);
+    // `muted` must be a controlled prop on ReactPlayer. The underlying media element (a
+    // <video>, or for HLS an <hls-video> whose React wrapper re-applies element props on every
+    // render) otherwise gets muted reset to the prop's default (false) on each re-render —
+    // stomping the imperative `videoElement.muted = true` that "Play Video" and the multi-cell
+    // overlay use to silence the video while recorded audio plays. We sync this from the
+    // element's volumechange events (see the volume effect) so imperative mutes stick.
+    const [muted, setMuted] = useState(false);
     const lastVideoElementForVolumeRef = useRef<HTMLVideoElement | null>(null);
 
     // Alternate audio (dub) tracks carried by an HLS stream, plus which one is active.
@@ -159,42 +167,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         };
     }
 
-    // Helper function to get the actual video element from ReactPlayer ref
-    const getVideoElement = useCallback((): HTMLVideoElement | null => {
-        if (!playerRef.current) return null;
-
-        // ReactPlayer v3 may return the video element directly, or we need to get it via getInternalPlayer
-        const internalPlayer = playerRef.current.getInternalPlayer?.();
-        if (internalPlayer instanceof HTMLVideoElement) {
-            return internalPlayer;
-        }
-
-        // If getInternalPlayer returns an object, try to find the video element
-        if (internalPlayer && typeof internalPlayer === "object") {
-            const foundVideo =
-                (internalPlayer as any).querySelector?.("video") ||
-                (internalPlayer as any).video ||
-                internalPlayer;
-            if (foundVideo instanceof HTMLVideoElement) {
-                return foundVideo;
-            }
-        }
-
-        // Check if playerRef.current itself is a video element
-        if (playerRef.current instanceof HTMLVideoElement) {
-            return playerRef.current;
-        }
-
-        // Try to find video element in the DOM near the ref
-        const wrapper = playerRef.current as any;
-        const foundVideo =
-            wrapper.querySelector?.("video") || wrapper.parentElement?.querySelector?.("video");
-        if (foundVideo instanceof HTMLVideoElement) {
-            return foundVideo;
-        }
-
-        return null;
-    }, [playerRef]);
+    // Helper function to get the actual video element from ReactPlayer ref. For HLS this
+    // reaches into the <hls-video> custom element's shadow DOM (see resolveVideoElement).
+    const getVideoElement = useCallback(
+        (): HTMLVideoElement | null => resolveVideoElement(playerRef.current),
+        [playerRef]
+    );
 
     // For HLS, react-player renders an <hls-video> custom element whose ref carries a
     // standard AudioTrackList (populated by hls.js as the manifest parses). That element
@@ -296,7 +274,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     );
 
     // Own volume and re-apply on every render so it sticks despite something resetting the element.
-    // Sync from native control via volumechange so user adjustments are kept in state.
+    // volumechange also fires when `muted` changes, so we mirror both volume and muted into state.
+    // Capturing muted here is what lets imperative mutes (Play Video / multi-cell overlay) survive:
+    // it flows into the controlled `muted` prop below instead of being reset on the next render.
     useEffect(() => {
         const videoElement = getVideoElement();
         if (!videoElement) return;
@@ -305,7 +285,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (isNewElement) {
             lastVideoElementForVolumeRef.current = videoElement;
             videoElement.volume = volume;
-            const onVolumeChange = () => setVolume(videoElement.volume);
+            // Mirror volume *and* muted (volumechange fires for both) so imperative mutes from
+            // "Play Video" / the multi-cell overlay flow into the controlled `muted` prop and stick.
+            const onVolumeChange = () => {
+                setVolume(videoElement.volume);
+                setMuted(videoElement.muted);
+            };
             videoElement.addEventListener("volumechange", onVolumeChange);
             return () => {
                 videoElement.removeEventListener("volumechange", onVolumeChange);
@@ -315,7 +300,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         videoElement.volume = volume;
     });
 
-    // Add subtitle tracks for local videos (React Player v3 uses standard HTML video elements)
+    // Add subtitle tracks for local videos (React Player v3 uses standard HTML video elements).
+    // subtitleUrl is a fresh blob URL whenever the cell text changes, so this re-runs on every
+    // edit and must make the *new* cue actually display.
     useEffect(() => {
         if (subtitleUrl && showSubtitles && !isYouTubeUrl) {
             // Use a small delay to ensure ReactPlayer has mounted and the ref is available
@@ -332,9 +319,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 track.kind = "subtitles";
                 track.src = subtitleUrl;
                 track.srclang = "en"; // FIXME: make this dynamic
-                track.label = "English"; // FIXME: make this dynamic
+                // Distinct label so this editor-content caption is identifiable in the native
+                // menu, which for HLS streams is otherwise crowded with the stream's own
+                // (often 100+) embedded subtitle renditions. FIXME: localize.
+                track.label = "Your translation";
                 track.default = true;
+
+                // A dynamically inserted <track> starts as mode "disabled", and the `default`
+                // attribute is only honored during the media element's initial track selection —
+                // not for tracks added after load. So without this, the first caption shows but
+                // edits never replace it (the stale cue just lingers). Force the new track to
+                // display, both immediately and once it has loaded (engines differ on timing).
+                const showTrack = () => {
+                    if (track.track) track.track.mode = "showing";
+                };
+                track.addEventListener("load", showTrack, { once: true });
                 videoElement.appendChild(track);
+                showTrack();
             }, 100);
 
             return () => clearTimeout(timeoutId);
@@ -418,6 +419,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         playing={playing}
                         controls={true}
                         volume={volume}
+                        muted={muted}
                         width="100%"
                         height={playerHeight}
                         onError={handleError}
