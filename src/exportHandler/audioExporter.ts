@@ -692,15 +692,79 @@ type ResolveResult =
     | { data: Uint8Array; error?: undefined; }
     | { data?: undefined; error: string; };
 
+/** Minimal slice of the Frontier auth API used to stream LFS objects for export. */
+export type FrontierLfsApi = {
+    downloadLFSFile: (projectPath: string, oid: string, size: number, signal?: AbortSignal) => Promise<Uint8Array>;
+};
+
+/**
+ * Prepares the Frontier LFS download path for an audio export. In
+ * `auto-download` mode no streaming is needed, so this resolves to a null
+ * `frontierApi` (local bytes are read directly). In `stream-only` /
+ * `stream-and-save` it enforces the media version gates and grabs the auth
+ * API, returning a descriptive `error` string when streaming is required but
+ * unavailable so the caller can surface a clear message instead of silently
+ * writing zero files.
+ *
+ * Shared by both the per-cell exporter (`exportAudioAttachments`) and the
+ * consolidate-by-character exporter so they behave identically in every media
+ * strategy.
+ */
+export async function setupAudioStreaming(
+    workspaceFolderUri: vscode.Uri
+): Promise<{ frontierApi: FrontierLfsApi | null; error?: string; }> {
+    const mediaStrategy = await getMediaFilesStrategy(workspaceFolderUri);
+    const mayNeedStreaming = mediaStrategy === "stream-only" || mediaStrategy === "stream-and-save";
+    if (!mayNeedStreaming) {
+        return { frontierApi: null };
+    }
+
+    // Enforce version gates before attempting any LFS operations.
+    try {
+        const { ensureAllVersionGatesForMedia } = await import("../utils/versionGate");
+        const allowed = await ensureAllVersionGatesForMedia(true);
+        if (!allowed) {
+            return {
+                frontierApi: null,
+                error: "Audio export requires a compatible version of Frontier. Please update and try again.",
+            };
+        }
+    } catch (gateErr) {
+        debug("Version gate check failed:", gateErr);
+    }
+
+    let frontierApi: FrontierLfsApi | null = null;
+    try {
+        const { getAuthApi } = await import("../extension");
+        const api = getAuthApi();
+        if (api?.downloadLFSFile) {
+            frontierApi = api;
+        }
+    } catch {
+        // Frontier not available — reported below.
+    }
+
+    if (!frontierApi) {
+        return {
+            frontierApi: null,
+            error:
+                "Cannot export audio in streaming mode: Frontier authentication is not available. " +
+                "Please ensure you are online and signed in, or switch to Auto Download mode first.",
+        };
+    }
+
+    return { frontierApi };
+}
+
 /**
  * Reads audio bytes from disk, resolving LFS pointers on-the-fly via the
  * Frontier API when the file is a stub.  Falls back to the pointers/ directory
  * if the files/ entry doesn't exist at all.
  */
-async function resolveAudioBytes(
+export async function resolveAudioBytes(
     absoluteSrc: vscode.Uri,
     workspaceFolderUri: vscode.Uri,
-    frontierApi: { downloadLFSFile: (projectPath: string, oid: string, size: number, signal?: AbortSignal) => Promise<Uint8Array>; } | null,
+    frontierApi: FrontierLfsApi | null,
     signal?: AbortSignal
 ): Promise<ResolveResult> {
     const projectPath = workspaceFolderUri.fsPath;
@@ -795,44 +859,12 @@ export async function exportAudioAttachments(
         return;
     }
 
-    // Determine if we may need to stream audio from LFS
-    const mediaStrategy = await getMediaFilesStrategy(workspaceFolder.uri);
-    const mayNeedStreaming = mediaStrategy === "stream-only" || mediaStrategy === "stream-and-save";
-
-    // Obtain the Frontier API for LFS downloads (may be null if not available)
-    let frontierApi: { downloadLFSFile: (projectPath: string, oid: string, size: number, signal?: AbortSignal) => Promise<Uint8Array>; } | null = null;
-    if (mayNeedStreaming) {
-        // Enforce version gates before attempting any LFS operations
-        try {
-            const { ensureAllVersionGatesForMedia } = await import("../utils/versionGate");
-            const allowed = await ensureAllVersionGatesForMedia(true);
-            if (!allowed) {
-                reporter.error(
-                    "Audio export requires a compatible version of Frontier. Please update and try again."
-                );
-                return;
-            }
-        } catch (gateErr) {
-            debug("Version gate check failed:", gateErr);
-        }
-
-        try {
-            const { getAuthApi } = await import("../extension");
-            const api = getAuthApi();
-            if (api?.downloadLFSFile) {
-                frontierApi = api;
-            }
-        } catch {
-            // Frontier not available — will be handled per-file
-        }
-
-        if (!frontierApi) {
-            reporter.error(
-                "Cannot export audio in streaming mode: Frontier authentication is not available. " +
-                "Please ensure you are online and signed in, or switch to Auto Download mode first."
-            );
-            return;
-        }
+    // Determine if we may need to stream audio from LFS and obtain the Frontier
+    // API for downloads (null when running in auto-download mode).
+    const { frontierApi, error: streamingSetupError } = await setupAudioStreaming(workspaceFolder.uri);
+    if (streamingSetupError) {
+        reporter.error(streamingSetupError);
+        return;
     }
 
     let copiedCount = 0;
