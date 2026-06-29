@@ -1,8 +1,25 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import ReactPlayer from "react-player";
+import { Languages } from "lucide-react";
 import { useSubtitleData } from "./utils/vttUtils";
 import { QuillCellContent } from "../../../../types";
 import type { ReactPlayerRef } from "./types/reactPlayerTypes";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuLabel,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
+    DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu";
+import { Button } from "../components/ui/button";
+
+/** A selectable audio (dub) track exposed by an HLS stream. */
+interface AudioTrackOption {
+    id: string;
+    label: string;
+    language: string;
+}
 
 interface VideoPlayerProps {
     playerRef: React.RefObject<ReactPlayerRef>;
@@ -40,8 +57,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const [volume, setVolume] = useState(1);
     const lastVideoElementForVolumeRef = useRef<HTMLVideoElement | null>(null);
 
+    // Alternate audio (dub) tracks carried by an HLS stream, plus which one is active.
+    // These belong to the source video itself and are independent of the per-cell
+    // recorded audio attachments (those play via separate <audio> elements and only
+    // mute this <video>, so switching the source language here never touches them).
+    const [audioTracks, setAudioTracks] = useState<AudioTrackOption[]>([]);
+    const [activeAudioTrackId, setActiveAudioTrackId] = useState<string | null>(null);
+
     // Check if the URL is a YouTube URL
     const isYouTubeUrl = videoUrl?.includes("youtube.com") || videoUrl?.includes("youtu.be");
+
+    // HLS streams (.m3u8) are the only sources that expose alternate audio tracks.
+    const isHlsUrl = /\.m3u8(\?|#|$)/i.test(videoUrl || "");
 
     const handleError = (error: any) => {
         console.error("Video player error:", error);
@@ -169,6 +196,105 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         return null;
     }, [playerRef]);
 
+    // For HLS, react-player renders an <hls-video> custom element whose ref carries a
+    // standard AudioTrackList (populated by hls.js as the manifest parses). That element
+    // is what we read alternate audio tracks from and toggle to switch languages — not the
+    // inner <video>, which only sees the single track hls.js is currently feeding it.
+    const getAudioTrackHost = useCallback((): (HTMLElement & { audioTracks?: any }) | null => {
+        const node = playerRef.current as any;
+        if (!node) return null;
+        if (node.audioTracks && typeof node.audioTracks.addEventListener === "function") {
+            return node;
+        }
+        // Fallback in case the ref points at a wrapper rather than the custom element.
+        const host =
+            node.querySelector?.("hls-video") || node.parentElement?.querySelector?.("hls-video");
+        if (host?.audioTracks && typeof host.audioTracks.addEventListener === "function") {
+            return host;
+        }
+        return null;
+    }, [playerRef]);
+
+    // Subscribe to the stream's audio tracks. The custom element and the manifest both
+    // resolve asynchronously, so poll briefly until the AudioTrackList is reachable, then
+    // let its addtrack/removetrack/change events keep our state in sync.
+    useEffect(() => {
+        if (!isHlsUrl) {
+            setAudioTracks([]);
+            setActiveAudioTrackId(null);
+            return;
+        }
+
+        let trackList: (EventTarget & { length: number }) | null = null;
+        let pollId: ReturnType<typeof setInterval> | null = null;
+        let stopId: ReturnType<typeof setTimeout> | null = null;
+
+        const syncFromList = () => {
+            if (!trackList) return;
+            const next: AudioTrackOption[] = [];
+            let active: string | null = null;
+            for (const t of Array.from(trackList as any) as any[]) {
+                const id = String(t.id);
+                next.push({ id, label: t.label || t.language || id, language: t.language || "" });
+                if (t.enabled) active = id;
+            }
+            setAudioTracks(next);
+            setActiveAudioTrackId(active);
+        };
+
+        const detach = () => {
+            if (!trackList) return;
+            trackList.removeEventListener("addtrack", syncFromList);
+            trackList.removeEventListener("removetrack", syncFromList);
+            trackList.removeEventListener("change", syncFromList);
+            trackList = null;
+        };
+
+        const tryAttach = (): boolean => {
+            const list = getAudioTrackHost()?.audioTracks;
+            if (!list) return false;
+            trackList = list;
+            list.addEventListener("addtrack", syncFromList);
+            list.addEventListener("removetrack", syncFromList);
+            list.addEventListener("change", syncFromList);
+            syncFromList();
+            return true;
+        };
+
+        if (!tryAttach()) {
+            pollId = setInterval(() => {
+                if (tryAttach() && pollId) {
+                    clearInterval(pollId);
+                    pollId = null;
+                }
+            }, 200);
+            // Give up polling after a while; a stream with no audio tracks is fine.
+            stopId = setTimeout(() => {
+                if (pollId) clearInterval(pollId);
+            }, 10000);
+        }
+
+        return () => {
+            if (pollId) clearInterval(pollId);
+            if (stopId) clearTimeout(stopId);
+            detach();
+        };
+    }, [isHlsUrl, videoUrl, getAudioTrackHost]);
+
+    // Enable exactly the chosen track; the <hls-video> element relays this to hls.js.
+    const handleSelectAudioTrack = useCallback(
+        (id: string) => {
+            const list = getAudioTrackHost()?.audioTracks;
+            if (!list) return;
+            for (const t of Array.from(list) as any[]) {
+                const shouldEnable = String(t.id) === id;
+                if (t.enabled !== shouldEnable) t.enabled = shouldEnable;
+            }
+            setActiveAudioTrackId(id);
+        },
+        [getAudioTrackHost]
+    );
+
     // Own volume and re-apply on every render so it sticks despite something resetting the element.
     // Sync from native control via volumechange so user adjustments are kept in state.
     useEffect(() => {
@@ -267,6 +393,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
     }, [videoUrl]);
 
+    const audioLanguageLabel =
+        audioTracks.find((track) => track.id === activeAudioTrackId)?.label ?? "Audio";
+
     return (
         <div style={{ position: "relative" }}>
             <div
@@ -309,6 +438,39 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     />
                 )}
             </div>
+            {videoUrl && !error && audioTracks.length > 1 && (
+                <div style={{ position: "absolute", top: 8, right: 8, zIndex: 2 }}>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                className="gap-1.5 bg-black/60 text-white hover:bg-black/80 backdrop-blur-sm"
+                                title="Audio language"
+                            >
+                                <Languages className="size-4" />
+                                {audioLanguageLabel}
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                            align="end"
+                            className="max-h-72 overflow-y-auto"
+                        >
+                            <DropdownMenuLabel>Audio language</DropdownMenuLabel>
+                            <DropdownMenuRadioGroup
+                                value={activeAudioTrackId ?? ""}
+                                onValueChange={handleSelectAudioTrack}
+                            >
+                                {audioTracks.map((track) => (
+                                    <DropdownMenuRadioItem key={track.id} value={track.id}>
+                                        {track.label}
+                                    </DropdownMenuRadioItem>
+                                ))}
+                            </DropdownMenuRadioGroup>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+            )}
         </div>
     );
 };
