@@ -25,6 +25,7 @@ global.acquireVsCodeApi = vi.fn().mockReturnValue(mockVscode);
 
 vi.mock("@sharedUtils", () => ({
     shouldDisableValidation: vi.fn().mockReturnValue(false),
+    formatTimecode: vi.fn((seconds: number) => String(seconds)),
 }));
 
 vi.mock("../contextProviders/UnsavedChangesContext", () => ({
