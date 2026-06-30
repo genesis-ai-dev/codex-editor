@@ -21,6 +21,8 @@ interface VerseRepairCell {
     cell: any;
     id: string;
     ref: string;
+    book: string;
+    chapter: number;
     verses: number[];
     isRange: boolean;
     content: boolean;
@@ -128,8 +130,10 @@ export function planVerseDuplicationRepair(cells: any[]): VerseDuplicationRepair
     const conflicts: Array<{ chapter: number; refs: string[] }> = [];
     if (!Array.isArray(cells) || cells.length === 0) return { tombstoneIds, conflicts };
 
-    // Live text cells with a parseable ref, grouped by chapter.
-    const byChapter = new Map<number, VerseRepairCell[]>();
+    // Live text cells with a parseable ref, grouped by BOOK + chapter. Grouping by book is
+    // essential for multi-book notebooks (e.g. a "GEN-DEU" study-bible file): without it, GEN 1:1
+    // and EXO 1:1 share the same chapter:verse and would be wrongly treated as duplicates.
+    const byBookChapter = new Map<string, VerseRepairCell[]>();
     for (const cell of cells) {
         const md = cell?.metadata;
         if (md?.type !== CodexCellTypes.TEXT) continue;
@@ -147,19 +151,24 @@ export function planVerseDuplicationRepair(cells: any[]): VerseDuplicationRepair
             verses.push(parsed.verse);
         }
         if (verses.length === 0) continue;
-        const arr = byChapter.get(parsed.chapter) || [];
+        const key = `${parsed.book} ${parsed.chapter}`;
+        const arr = byBookChapter.get(key) || [];
         arr.push({
             cell,
             id,
             ref,
+            book: parsed.book,
+            chapter: parsed.chapter,
             verses,
             isRange: parsed.kind === "range",
             content: verseRepairHasContent(cell.value),
         });
-        byChapter.set(parsed.chapter, arr);
+        byBookChapter.set(key, arr);
     }
 
-    for (const [chapter, chCells] of byChapter) {
+    for (const groupCells of byBookChapter.values()) {
+        const chCells = groupCells;
+        const chapter = chCells[0].chapter;
         // Dominant structural form among CONTENT cells in this chapter.
         let rangeCount = 0;
         let singleCount = 0;
@@ -191,6 +200,13 @@ export function planVerseDuplicationRepair(cells: any[]): VerseDuplicationRepair
                         }
             }
             if (cluster.length < 2) continue; // no duplication
+
+            // Only the verse-RANGE/single duplication pattern (issue #848) is eligible: a cluster
+            // must contain at least one range cell. Pure-single overlaps — e.g. a study bible with
+            // many note cells sharing one verse ref, or any other repeated single ref — are left
+            // entirely untouched (neither tombstoned nor flagged), since they are not the merge
+            // duplication this repair targets and may be legitimate.
+            if (!cluster.some((c) => c.isRange)) continue;
 
             const result = classifyVerseCluster(cluster, dominantForm);
             if (result.conflict) {

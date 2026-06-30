@@ -93,4 +93,26 @@ suite("planVerseDuplicationRepair - issue #848 verse-range/single duplication", 
         assert.strictEqual(plan.conflicts.length, 1);
         assert.strictEqual(plan.tombstoneIds.length, 0);
     });
+
+    test("multi-book file: same chapter:verse in different books are NOT treated as duplicates", () => {
+        const plan = planVerseDuplicationRepair([
+            vCell("g", "GEN 1:1", "<p>in the beginning</p>"),
+            vCell("e", "EXO 1:1", "<p>these are the names</p>"),
+            vCell("er", "EXO 1:1-2", "<p>names range</p>"), // range only collides within EXO
+        ]);
+        // GEN 1:1 must not collide with EXO 1:1; the EXO range+single overlap is a conflict (both content).
+        assert.strictEqual(plan.tombstoneIds.length, 0);
+        assert.strictEqual(plan.conflicts.length, 1);
+        assert.strictEqual(plan.conflicts[0].refs.every((r) => r.startsWith("EXO")), true);
+    });
+
+    test("pure-single overlap with no range cell (e.g. study notes) is left untouched", () => {
+        const plan = planVerseDuplicationRepair([
+            vCell("a", "MAT 1:1", "<p>verse</p>"),
+            vCell("b", "MAT 1:1", "<p>study note on the verse</p>"),
+            vCell("c", "MAT 1:1", ""), // empty cell sharing the ref — must NOT be tombstoned
+        ]);
+        assert.strictEqual(plan.tombstoneIds.length, 0);
+        assert.strictEqual(plan.conflicts.length, 0);
+    });
 });
