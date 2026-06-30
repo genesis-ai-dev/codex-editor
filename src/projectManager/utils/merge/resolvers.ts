@@ -23,6 +23,7 @@ import {
     insertUniqueCellsPreservingRelativePositions,
 } from "./utils/positionPreservationUtils";
 import { reorderVerseRangeCells } from "./utils/verseRangeReorder";
+import { applyVerseDuplicationRepair } from "./utils/verseDuplicationRepair";
 
 const DEBUG_MODE = false;
 function debugLog(...args: any[]): void {
@@ -1282,6 +1283,17 @@ export async function resolveCodexCustomMerge(
             }
         }
     }
+
+    // Collapse verse-range/single duplication (issue #848) so two versifications of the same
+    // verses cannot both survive a merge and accumulate across syncs. Soft-deletes ONLY empty
+    // duplicate cells (never content); overlapping-content conflicts are left untouched. No-op
+    // for known non-Bible importer types. Runs before reorder so the survivors get re-sorted.
+    applyVerseDuplicationRepair(resultCells, {
+        importerType:
+            mergedMetadata?.importerType ??
+            ourMetadata?.importerType ??
+            theirMetadata?.importerType,
+    });
 
     // Re-apply verse-range reordering (and idempotent cellLabel/chapterNumber autofill) so
     // that the migrated cell ordering survives git syncs regardless of which side is "ours".
