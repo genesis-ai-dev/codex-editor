@@ -129,10 +129,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     const intentMatch = uriQuery.match(/intent=(source|target)/);
                     const initialIntent = intentMatch ? intentMatch[1] : undefined;
 
+                    const sourceLanguageTag = await this.getSourceLanguageTag();
+
                     webviewPanel.webview.postMessage({
                         command: "projectInventory",
                         inventory: inventory,
                         initialIntent,
+                        sourceLanguageTag,
                     });
                 } else if (message.command === "metadata.check") {
                     // Handle metadata check request
@@ -2001,6 +2004,22 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
     // Presents a concise overwrite confirmation with truncation and optional details view
     private async confirmOverwriteWithTruncation(items: Array<{ name: string; displayName: string; sourceExists: boolean; targetExists: boolean; hasTranslations: boolean; }>): Promise<boolean> {
         return confirmOverwriteWithDetails(items);
+    }
+
+    private async getSourceLanguageTag(): Promise<string | undefined> {
+        try {
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (!workspaceFolders?.length) return undefined;
+            const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+            const raw = await vscode.workspace.fs.readFile(metadataUri);
+            const metadata = JSON.parse(raw.toString());
+            const sourceLang = metadata.languages?.find(
+                (l: { projectStatus?: string }) => l.projectStatus === "source"
+            );
+            return sourceLang?.tag as string | undefined;
+        } catch {
+            return undefined;
+        }
     }
 
     private async fetchProjectInventory(): Promise<{
