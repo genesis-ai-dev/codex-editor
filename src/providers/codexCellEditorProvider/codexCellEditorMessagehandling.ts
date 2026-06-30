@@ -2052,6 +2052,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                 const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
                 if (workspaceUri) {
+                    // Cancel any in-flight download of the video being replaced so
+                    // it can't write back over the new selection (#1038).
+                    const { abortVideoOperation } = await import("./utils/videoDownloadUtils");
+                    abortVideoOperation(workspaceUri, oldVideoUrl);
                     await deleteLocalVideoFiles(oldVideoUrl, workspaceUri);
                 }
             }
@@ -2084,6 +2088,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         if (kind === "local") {
             const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
             if (workspaceUri) {
+                // Cancel any in-flight download of this video first, so a finishing
+                // download can't write its bytes back over the file we delete (#1038).
+                const { abortVideoOperation } = await import("./utils/videoDownloadUtils");
+                abortVideoOperation(workspaceUri, currentVideoUrl);
                 await deleteLocalVideoFiles(currentVideoUrl, workspaceUri);
             }
         }
