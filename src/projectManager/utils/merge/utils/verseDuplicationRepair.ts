@@ -39,6 +39,53 @@ export function verseRepairHasContent(value: unknown): boolean {
     return text.length > 0;
 }
 
+/**
+ * True when a cell carries a non-deleted attachment (recorded audio, etc.) that must not be
+ * silently dropped. Mirrors the app's "has live audio" check (an attachment whose `isDeleted`
+ * flag is not set); treats ANY live attachment as preservable so no recorded media is lost, even
+ * when the underlying file is currently missing locally.
+ */
+function cellHasLiveAttachment(cell: any): boolean {
+    const attachments = cell?.metadata?.attachments;
+    if (!attachments || typeof attachments !== "object") return false;
+    for (const key of Object.keys(attachments)) {
+        const att = attachments[key];
+        if (att && att.isDeleted !== true) return true;
+    }
+    return false;
+}
+
+/** A cell holds data worth preserving when it has real text OR a live attachment (e.g. audio). */
+function cellHasPreservableContent(cell: any): boolean {
+    return verseRepairHasContent(cell?.value) || cellHasLiveAttachment(cell);
+}
+
+/** True when a cell carries live (non-deleted) audio specifically — used to label conflicts. */
+function cellHasLiveAudio(cell: any): boolean {
+    const attachments = cell?.metadata?.attachments;
+    if (!attachments || typeof attachments !== "object") return false;
+    for (const key of Object.keys(attachments)) {
+        const att = attachments[key];
+        if (att && att.type === "audio" && att.isDeleted !== true) return true;
+    }
+    return false;
+}
+
+/** Concise passage label for a conflict cluster, e.g. "MAT 8:14-15". */
+function conflictLabel(cluster: VerseRepairCell[]): string {
+    const book = cluster[0]?.book ?? "";
+    const chapter = cluster[0]?.chapter ?? "";
+    let minV = Infinity;
+    let maxV = -Infinity;
+    for (const c of cluster)
+        for (const v of c.verses) {
+            if (v < minV) minV = v;
+            if (v > maxV) maxV = v;
+        }
+    if (!Number.isFinite(minV)) return `${book} ${chapter}`.trim();
+    return maxV > minV ? `${book} ${chapter}:${minV}-${maxV}` : `${book} ${chapter}:${minV}`;
+}
+
 function verseRepairIsCoveredByKept(
     v: number,
     cluster: VerseRepairCell[],
@@ -117,7 +164,7 @@ function classifyVerseCluster(
 
 export interface VerseDuplicationRepairPlan {
     tombstoneIds: string[];
-    conflicts: Array<{ chapter: number; refs: string[] }>;
+    conflicts: Array<{ chapter: number; refs: string[]; hasAudio: boolean; label: string }>;
 }
 
 /**
@@ -127,7 +174,7 @@ export interface VerseDuplicationRepairPlan {
  */
 export function planVerseDuplicationRepair(cells: any[]): VerseDuplicationRepairPlan {
     const tombstoneIds: string[] = [];
-    const conflicts: Array<{ chapter: number; refs: string[] }> = [];
+    const conflicts: Array<{ chapter: number; refs: string[]; hasAudio: boolean; label: string }> = [];
     if (!Array.isArray(cells) || cells.length === 0) return { tombstoneIds, conflicts };
 
     // Live text cells with a parseable ref, grouped by BOOK + chapter. Grouping by book is
@@ -161,7 +208,7 @@ export function planVerseDuplicationRepair(cells: any[]): VerseDuplicationRepair
             chapter: parsed.chapter,
             verses,
             isRange: parsed.kind === "range",
-            content: verseRepairHasContent(cell.value),
+            content: cellHasPreservableContent(cell),
         });
         byBookChapter.set(key, arr);
     }
@@ -210,7 +257,12 @@ export function planVerseDuplicationRepair(cells: any[]): VerseDuplicationRepair
 
             const result = classifyVerseCluster(cluster, dominantForm);
             if (result.conflict) {
-                conflicts.push({ chapter, refs: cluster.map((c) => c.ref) });
+                conflicts.push({
+                    chapter,
+                    refs: cluster.map((c) => c.ref),
+                    hasAudio: cluster.some((c) => cellHasLiveAudio(c.cell)),
+                    label: conflictLabel(cluster),
+                });
                 continue;
             }
             for (const id of result.tombstone) tombstoneIds.push(id);
@@ -258,7 +310,7 @@ export function applyVerseDuplicationRepair(
         if (!cell) continue;
         const md = cell.metadata || (cell.metadata = {});
         if (md.data?.deleted === true) continue;
-        if (verseRepairHasContent(cell.value)) continue; // never delete content
+        if (cellHasPreservableContent(cell)) continue; // never delete text or audio/attachments
         md.data = md.data || {};
         md.data.deleted = true;
         md.edits = md.edits || [];

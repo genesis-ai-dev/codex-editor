@@ -3492,7 +3492,12 @@ export const migration_recoverMissingMergedChildren = async (): Promise<void> =>
 export async function repairVerseRangeDuplicationForFile(
     fileUri: vscode.Uri,
     options?: { dryRun?: boolean }
-): Promise<{ changed: boolean; tombstoned: number; conflicts: number }> {
+): Promise<{
+    changed: boolean;
+    tombstoned: number;
+    conflicts: number;
+    conflictPassages: Array<{ label: string; hasAudio: boolean }>;
+}> {
     const dryRun = options?.dryRun ?? false;
     try {
         const fileContent = await vscode.workspace.fs.readFile(fileUri);
@@ -3502,14 +3507,14 @@ export async function repairVerseRangeDuplicationForFile(
             new vscode.CancellationTokenSource().token
         );
         const cells: any[] = notebookData.cells || [];
-        if (cells.length === 0) return { changed: false, tombstoned: 0, conflicts: 0 };
+        if (cells.length === 0) return { changed: false, tombstoned: 0, conflicts: 0, conflictPassages: [] };
 
         const importerType: string | null | undefined = notebookData?.metadata?.importerType;
         const isNonBibleDoc =
             typeof importerType === "string" &&
             importerType.trim().length > 0 &&
             !isBibleTypeImporter(importerType);
-        if (isNonBibleDoc) return { changed: false, tombstoned: 0, conflicts: 0 };
+        if (isNonBibleDoc) return { changed: false, tombstoned: 0, conflicts: 0, conflictPassages: [] };
 
         if (dryRun) {
             const plan = planVerseDuplicationRepair(cells);
@@ -3519,6 +3524,7 @@ export async function repairVerseRangeDuplicationForFile(
                 changed: plan.tombstoneIds.length > 0 || reordered.orderChanged,
                 tombstoned: plan.tombstoneIds.length,
                 conflicts: plan.conflicts.length,
+                conflictPassages: plan.conflicts.map((c) => ({ label: c.label, hasAudio: c.hasAudio })),
             };
         }
 
@@ -3529,7 +3535,7 @@ export async function repairVerseRangeDuplicationForFile(
         // intervening milestones — safe here because the empty duplicates were just soft-deleted.
         const reordered = reorderVerseRangeCells(cells, { importerType, repairMode: true });
         const changed = tombstoned > 0 || reordered.orderChanged;
-        if (!changed) return { changed: false, tombstoned, conflicts };
+        if (!changed) return { changed: false, tombstoned, conflicts, conflictPassages: [] };
 
         notebookData.cells = reordered.cells;
         const updatedContent = await serializer.serializeNotebook(
@@ -3537,10 +3543,10 @@ export async function repairVerseRangeDuplicationForFile(
             new vscode.CancellationTokenSource().token
         );
         await vscode.workspace.fs.writeFile(fileUri, updatedContent);
-        return { changed: true, tombstoned, conflicts };
+        return { changed: true, tombstoned, conflicts, conflictPassages: [] };
     } catch (error) {
         console.error(`Error repairing verse-range duplication for ${fileUri.fsPath}:`, error);
-        return { changed: false, tombstoned: 0, conflicts: 0 };
+        return { changed: false, tombstoned: 0, conflicts: 0, conflictPassages: [] };
     }
 }
 
@@ -3567,6 +3573,7 @@ export const migration_repairVerseRangeDuplication = async (): Promise<void> => 
         if (allFiles.length === 0) return;
 
         const affected: Array<{ uri: vscode.Uri; tombstoned: number; }> = [];
+        const conflictPassages: Array<{ label: string; hasAudio: boolean }> = [];
         let totalTombstones = 0;
         let totalConflicts = 0;
 
@@ -3592,6 +3599,7 @@ export const migration_repairVerseRangeDuplication = async (): Promise<void> => 
                             totalTombstones += report.tombstoned;
                         }
                         totalConflicts += report.conflicts;
+                        conflictPassages.push(...report.conflictPassages);
                     } catch (error) {
                         console.error(`Error scanning ${file.fsPath} for verse duplication:`, error);
                     }
@@ -3599,12 +3607,41 @@ export const migration_repairVerseRangeDuplication = async (): Promise<void> => 
             }
         );
 
+        // Non-modal toast listing the specific passages that need manual review (both forms carry
+        // content — e.g. audio recorded into a duplicated cell). Shown after the confirm modal so
+        // it survives past it, and logged in full for reference.
+        const showConflictToast = () => {
+            if (conflictPassages.length === 0) return;
+            const audioCount = conflictPassages.filter((c) => c.hasAudio).length;
+            const LIMIT = 12;
+            const list = conflictPassages
+                .slice(0, LIMIT)
+                .map((c) => (c.hasAudio ? `${c.label} (audio)` : c.label))
+                .join(", ");
+            const more =
+                conflictPassages.length > LIMIT
+                    ? ` …and ${conflictPassages.length - LIMIT} more`
+                    : "";
+            const audioNote =
+                audioCount > 0
+                    ? ` ${audioCount} contain recorded audio — resolve manually so it isn't lost.`
+                    : "";
+            void vscode.window.showWarningMessage(
+                `Verse-duplication repair: ${conflictPassages.length} passage(s) need manual review (both forms have content).${audioNote} ${list}${more}`
+            );
+            console.log(
+                "[verse-duplication repair] conflicts needing manual review:",
+                conflictPassages.map((c) => (c.hasAudio ? `${c.label} (audio)` : c.label)).join(", ")
+            );
+        };
+
         if (affected.length === 0) {
             await vscode.window.showInformationMessage(
-                totalConflicts > 0
-                    ? `No auto-repairable duplicated verse cells found. ${totalConflicts} overlapping-content conflict(s) need manual review.`
+                conflictPassages.length > 0
+                    ? "No auto-repairable duplicated verse cells found."
                     : "No duplicated verse cells detected."
             );
+            showConflictToast();
             return;
         }
 
@@ -3628,6 +3665,9 @@ export const migration_repairVerseRangeDuplication = async (): Promise<void> => 
             { modal: true, detail },
             "Apply"
         );
+        // Surface the manual-review passages as a persistent (non-modal) toast the moment the
+        // modal closes — shown whether or not the user applies the repair.
+        showConflictToast();
         if (choice !== "Apply") return;
 
         const appliedFilePaths: string[] = [];
@@ -3673,7 +3713,7 @@ export const migration_repairVerseRangeDuplication = async (): Promise<void> => 
             }
         }
 
-        await vscode.window.showInformationMessage(
+        void vscode.window.showInformationMessage(
             `Verse-duplication repair complete: ${appliedFilePaths.length} file(s) updated, ${totalTombstones} duplicate(s) removed.`
         );
     } catch (error) {

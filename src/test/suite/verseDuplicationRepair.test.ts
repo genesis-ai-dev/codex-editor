@@ -115,4 +115,48 @@ suite("planVerseDuplicationRepair - issue #848 verse-range/single duplication", 
         assert.strictEqual(plan.tombstoneIds.length, 0);
         assert.strictEqual(plan.conflicts.length, 0);
     });
+
+    test("audio recorded in a duplicate cell is preserved (treated as content, flagged not tombstoned)", () => {
+        const audioCell = {
+            kind: 2,
+            languageId: "scripture",
+            value: "", // empty text, but the translator recorded audio into it
+            metadata: {
+                id: "aud",
+                type: CodexCellTypes.TEXT,
+                data: { globalReferences: ["MAT 8:14"] },
+                attachments: { "audio-1": { url: "x.wav", type: "audio", isDeleted: false } },
+                edits: [],
+            },
+        };
+        const plan = planVerseDuplicationRepair([
+            vCell("r", "MAT 8:14-15", "<p>combined translation</p>"),
+            audioCell,
+            vCell("s15", "MAT 8:15", ""),
+        ]);
+        assert.strictEqual(plan.tombstoneIds.includes("aud"), false); // audio cell must never be tombstoned
+        assert.strictEqual(plan.tombstoneIds.length, 0); // conflict defers the whole cluster to manual review
+        assert.strictEqual(plan.conflicts.length, 1); // warned, exactly like text-vs-text
+    });
+
+    test("a deleted audio attachment does NOT protect an otherwise-empty duplicate", () => {
+        const staleAudioCell = {
+            kind: 2,
+            languageId: "scripture",
+            value: "",
+            metadata: {
+                id: "s14",
+                type: CodexCellTypes.TEXT,
+                data: { globalReferences: ["MAT 8:14"] },
+                attachments: { "audio-1": { url: "x.wav", type: "audio", isDeleted: true } },
+                edits: [],
+            },
+        };
+        const plan = planVerseDuplicationRepair([
+            vCell("r", "MAT 8:14-15", "<p>combined</p>"),
+            staleAudioCell,
+            vCell("s15", "MAT 8:15", ""),
+        ]);
+        assert.deepStrictEqual(plan.tombstoneIds.sort(), ["s14", "s15"]); // deleted audio = empty
+    });
 });
