@@ -12,6 +12,7 @@ import { getMediaFilesStrategy } from "../utils/localProjectSettings";
 import type { ExportProgressReporter, ExportMissingReason } from "./exportProgress";
 import { pickAudioAttachment, isExportableCell, countAvailableAlternativeTakes, countUsableNonMissingTakes, type AudioPick, type AudioPickOutcome } from "./audioAttachmentUtils";
 import { formatCellDisplayLabel } from "./cellLabelUtils";
+import { parseVerseRef } from "../utils/verseRefUtils";
 import { CodexCellTypes } from "../../types/enums";
 import { buildMilestoneIndexModel } from "../../sharedUtils/milestoneIndexUtils";
 
@@ -71,30 +72,13 @@ function sanitizeFolderName(input: string): string {
 }
 
 /**
- * Parses a cell reference ID (from globalReferences) to extract book, chapter, and verse.
- * Falls back to parsing cellId if globalReferences not available (legacy support).
+ * Manual book/chapter/verse split for refs that `parseVerseRef` can't handle
+ * (e.g. chapter-only "GEN 1" or otherwise malformed ids). Verse ranges never
+ * reach here — they are handled by `parseVerseRef` in the caller.
  */
-function parseCellIdToBookChapterVerse(cell: any, cellId: string): { book: string; chapter?: number; verse?: number; } {
-    // Try to get from globalReferences first
-    const globalRefs = cell?.metadata?.data?.globalReferences;
-    if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
-        const refId = globalRefs[0];
-        try {
-            const [book, rest] = refId.split(" ");
-            const [chapterStr, verseStr] = (rest || "").split(":");
-            let chapter: number | undefined = chapterStr ? Number(chapterStr) : undefined;
-            let verse: number | undefined = verseStr ? Number(verseStr) : undefined;
-            if (chapter !== undefined && !Number.isFinite(chapter)) chapter = undefined;
-            if (verse !== undefined && !Number.isFinite(verse)) verse = undefined;
-            return { book: (book || "").toUpperCase(), chapter, verse };
-        } catch {
-            return { book: "", chapter: undefined, verse: undefined };
-        }
-    }
-
-    // MILESTONES: This is a legacy fallback for cell IDs that don't have globalReferences.
+function fallbackParseRef(ref: string): { book: string; chapter?: number; verse?: number; } {
     try {
-        const [book, rest] = cellId.split(" ");
+        const [book, rest] = ref.split(" ");
         const [chapterStr, verseStr] = (rest || "").split(":");
         let chapter: number | undefined = chapterStr ? Number(chapterStr) : undefined;
         let verse: number | undefined = verseStr ? Number(verseStr) : undefined;
@@ -107,12 +91,66 @@ function parseCellIdToBookChapterVerse(cell: any, cellId: string): { book: strin
 }
 
 /**
- * Builds the chapter/verse segment for an export filename.
- * Returns e.g. "C1_V25" when both are available, "C1" for chapter only, or "" if neither.
+ * Derive a range end from a cell's label when it encodes a numeric range
+ * (e.g. "1-2"). A UI-merged cell keeps the kept cell's single-verse
+ * globalReference but records the merged span in its cellLabel, so this lets
+ * merged cells still export with the full V{start}-{end} span. Returns the end
+ * only when the label is a clean "{start}-{end}" whose start matches the verse
+ * we already resolved and whose end is greater — otherwise undefined (so odd or
+ * mismatched labels are ignored and we fall back to the single verse).
  */
-function formatChapterVerseSuffix(chapter?: number, verse?: number): string {
+function rangeEndFromCellLabel(cellLabel: unknown, verseStart: number): number | undefined {
+    if (typeof cellLabel !== "string") return undefined;
+    const match = cellLabel.trim().match(/^(\d+)\s*-\s*(\d+)$/);
+    if (!match) return undefined;
+    const start = parseInt(match[1]!, 10);
+    const end = parseInt(match[2]!, 10);
+    return start === verseStart && end > start ? end : undefined;
+}
+
+/**
+ * Parses a cell reference ID (from globalReferences) to extract book, chapter, and
+ * verse — including verse ranges, where `verse` is the range start and `verseEnd`
+ * is the range end (e.g. "1PE 3:1-2" -> { verse: 1, verseEnd: 2 }).
+ * Falls back to parsing cellId if globalReferences not available (legacy support),
+ * and to the cell's range cellLabel for UI-merged cells (single ref + "1-2" label).
+ */
+export function parseCellIdToBookChapterVerse(cell: any, cellId: string): { book: string; chapter?: number; verse?: number; verseEnd?: number; } {
+    // Prefer the cell's globalReferences ref, falling back to the raw cellId.
+    const globalRefs = cell?.metadata?.data?.globalReferences;
+    const refId = Array.isArray(globalRefs) && globalRefs.length > 0 ? globalRefs[0] : cellId;
+
+    // `parseVerseRef` handles both single verses and ranges (and strips legacy
+    // cell-id suffixes), so it is the source of truth when the ref is well-formed.
+    const parsed = parseVerseRef(refId);
+    const result = parsed
+        ? parsed.kind === "range"
+            ? { book: parsed.book.toUpperCase(), chapter: parsed.chapter, verse: parsed.verseStart, verseEnd: parsed.verseEnd as number | undefined }
+            : { book: parsed.book.toUpperCase(), chapter: parsed.chapter, verse: parsed.verse as number | undefined, verseEnd: undefined as number | undefined }
+        // MILESTONES: legacy/chapter-only fallback for ids parseVerseRef rejects.
+        : { ...fallbackParseRef(refId), verseEnd: undefined as number | undefined };
+
+    // When we only resolved a single verse, a range cellLabel (e.g. a merged
+    // cell's "1-2") supplies the span the ref itself doesn't carry.
+    if (result.verse !== undefined && result.verseEnd === undefined) {
+        result.verseEnd = rangeEndFromCellLabel(cell?.metadata?.cellLabel, result.verse);
+    }
+
+    return result;
+}
+
+/**
+ * Builds the chapter/verse segment for an export filename.
+ * Returns e.g. "C1_V25" for a single verse, "C3_V1-2" for a verse range,
+ * "C1" for chapter only, or "" if neither is available. A degenerate range
+ * (verseEnd === verse) collapses to the single-verse form.
+ */
+export function formatChapterVerseSuffix(chapter?: number, verse?: number, verseEnd?: number): string {
     if (chapter !== undefined && Number.isFinite(chapter)) {
         if (verse !== undefined && Number.isFinite(verse)) {
+            if (verseEnd !== undefined && Number.isFinite(verseEnd) && verseEnd !== verse) {
+                return `C${chapter}_V${verse}-${verseEnd}`;
+            }
             return `C${chapter}_V${verse}`;
         }
         return `C${chapter}`;
@@ -1083,8 +1121,8 @@ export async function exportAudioAttachments(
             const label = sanitizeFileComponent(String(labelRaw).toLowerCase());
             const lineNumber = dialogueMap.get(cellId) || 0;
 
-            const { chapter, verse } = parseCellIdToBookChapterVerse(cell, cellId);
-            const cvSuffix = formatChapterVerseSuffix(chapter, verse);
+            const { chapter, verse, verseEnd } = parseCellIdToBookChapterVerse(cell, cellId);
+            const cvSuffix = formatChapterVerseSuffix(chapter, verse, verseEnd);
 
             const outputExt = predictOutputExt(originalExt, includeTimestamps);
 
