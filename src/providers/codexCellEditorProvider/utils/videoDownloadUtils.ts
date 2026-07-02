@@ -242,6 +242,18 @@ export async function downloadVideoToProject(
         return { ok: false, error: "No LFS reference found for this video." };
     }
 
+    // Snapshot whatever files/ holds right now (a pointer stub, or nothing). An
+    // abort can land while the downloaded bytes are being WRITTEN — after the
+    // pre-write signal check below — and a large video's write takes real time.
+    // The post-write check restores this exact pre-download state so a cancel
+    // always wins and no downloaded bytes remain on disk.
+    let preDownloadStub: Uint8Array | undefined;
+    try {
+        preDownloadStub = await vscode.workspace.fs.readFile(paths.filesUri);
+    } catch {
+        preDownloadStub = undefined; // absent — reverting means deleting
+    }
+
     // Prefer MOVING an already-streamed copy out of the session cache instead of
     // re-downloading. The cached bytes are dropped after a successful write so
     // the video ends up in exactly one place (the project files/).
@@ -286,6 +298,22 @@ export async function downloadVideoToProject(
     const writtenIsPointer = await isPointerFile(paths.filesUri.fsPath).catch(() => true);
     if (writtenIsPointer) {
         return { ok: false, error: "The video file is not available after download." };
+    }
+
+    // A cancel (or delete/replace) that raced the write above: honor it now by
+    // reverting files/ to the pre-download snapshot, so the cancel wins and no
+    // downloaded bytes remain saved (issue #1038 follow-up).
+    if (signal?.aborted) {
+        try {
+            if (preDownloadStub) {
+                await vscode.workspace.fs.writeFile(paths.filesUri, preDownloadStub);
+            } else {
+                await vscode.workspace.fs.delete(paths.filesUri);
+            }
+        } catch {
+            // Best effort — worst case a complete (never partial) file remains.
+        }
+        return { ok: false, error: "Download cancelled." };
     }
 
     // Move semantics: now that the bytes live in the project, remove the
@@ -356,5 +384,15 @@ export async function downloadVideoToSessionCache(
         return { ok: false, error: "Download cancelled." };
     }
     await writeCachedVideo(extensionContext, pointer.oid, paths.ext, fetched.bytes);
+    // A cancel that raced the cache write: drop the entry so nothing remains.
+    if (signal?.aborted) {
+        try {
+            const { deleteCachedVideo } = await import("../../../utils/videoStreamCache");
+            await deleteCachedVideo(extensionContext, pointer.oid, paths.ext);
+        } catch {
+            // Best effort — the cache is ephemeral (cleared on reload) anyway.
+        }
+        return { ok: false, error: "Download cancelled." };
+    }
     return { ok: true };
 }

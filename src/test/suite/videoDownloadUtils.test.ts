@@ -217,4 +217,62 @@ suite("downloadVideoToProject — abort prevents file resurrection (#1038)", () 
         assert.strictEqual(result.ok, false);
         assert.strictEqual(await fileSize(), null, "the deleted video must stay gone");
     });
+
+    test("cancel that races the final WRITE reverts files/ to the pointer stub", async () => {
+        const SIZE = 1024;
+        await writePointer(SIZE);
+        const stubText = pointer(SIZE);
+
+        const controller = new AbortController();
+        // The downloader returns the full bytes, then the abort fires on the
+        // next event-loop turn — after the pre-write signal check (microtask
+        // chain) but while the fs createDirectory/writeFile awaits are pending.
+        // The post-write check must catch it and restore the stub.
+        extensionModule.getAuthApi = () => ({
+            downloadLFSFile: async (_p: string, _o: string, size: number) => {
+                setTimeout(() => controller.abort(), 0);
+                return Buffer.alloc(size, 0x61);
+            },
+        });
+
+        const result = await downloadVideoToProject(wsUri, videoRel, undefined, controller.signal);
+
+        assert.strictEqual(result.ok, false, "a cancelled download must report failure");
+        assert.strictEqual(result.error, "Download cancelled.");
+        const onDisk = Buffer.from(await vscode.workspace.fs.readFile(filesUri)).toString("utf-8");
+        assert.strictEqual(
+            onDisk,
+            stubText,
+            "files/ must be reverted to the exact pre-download pointer stub"
+        );
+    });
+
+    test("cancel that races the final WRITE deletes files/ when no stub pre-existed", async () => {
+        const SIZE = 512;
+        // Pointer lives only in attachments/pointers/ — files/ starts absent.
+        const pointersUri = vscode.Uri.joinPath(
+            wsUri,
+            videoRel.replace("attachments/files/", "attachments/pointers/")
+        );
+        await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(pointersUri, ".."));
+        await vscode.workspace.fs.writeFile(pointersUri, Buffer.from(pointer(SIZE), "utf-8"));
+
+        const controller = new AbortController();
+        extensionModule.getAuthApi = () => ({
+            downloadLFSFile: async (_p: string, _o: string, size: number) => {
+                setTimeout(() => controller.abort(), 0);
+                return Buffer.alloc(size, 0x61);
+            },
+        });
+
+        const result = await downloadVideoToProject(wsUri, videoRel, undefined, controller.signal);
+
+        assert.strictEqual(result.ok, false);
+        assert.strictEqual(result.error, "Download cancelled.");
+        assert.strictEqual(
+            await fileSize(),
+            null,
+            "files/ must be removed again — no downloaded bytes may remain saved"
+        );
+    });
 });
