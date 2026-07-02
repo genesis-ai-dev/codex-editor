@@ -63,6 +63,8 @@ export interface WizardState {
     selectedSourceDetails?: DetailedFileInfo;
     selectedPlugin?: string;
     projectInventory: ProjectInventory;
+    /** BCP-47 tag of the project's source language (from metadata.json). */
+    sourceLanguageTag?: string;
     isLoadingInventory: boolean;
     isLoadingFileDetails: boolean;
     fileDetailsError?: string;
@@ -82,6 +84,8 @@ export interface WizardContext {
     selectedSource?: BasicFileInfo;
     selectedSourceDetails?: DetailedFileInfo;
     projectInventory: ProjectInventory;
+    /** BCP-47 tag of the project's source language (from metadata.json). */
+    sourceLanguageTag?: string;
 }
 
 /**

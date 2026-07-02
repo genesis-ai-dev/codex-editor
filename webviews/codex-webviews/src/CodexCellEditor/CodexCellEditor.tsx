@@ -37,6 +37,7 @@ import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { clearCachedAudio } from "../lib/audioCache";
+import { setAudioDownloading } from "../lib/audioDownloadRegistry";
 import { createCacheHelpers, createProgressCacheHelpers } from "./utils";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import { FloatingSearchBar, SearchMatch } from "./FloatingSearchBar";
@@ -476,6 +477,26 @@ const CodexCellEditor: React.FC = () => {
         []
     );
 
+    // Clear the in-flight audio-download flag once the provider responds for a
+    // main-cell request. Lives at the always-mounted root so it fires whether or
+    // not the cell editor that started the download is still open. History-viewer
+    // fetches carry `requestedAudioId` and are ignored here.
+    useMessageHandler(
+        "codexCellEditor-audioDownloadComplete",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type !== "providerSendsAudioData") return;
+            const { cellId, requestedAudioId } = (message.content || {}) as {
+                cellId?: string;
+                requestedAudioId?: string;
+            };
+            if (cellId && !requestedAudioId) {
+                setAudioDownloading(cellId, false);
+            }
+        },
+        []
+    );
+
     // Batch transcription handler
     useMessageHandler(
         "codexCellEditor-startBatchTranscription",
@@ -487,11 +508,10 @@ const CodexCellEditor: React.FC = () => {
                     // Fetch ASR config
                     const asrConfig = await new Promise<{
                         endpoint: string;
-                        provider: string;
-                        model: string;
-                        language: string;
-                        phonetic: boolean;
                         authToken?: string;
+                        lang?: string;
+                        languageMode?: "auto" | "project";
+                        projectLanguageName?: string;
                     }>((resolve, reject) => {
                         let resolved = false;
                         const onMsg = (ev: MessageEvent) => {
@@ -523,28 +543,9 @@ const CodexCellEditor: React.FC = () => {
                         }, 5000);
                     });
 
-                    const toIso3 = (code?: string) => {
-                        const ISO2_TO_ISO3: Record<string, string> = {
-                            en: "eng",
-                            fr: "fra",
-                            es: "spa",
-                            de: "deu",
-                            pt: "por",
-                            it: "ita",
-                            nl: "nld",
-                            ru: "rus",
-                            zh: "zho",
-                            ja: "jpn",
-                            ko: "kor",
-                        };
-                        if (!code) return "eng";
-                        const norm = code.toLowerCase();
-                        return norm.length === 2 ? ISO2_TO_ISO3[norm] ?? "eng" : norm;
-                    };
-
                     const wsEndpoint =
                         asrConfig.endpoint ||
-                        "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
+                        "https://genesis-ai-dev--codex-asr-serve.modal.run/transcribe";
 
                     const targetCount = Math.max(0, message.content.count | 0);
                     const specificCellId: string | undefined = (message as any)?.content?.cellId;
@@ -613,7 +614,10 @@ const CodexCellEditor: React.FC = () => {
                                 next.add(cellId);
                                 return next;
                             });
-                            const result = await client.transcribe(blob);
+                            // Same lang-mode handling as the per-cell button: omit lang in
+                            // auto-detect mode, send the resolved code in project mode.
+                            const sentLang = asrConfig.languageMode === "auto" ? undefined : asrConfig.lang;
+                            const result = await client.transcribe(blob, { lang: sentLang });
                             const text = (result.text || "").trim();
                             if (text) {
                                 vscode.postMessage({
@@ -621,7 +625,7 @@ const CodexCellEditor: React.FC = () => {
                                     content: {
                                         cellId,
                                         transcribedText: text,
-                                        language: "unknown",
+                                        language: result.lang ?? sentLang ?? null,
                                     },
                                 } as unknown as EditorPostMessages);
 

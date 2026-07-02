@@ -545,6 +545,30 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                 command: "selectAudioAttachment",
                 content: { cellId, audioId: attachmentId },
             });
+
+            // Mirror the editor's auto-download behavior: when auto-download is
+            // enabled and the picked attachment isn't already available, the
+            // editor fetches it (see TextCellEditor's `audioAttachmentSelected`
+            // handler). Surface that in-flight download on this row too so the
+            // history list and the cell editor stay in sync. The matching
+            // `providerSendsAudioData` response (keyed on this attachmentId)
+            // clears the loading state.
+            const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
+            const autoFlag = (window as any).__autoDownloadAudioOnOpen;
+            const autoDownloadEnabled = autoInit ? !!autoFlag : false;
+            const state = entryAvailability[attachmentId];
+            const alreadyAvailable =
+                audioUrls.has(attachmentId) ||
+                state === "available-local" ||
+                state === "available-cached" ||
+                !!getCachedAttachmentAudioDataUrl(attachmentId);
+            if (autoDownloadEnabled && !alreadyAvailable && !loadingIds.has(attachmentId)) {
+                setLoadingIds((prev) => new Set(prev).add(attachmentId));
+                const timer = setTimeout(() => {
+                    setDelayedLoadingIds((prev) => new Set(prev).add(attachmentId));
+                }, 300);
+                loadingTimersRef.current.set(attachmentId, timer);
+            }
         }
     };
 
@@ -791,7 +815,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                                     title={hasError ? "File missing" : needsDownload ? "Download audio" : undefined}
                                                 >
                                                     {rowMode === "loading" ? (
-                                                        <span>Loading...</span>
+                                                        <span>Downloading...</span>
                                                     ) : rowMode === "error" ? (
                                                         <>
                                                             <XCircle className="h-4 w-4 mr-1" />

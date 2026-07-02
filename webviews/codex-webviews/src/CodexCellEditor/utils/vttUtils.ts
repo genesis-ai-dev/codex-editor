@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { QuillCellContent } from "../../../../../types";
 import { removeHtmlTags, formatTimecode } from "@sharedUtils";
 
@@ -11,6 +11,12 @@ export const useSubtitleData = (translationUnits: QuillCellContent[]) => {
         [subtitleData]
     );
     const subtitleUrl = useMemo(() => URL.createObjectURL(subtitleBlob), [subtitleBlob]);
+
+    // A new object URL is minted on every edit (each keystroke changes the cue text). Revoke
+    // the previous one when it changes and on unmount so editing sessions don't leak blobs.
+    useEffect(() => {
+        return () => URL.revokeObjectURL(subtitleUrl);
+    }, [subtitleUrl]);
 
     return { subtitleUrl, subtitleData };
 };

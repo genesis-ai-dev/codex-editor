@@ -705,7 +705,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             }
             case "getAsrSettings": {
                 const config = vscode.workspace.getConfiguration("codex-editor-extension");
-                let endpoint = config.get<string>("asrEndpoint", "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe");
+                let endpoint = config.get<string>("asrEndpoint", "https://genesis-ai-dev--codex-asr-serve.modal.run/transcribe");
                 let authToken: string | undefined;
 
                 // Try to get authenticated endpoint from FrontierAPI
@@ -745,7 +745,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     new URL(endpoint);
                 } catch (urlError) {
                     console.error("Invalid ASR endpoint configuration:", endpoint, urlError);
-                    endpoint = "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
+                    endpoint = "https://genesis-ai-dev--codex-asr-serve.modal.run/transcribe";
                 }
 
                 // Warn if using authenticated endpoint without token
@@ -756,10 +756,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
                 const settings = {
                     endpoint,
-                    provider: config.get<string>("asrProvider", "mms"),
-                    model: config.get<string>("asrModel", "facebook/mms-1b-all"),
+                    provider: config.get<string>("asrProvider", "omniasr"),
+                    model: config.get<string>("asrModel", "omniASR_LLM_1B_v2"),
                     language: config.get<string>("asrLanguage", "eng"),
-                    phonetic: config.get<boolean>("asrPhonetic", false),
                     authToken,
                 };
                 if (this._view) {
@@ -774,7 +773,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 await config.update("asrProvider", (message as any).data?.provider, target);
                 await config.update("asrModel", (message as any).data?.model, target);
                 await config.update("asrLanguage", (message as any).data?.language, target);
-                await config.update("asrPhonetic", !!(message as any).data?.phonetic, target);
                 if (this._view) {
                     safePostMessageToView(this._view, { command: "asrSettingsSaved" }, "MainMenu");
                 }
