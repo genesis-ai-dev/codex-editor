@@ -1388,6 +1388,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const listeners: vscode.Disposable[] = [];
         listeners.push(viewStateDisposable);
 
+        // Relay OS-level window focus changes to the webview. Webview iframes
+        // don't reliably get `window.focus` / `visibilitychange` when the whole
+        // VS Code app gains/loses OS focus, so the audio recorder can't refresh
+        // mic availability on its own. `onDidChangeWindowState` is the reliable
+        // host-side signal; forward it so the recorder re-checks permissions
+        // after the user returns from OS settings.
+        listeners.push(
+            vscode.window.onDidChangeWindowState((state) => {
+                this.postMessageToWebview(webviewPanel, {
+                    type: "windowFocusChanged",
+                    focused: state.focused,
+                });
+            })
+        );
+
         listeners.push(
             document.onDidChangeForVsCodeAndWebview((e) => {
                 debug("Document changed for VS Code and webview");
@@ -1827,7 +1842,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'strict-dynamic' https://www.youtube.com https://static.cloudflareinsights.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource} blob:; connect-src https://*.vscode-cdn.net https://*.frontierrnd.com wss://*.frontierrnd.com https://languagetool.org/api/ https://*.workers.dev https://*.fastly.net https://*.thechosen.media data: wss://ryderwishart--whisper-websocket-transcription-websocket-transcribe.modal.run wss://*.modal.run; img-src 'self' data: ${webview.cspSource} https:; font-src ${webview.cspSource} data:; media-src ${webview.cspSource} https: blob: data:;">
+                                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'strict-dynamic' https://www.youtube.com https://static.cloudflareinsights.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource} blob:; connect-src https://*.vscode-cdn.net https://*.frontierrnd.com wss://*.frontierrnd.com https://languagetool.org/api/ https://*.workers.dev https://*.fastly.net https://*.thechosen.media data: https://*.modal.run wss://*.modal.run; img-src 'self' data: ${webview.cspSource} https:; font-src ${webview.cspSource} data:; media-src ${webview.cspSource} https: blob: data:;">
                 <link href="${styleResetUriWithBuster}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUriWithBuster}" rel="stylesheet" nonce="${nonce}" />
                 <title>Codex Cell Editor</title>
@@ -3279,6 +3294,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 merged: false
             });
 
+            // Resolve the user performing the unmerge so the edit is attributed to
+            // them — matching the merge edit — instead of a hardcoded "anonymous"
+            // (PR #1024 review). Best-effort lookup with an anonymous fallback, done
+            // before the edit push so a lookup failure can't drop the edit itself.
+            let unmergeAuthor = "anonymous";
+            try {
+                const authApi = await this.getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                unmergeAuthor = userInfo?.username || "anonymous";
+            } catch (e) {
+                console.warn("Could not resolve user for unmerge edit, using 'anonymous':", e);
+            }
+
             // Append edit history entry for merged=false on the target cell
             try {
                 const cell = (targetDocument as any).getCell(cellIdToUnmerge);
@@ -3289,7 +3317,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         value: false,
                         timestamp: Date.now(),
                         type: "user-edit",
-                        author: "anonymous",
+                        author: unmergeAuthor,
                         validatedBy: []
                     });
                     // updateCellData() above already fired the change event, which can

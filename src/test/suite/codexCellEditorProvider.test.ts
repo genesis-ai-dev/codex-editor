@@ -2676,6 +2676,14 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 }
                 return originalExec(command, ...args);
             };
+            // Attribute the unmerge to a known user so we can assert the recorded
+            // edit author is the real user, not "anonymous" (PR #1024 review).
+            const UNMERGE_USER = "unmerge-test-user";
+            const originalGetAuthApi = (provider as any).getAuthApi;
+            (provider as any).getAuthApi = async () => {
+                const base = (await originalGetAuthApi?.call(provider)) || {};
+                return { ...base, getUserInfo: async () => ({ username: UNMERGE_USER }) };
+            };
             try {
                 // Now unmerge from source and confirm target unmerges with edit
                 await handleMessages({
@@ -2687,6 +2695,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 await provider.unmergeMatchingCellsInTargetFile(currentCellId, sourceUri.toString(), workspaceFolder);
             } finally {
                 vscode.commands.executeCommand = originalExec;
+                (provider as any).getAuthApi = originalGetAuthApi;
             }
 
             // Re-read both docs
@@ -2694,16 +2703,18 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const srcCellAfter = (srcAfterUnmerge.cells || []).find((c: any) => c?.metadata?.id === currentCellId);
             assert.ok(srcCellAfter, "Source should still contain the current cell after unmerge");
             assert.strictEqual(!!srcCellAfter.metadata?.data?.merged, false, "Source current cell should be unmerged (merged=false)");
-            const srcHasUnmergeEdit = (srcCellAfter.metadata?.edits || []).some((e: any) => Array.isArray(e.editMap) && e.editMap.join(".") === "metadata.data.merged" && e.value === false);
-            assert.ok(srcHasUnmergeEdit, "Source current cell should have an edit recording merged=false");
+            const srcUnmergeEdit = (srcCellAfter.metadata?.edits || []).find((e: any) => Array.isArray(e.editMap) && e.editMap.join(".") === "metadata.data.merged" && e.value === false);
+            assert.ok(srcUnmergeEdit, "Source current cell should have an edit recording merged=false");
+            assert.strictEqual(srcUnmergeEdit.author, UNMERGE_USER, "Source unmerge edit should be attributed to the unmerging user, not 'anonymous'");
 
             // Re-open/refresh target by reading from disk to capture external mutation
             const targetDisk = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(targetUri)));
             const targetCellAfter = (targetDisk.cells || []).find((c: any) => c?.metadata?.id === currentCellId);
             assert.ok(targetCellAfter, "Target should still contain the current cell after unmerge");
             assert.strictEqual(!!targetCellAfter.metadata?.data?.merged, false, "Target current cell should be unmerged (merged=false)");
-            const targetHasUnmergeEdit = (targetCellAfter.metadata?.edits || []).some((e: any) => Array.isArray(e.editMap) && e.editMap.join(".") === "metadata.data.merged" && e.value === false);
-            assert.ok(targetHasUnmergeEdit, "Target current cell should have an edit recording merged=false");
+            const targetUnmergeEdit = (targetCellAfter.metadata?.edits || []).find((e: any) => Array.isArray(e.editMap) && e.editMap.join(".") === "metadata.data.merged" && e.value === false);
+            assert.ok(targetUnmergeEdit, "Target current cell should have an edit recording merged=false");
+            assert.strictEqual(targetUnmergeEdit.author, UNMERGE_USER, "Target unmerge edit should be attributed to the unmerging user, not 'anonymous' (#1024)");
         } finally {
             // Cleanup temp files
             await deleteIfExists(sourceUri);

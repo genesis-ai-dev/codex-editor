@@ -21,8 +21,10 @@ import { generateChildCellId } from "../../../../src/providers/codexCellEditorPr
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
+import { labelForTranscriptionLanguage } from "@sharedUtils/asrLanguageUtils";
 import { AudioValidationBadge } from "./AudioValidationBadge";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
+import { useAudioInputDevices, type MicAvailability } from "./hooks/useAudioInputDevices";
 import SourceTextDisplay from "./SourceTextDisplay";
 import { AudioHistoryViewer } from "./AudioHistoryViewer";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
@@ -91,6 +93,7 @@ import {
     RefreshCcw,
     ListOrdered,
     Mic,
+    MicOff,
     Play,
     Trash2,
     CircleDotDashed,
@@ -386,6 +389,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // Audio-related state
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
+    // Holds the partial audio captured when a recording was cut short by the
+    // mic going away; non-null drives the keep/discard prompt.
+    const [interruptedRecording, setInterruptedRecording] = useState<Blob | null>(null);
+    const [showInterruptedRecordingModal, setShowInterruptedRecordingModal] = useState(false);
     const [audioAuthor, setAudioAuthor] = useState<string | undefined>(undefined);
     const [audioDuration, setAudioDuration] = useState<number | null>(null);
     // While awaiting provider response, avoid showing "No audio attached" to prevent flicker
@@ -406,6 +413,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [recordingElapsedTime, setRecordingElapsedTime] = useState<number>(0);
     const audioSaveRequestIdRef = useRef<string | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
+    // Set true right before we stop the recorder because the mic became
+    // unavailable mid-recording (vs. the user pressing stop). `onstop` reads
+    // this to prompt keep/discard instead of silently saving the partial clip.
+    const recordingInterruptedRef = useRef<boolean>(false);
     const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
     /** Wall-clock end time for the active pre-record countdown (performance.now()). */
     const countdownEndTimeRef = useRef<number | null>(null);
@@ -479,6 +490,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
             return false;
         }
     });
+    // Timestamp of the user's most recent explicit "Re-record" click. In-flight
+    // audio loads (cache hydration / provider broadcasts) normally drop us back
+    // to the waveform via `setShowRecorder(false)`; if one resolves right after
+    // the user asks to re-record, that flip yanks them back to the waveform and
+    // causes a visible flicker + scroll jump. Audio-load hides are funneled
+    // through `hideRecorderAfterAudioLoad`, which honors this intent window so
+    // the user's explicit action wins the race.
+    const userRequestedRecorderAtRef = useRef<number>(0);
     const [isAudioLoading, setIsAudioLoading] = useState(false);
     const [isPlayAudioLoading, setIsPlayAudioLoading] = useState(false);
     const [hasAudioHistory, setHasAudioHistory] = useState<boolean>(false);
@@ -498,12 +517,57 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const transcriptionClientRef = useRef<WhisperTranscriptionClient | null>(null);
     const [asrConfig, setAsrConfig] = useState<{
         endpoint: string;
-        provider: string;
-        model: string;
-        language: string; // ISO-639-3 expected by MMS; may be ISO-639-1 and mapped
-        phonetic: boolean;
         authToken?: string;
+        /** OmniASR code (e.g. `swh_Latn`) to send as `?lang=...`. Omitted in auto-detect mode. */
+        lang?: string;
+        /** What the user picked in the gear menu: "project" (default) or "auto". */
+        languageMode?: "auto" | "project";
+        /** Script preference: "auto" (best guess), "latin", or a 4-letter ISO 15924 tag. */
+        scriptPref?: string;
+        /** Project's target-language refName, used as fallback when the server doesn't echo `lang`. */
+        projectLanguageName?: string;
     } | null>(null);
+
+    /**
+     * Friendly label shown on the transcription badge.
+     *
+     * Auto-detect mode:
+     *   - Server echoed `lang` (LID succeeded) → show that language's friendly name.
+     *   - Server returned no `lang` (LID failed, OR client is talking to a legacy
+     *     endpoint without LID like the old `mms-zeroshot-asr` Modal app) →
+     *     **"Auto Detect"**. We deliberately do NOT fall back to the project
+     *     language here — the whole point of auto-detect is that we're not
+     *     assuming it's the project language.
+     *
+     * Project mode:
+     *   - Server echoed `lang` → show that.
+     *   - Server didn't echo but we sent a code → show what we sent.
+     *   - Otherwise fall back to the project language refName.
+     *
+     * Returns null → render no badge.
+     */
+    const transcriptionBadgeLabel: string | null = useMemo(() => {
+        if (!savedTranscription) return null;
+        const isAuto = asrConfig?.languageMode === "auto";
+        const serverLang = savedTranscription.language ?? null;
+        // In auto mode neither sentLang nor projectName are meaningful labels —
+        // we didn't send a code and we don't know that the speaker used the
+        // project's language. Force the labeller down its server-echo path only.
+        const sentLang = isAuto ? null : asrConfig?.lang ?? null;
+        const projectName = isAuto ? null : asrConfig?.projectLanguageName ?? null;
+        const friendly = labelForTranscriptionLanguage(serverLang, sentLang, projectName);
+        if (friendly) return friendly;
+        // No usable label and we're in auto mode → display "Auto Detect" rather
+        // than nothing, so the user can tell auto-detect ran but failed (or the
+        // endpoint they're hitting doesn't do server-side LID).
+        if (isAuto) return "Auto Detect";
+        return null;
+    }, [
+        savedTranscription,
+        asrConfig?.lang,
+        asrConfig?.languageMode,
+        asrConfig?.projectLanguageName,
+    ]);
 
     // Helper to smoothly center the editor. Coalesces multiple calls and
     // performs a single smooth scroll after layout settles.
@@ -533,6 +597,53 @@ const CellEditor: React.FC<CellEditorProps> = ({
             (window as any)?.initialData?.validationCountAudio ??
             undefined,
     };
+
+    // Microphone availability — drives the disabled state and warning under
+    // the recorder. Reacts live to both `devicechange` and permission changes
+    // so the UI stays in sync without a reload. See
+    // `hooks/useAudioInputDevices.ts` (top of file) for the in-code constant
+    // reviewers can flip to simulate "no microphone" / "permission denied"
+    // on machines with a working mic.
+    const {
+        noMicDetected,
+        micPermissionDenied,
+        micUnavailable,
+        reportRecorderError,
+        probeMicAccess,
+    } = useAudioInputDevices({ active: activeTab === "audio" && !isCellLocked });
+    // Mirror `micUnavailable` into a ref so guards inside callbacks (and
+    // setTimeout-deferred work like the auto-start path) can read the
+    // latest value without becoming stale closures.
+    const micUnavailableRef = useRef<boolean>(micUnavailable);
+    useEffect(() => {
+        micUnavailableRef.current = micUnavailable;
+    }, [micUnavailable]);
+    // Guards re-entry while the authoritative pre-record mic probe is running
+    // (the probe is async, so without this a second click could start a
+    // duplicate countdown).
+    const recordPrecheckInFlightRef = useRef(false);
+    // Ref for the runtime classifier so `startActualRecording`'s deps stay
+    // stable. `startActualRecording` is wrapped in `useCallback([audioUrl])`
+    // and changing its deps to include a new function on every render would
+    // ripple through several effects.
+    const reportRecorderErrorRef = useRef(reportRecorderError);
+    useEffect(() => {
+        reportRecorderErrorRef.current = reportRecorderError;
+    }, [reportRecorderError]);
+
+    // Probe real mic access (via a silent `getUserMedia` + immediate stop)
+    // whenever the user opens the audio tab. Chromium's Permissions API
+    // misreports the OS-level state on macOS and Windows, so this is the
+    // only way to disable the record button before the user clicks. The
+    // hook caches the result at module scope, so repeated tab opens and
+    // cell switches don't re-prompt or re-flash the OS recording indicator.
+    // Skipped for locked cells (the button is already disabled for other
+    // reasons; no point asking the OS for permission we won't use).
+    useEffect(() => {
+        if (activeTab !== "audio") return;
+        if (isCellLocked) return;
+        probeMicAccess();
+    }, [activeTab, isCellLocked, probeMicAccess]);
 
     const centerEditor = useCallback(() => {
         const el = cellEditorRef.current;
@@ -601,6 +712,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
             scrollTimeoutRef.current = null;
         }, 120);
     }, []);
+
+    // Window (ms) during which a just-issued "Re-record" intent suppresses an
+    // audio-load-driven swap back to the waveform.
+    const RECORDER_INTENT_WINDOW_MS = 1500;
+
+    // Hide the recorder in response to audio finishing loading — but only if the
+    // user hasn't just asked to re-record. This prevents an in-flight load from
+    // oscillating waveform↔recorder (and from triggering a scroll jump). When the
+    // user's intent is active, we leave the recorder up and skip the scroll.
+    const hideRecorderAfterAudioLoad = useCallback(
+        (opts?: { scroll?: boolean }) => {
+            if (Date.now() - userRequestedRecorderAtRef.current < RECORDER_INTENT_WINDOW_MS) {
+                return;
+            }
+            setShowRecorder(false);
+            if (opts?.scroll) {
+                scrollEditorBottomIntoView();
+            }
+        },
+        [scrollEditorBottomIntoView]
+    );
 
     // Conditionally scrolls only when part of the editor is hidden. Used when
     // opening a cell so we don't "jump" the page if the editor already fits in
@@ -774,6 +906,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 },
             });
 
+            // Successful stream acquisition is the ground-truth signal that
+            // mic access works. Clear any previous runtime-reported denial so
+            // the UI recovers without waiting for a (potentially unreliable)
+            // OS-level permission event.
+            reportRecorderErrorRef.current?.(null);
+
             const mediaRecorderOptions: MediaRecorderOptions = {};
             try {
                 if (typeof MediaRecorder !== "undefined") {
@@ -792,6 +930,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
             const recorder = new MediaRecorder(stream, mediaRecorderOptions);
 
             audioChunksRef.current = [];
+
+            // If the mic disappears mid-recording — device unplugged, or OS
+            // permission revoked while capturing — the audio track fires
+            // `ended`. Stop immediately so we persist the partial clip rather
+            // than continuing with a dead/silent stream, and surface the
+            // unavailability so the UI greys out without waiting on a
+            // (sometimes unreliable) device/permission event.
+            const handleMidRecordingMicLoss = () => {
+                reportRecorderErrorRef.current?.(
+                    Object.assign(new Error("Microphone disconnected"), {
+                        name: "NotFoundError",
+                    })
+                );
+                setRecordingStatus("Microphone disconnected");
+                if (recorder.state !== "inactive") {
+                    // Mark this as an interruption so `onstop` prompts the user
+                    // to keep or discard rather than auto-saving.
+                    recordingInterruptedRef.current = true;
+                    recorder.stop();
+                }
+            };
 
             recorder.ondataavailable = (e) => {
                 if (e.data.size > 0) {
@@ -815,7 +974,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 // Release the microphone immediately — no further data will
                 // arrive after stop, and holding the tracks open delays the
                 // OS-level recording indicator from turning off.
+                stream.getAudioTracks().forEach((track) => {
+                    track.removeEventListener("ended", handleMidRecordingMicLoss);
+                });
                 stream.getTracks().forEach((track) => track.stop());
+
+                const rawBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+
+                // If the mic became unavailable mid-recording we got here via an
+                // interruption, not a user-initiated stop. Don't silently save a
+                // half-finished clip — hand the raw audio to a keep/discard
+                // prompt and let the user decide. Skip the trailing trim too:
+                // there's no "stop click" to remove, and trimming would drop
+                // real audio from the abrupt end.
+                if (recordingInterruptedRef.current) {
+                    recordingInterruptedRef.current = false;
+                    setInterruptedRecording(rawBlob);
+                    setShowInterruptedRecordingModal(true);
+                    return;
+                }
 
                 // Trim a short tail off the recording to remove the click
                 // sound from the user pressing stop. Mirrors the leading
@@ -823,7 +1000,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 // a small notice in the recorder UI. If the trim fails
                 // (decoder error, very short clip, etc.) the helper returns
                 // the original blob unchanged.
-                const rawBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
                 const blob = await trimRecordingTail(rawBlob, RECORDING_TAIL_TRIM_MS);
 
                 setAudioBlob(blob);
@@ -844,10 +1020,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 setShowRecorder(false);
             };
 
+            stream.getAudioTracks().forEach((track) => {
+                track.addEventListener("ended", handleMidRecordingMicLoss);
+            });
+
             recorder.start();
             setMediaRecorder(recorder);
         } catch (err) {
-            setRecordingStatus("Microphone access denied");
+            // Promote the raw error to a typed availability state so the UI
+            // flips to the right warning (grey slashed mic + "Access denied"
+            // alert for `NotAllowedError`, "No microphone detected" for
+            // `NotFoundError`). The hook ignores unrecognized error names so
+            // transient failures don't accidentally disable recording.
+            reportRecorderErrorRef.current?.(err);
+            const errName = (err as { name?: string } | null)?.name;
+            const statusMessage =
+                errName === "NotFoundError" || errName === "DevicesNotFoundError"
+                    ? "No microphone detected"
+                    : "Microphone access denied";
+            setRecordingStatus(statusMessage);
             console.error("Error accessing microphone:", err);
             setCountdown(null);
             setIsStartingRecording(false);
@@ -896,6 +1087,54 @@ const CellEditor: React.FC<CellEditorProps> = ({
         [clearRecordingCountdownTimer]
     );
 
+    // Switch the audio tab into the recorder view (used by the waveform's
+    // "Re-record" button and the download view's record affordance). Records
+    // the user-intent timestamp so an in-flight audio load can't immediately
+    // bounce us back to the waveform (see `hideRecorderAfterAudioLoad`).
+    const handleShowRecorder = useCallback(() => {
+        userRequestedRecorderAtRef.current = Date.now();
+        setShowRecorder(true);
+        setCountdown(null);
+        setRecordingStartTime(null);
+        setRecordingElapsedTime(0);
+        clearRecordingCountdownTimer();
+        if (recordingTimerRef.current) {
+            clearInterval(recordingTimerRef.current);
+            recordingTimerRef.current = null;
+        }
+    }, [clearRecordingCountdownTimer]);
+
+    // Keep the partial audio captured before the mic was lost: run it through
+    // the normal save path (URL + cell persistence) just like a clean stop.
+    const handleKeepInterruptedRecording = useCallback(() => {
+        const blob = interruptedRecording;
+        setShowInterruptedRecordingModal(false);
+        setInterruptedRecording(null);
+        if (!blob) {
+            return;
+        }
+        setAudioBlob(blob);
+        if (audioUrl) {
+            URL.revokeObjectURL(audioUrl);
+        }
+        const url = URL.createObjectURL(blob);
+        setAudioUrl(url);
+        setRecordingStatus("Recording complete");
+        saveAudioToCellRef.current?.(blob);
+        setShowRecorder(false);
+    }, [interruptedRecording, audioUrl]);
+
+    // Discard the interrupted clip entirely and return to the recorder so the
+    // user can try again once the mic is back. Nothing is persisted, so any
+    // previously saved audio for the cell is left untouched.
+    const handleDiscardInterruptedRecording = useCallback(() => {
+        setShowInterruptedRecordingModal(false);
+        setInterruptedRecording(null);
+        audioChunksRef.current = [];
+        setRecordingStatus("");
+        setShowRecorder(true);
+    }, []);
+
     // Recording elapsed time tracker - updates every 100ms while recording
     useEffect(() => {
         if (!isRecording || recordingStartTime === null) {
@@ -921,6 +1160,48 @@ const CellEditor: React.FC<CellEditorProps> = ({
             }
         };
     }, [isRecording, recordingStartTime]);
+
+    // React the instant the mic becomes unavailable (unplugged, or permission
+    // revoked in OS settings) rather than letting an in-progress flow run to a
+    // dead end:
+    //   • during the pre-record countdown / warmup → cancel it before it tries
+    //     (and fails) to open a stream, leaving the button greyed-out.
+    //   • mid-recording → stop the recorder now so we persist what was captured
+    //     instead of streaming silence (mid-recording device removal is also
+    //     caught immediately by the track `ended` listener in
+    //     `startActualRecording`; this covers detections surfaced by the hook).
+    useEffect(() => {
+        if (!micUnavailable) {
+            return;
+        }
+        const reason = micPermissionDenied
+            ? "Microphone access denied"
+            : "No microphone detected";
+
+        if (countdown !== null || isStartingRecording) {
+            clearRecordingCountdownTimer();
+            setCountdown(null);
+            setIsStartingRecording(false);
+            setRecordingStatus(reason);
+        }
+
+        if (isRecording && mediaRecorder && mediaRecorder.state !== "inactive") {
+            // `onstop` releases the tracks and the elapsed-time interval clears
+            // itself when `isRecording` flips false. Flag the interruption so
+            // `onstop` prompts the user to keep/discard the partial clip.
+            recordingInterruptedRef.current = true;
+            mediaRecorder.stop();
+            setRecordingStatus(reason);
+        }
+    }, [
+        micUnavailable,
+        micPermissionDenied,
+        countdown,
+        isStartingRecording,
+        isRecording,
+        mediaRecorder,
+        clearRecordingCountdownTimer,
+    ]);
 
     // Helper function to request audio timestamps for a cell
     const requestCellAudioTimestamps = useCallback((cellId: string): Promise<Timestamps | null> => {
@@ -2794,10 +3075,23 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // (backtranslation tab was removed; no automatic switching needed)
 
     // Audio recording functions
-    const startRecording = () => {
+    const startRecording = async () => {
         // Prevent recording if cell is locked
         if (isCellLocked) {
             setRecordingStatus("Cannot record: cell is locked");
+            return;
+        }
+
+        // Prevent recording — and importantly, the visible pre-record
+        // countdown — when no mic is available or permission is denied.
+        // Read from the ref so the auto-start path (deferred via setTimeout)
+        // sees the latest value rather than its captured render-time copy.
+        if (micUnavailableRef.current) {
+            setRecordingStatus(
+                micPermissionDenied
+                    ? "Microphone access denied"
+                    : "No microphone detected"
+            );
             return;
         }
 
@@ -2807,6 +3101,41 @@ const CellEditor: React.FC<CellEditorProps> = ({
         if (isRecording || countdown !== null || isStartingRecording) {
             return;
         }
+
+        // Authoritative pre-countdown mic check. The passive guard above can be
+        // stale: a permission revoked in OS settings while the editor was open
+        // doesn't always fire a reliable event (notably on Windows), so the
+        // cached/passive state may still say "available". Probe with a real
+        // `getUserMedia` (cache-bypassing) BEFORE the countdown so we never let
+        // the user count down to zero only to fail at the last moment. The OS
+        // indicator flash is acceptable here — the user explicitly asked to
+        // record. A re-entry guard prevents a duplicate countdown from a second
+        // click landing while this async probe is in flight.
+        if (recordPrecheckInFlightRef.current) {
+            return;
+        }
+        recordPrecheckInFlightRef.current = true;
+        setRecordingStatus("Checking microphone...");
+        let access: MicAvailability;
+        try {
+            access = await probeMicAccess({ force: true });
+        } finally {
+            recordPrecheckInFlightRef.current = false;
+        }
+        if (access !== "available") {
+            setRecordingStatus(
+                access === "permission-denied"
+                    ? "Microphone access denied"
+                    : "No microphone detected"
+            );
+            return;
+        }
+        // The probe may have taken a beat; bail if state changed underneath us
+        // (e.g. the user clicked stop, or recording already began).
+        if (isRecording || countdown !== null || isStartingRecording) {
+            return;
+        }
+        setRecordingStatus("");
 
         // Read configured countdown duration (set by the chapter header /
         // mobile menu and persisted in project settings). Default to 3.
@@ -3123,18 +3452,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 setTranscriptionStatus(`Error: ${error}`);
             };
 
-            // Perform transcription
-            const result = await client.transcribe(audioBlob);
+            // Perform transcription. In project-language mode `asrConfig.lang` is the OmniASR
+            // code we want OmniASR to bias toward. In auto-detect mode it's undefined so the
+            // server transcribes without language conditioning.
+            const sentLang = asrConfig?.languageMode === "auto" ? undefined : asrConfig?.lang;
+            const result = await client.transcribe(audioBlob, { lang: sentLang });
 
             // Success - save transcription but don't automatically insert
             const transcribedText = result.text.trim();
             if (transcribedText) {
-                // Save transcription to cell metadata
+                // Save transcription to cell metadata. Prefer the language the server echoed
+                // back; fall back to what we sent (the server used it silently). Both can be
+                // null in auto-detect mode — that's fine, the badge code handles that.
+                const echoedOrSentLang = result.lang ?? sentLang ?? null;
                 const audioId = sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
                 if (audioId) {
                     const transcriptionData = {
                         content: transcribedText,
                         timestamp: Date.now(),
+                        language: echoedOrSentLang ?? undefined,
                     };
 
                     // Save to cell metadata via provider
@@ -3143,7 +3479,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         content: {
                             cellId: cellMarkers[0],
                             transcribedText: transcribedText,
-                            language: "unknown",
+                            language: echoedOrSentLang,
                         },
                     };
                     window.vscodeApi.postMessage(messageContent);
@@ -3320,7 +3656,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         const resp = await fetch(cached);
                         const blob = await resp.blob();
                         setAudioBlob(blob);
-                        setShowRecorder(false);
+                        hideRecorderAfterAudioLoad();
                         setRecordingStatus("Audio loaded");
                         setIsAudioLoading(false);
                         setAudioFetchPending(false);
@@ -3517,11 +3853,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 const resp = await fetch(attachmentCached);
                                 const blob = await resp.blob();
                                 setAudioBlob(blob);
-                                setShowRecorder(false);
                                 setRecordingStatus("Audio loaded");
                                 setIsAudioLoading(false);
                                 setAudioFetchPending(false);
-                                scrollEditorBottomIntoView();
+                                hideRecorderAfterAudioLoad({ scroll: true });
                             } catch {
                                 /* ignore, fall through to normal flow */
                             }
@@ -3764,11 +4099,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         } catch {
                             /* empty */
                         }
-                        setShowRecorder(false);
                         setRecordingStatus("Audio loaded");
                         setIsAudioLoading(false);
                         setAudioFetchPending(false);
-                        scrollEditorBottomIntoView();
+                        hideRecorderAfterAudioLoad({ scroll: true });
                         if (message.content.transcription) {
                             setSavedTranscription({
                                 content: message.content.transcription.content,
@@ -4575,6 +4909,40 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             }}
                         >
                             Discard
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Keep/discard prompt for a recording cut short by mic loss.
+                Dismissing (Esc / backdrop) defaults to Keep so we never silently
+                throw away captured audio. */}
+            <Dialog
+                open={showInterruptedRecordingModal}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        handleKeepInterruptedRecording();
+                    }
+                }}
+            >
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Recording interrupted</DialogTitle>
+                    </DialogHeader>
+                    <div className="text-sm text-muted-foreground">
+                        Your microphone became unavailable while recording, so we
+                        stopped early. Do you want to keep what was captured up to
+                        that point, or discard it and try again?
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="destructive"
+                            onClick={handleDiscardInterruptedRecording}
+                        >
+                            Discard
+                        </Button>
+                        <Button onClick={handleKeepInterruptedRecording}>
+                            Keep recording
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -5439,7 +5807,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                     {activeTab === "audio" && (
                         <TabsContent value="audio">
-                            <div className="content-section space-y-6">
+                            {/* min-height keeps the section from collapsing when
+                                swapping the (taller) waveform card for the recorder
+                                card, which otherwise lets the browser's scroll
+                                anchoring "jump" the view during a re-record. */}
+                            <div className="content-section space-y-6 min-h-[260px]">
                                 <h3 className="text-lg font-medium">Audio Recording</h3>
 
                                 {(() => {
@@ -5464,6 +5836,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             isStartingRecording,
                                         showRecorder,
                                     });
+
+                                    // Mic-aware copy for the download-view record
+                                    // affordance (mirrors the waveform "Re-record"
+                                    // button so the option is always reachable, even
+                                    // before the existing audio is downloaded).
+                                    const recordAffordanceLabel = micPermissionDenied
+                                        ? "Microphone access denied"
+                                        : noMicDetected
+                                          ? "No microphone detected"
+                                          : "Re-record";
+                                    const recordAffordanceTitle = isCellLocked
+                                        ? "Cannot record: cell is locked"
+                                        : micUnavailable
+                                          ? `${recordAffordanceLabel} — you can still upload an audio file`
+                                          : "Re-record / Upload New";
 
                                     const renderUploadHistoryRow = () => (
                                         <div className="flex flex-wrap items-center justify-center gap-2 mt-3 px-2">
@@ -5536,6 +5923,30 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     Back
                                                 </Button>
                                             )}
+
+                                            {mode === "download" && (
+                                                <Button
+                                                    variant="outline"
+                                                    className={
+                                                        micUnavailable
+                                                            ? "flex items-center justify-center h-8 px-2 text-xs border-red-500 text-red-600 hover:text-red-600 dark:text-red-400"
+                                                            : "flex items-center justify-center h-8 px-2 text-xs"
+                                                    }
+                                                    disabled={isCellLocked}
+                                                    title={recordAffordanceTitle}
+                                                    onClick={() => {
+                                                        if (isCellLocked) return;
+                                                        handleShowRecorder();
+                                                    }}
+                                                >
+                                                    {micUnavailable ? (
+                                                        <MicOff className="h-3 w-3 mr-1" />
+                                                    ) : (
+                                                        <Mic className="h-3 w-3 mr-1" />
+                                                    )}
+                                                    {recordAffordanceLabel}
+                                                </Button>
+                                            )}
                                         </div>
                                     );
 
@@ -5558,19 +5969,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     }}
                                                     onShowHistory={() => setShowAudioHistory(true)}
                                                     historyCount={audioHistoryCount}
-                                                    onShowRecorder={() => {
-                                                        setShowRecorder(true);
-                                                        setCountdown(null);
-                                                        setRecordingStartTime(null);
-                                                        setRecordingElapsedTime(0);
-                                                        clearRecordingCountdownTimer();
-                                                        if (recordingTimerRef.current) {
-                                                            clearInterval(
-                                                                recordingTimerRef.current
-                                                            );
-                                                            recordingTimerRef.current = null;
-                                                        }
-                                                    }}
+                                                    micUnavailable={micUnavailable}
+                                                    noMicDetected={noMicDetected}
+                                                    micPermissionDenied={micPermissionDenied}
+                                                    onShowRecorder={handleShowRecorder}
                                                     disabled={!audioBlob}
                                                     validationStatusProps={audioValidationIconProps}
                                                     author={audioAuthor}
@@ -5590,6 +5992,23 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             ? audioDuration ?? undefined
                                                             : undefined
                                                     }
+                                                    transcriptionLanguageLabel={transcriptionBadgeLabel}
+                                                    showAdvancedAsrMenu={!isSourceText}
+                                                    asrLanguageMode={asrConfig?.languageMode ?? "project"}
+                                                    asrScriptPref={asrConfig?.scriptPref ?? "auto"}
+                                                    projectLanguageName={asrConfig?.projectLanguageName}
+                                                    onChangeAsrLanguageMode={(mode) => {
+                                                        window.vscodeApi.postMessage({
+                                                            command: "setAsrLanguageMode",
+                                                            content: { mode },
+                                                        } as EditorPostMessages);
+                                                    }}
+                                                    onChangeAsrScriptPref={(scriptPref) => {
+                                                        window.vscodeApi.postMessage({
+                                                            command: "setAsrScriptPref",
+                                                            content: { scriptPref },
+                                                        } as EditorPostMessages);
+                                                    }}
                                                 />
 
                                                 {confirmingDiscard && (
@@ -5755,6 +6174,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             : "idle";
                                     const recorderTitle = isCellLocked
                                         ? "Cannot record: cell is locked"
+                                        : micPermissionDenied
+                                        ? "Microphone access denied"
+                                        : noMicDetected
+                                        ? "No microphone detected"
                                         : isRecording
                                         ? "Stop Recording"
                                         : countdown !== null
@@ -5775,6 +6198,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     : startRecording
                                                             }
                                                             disabled={isCellLocked}
+                                                            unavailable={micUnavailable}
                                                             title={recorderTitle}
                                                         />
 
@@ -5844,6 +6268,23 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     auto-trimmed
                                                                 </span>
                                                             </div>
+                                                        )}
+                                                        {micUnavailable && (
+                                                            // Override the Alert's default absolute-icon layout so the
+                                                            // AlertCircle and text share a single flex row with proper
+                                                            // vertical centering. The `!` (important) prefixes are needed
+                                                            // because the base Alert variant pins the SVG with
+                                                            // `[&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4`.
+                                                            <Alert
+                                                                className="w-fit flex items-center gap-2 border-yellow-500 bg-yellow-50 dark:bg-yellow-950 [&>svg]:!static [&>svg+div]:!translate-y-0 [&>svg~*]:!pl-0"
+                                                            >
+                                                                <AlertCircle className="h-4 w-4 shrink-0 !text-yellow-600 dark:!text-yellow-400" />
+                                                                <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+                                                                    {micPermissionDenied
+                                                                        ? "Microphone access denied. Enable microphone permissions in your system settings to record — you may need to fully quit and reopen the app for the change to take effect."
+                                                                        : "No microphone detected. Connect an input device to record."}
+                                                                </AlertDescription>
+                                                            </Alert>
                                                         )}
                                                         {hint && (
                                                             <span className="text-xs text-muted-foreground inline-flex items-center gap-1">

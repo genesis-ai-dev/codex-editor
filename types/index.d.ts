@@ -288,6 +288,7 @@ export type MessagesFromStartupFlowProvider =
     | { command: "project.renamingInProgress"; projectPath: string; renaming: boolean; }
     | { command: "project.zippingInProgress"; projectPath: string; zipType: "full" | "mini"; zipping: boolean; }
     | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; }
+    | { command: "project.deletingInProgress"; projectPath: string; deleting: boolean; stage?: "verifying" | "deleting"; }
     | {
         command: "project.swapCloneWarning";
         repoUrl: string;
@@ -592,10 +593,24 @@ export type EditorPostMessages =
         content: {
             cellId: string;
             transcribedText: string;
-            language: string;
+            /** OmniASR `{iso639_3}_{Script}` code the server reported (or that we sent and the server
+             *  used silently). `null` when transcription ran in auto-detect mode and the server did
+             *  not echo a language back. Persisted on the audio attachment so the badge survives
+             *  re-renders. */
+            language: string | null;
         };
     }
     | { command: "getAsrConfig"; }
+    | {
+        command: "setAsrLanguageMode";
+        content: { mode: "auto" | "project"; };
+    }
+    | {
+        command: "setAsrScriptPref";
+        /** `"auto"` (best guess), `"latin"` (force Latin where supported), or a 4-letter
+         *  ISO 15924 tag (`"Arab"`, `"Cyrl"`, ...). */
+        content: { scriptPref: string; };
+    }
     | {
         command: "mergeCellWithPrevious";
         content: {
@@ -619,7 +634,6 @@ export type EditorPostMessages =
             previousCellId: string;
             currentContent: string;
             previousContent: string;
-            message: string;
         };
     }
     | {
@@ -1949,6 +1963,17 @@ type EditorReceiveMessages =
         };
     }
     | {
+        /**
+         * Forwarded from the extension host's `vscode.window.onDidChangeWindowState`.
+         * Webview iframes don't reliably receive OS-level focus / visibilitychange
+         * events, so the host relays them. The audio recorder uses `focused: true`
+         * to refresh microphone availability (a permission can only change while
+         * the user is away in OS settings).
+         */
+        type: "windowFocusChanged";
+        focused: boolean;
+    }
+    | {
         type: "providerSendsInitialContent";
         content: QuillCellContent[];
         isSourceText: boolean;
@@ -2210,7 +2235,25 @@ type EditorReceiveMessages =
         milestoneIndex?: number;
         subsectionIndex?: number;
     }
-    | { type: "asrConfig"; content: { endpoint: string; authToken?: string; }; }
+    | {
+        type: "asrConfig";
+        content: {
+            endpoint: string;
+            authToken?: string;
+            /** OmniASR `{iso639_3}_{Script}` code to send as `?lang=...`. Omitted when the
+             *  user picks Auto-Detect or when we can't safely resolve a code. */
+            lang?: string;
+            /** "project" (default) → send `lang`. "auto" → omit `lang`, let the server transcribe
+             *  without language conditioning. Persisted as workspace setting `asrLanguageMode`. */
+            languageMode: "auto" | "project";
+            /** Script preference: "auto" (best guess), "latin", or a 4-letter ISO 15924 tag.
+             *  Persisted as workspace setting `asrScriptPref`. */
+            scriptPref?: string;
+            /** Project target-language refName, e.g. "Swahili". Used as the badge fallback when
+             *  the server doesn't echo `lang` in the response. */
+            projectLanguageName?: string;
+        };
+    }
     | { type: "startBatchTranscription"; content: { count: number; }; }
     | {
         type: "providerConfirmsBacktranslationSet";
