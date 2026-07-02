@@ -3473,14 +3473,21 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                     const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
                                     const filesAbs = path.join(workspaceFolder.uri.fsPath, filesRel);
                                     try {
+                                        // files/ is authoritative when present: a pointer stub →
+                                        // not downloaded, real bytes → downloaded.
                                         await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
                                         const { isPointerFile } = await import("../../utils/lfsHelpers");
                                         const isPtr = await isPointerFile(filesAbs).catch(() => false);
                                         if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
                                     } catch {
-                                        const pointerAbs = filesAbs.includes("/.project/attachments/files/")
-                                            ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
-                                            : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
+                                        // files/ absent — fall back to pointers/ (undownloaded media).
+                                        // Swap files/→pointers/ on a POSIX-normalized path so this
+                                        // works on Windows too (path.join yields backslashes, which
+                                        // never match a hardcoded forward-slash needle).
+                                        const filesPosix = toPosixPath(filesAbs);
+                                        const pointerAbs = filesPosix.includes("/.project/attachments/files/")
+                                            ? filesPosix.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
+                                            : filesPosix.replace(".project/attachments/files/", ".project/attachments/pointers/");
                                         try {
                                             await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
                                             hasAvailablePointer = true;
