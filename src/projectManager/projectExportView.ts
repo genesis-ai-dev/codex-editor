@@ -2090,6 +2090,13 @@ function getWebviewContent(
                 const exportOptionsConfig = ${exportOptionsConfigJson};
                 const isStreamOnly = ${JSON.stringify(isStreamOnly)};
                 let currentStep = 1;
+                // File-selection signature at the time the audio mismatch check last ran.
+                // Used to re-fire the warning when the user goes back and changes the file
+                // selection while the audio option is still selected (see #1007 follow-up).
+                let audioMismatchCheckedFor = null;
+                function fileSelectionSignature() {
+                    return Array.from(selectedFiles).sort().join('|');
+                }
                 let selectedFormat = null;
                 let selectedAudioMode = null; // null | 'audio' | 'audio-timestamps' | 'audio-by-character'
                 let exportPath = ${initialExportFolderJson};
@@ -3053,6 +3060,13 @@ function getWebviewContent(
                                 opt.style.backgroundColor = '';
                                 opt.style.borderColor = '';
                             });
+                        }
+                        // The audio option is remembered across back-navigation, so no option
+                        // click will re-fire the mismatch check. If the file selection changed
+                        // since the check last ran (e.g. a no-audio file was added on step 1),
+                        // re-check now so the warning cannot be bypassed.
+                        if (selectedAudioMode && fileSelectionSignature() !== audioMismatchCheckedFor) {
+                            checkAudioSelectionMismatch();
                         }
                     } else if (noAudio && selectedAudioMode) {
                         selectedAudioMode = null;
@@ -4186,6 +4200,7 @@ function getWebviewContent(
                 }
 
                 function checkAudioSelectionMismatch() {
+                    audioMismatchCheckedFor = fileSelectionSignature();
                     const noAudioFiles = getFilesWithoutAudio();
                     if (noAudioFiles.length > 0) {
                         showContentMismatchPopup(
