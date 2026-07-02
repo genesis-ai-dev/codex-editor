@@ -373,6 +373,14 @@ type SourceCellVersions = {
     notebookId: string;
 };
 
+type SourceCellMapEntry = {
+    content: string;
+    versions: string[];
+    timestamps?: Timestamps;
+};
+
+type SourceCellMap = { [k: string]: SourceCellMapEntry };
+
 type EditorCellContent = {
     cellMarkers: string[];
     cellContent: string;
@@ -521,6 +529,7 @@ export type EditorPostMessages =
     // removed: requestAudioAttachments
     | { command: "requestAudioForCell"; content: { cellId: string; audioId?: string; }; }
     | { command: "requestCellAudioTimestamps"; content: { cellId: string; }; }
+    | { command: "requestSourceCellTimestamps"; content: { cellId: string; }; }
     | { command: "getCommentsForCell"; content: { cellId: string; }; }
     | { command: "getCommentsForCells"; content: { cellIds: string[]; }; }
     | {
@@ -1977,7 +1986,7 @@ type EditorReceiveMessages =
         type: "providerSendsInitialContent";
         content: QuillCellContent[];
         isSourceText: boolean;
-        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+        sourceCellMap: SourceCellMap;
         username?: string;
         validationCount?: number;
         validationCountAudio?: number;
@@ -1996,7 +2005,7 @@ type EditorReceiveMessages =
         currentMilestoneIndex: number;
         currentSubsectionIndex: number;
         isSourceText: boolean;
-        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+        sourceCellMap: SourceCellMap;
         username?: string;
         validationCount?: number;
         validationCountAudio?: number;
@@ -2013,7 +2022,7 @@ type EditorReceiveMessages =
         milestoneIndex: number;
         subsectionIndex: number;
         cells: QuillCellContent[];
-        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+        sourceCellMap: SourceCellMap;
     }
     | {
         type: "providerSendsSubsectionProgress";
@@ -2403,6 +2412,13 @@ type EditorReceiveMessages =
         content: {
             cellId: string;
             audioTimestamps?: Timestamps;
+        };
+    }
+    | {
+        type: "providerSendsSourceCellTimestamps";
+        content: {
+            cellId: string;
+            timestamps?: Timestamps;
         };
     }
     | {

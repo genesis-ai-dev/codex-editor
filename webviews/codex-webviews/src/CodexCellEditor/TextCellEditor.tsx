@@ -500,6 +500,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const userRequestedRecorderAtRef = useRef<number>(0);
     const [isAudioLoading, setIsAudioLoading] = useState(false);
     const [isPlayAudioLoading, setIsPlayAudioLoading] = useState(false);
+    const [isMirrorSourceTimeLoading, setIsMirrorSourceTimeLoading] = useState(false);
     const [hasAudioHistory, setHasAudioHistory] = useState<boolean>(false);
     const [audioHistoryCount, setAudioHistoryCount] = useState<number>(0);
     const [audioWarning, setAudioWarning] = useState<string | null>(null);
@@ -1918,6 +1919,80 @@ const CellEditor: React.FC<CellEditorProps> = ({
             }, 2000); // 2 second debounce
         };
     }, []);
+
+    const requestSourceCellTimestamps = useCallback((cellId: string): Promise<Timestamps | null> => {
+        return new Promise((resolve) => {
+            let resolved = false;
+            const timeout = setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    window.removeEventListener("message", handler);
+                    resolve(null);
+                }
+            }, 5000);
+
+            const handler = (event: MessageEvent) => {
+                const message = event.data;
+
+                if (
+                    message?.type === "providerSendsSourceCellTimestamps" &&
+                    message.content?.cellId === cellId
+                ) {
+                    if (!resolved) {
+                        resolved = true;
+                        clearTimeout(timeout);
+                        window.removeEventListener("message", handler);
+                        resolve(message.content.timestamps || null);
+                    }
+                }
+            };
+
+            window.addEventListener("message", handler);
+            window.vscodeApi.postMessage({
+                command: "requestSourceCellTimestamps",
+                content: { cellId },
+            } as EditorPostMessages);
+        });
+    }, []);
+
+    const handleMirrorSourceTime = useCallback(async () => {
+        setIsMirrorSourceTimeLoading(true);
+        try {
+            const cellId = cellMarkers[0];
+            let sourceTimestamps =
+                sourceCellMap?.[cellId]?.timestamps ??
+                (await requestSourceCellTimestamps(cellId));
+
+            if (
+                !sourceTimestamps ||
+                typeof sourceTimestamps.startTime !== "number" ||
+                typeof sourceTimestamps.endTime !== "number"
+            ) {
+                return;
+            }
+
+            setContentBeingUpdated({
+                ...contentBeingUpdatedRef.current,
+                cellMarkers: contentBeingUpdatedRef.current.cellMarkers ?? cellMarkers,
+                cellTimestamps: {
+                    startTime: sourceTimestamps.startTime,
+                    endTime: sourceTimestamps.endTime,
+                },
+                cellChanged: true,
+            });
+            setUnsavedChanges(true);
+            debouncedInvalidateCombinedAudio();
+        } finally {
+            setIsMirrorSourceTimeLoading(false);
+        }
+    }, [
+        cellMarkers,
+        sourceCellMap,
+        debouncedInvalidateCombinedAudio,
+        requestSourceCellTimestamps,
+        setContentBeingUpdated,
+        setUnsavedChanges,
+    ]);
 
     // Handler to play audio blob with synchronized video playback
     const handlePlayAudioWithVideo = useCallback(async () => {
@@ -5765,6 +5840,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     <RotateCcw className="mr-1 h-4 w-4" />
                                                     Revert
                                                 </Button>
+                                                {!isSourceText && (
+                                                    <Button
+                                                        onClick={handleMirrorSourceTime}
+                                                        variant="outline"
+                                                        size="sm"
+                                                        disabled={
+                                                            isCellLocked ||
+                                                            isMirrorSourceTimeLoading
+                                                        }
+                                                        title="Copy timestamps from the matching source cell"
+                                                    >
+                                                        {isMirrorSourceTimeLoading ? (
+                                                            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                                        ) : (
+                                                            <Copy className="mr-1 h-4 w-4" />
+                                                        )}
+                                                        Mirror Source Time
+                                                    </Button>
+                                                )}
                                             </div>
                                             {isSubtitlesType && shouldShowVideoPlayer && (
                                                 <div className="flex items-center gap-2">
