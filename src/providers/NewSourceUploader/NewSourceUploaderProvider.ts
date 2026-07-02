@@ -20,7 +20,7 @@ import { NotebookPreview, CustomNotebookMetadata } from "../../../types";
 import { CodexCell } from "../../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
-import { createStandardizedFilename, extractUsfmCodeFromFilename, getBookDisplayName } from "../../utils/bookNameUtils";
+import { createStandardizedFilename, extractUsfmCodeFromFilename, getDefaultBookName } from "../../utils/bookNameUtils";
 import { formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
 import { CodexContentSerializer } from "../../serializer";
 import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
@@ -965,8 +965,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             if (fileDisplayName && (isNTMarker || isOTMarker)) {
                 const usfmCode = extractUsfmCodeFromFilename(fileDisplayName);
                 if (usfmCode) {
-                    // Convert USFM code to full book name
-                    fileDisplayName = await getBookDisplayName(usfmCode);
+                    // Convert USFM code to the canonical book name. Use the
+                    // disk-free lookup (not getBookDisplayName) so an overwrite
+                    // regenerates the title fresh instead of inheriting the
+                    // existing file's saved fileDisplayName (issue #1056).
+                    fileDisplayName = await getDefaultBookName(usfmCode);
                     // Add language prefix for Macula importer: "Hebrew" for OT, "Greek" for NT
                     if (isMaculaImporter) {
                         const languagePrefix = isNTMarker ? "Greek" : "Hebrew";
@@ -979,7 +982,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             // First try to convert USFM code to full name if it's a code
             const usfmCode = extractUsfmCodeFromFilename(fileDisplayName);
             if (usfmCode) {
-                fileDisplayName = await getBookDisplayName(usfmCode);
+                fileDisplayName = await getDefaultBookName(usfmCode);
             }
             // Add appropriate language prefix based on corpus marker
             const isNTMarker = trimmedCorpusMarker === "NT" || trimmedCorpusMarker === "greek bible";
