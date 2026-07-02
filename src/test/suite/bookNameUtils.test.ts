@@ -1,7 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import * as path from "path";
-import { getBookDisplayName, getUsfmCodeFromBookName } from "../../utils/bookNameUtils";
+import { getBookDisplayName, getDefaultBookName, getUsfmCodeFromBookName } from "../../utils/bookNameUtils";
 import { CodexContentSerializer } from "../../serializer";
 import { createTempCodexFile, deleteIfExists } from "../testUtils";
 
@@ -159,6 +159,38 @@ suite("bookNameUtils Test Suite", () => {
             "Deuteronomy",
             "Should fall back to default when fileDisplayName is whitespace-only"
         );
+    });
+
+    test("getDefaultBookName returns the English name for a known code", async () => {
+        const displayName = await getDefaultBookName("MAT");
+        assert.strictEqual(displayName, "Matthew", "Should map MAT to its canonical English name");
+    });
+
+    test("getDefaultBookName ignores any saved fileDisplayName on disk (issue #1056)", async () => {
+        // Skip if no workspace folder
+        if (!vscode.workspace.workspaceFolders?.[0]) {
+            return;
+        }
+
+        // Simulate an existing Macula file whose title still carries the language prefix.
+        await createCodexFileWithMetadata("MAT", {
+            fileDisplayName: "Greek Matthew",
+        });
+
+        // Contrast with getBookDisplayName (which would return "Greek Matthew"):
+        // getDefaultBookName must NOT read the file, so a non-Macula overwrite
+        // regenerates the canonical title instead of inheriting the stale one.
+        const displayName = await getDefaultBookName("MAT");
+        assert.strictEqual(
+            displayName,
+            "Matthew",
+            "Should return the canonical English name regardless of the on-disk fileDisplayName"
+        );
+    });
+
+    test("getDefaultBookName returns the code when not found in defaults", async () => {
+        const displayName = await getDefaultBookName("INVALID");
+        assert.strictEqual(displayName, "INVALID", "Should return the code when book is unknown");
     });
 
     test("getUsfmCodeFromBookName does NOT check localized-books.json", async () => {

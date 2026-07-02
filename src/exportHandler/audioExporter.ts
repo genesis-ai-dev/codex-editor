@@ -12,6 +12,7 @@ import { getMediaFilesStrategy } from "../utils/localProjectSettings";
 import type { ExportProgressReporter, ExportMissingReason } from "./exportProgress";
 import { pickAudioAttachment, isExportableCell, countAvailableAlternativeTakes, countUsableNonMissingTakes, type AudioPick, type AudioPickOutcome } from "./audioAttachmentUtils";
 import { formatCellDisplayLabel } from "./cellLabelUtils";
+import { parseVerseRef } from "../utils/verseRefUtils";
 import { CodexCellTypes } from "../../types/enums";
 import { buildMilestoneIndexModel } from "../../sharedUtils/milestoneIndexUtils";
 
@@ -71,30 +72,13 @@ function sanitizeFolderName(input: string): string {
 }
 
 /**
- * Parses a cell reference ID (from globalReferences) to extract book, chapter, and verse.
- * Falls back to parsing cellId if globalReferences not available (legacy support).
+ * Manual book/chapter/verse split for refs that `parseVerseRef` can't handle
+ * (e.g. chapter-only "GEN 1" or otherwise malformed ids). Verse ranges never
+ * reach here — they are handled by `parseVerseRef` in the caller.
  */
-function parseCellIdToBookChapterVerse(cell: any, cellId: string): { book: string; chapter?: number; verse?: number; } {
-    // Try to get from globalReferences first
-    const globalRefs = cell?.metadata?.data?.globalReferences;
-    if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
-        const refId = globalRefs[0];
-        try {
-            const [book, rest] = refId.split(" ");
-            const [chapterStr, verseStr] = (rest || "").split(":");
-            let chapter: number | undefined = chapterStr ? Number(chapterStr) : undefined;
-            let verse: number | undefined = verseStr ? Number(verseStr) : undefined;
-            if (chapter !== undefined && !Number.isFinite(chapter)) chapter = undefined;
-            if (verse !== undefined && !Number.isFinite(verse)) verse = undefined;
-            return { book: (book || "").toUpperCase(), chapter, verse };
-        } catch {
-            return { book: "", chapter: undefined, verse: undefined };
-        }
-    }
-
-    // MILESTONES: This is a legacy fallback for cell IDs that don't have globalReferences.
+function fallbackParseRef(ref: string): { book: string; chapter?: number; verse?: number; } {
     try {
-        const [book, rest] = cellId.split(" ");
+        const [book, rest] = ref.split(" ");
         const [chapterStr, verseStr] = (rest || "").split(":");
         let chapter: number | undefined = chapterStr ? Number(chapterStr) : undefined;
         let verse: number | undefined = verseStr ? Number(verseStr) : undefined;
@@ -107,12 +91,66 @@ function parseCellIdToBookChapterVerse(cell: any, cellId: string): { book: strin
 }
 
 /**
- * Builds the chapter/verse segment for an export filename.
- * Returns e.g. "C1_V25" when both are available, "C1" for chapter only, or "" if neither.
+ * Derive a range end from a cell's label when it encodes a numeric range
+ * (e.g. "1-2"). A UI-merged cell keeps the kept cell's single-verse
+ * globalReference but records the merged span in its cellLabel, so this lets
+ * merged cells still export with the full V{start}-{end} span. Returns the end
+ * only when the label is a clean "{start}-{end}" whose start matches the verse
+ * we already resolved and whose end is greater — otherwise undefined (so odd or
+ * mismatched labels are ignored and we fall back to the single verse).
  */
-function formatChapterVerseSuffix(chapter?: number, verse?: number): string {
+function rangeEndFromCellLabel(cellLabel: unknown, verseStart: number): number | undefined {
+    if (typeof cellLabel !== "string") return undefined;
+    const match = cellLabel.trim().match(/^(\d+)\s*-\s*(\d+)$/);
+    if (!match) return undefined;
+    const start = parseInt(match[1]!, 10);
+    const end = parseInt(match[2]!, 10);
+    return start === verseStart && end > start ? end : undefined;
+}
+
+/**
+ * Parses a cell reference ID (from globalReferences) to extract book, chapter, and
+ * verse — including verse ranges, where `verse` is the range start and `verseEnd`
+ * is the range end (e.g. "1PE 3:1-2" -> { verse: 1, verseEnd: 2 }).
+ * Falls back to parsing cellId if globalReferences not available (legacy support),
+ * and to the cell's range cellLabel for UI-merged cells (single ref + "1-2" label).
+ */
+export function parseCellIdToBookChapterVerse(cell: any, cellId: string): { book: string; chapter?: number; verse?: number; verseEnd?: number; } {
+    // Prefer the cell's globalReferences ref, falling back to the raw cellId.
+    const globalRefs = cell?.metadata?.data?.globalReferences;
+    const refId = Array.isArray(globalRefs) && globalRefs.length > 0 ? globalRefs[0] : cellId;
+
+    // `parseVerseRef` handles both single verses and ranges (and strips legacy
+    // cell-id suffixes), so it is the source of truth when the ref is well-formed.
+    const parsed = parseVerseRef(refId);
+    const result = parsed
+        ? parsed.kind === "range"
+            ? { book: parsed.book.toUpperCase(), chapter: parsed.chapter, verse: parsed.verseStart, verseEnd: parsed.verseEnd as number | undefined }
+            : { book: parsed.book.toUpperCase(), chapter: parsed.chapter, verse: parsed.verse as number | undefined, verseEnd: undefined as number | undefined }
+        // MILESTONES: legacy/chapter-only fallback for ids parseVerseRef rejects.
+        : { ...fallbackParseRef(refId), verseEnd: undefined as number | undefined };
+
+    // When we only resolved a single verse, a range cellLabel (e.g. a merged
+    // cell's "1-2") supplies the span the ref itself doesn't carry.
+    if (result.verse !== undefined && result.verseEnd === undefined) {
+        result.verseEnd = rangeEndFromCellLabel(cell?.metadata?.cellLabel, result.verse);
+    }
+
+    return result;
+}
+
+/**
+ * Builds the chapter/verse segment for an export filename.
+ * Returns e.g. "C1_V25" for a single verse, "C3_V1-2" for a verse range,
+ * "C1" for chapter only, or "" if neither is available. A degenerate range
+ * (verseEnd === verse) collapses to the single-verse form.
+ */
+export function formatChapterVerseSuffix(chapter?: number, verse?: number, verseEnd?: number): string {
     if (chapter !== undefined && Number.isFinite(chapter)) {
         if (verse !== undefined && Number.isFinite(verse)) {
+            if (verseEnd !== undefined && Number.isFinite(verseEnd) && verseEnd !== verse) {
+                return `C${chapter}_V${verse}-${verseEnd}`;
+            }
             return `C${chapter}_V${verse}`;
         }
         return `C${chapter}`;
@@ -692,15 +730,79 @@ type ResolveResult =
     | { data: Uint8Array; error?: undefined; }
     | { data?: undefined; error: string; };
 
+/** Minimal slice of the Frontier auth API used to stream LFS objects for export. */
+export type FrontierLfsApi = {
+    downloadLFSFile: (projectPath: string, oid: string, size: number, signal?: AbortSignal) => Promise<Uint8Array>;
+};
+
+/**
+ * Prepares the Frontier LFS download path for an audio export. In
+ * `auto-download` mode no streaming is needed, so this resolves to a null
+ * `frontierApi` (local bytes are read directly). In `stream-only` /
+ * `stream-and-save` it enforces the media version gates and grabs the auth
+ * API, returning a descriptive `error` string when streaming is required but
+ * unavailable so the caller can surface a clear message instead of silently
+ * writing zero files.
+ *
+ * Shared by both the per-cell exporter (`exportAudioAttachments`) and the
+ * consolidate-by-character exporter so they behave identically in every media
+ * strategy.
+ */
+export async function setupAudioStreaming(
+    workspaceFolderUri: vscode.Uri
+): Promise<{ frontierApi: FrontierLfsApi | null; error?: string; }> {
+    const mediaStrategy = await getMediaFilesStrategy(workspaceFolderUri);
+    const mayNeedStreaming = mediaStrategy === "stream-only" || mediaStrategy === "stream-and-save";
+    if (!mayNeedStreaming) {
+        return { frontierApi: null };
+    }
+
+    // Enforce version gates before attempting any LFS operations.
+    try {
+        const { ensureAllVersionGatesForMedia } = await import("../utils/versionGate");
+        const allowed = await ensureAllVersionGatesForMedia(true);
+        if (!allowed) {
+            return {
+                frontierApi: null,
+                error: "Audio export requires a compatible version of Frontier. Please update and try again.",
+            };
+        }
+    } catch (gateErr) {
+        debug("Version gate check failed:", gateErr);
+    }
+
+    let frontierApi: FrontierLfsApi | null = null;
+    try {
+        const { getAuthApi } = await import("../extension");
+        const api = getAuthApi();
+        if (api?.downloadLFSFile) {
+            frontierApi = api;
+        }
+    } catch {
+        // Frontier not available — reported below.
+    }
+
+    if (!frontierApi) {
+        return {
+            frontierApi: null,
+            error:
+                "Cannot export audio in streaming mode: Frontier authentication is not available. " +
+                "Please ensure you are online and signed in, or switch to Auto Download mode first.",
+        };
+    }
+
+    return { frontierApi };
+}
+
 /**
  * Reads audio bytes from disk, resolving LFS pointers on-the-fly via the
  * Frontier API when the file is a stub.  Falls back to the pointers/ directory
  * if the files/ entry doesn't exist at all.
  */
-async function resolveAudioBytes(
+export async function resolveAudioBytes(
     absoluteSrc: vscode.Uri,
     workspaceFolderUri: vscode.Uri,
-    frontierApi: { downloadLFSFile: (projectPath: string, oid: string, size: number, signal?: AbortSignal) => Promise<Uint8Array>; } | null,
+    frontierApi: FrontierLfsApi | null,
     signal?: AbortSignal
 ): Promise<ResolveResult> {
     const projectPath = workspaceFolderUri.fsPath;
@@ -795,44 +897,12 @@ export async function exportAudioAttachments(
         return;
     }
 
-    // Determine if we may need to stream audio from LFS
-    const mediaStrategy = await getMediaFilesStrategy(workspaceFolder.uri);
-    const mayNeedStreaming = mediaStrategy === "stream-only" || mediaStrategy === "stream-and-save";
-
-    // Obtain the Frontier API for LFS downloads (may be null if not available)
-    let frontierApi: { downloadLFSFile: (projectPath: string, oid: string, size: number, signal?: AbortSignal) => Promise<Uint8Array>; } | null = null;
-    if (mayNeedStreaming) {
-        // Enforce version gates before attempting any LFS operations
-        try {
-            const { ensureAllVersionGatesForMedia } = await import("../utils/versionGate");
-            const allowed = await ensureAllVersionGatesForMedia(true);
-            if (!allowed) {
-                reporter.error(
-                    "Audio export requires a compatible version of Frontier. Please update and try again."
-                );
-                return;
-            }
-        } catch (gateErr) {
-            debug("Version gate check failed:", gateErr);
-        }
-
-        try {
-            const { getAuthApi } = await import("../extension");
-            const api = getAuthApi();
-            if (api?.downloadLFSFile) {
-                frontierApi = api;
-            }
-        } catch {
-            // Frontier not available — will be handled per-file
-        }
-
-        if (!frontierApi) {
-            reporter.error(
-                "Cannot export audio in streaming mode: Frontier authentication is not available. " +
-                "Please ensure you are online and signed in, or switch to Auto Download mode first."
-            );
-            return;
-        }
+    // Determine if we may need to stream audio from LFS and obtain the Frontier
+    // API for downloads (null when running in auto-download mode).
+    const { frontierApi, error: streamingSetupError } = await setupAudioStreaming(workspaceFolder.uri);
+    if (streamingSetupError) {
+        reporter.error(streamingSetupError);
+        return;
     }
 
     let copiedCount = 0;
@@ -1080,8 +1150,8 @@ export async function exportAudioAttachments(
             const label = sanitizeFileComponent(String(labelRaw).toLowerCase());
             const lineNumber = dialogueMap.get(cellId) || 0;
 
-            const { chapter, verse } = parseCellIdToBookChapterVerse(cell, cellId);
-            const cvSuffix = formatChapterVerseSuffix(chapter, verse);
+            const { chapter, verse, verseEnd } = parseCellIdToBookChapterVerse(cell, cellId);
+            const cvSuffix = formatChapterVerseSuffix(chapter, verse, verseEnd);
 
             const outputExt = predictOutputExt(originalExt, includeTimestamps);
 

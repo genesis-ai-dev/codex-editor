@@ -1796,9 +1796,10 @@ export async function exportCodexContent(
         case CodexExportFormat.AUDIO: {
             if (options?.consolidateByCharacter) {
                 const { exportAudioByCharacter } = await import("./characterAudioExporter");
-                exportPromises.push(exportAudioByCharacter(wrapperPath, filesToExport, {
+                exportPromises.push(exportAudioByCharacter(wrapperPath, filesToExport, childReporter, {
                     format: options?.consolidatedAudioFormat,
-                }));
+                    selectedMilestonesByFile: options?.selectedMilestonesByFile,
+                }, token));
             } else {
                 const { exportAudioAttachments } = await import("./audioExporter");
                 exportPromises.push(exportAudioAttachments(wrapperPath, filesToExport, childReporter, {
@@ -1840,9 +1841,10 @@ export async function exportCodexContent(
     if (includeAudio) {
         if (options?.consolidateByCharacter) {
             const { exportAudioByCharacter } = await import("./characterAudioExporter");
-            exportPromises.push(exportAudioByCharacter(audioPath, filesToExport, {
+            exportPromises.push(exportAudioByCharacter(audioPath, filesToExport, childReporter, {
                 format: options?.consolidatedAudioFormat,
-            }));
+                selectedMilestonesByFile: options?.selectedMilestonesByFile,
+            }, token));
         } else {
             const { exportAudioAttachments } = await import("./audioExporter");
             exportPromises.push(
