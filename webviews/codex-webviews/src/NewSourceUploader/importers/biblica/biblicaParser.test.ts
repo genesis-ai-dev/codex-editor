@@ -466,3 +466,51 @@ describe('BiblicaParser – chapter-range milestone metadata', () => {
         }
     });
 });
+
+describe('BiblicaParser – content segments', () => {
+    let parser: IDMLParser;
+
+    beforeEach(() => {
+        parser = new IDMLParser({
+            preserveAllFormatting: true,
+            preserveObjectIds: true,
+            validateRoundTrip: false,
+            strictMode: false,
+        });
+    });
+
+    it('should extract contentSegments from note paragraphs matching Content nodes', async () => {
+        const xml = wrapInStory(`
+<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/intro%3aipi">
+    <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/bold%3astyle">
+        <Content>First</Content>
+    </CharacterStyleRange>
+    <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]">
+        <Content>Second</Content>
+    </CharacterStyleRange>
+</ParagraphStyleRange>`);
+
+        const doc = await parser.parseIDML(xml);
+        const para = doc.stories[0].paragraphs[0];
+
+        expect(para.contentSegments).toEqual(['First', 'Second']);
+        expect(para.contentSegmentBreakBefore).toEqual([false, false]);
+    });
+
+    it('should track breakBefore when Br separates Content nodes', async () => {
+        const xml = wrapInStory(`
+<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/intro%3aipi">
+    <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]">
+        <Content>Line one</Content>
+        <Br />
+        <Content>Line two</Content>
+    </CharacterStyleRange>
+</ParagraphStyleRange>`);
+
+        const doc = await parser.parseIDML(xml);
+        const para = doc.stories[0].paragraphs[0];
+
+        expect(para.contentSegments).toEqual(['Line one', 'Line two']);
+        expect(para.contentSegmentBreakBefore).toEqual([false, true]);
+    });
+});

@@ -144,7 +144,8 @@ beforeAll(() => {
 });
 
 // Mock @sharedUtils
-vi.mock("@sharedUtils", () => ({
+vi.mock("@sharedUtils", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("@sharedUtils")>()),
     shouldDisableValidation: vi.fn().mockReturnValue(false),
     getCellValueData: vi.fn(),
 }));
@@ -229,9 +230,16 @@ const mockTranslationUnits: QuillCellContent[] = [
 ];
 
 describe("Real Cell Editor Save Workflow Integration Tests", () => {
-    beforeEach(() => {
+    beforeEach(async () => {
         vi.clearAllMocks();
         cleanup();
+        // The mic-availability hook keeps its probe result in a module-scoped
+        // cache; reset between tests so one test's permission state doesn't
+        // bleed into another.
+        const { __resetProbeCacheForTesting } = await import(
+            "../hooks/useAudioInputDevices"
+        );
+        __resetProbeCacheForTesting();
     });
 
     it("should render CellList with real translation units", async () => {
@@ -984,6 +992,340 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         (window as any).AudioContext = OriginalAudioContext;
     });
 
+    /**
+     * Helpers for setting up mock mic detection environments. The hook checks
+     * both `mediaDevices.enumerateDevices()` (for hardware presence) and
+     * `permissions.query({ name: "microphone" })` (for permission state),
+     * subscribing to `devicechange` and PermissionStatus `change` events for
+     * live updates. Both need EventTarget backing so `addEventListener`
+     * doesn't blow up.
+     */
+    function mockMicEnvironment(opts: {
+        audioInputs: number;
+        permission: "granted" | "denied" | "prompt" | "missing";
+        getUserMediaSpy?: ReturnType<typeof vi.fn>;
+    }) {
+        const fakeMediaDevices = new EventTarget() as EventTarget & {
+            enumerateDevices: ReturnType<typeof vi.fn>;
+            getUserMedia: ReturnType<typeof vi.fn>;
+        };
+        fakeMediaDevices.enumerateDevices = vi.fn().mockResolvedValue(
+            Array.from({ length: opts.audioInputs }, (_, i) => ({
+                deviceId: `mic-${i}`,
+                groupId: "g",
+                kind: "audioinput",
+                label: `Mic ${i}`,
+                toJSON: () => ({}),
+            })) as MediaDeviceInfo[]
+        );
+        // Default `getUserMedia` matches the permission/device state so the
+        // tab-open probe (introduced in the silent-probe fix) returns a
+        // realistic answer. Pass `getUserMediaSpy` to override.
+        const defaultGetUserMedia = () => {
+            if (opts.permission === "denied") {
+                return vi
+                    .fn()
+                    .mockRejectedValue(
+                        Object.assign(new Error("denied"), { name: "NotAllowedError" })
+                    );
+            }
+            if (opts.audioInputs === 0) {
+                return vi
+                    .fn()
+                    .mockRejectedValue(
+                        Object.assign(new Error("no device"), { name: "NotFoundError" })
+                    );
+            }
+            return vi
+                .fn()
+                .mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] });
+        };
+        fakeMediaDevices.getUserMedia = opts.getUserMediaSpy ?? defaultGetUserMedia();
+        (navigator as any).mediaDevices = fakeMediaDevices;
+
+        if (opts.permission === "missing") {
+            delete (navigator as any).permissions;
+        } else {
+            const status = new EventTarget() as EventTarget & {
+                state: "granted" | "denied" | "prompt";
+            };
+            status.state = opts.permission;
+            (navigator as any).permissions = {
+                query: vi.fn().mockResolvedValue(status),
+            };
+        }
+    }
+
+    it("no microphone detected: disables record button, shows warning, and skips getUserMedia", async () => {
+        sessionStorage.setItem("preferred-editor-tab", "audio");
+
+        const props = {
+            cellMarkers: ["cell-1"],
+            cellContent: "<p>Test content</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-1"],
+                cellContent: "<p>Test content</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Test Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            audioAttachments: { "cell-1": "none" as const },
+        };
+
+        mockMicEnvironment({
+            audioInputs: 0,
+            permission: "granted",
+        });
+
+        render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        const startBtn = await screen.findByRole("button", {
+            name: /No microphone detected/i,
+        });
+        expect(startBtn.hasAttribute("disabled")).toBe(true);
+        expect(
+            await screen.findByText(/Connect an input device to record/i)
+        ).toBeTruthy();
+
+        // Probe fired on tab open and threw NotFoundError; that's how the
+        // warning got there. We now want to assert that *clicking the
+        // disabled button* doesn't separately reach `getUserMedia`.
+        const getUserMediaSpy = (navigator as any).mediaDevices.getUserMedia;
+        getUserMediaSpy.mockClear();
+        fireEvent.click(startBtn);
+        expect(getUserMediaSpy).not.toHaveBeenCalled();
+    });
+
+    it("permission denied: shows distinct warning text and disables record button", async () => {
+        sessionStorage.setItem("preferred-editor-tab", "audio");
+
+        const props = {
+            cellMarkers: ["cell-1"],
+            cellContent: "<p>Test content</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-1"],
+                cellContent: "<p>Test content</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Test Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            audioAttachments: { "cell-1": "none" as const },
+        };
+
+        // Mic exists but permission denied — different state from no-device.
+        // Default mock returns NotAllowedError from getUserMedia so the probe
+        // catches the OS-level block exactly like a real macOS denial.
+        mockMicEnvironment({
+            audioInputs: 1,
+            permission: "denied",
+        });
+
+        render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        const startBtn = await screen.findByRole("button", {
+            name: /Microphone access denied/i,
+        });
+        expect(startBtn.hasAttribute("disabled")).toBe(true);
+        // Permission-specific copy is shown, not the no-device copy, and it
+        // tells the user a full quit & reopen may be needed (macOS TCC).
+        expect(
+            await screen.findByText(/Enable microphone permissions.*quit and reopen/i)
+        ).toBeTruthy();
+        expect(
+            screen.queryByText(/Connect an input device/i)
+        ).toBeNull();
+
+        const getUserMediaSpy = (navigator as any).mediaDevices.getUserMedia;
+        getUserMediaSpy.mockClear();
+        fireEvent.click(startBtn);
+        expect(getUserMediaSpy).not.toHaveBeenCalled();
+    });
+
+    it("OS-level denial (macOS scenario): tab-open probe disables button even when Permissions API misreports as granted", async () => {
+        // This is the reviewer-reported bug: on macOS, denying mic access in
+        // System Settings doesn't propagate to Chromium's Permissions API,
+        // which keeps reporting "granted". The passive detection path
+        // (enumerateDevices + permissions.query) sees no problem, so the
+        // record button used to stay enabled until the user clicked it and
+        // it crashed. The probe-on-tab-open fix discovers the block by
+        // actually calling getUserMedia and observing the NotAllowedError.
+        sessionStorage.setItem("preferred-editor-tab", "audio");
+
+        const props = {
+            cellMarkers: ["cell-1"],
+            cellContent: "<p>Test content</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-1"],
+                cellContent: "<p>Test content</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Test Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            audioAttachments: { "cell-1": "none" as const },
+        };
+
+        // Mic IS enumerated and Permissions API reports "granted" — the
+        // exact pre-probe passive view. Only `getUserMedia` knows the truth.
+        const getUserMediaSpy = vi.fn().mockRejectedValue(
+            Object.assign(new Error("denied at OS"), { name: "NotAllowedError" })
+        );
+        mockMicEnvironment({
+            audioInputs: 1,
+            permission: "granted",
+            getUserMediaSpy,
+        });
+
+        render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        // After the tab-open probe runs, the button should flip to the
+        // permission-denied state without the user ever having clicked it.
+        const startBtn = await screen.findByRole("button", {
+            name: /Microphone access denied/i,
+        });
+        expect(startBtn.hasAttribute("disabled")).toBe(true);
+        expect(
+            await screen.findByText(/Enable microphone permissions/i)
+        ).toBeTruthy();
+        // The probe is the only thing that should have touched the API.
+        expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("auto-start with no mic: does not display countdown or call getUserMedia", async () => {
+        // Simulate the cell-list mic-button auto-start handoff: a session
+        // flag is set before the editor opens. When the mic is unavailable
+        // the countdown must not appear and getUserMedia must not be called.
+        sessionStorage.setItem("preferred-editor-tab", "audio");
+        sessionStorage.setItem("start-audio-recording-cell-1", "1");
+        // Default to 3s countdown so we'd see digits if the suppression failed.
+        (window as any).__recordingCountdownSeconds = 3;
+
+        mockMicEnvironment({
+            audioInputs: 0,
+            permission: "granted",
+        });
+
+        const props = {
+            cellMarkers: ["cell-1"],
+            cellContent: "<p>Test content</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-1"],
+                cellContent: "<p>Test content</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Test Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            audioAttachments: { "cell-1": "none" as const },
+        };
+
+        render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        // Wait for the probe to land and the warning to render. The auto-
+        // start setTimeout is 300ms; wait past that so any countdown would
+        // have appeared if the suppression failed.
+        await screen.findByText(/Connect an input device to record/i);
+        const getUserMediaSpy = (navigator as any).mediaDevices.getUserMedia;
+        // Probe ran; clear so the next assertion targets the auto-start path.
+        getUserMediaSpy.mockClear();
+        await new Promise((r) => setTimeout(r, 400));
+
+        // No countdown digits should ever have rendered.
+        expect(screen.queryByText(/^[123]$/)).toBeNull();
+        // The button must reflect the unavailable state, never the countdown.
+        expect(
+            screen.queryByRole("button", { name: /Starting in/i })
+        ).toBeNull();
+        // And the auto-start path must not have touched the stream API.
+        expect(getUserMediaSpy).not.toHaveBeenCalled();
+    });
+
     it("locked cell: should disable Start Recording and not call getUserMedia", async () => {
         sessionStorage.setItem("preferred-editor-tab", "audio");
 
@@ -1040,6 +1382,157 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
 
         fireEvent.click(startBtn);
         expect(getUserMediaSpy).not.toHaveBeenCalled();
+    });
+
+    it("record click: authoritative pre-countdown probe blocks a mic revoked mid-session, before any countdown", async () => {
+        // The passive/cached state can be stale: a permission revoked in OS
+        // settings while the editor was open doesn't always fire an event
+        // (notably on Windows). Clicking record must re-check with a real
+        // getUserMedia BEFORE the countdown, so the user never counts down to
+        // zero only to fail.
+        sessionStorage.setItem("preferred-editor-tab", "audio");
+        // Non-zero countdown so a missed pre-check would surface a digit.
+        (window as any).__recordingCountdownSeconds = 3;
+
+        // Start out healthy: mic present, permission granted, getUserMedia
+        // resolves — so the tab-open probe enables the record button.
+        mockMicEnvironment({ audioInputs: 1, permission: "granted" });
+
+        const props = {
+            cellMarkers: ["cell-1"],
+            cellContent: "<p>Test content</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-1"],
+                cellContent: "<p>Test content</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Test Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            audioAttachments: { "cell-1": "none" as const },
+        };
+
+        render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        // Button is enabled once the tab-open probe lands.
+        const startBtn = await screen.findByRole("button", {
+            name: /Start Recording/i,
+        });
+        expect(startBtn.hasAttribute("disabled")).toBe(false);
+
+        // Now the user revokes mic access in OS settings — no event fires, so
+        // the passive state still says available. Only a real probe knows.
+        const revokedSpy = vi.fn().mockRejectedValue(
+            Object.assign(new Error("revoked"), { name: "NotAllowedError" })
+        );
+        (navigator as any).mediaDevices.getUserMedia = revokedSpy;
+
+        fireEvent.click(startBtn);
+
+        // The forced pre-countdown probe catches the denial and surfaces the
+        // warning — without ever starting the countdown.
+        await screen.findByText(/Enable microphone permissions/i);
+        expect(revokedSpy).toHaveBeenCalledTimes(1);
+
+        // No countdown digit and no "Starting in" state ever rendered.
+        expect(screen.queryByText(/^[123]$/)).toBeNull();
+        expect(
+            screen.queryByRole("button", { name: /Starting in/i })
+        ).toBeNull();
+    });
+
+    it("download view: offers a Re-record option that switches into the recorder", async () => {
+        // When audio exists but isn't downloaded yet, the user still needs a
+        // way to record over it — not only the download/upload buttons.
+        sessionStorage.setItem("preferred-editor-tab", "audio");
+        // Force the download view deterministically (auto-download off), then
+        // restore the prior globals so we don't perturb sibling tests that
+        // rely on the leaked auto-download-on state.
+        const prevAutoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
+        const prevAutoFlag = (window as any).__autoDownloadAudioOnOpen;
+        (window as any).__autoDownloadAudioOnOpenInitialized = true;
+        (window as any).__autoDownloadAudioOnOpen = false;
+        mockMicEnvironment({ audioInputs: 1, permission: "granted" });
+
+        const props = {
+            cellMarkers: ["cell-dl"],
+            cellContent: "<p>Has remote audio</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-dl"],
+                cellContent: "<p>Has remote audio</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Download Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            audioAttachments: { "cell-dl": "available" as const },
+        };
+
+        const { container } = render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        // Confirms we're in the download view (audio not yet local).
+        await screen.findByText(/Click to download/i);
+
+        // The new record affordance is present and switches to the recorder.
+        const reRecordBtn = await screen.findByRole("button", { name: /Re-record/i });
+        fireEvent.click(reRecordBtn);
+
+        await waitFor(() => {
+            const el = container.querySelector(
+                'input#audio-file-input[type="file"]'
+            ) as HTMLInputElement | null;
+            expect(el).toBeTruthy();
+        });
+        // The recorder's "Start Recording" affordance is now shown.
+        expect(
+            await screen.findByRole("button", { name: /Start Recording/i })
+        ).toBeTruthy();
+
+        // Restore globals for sibling tests.
+        (window as any).__autoDownloadAudioOnOpenInitialized = prevAutoInit;
+        (window as any).__autoDownloadAudioOnOpen = prevAutoFlag;
     });
 
     it("locked cell: audio upload should NOT post saveAudioAttachment", async () => {
@@ -1185,6 +1678,108 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             (args: any[]) => args?.[0]?.command === "saveAudioAttachment"
         );
         expect(postedSave).toBe(false);
+    });
+
+    it("re-record: an in-flight provider audio broadcast does NOT yank the user back to the waveform", async () => {
+        // Repro for the re-record glitch: after the user clicks "Re-record",
+        // an audio load that resolves a moment later used to flip
+        // `showRecorder` back to false (waveform), causing a flicker + scroll
+        // jump. The intent guard must keep the recorder up within the window.
+        sessionStorage.setItem("preferred-editor-tab", "audio");
+        mockMicEnvironment({ audioInputs: 1, permission: "granted" });
+
+        const props = {
+            cellMarkers: ["cell-rr"],
+            cellContent: "<p>Re-record content</p>",
+            editHistory: mockTranslationUnits[0].editHistory,
+            cellIndex: 0,
+            cellType: CodexCellTypes.TEXT,
+            contentBeingUpdated: {
+                cellMarkers: ["cell-rr"],
+                cellContent: "<p>Re-record content</p>",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            textDirection: "ltr" as const,
+            cellLabel: "Re-record Label",
+            cellTimestamps: { startTime: 0, endTime: 5 },
+            cellIsChild: false,
+            openCellById: vi.fn(),
+            cell: mockTranslationUnits[0],
+            isSaving: false,
+            saveError: false,
+            saveRetryCount: 0,
+            footnoteOffset: 1,
+            audioAttachments: { "cell-rr": "available" as const },
+        };
+
+        const { container } = render(
+            <MockUnsavedChangesProvider>
+                <MockSourceCellProvider>
+                    <MockScrollToContentProvider>
+                        <CellEditor {...props} />
+                    </MockScrollToContentProvider>
+                </MockSourceCellProvider>
+            </MockUnsavedChangesProvider>
+        );
+
+        // Load audio so the waveform (with its "Re-record" button) renders.
+        window.dispatchEvent(
+            new MessageEvent("message", {
+                data: {
+                    type: "providerSendsAudioData",
+                    content: {
+                        cellId: "cell-rr",
+                        audioData: "data:audio/webm;base64,test",
+                        audioId: "audio-rr-1",
+                    },
+                },
+            })
+        );
+
+        // Wait for the audio to land in the waveform first (download affordance
+        // gone), so the "Re-record" we click is the stable waveform button —
+        // not the download-view button that unmounts once the waveform renders.
+        await waitFor(() => {
+            expect(screen.queryByText(/Click to download/i)).toBeNull();
+            expect(screen.getByText(/Transcribe/i)).toBeTruthy();
+        });
+
+        // User explicitly asks to re-record → recorder view.
+        fireEvent.click(screen.getByRole("button", { name: /Re-record/i }));
+
+        await waitFor(() => {
+            const el = container.querySelector(
+                'input#audio-file-input[type="file"]'
+            ) as HTMLInputElement | null;
+            expect(el).toBeTruthy();
+        });
+
+        // An in-flight load resolves right after the click — this must NOT flip
+        // the view back to the waveform within the intent window.
+        window.dispatchEvent(
+            new MessageEvent("message", {
+                data: {
+                    type: "providerSendsAudioData",
+                    content: {
+                        cellId: "cell-rr",
+                        audioData: "data:audio/webm;base64,test",
+                        audioId: "audio-rr-1",
+                    },
+                },
+            })
+        );
+
+        // Let the async audio handler run.
+        await new Promise((r) => setTimeout(r, 50));
+
+        // Still in recorder mode: file input present, no "Re-record" button.
+        expect(
+            container.querySelector('input#audio-file-input[type="file"]')
+        ).toBeTruthy();
+        expect(screen.queryByRole("button", { name: /Re-record/i })).toBeNull();
     });
 
     describe("Audio Loading State Fix Tests", () => {
