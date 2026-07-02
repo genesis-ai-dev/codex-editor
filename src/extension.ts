@@ -16,6 +16,7 @@ import {
     migration_addGlobalReferences,
     migration_verseRangeLabelsAndPositions,
     migration_recoverMissingMergedChildren,
+    migration_repairVerseRangeDuplication,
     migration_cellIdsToUuid,
     migration_recoverTempFilesAndMergeDuplicates,
 } from "./projectManager/utils/migrationUtils";
@@ -1160,6 +1161,25 @@ export async function activate(context: vscode.ExtensionContext) {
                     console.error("Missing merged children recovery failed:", error);
                     await vscode.window.showErrorMessage(
                         `Missing merged children recovery failed: ${msg}`
+                    );
+                }
+            }
+        )
+    );
+
+    // Command: Repair verse-range duplication (one-off recovery for issue #848 — verse-RANGE
+    // cells coexisting with SINGLE-verse cells; idempotent and prompts before writing).
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.repairVerseRangeDuplication",
+            async () => {
+                try {
+                    await migration_repairVerseRangeDuplication();
+                } catch (error) {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    console.error("Verse-range duplication repair failed:", error);
+                    await vscode.window.showErrorMessage(
+                        `Verse-range duplication repair failed: ${msg}`
                     );
                 }
             }

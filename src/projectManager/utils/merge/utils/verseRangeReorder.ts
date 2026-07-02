@@ -36,6 +36,14 @@ export interface VerseRangeReorderOptions {
      * not structural verse cells. Missing/unknown types fall back to the content checks.
      */
     importerType?: string | null;
+    /**
+     * Repair mode (default false). When true, a verse cell with no *adjacent* covering milestone
+     * is still pulled to its chapter's milestone even across intervening milestones — used by the
+     * one-time duplication repair to rescue content singles stranded at the end of the file after
+     * de-duplication. Sync/migration leave this off so the conservative adjacency rule applies and
+     * empty duplicates are never hoisted into live scripture.
+     */
+    repairMode?: boolean;
 }
 
 /** Inclusive chapter range a milestone covers ("John 4" -> 4..4, "Job 4-31" -> 4..31). */
@@ -102,6 +110,7 @@ export function reorderVerseRangeCells(
     if (typeof importerType === "string" && importerType.trim() && !isBibleTypeImporter(importerType)) {
         return { cells, mutated: false, orderChanged: false };
     }
+    const repairMode = options?.repairMode === true;
 
     // First pass: cheap detection so we can no-op on non-scripture notebooks.
     let hasMilestone = false;
@@ -291,6 +300,13 @@ export function reorderVerseRangeCells(
                 chosen = milestones[precedingM];
             } else if (nextM < milestones.length && covers(milestones[nextM], item)) {
                 chosen = milestones[nextM];
+            } else if (repairMode) {
+                // Repair only: no adjacent milestone covers this cell (e.g. a content single left
+                // stranded at the end of the file after de-duplication). Pull it to the first
+                // milestone that covers its chapter, even across intervening milestones.
+                for (const m of milestones) {
+                    if (covers(m, item)) { chosen = m; break; }
+                }
             }
             if (chosen) {
                 chosen.assigned.push(item);

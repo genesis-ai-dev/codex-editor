@@ -18,6 +18,11 @@ import {
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { resolveCodexCustomMerge, mergeDuplicateCellsUsingResolverLogic } from "./merge/resolvers";
 import { reorderVerseRangeCells } from "./merge/utils/verseRangeReorder";
+import {
+    planVerseDuplicationRepair,
+    applyVerseDuplicationRepair,
+} from "./merge/utils/verseDuplicationRepair";
+import { isBibleTypeImporter } from "../../../sharedUtils/importerTypeUtils";
 import { recoverMergedChildrenForFile } from "./recoveryUtils";
 import { atomicWriteUriText } from "../../utils/notebookSafeSaveUtils";
 import { normalizeNotebookFileText, formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
@@ -3474,6 +3479,245 @@ export const migration_recoverMissingMergedChildren = async (): Promise<void> =>
         );
     } catch (error) {
         console.error("Error running missing merged children recovery:", error);
+        throw error;
+    }
+};
+
+/**
+ * Apply the verse-duplication repair to a single .codex/.source file (issue #848). Plans + applies
+ * via the shared {@link applyVerseDuplicationRepair} helper — soft-deletes empty duplicate cells
+ * (row + history preserved) and leaves overlapping-content conflicts untouched. Idempotent; a
+ * no-op for known non-Bible importer types.
+ */
+export async function repairVerseRangeDuplicationForFile(
+    fileUri: vscode.Uri,
+    options?: { dryRun?: boolean }
+): Promise<{
+    changed: boolean;
+    tombstoned: number;
+    conflicts: number;
+    conflictPassages: Array<{ label: string; hasAudio: boolean }>;
+}> {
+    const dryRun = options?.dryRun ?? false;
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return { changed: false, tombstoned: 0, conflicts: 0, conflictPassages: [] };
+
+        const importerType: string | null | undefined = notebookData?.metadata?.importerType;
+        const isNonBibleDoc =
+            typeof importerType === "string" &&
+            importerType.trim().length > 0 &&
+            !isBibleTypeImporter(importerType);
+        if (isNonBibleDoc) return { changed: false, tombstoned: 0, conflicts: 0, conflictPassages: [] };
+
+        if (dryRun) {
+            const plan = planVerseDuplicationRepair(cells);
+            // Also flag files that are already de-duplicated but still have stranded cells.
+            const reordered = reorderVerseRangeCells(cells, { importerType, repairMode: true });
+            return {
+                changed: plan.tombstoneIds.length > 0 || reordered.orderChanged,
+                tombstoned: plan.tombstoneIds.length,
+                conflicts: plan.conflicts.length,
+                conflictPassages: plan.conflicts.map((c) => ({ label: c.label, hasAudio: c.hasAudio })),
+            };
+        }
+
+        const { tombstoned, conflicts } = applyVerseDuplicationRepair(cells, { importerType });
+
+        // Reposition content cells stranded out of their chapter section (e.g. duplicate singles
+        // parked at the end of the file). repairMode pulls them to their chapter even across
+        // intervening milestones — safe here because the empty duplicates were just soft-deleted.
+        const reordered = reorderVerseRangeCells(cells, { importerType, repairMode: true });
+        const changed = tombstoned > 0 || reordered.orderChanged;
+        if (!changed) return { changed: false, tombstoned, conflicts, conflictPassages: [] };
+
+        notebookData.cells = reordered.cells;
+        const updatedContent = await serializer.serializeNotebook(
+            notebookData,
+            new vscode.CancellationTokenSource().token
+        );
+        await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+        return { changed: true, tombstoned, conflicts, conflictPassages: [] };
+    } catch (error) {
+        console.error(`Error repairing verse-range duplication for ${fileUri.fsPath}:`, error);
+        return { changed: false, tombstoned: 0, conflicts: 0, conflictPassages: [] };
+    }
+}
+
+/**
+ * One-off recovery for projects damaged by the verse-range duplication bug (issue #848).
+ * Two-pass with a confirmation modal between passes (dry-run scan -> confirm -> apply), mirroring
+ * {@link migration_recoverMissingMergedChildren}. Manual, idempotent, never auto-run. Soft-deletes
+ * only empty duplicates; overlapping-content conflicts are reported for manual resolution.
+ */
+export const migration_repairVerseRangeDuplication = async (): Promise<void> => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) return;
+
+        debug("Running verse-range duplication repair scan...");
+        const workspaceFolder = workspaceFolders[0];
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+        const allFiles = [...codexFiles, ...sourceFiles];
+        if (allFiles.length === 0) return;
+
+        const affected: Array<{ uri: vscode.Uri; tombstoned: number; }> = [];
+        const conflictPassages: Array<{ label: string; hasAudio: boolean }> = [];
+        let totalTombstones = 0;
+        let totalConflicts = 0;
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Scanning for duplicated verse cells",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+                    progress.report({
+                        message: path.basename(file.fsPath),
+                        increment: 100 / allFiles.length,
+                    });
+                    try {
+                        const report = await repairVerseRangeDuplicationForFile(file, {
+                            dryRun: true,
+                        });
+                        if (report.changed && report.tombstoned > 0) {
+                            affected.push({ uri: file, tombstoned: report.tombstoned });
+                            totalTombstones += report.tombstoned;
+                        }
+                        totalConflicts += report.conflicts;
+                        conflictPassages.push(...report.conflictPassages);
+                    } catch (error) {
+                        console.error(`Error scanning ${file.fsPath} for verse duplication:`, error);
+                    }
+                }
+            }
+        );
+
+        // Non-modal toast listing the specific passages that need manual review (both forms carry
+        // content — e.g. audio recorded into a duplicated cell). Shown after the confirm modal so
+        // it survives past it, and logged in full for reference.
+        const showConflictToast = () => {
+            if (conflictPassages.length === 0) return;
+            const audioCount = conflictPassages.filter((c) => c.hasAudio).length;
+            const LIMIT = 12;
+            const list = conflictPassages
+                .slice(0, LIMIT)
+                .map((c) => (c.hasAudio ? `${c.label} (audio)` : c.label))
+                .join(", ");
+            const more =
+                conflictPassages.length > LIMIT
+                    ? ` …and ${conflictPassages.length - LIMIT} more`
+                    : "";
+            const audioNote =
+                audioCount > 0
+                    ? ` ${audioCount} contain recorded audio — resolve manually so it isn't lost.`
+                    : "";
+            void vscode.window.showWarningMessage(
+                `Verse-duplication repair: ${conflictPassages.length} passage(s) need manual review (both forms have content).${audioNote} ${list}${more}`
+            );
+            console.log(
+                "[verse-duplication repair] conflicts needing manual review:",
+                conflictPassages.map((c) => (c.hasAudio ? `${c.label} (audio)` : c.label)).join(", ")
+            );
+        };
+
+        if (affected.length === 0) {
+            await vscode.window.showInformationMessage(
+                conflictPassages.length > 0
+                    ? "No auto-repairable duplicated verse cells found."
+                    : "No duplicated verse cells detected."
+            );
+            showConflictToast();
+            return;
+        }
+
+        const previewLimit = 10;
+        const previewLines = affected
+            .slice(0, previewLimit)
+            .map((r) => `  • ${path.basename(r.uri.fsPath)} (${r.tombstoned})`)
+            .join("\n");
+        const moreLine =
+            affected.length > previewLimit
+                ? `\n  …and ${affected.length - previewLimit} more file(s)`
+                : "";
+        const conflictLine =
+            totalConflicts > 0
+                ? `\n\n${totalConflicts} overlapping-content conflict(s) will be LEFT untouched for manual review.`
+                : "";
+        const detail = `Empty duplicate cells will be soft-deleted (recoverable). No translated text is removed.\n\nFiles:\n${previewLines}${moreLine}${conflictLine}`;
+
+        const choice = await vscode.window.showWarningMessage(
+            `Found ${totalTombstones} empty duplicate verse cell(s) across ${affected.length} file(s). Apply repair?`,
+            { modal: true, detail },
+            "Apply"
+        );
+        // Surface the manual-review passages as a persistent (non-modal) toast the moment the
+        // modal closes — shown whether or not the user applies the repair.
+        showConflictToast();
+        if (choice !== "Apply") return;
+
+        const appliedFilePaths: string[] = [];
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Repairing duplicated verse cells",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (let i = 0; i < affected.length; i++) {
+                    const { uri } = affected[i];
+                    progress.report({
+                        message: path.basename(uri.fsPath),
+                        increment: 100 / affected.length,
+                    });
+                    try {
+                        const report = await repairVerseRangeDuplicationForFile(uri, {
+                            dryRun: false,
+                        });
+                        if (report.changed) appliedFilePaths.push(uri.fsPath);
+                    } catch (error) {
+                        console.error(`Error repairing ${uri.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        if (appliedFilePaths.length > 0) {
+            try {
+                const { GlobalProvider } = await import("../../globalProvider");
+                const provider = GlobalProvider.getInstance().getProvider("codex-cell-editor") as {
+                    refreshWebviewsForFiles?: (
+                        paths: string[],
+                        options?: { isSourceAndCodexFiles?: boolean; }
+                    ) => Promise<void>;
+                };
+                if (provider?.refreshWebviewsForFiles) {
+                    await provider.refreshWebviewsForFiles(appliedFilePaths);
+                }
+            } catch (error) {
+                console.warn("Failed to refresh webviews after verse-duplication repair:", error);
+            }
+        }
+
+        void vscode.window.showInformationMessage(
+            `Verse-duplication repair complete: ${appliedFilePaths.length} file(s) updated, ${totalTombstones} duplicate(s) removed.`
+        );
+    } catch (error) {
+        console.error("Error running verse-range duplication repair:", error);
         throw error;
     }
 };
