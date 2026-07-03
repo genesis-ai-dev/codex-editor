@@ -1046,7 +1046,10 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
                 // Mark this video as in-flight so an editor that opens its player
                 // mid-fetch shows the loading state rather than the placeholder.
-                beginVideoOperation(workspaceUri, videoUrl);
+                // The returned controller is aborted if the user cancels the
+                // progress, or deletes/replaces the video mid-download (#1038),
+                // so the fetch stops and its bytes are never written back.
+                const controller = beginVideoOperation(workspaceUri, videoUrl);
                 try {
                     await vscode.window.withProgress(
                         {
@@ -1054,17 +1057,21 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                             title: saveToProject
                                 ? "Saving video to project…"
                                 : "Loading video for this session…",
-                            cancellable: false,
+                            cancellable: true,
                         },
-                        async () => {
+                        async (_progress, token) => {
+                            token.onCancellationRequested(() => controller.abort());
                             const result = saveToProject
-                                ? await downloadVideoToProject(workspaceUri, videoUrl, this._context)
+                                ? await downloadVideoToProject(workspaceUri, videoUrl, this._context, controller.signal)
                                 : await downloadVideoToSessionCache(
                                       workspaceUri,
                                       videoUrl,
-                                      this._context
+                                      this._context,
+                                      controller.signal
                                   );
-                            if (!result.ok) {
+                            // A cancel/delete aborts the op intentionally; don't
+                            // surface that as an error to the user.
+                            if (!result.ok && !controller.signal.aborted) {
                                 vscode.window.showErrorMessage(
                                     result.error ?? "Failed to get video."
                                 );
