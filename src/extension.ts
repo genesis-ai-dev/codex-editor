@@ -1192,6 +1192,11 @@ export async function activate(context: vscode.ExtensionContext) {
                     const msg = error instanceof Error ? error.message : String(error);
                     console.error("Merge duplicate cells failed:", error);
                     await vscode.window.showErrorMessage(`Merge duplicate cells failed: ${msg}`);
+                }
+            }
+        )
+    );
+
     // Command: Repair verse-range duplication (one-off recovery for issue #848 — verse-RANGE
     // cells coexisting with SINGLE-verse cells; idempotent and prompts before writing).
     context.subscriptions.push(
