@@ -16,6 +16,7 @@ import {
     migration_addGlobalReferences,
     migration_verseRangeLabelsAndPositions,
     migration_recoverMissingMergedChildren,
+    migration_repairVerseRangeDuplication,
     migration_cellIdsToUuid,
     migration_recoverTempFilesAndMergeDuplicates,
     mergeDuplicateCellsAcrossWorkspace,
@@ -1191,6 +1192,20 @@ export async function activate(context: vscode.ExtensionContext) {
                     const msg = error instanceof Error ? error.message : String(error);
                     console.error("Merge duplicate cells failed:", error);
                     await vscode.window.showErrorMessage(`Merge duplicate cells failed: ${msg}`);
+    // Command: Repair verse-range duplication (one-off recovery for issue #848 — verse-RANGE
+    // cells coexisting with SINGLE-verse cells; idempotent and prompts before writing).
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.repairVerseRangeDuplication",
+            async () => {
+                try {
+                    await migration_repairVerseRangeDuplication();
+                } catch (error) {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    console.error("Verse-range duplication repair failed:", error);
+                    await vscode.window.showErrorMessage(
+                        `Verse-range duplication repair failed: ${msg}`
+                    );
                 }
             }
         )

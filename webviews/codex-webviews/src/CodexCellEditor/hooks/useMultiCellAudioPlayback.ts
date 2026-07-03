@@ -3,6 +3,7 @@ import { QuillCellContent } from "../../../../../types";
 import { WebviewApi } from "vscode-webview";
 import type { ReactPlayerRef } from "../types/reactPlayerTypes";
 import { globalAudioController, AudioControllerEvent } from "../../lib/audioController";
+import { resolveVideoElement } from "../utils/videoElement";
 import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../../lib/audioCache";
 import { EditorPostMessages } from "../../../../../types";
 import type { AudioAvailability } from "../utils/audioViewMode";
@@ -48,35 +49,13 @@ export function useMultiCellAudioPlayback({
     const messageHandlerRef = useRef<((event: MessageEvent) => void) | null>(null);
     const isCleaningUpRef = useRef<boolean>(false);
 
-    // Get video element helper
-    const getVideoElement = useCallback((): HTMLVideoElement | null => {
-        if (!playerRef.current) return null;
-
-        const internalPlayer = playerRef.current.getInternalPlayer?.();
-        if (internalPlayer instanceof HTMLVideoElement) {
-            return internalPlayer;
-        }
-
-        if (internalPlayer && typeof internalPlayer === "object") {
-            const foundVideo =
-                (internalPlayer as any).querySelector?.("video") ||
-                (internalPlayer as any).video ||
-                internalPlayer;
-            if (foundVideo instanceof HTMLVideoElement) {
-                return foundVideo;
-            }
-        }
-
-        // Last resort: Try to find video element in the DOM
-        const wrapper = playerRef.current as any;
-        const foundVideo =
-            wrapper.querySelector?.("video") || wrapper.parentElement?.querySelector?.("video");
-        if (foundVideo instanceof HTMLVideoElement) {
-            return foundVideo;
-        }
-
-        return null;
-    }, [playerRef]);
+    // Get video element helper. For HLS this reaches into the <hls-video> custom element's
+    // shadow DOM; otherwise muting the video while recorded audio plays no-ops (see
+    // resolveVideoElement).
+    const getVideoElement = useCallback(
+        (): HTMLVideoElement | null => resolveVideoElement(playerRef.current),
+        [playerRef]
+    );
 
     // Clean up audio elements
     const cleanupAudioElements = useCallback(() => {

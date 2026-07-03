@@ -964,6 +964,25 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             const config = vscode.workspace.getConfiguration("codex-editor-extension");
             let endpoint = config.get<string>("asrEndpoint", "http://localhost:8000/api/v1/asr/transcribe");
 
+            // ASR language plumbing — see sharedUtils/asrLanguageUtils.ts for the resolver
+            // contract. The webview drives "auto-detect" vs "use project language" via the
+            // gear menu on the Transcribe button; that picker is persisted to the workspace
+            // setting `asrLanguageMode`.
+            const { resolveOmniAsrCode } = await import("../../../sharedUtils/asrLanguageUtils");
+            const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
+            const targetLanguage = projectConfig.get<any>("targetLanguage") as
+                | { tag?: string; refName?: string; iso1?: string; iso2t?: string; iso2b?: string; }
+                | undefined;
+            const languageMode = (config.get<string>("asrLanguageMode", "project") === "auto"
+                ? "auto"
+                : "project") as "auto" | "project";
+            const scriptPref = config.get<string>("asrScriptPref", "auto");
+            const resolvedCode =
+                languageMode === "auto"
+                    ? undefined
+                    : resolveOmniAsrCode(targetLanguage, scriptPref);
+            const projectLanguageName = targetLanguage?.refName;
+
             let authToken: string | undefined;
 
             // Try to get authenticated endpoint from FrontierAPI
@@ -1016,10 +1035,17 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 console.error(`[getAsrConfig] This will cause transcription to fail. Please check authentication status.`);
             }
 
-            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}`);
+            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}, lang=${resolvedCode}, mode=${languageMode}, scriptPref=${scriptPref}`);
             safePostMessageToPanel(webviewPanel, {
                 type: "asrConfig",
-                content: { endpoint, authToken }
+                content: {
+                    endpoint,
+                    authToken,
+                    lang: resolvedCode,
+                    languageMode,
+                    scriptPref,
+                    projectLanguageName,
+                },
             });
         } catch (error) {
             console.error("Error sending ASR config:", error);
@@ -1029,14 +1055,46 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 type: "asrConfig",
                 content: {
                     endpoint: fallbackEndpoint,
-                    provider: "mms",
-                    model: "facebook/mms-1b-all",
-                    language: "eng",
-                    phonetic: false,
-                    authToken: undefined
+                    authToken: undefined,
+                    languageMode: "project",
                 }
             });
         }
+    },
+
+    setAsrLanguageMode: async ({ event, webviewPanel }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "setAsrLanguageMode"; }>;
+        const mode = typedEvent.content?.mode === "auto" ? "auto" : "project";
+        try {
+            await vscode.workspace
+                .getConfiguration("codex-editor-extension")
+                .update("asrLanguageMode", mode, vscode.ConfigurationTarget.Workspace);
+        } catch (err) {
+            console.warn("Failed to update asrLanguageMode", err);
+        }
+        // Rebroadcast so the webview can refresh its local asrConfig snapshot.
+        await messageHandlers.getAsrConfig({ webviewPanel } as any);
+    },
+
+    setAsrScriptPref: async ({ event, webviewPanel }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "setAsrScriptPref"; }>;
+        const rawPref = typedEvent.content?.scriptPref;
+        // Accept "auto", "latin", or any 4-letter ISO 15924 tag. Anything else falls back to "auto".
+        const isFourLetter = typeof rawPref === "string" && /^[A-Za-z]{4}$/.test(rawPref);
+        const normalized =
+            rawPref === "auto" || rawPref === "latin"
+                ? rawPref
+                : isFourLetter
+                    ? rawPref!.charAt(0).toUpperCase() + rawPref!.slice(1).toLowerCase()
+                    : "auto";
+        try {
+            await vscode.workspace
+                .getConfiguration("codex-editor-extension")
+                .update("asrScriptPref", normalized, vscode.ConfigurationTarget.Workspace);
+        } catch (err) {
+            console.warn("Failed to update asrScriptPref", err);
+        }
+        await messageHandlers.getAsrConfig({ webviewPanel } as any);
     },
 
     updateCellAfterTranscription: async ({ event, document, webviewPanel, provider }) => {
@@ -1054,7 +1112,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 ...(attachment || {}),
                 transcription: {
                     content: transcribedText,
-                    language: language || "unknown",
+                    // `language` is the OmniASR `{iso639_3}_{Script}` code the server reported
+                    // (or null when the server ran in auto-detect mode and didn't echo one).
+                    // The webview labels the badge with `labelForTranscriptionLanguage()` from
+                    // sharedUtils/asrLanguageUtils.ts — never trust "language" to be a human
+                    // string here.
+                    language: language ?? null,
                     timestamp: Date.now(),
                 },
                 updatedAt: Date.now(),
@@ -1989,6 +2052,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                 const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
                 if (workspaceUri) {
+                    // Cancel any in-flight download of the video being replaced so
+                    // it can't write back over the new selection (#1038).
+                    const { abortVideoOperation } = await import("./utils/videoDownloadUtils");
+                    abortVideoOperation(workspaceUri, oldVideoUrl);
                     await deleteLocalVideoFiles(oldVideoUrl, workspaceUri);
                 }
             }
@@ -2021,6 +2088,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         if (kind === "local") {
             const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
             if (workspaceUri) {
+                // Cancel any in-flight download of this video first, so a finishing
+                // download can't write its bytes back over the file we delete (#1038).
+                const { abortVideoOperation } = await import("./utils/videoDownloadUtils");
+                abortVideoOperation(workspaceUri, currentVideoUrl);
                 await deleteLocalVideoFiles(currentVideoUrl, workspaceUri);
             }
         }
@@ -2111,7 +2182,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         // files/. Every other strategy always keeps the file in files/.
         const keepFile = persist || strategy !== "stream-only";
 
-        const { writeCachedVideo, hasCachedVideo } = await import("../../utils/videoStreamCache");
+        const { writeCachedVideo, hasCachedVideo, deleteCachedVideo } = await import(
+            "../../utils/videoStreamCache"
+        );
 
         // If a saved copy already exists in files/, just play it.
         if (!(await isPointerFile(filesUri.fsPath))) {
@@ -2152,18 +2225,40 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             return;
         }
 
+        // Snapshot whatever files/ holds right now (a pointer stub, or nothing).
+        // A cancel can land while the downloaded bytes are being WRITTEN — after
+        // the pre-write abort check — and a large video's write takes real time.
+        // The post-write check below restores this exact pre-download state so a
+        // cancel always wins and no downloaded bytes remain saved.
+        let preDownloadStub: Uint8Array | undefined;
+        try {
+            preDownloadStub = await vscode.workspace.fs.readFile(filesUri);
+        } catch {
+            preDownloadStub = undefined; // absent — reverting means deleting
+        }
+
+        // Register the fetch so the user can cancel it from the progress
+        // notification, and so deleting/replacing the video mid-download aborts
+        // it and its bytes are never written back (issue #1038). Mirrors the
+        // navigation sidebar's "Get video" flow.
+        const { beginVideoOperation, endVideoOperation } = await import(
+            "./utils/videoDownloadUtils"
+        );
+        const controller = beginVideoOperation(workspaceUri, videoUrl);
         try {
             await vscode.window.withProgress(
                 {
                     location: vscode.ProgressLocation.Notification,
                     title: keepFile ? "Downloading and saving video…" : "Loading video…",
-                    cancellable: false,
+                    cancellable: true,
                 },
-                async () => {
+                async (_progress, token) => {
+                    token.onCancellationRequested(() => controller.abort());
                     const buffer = await authApi.downloadLFSFile(
                         workspaceUri.fsPath,
                         pointer.oid,
-                        pointer.size
+                        pointer.size,
+                        controller.signal
                     );
                     // Never write/play an incomplete file: require non-empty bytes
                     // that match the pointer's expected size. A mismatch means the
@@ -2177,6 +2272,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             `Downloaded ${byteLength} of ${pointer.size} bytes; the file is incomplete.`
                         );
                     }
+                    // The video may have been deleted/replaced (or the download
+                    // cancelled) while the fetch was in flight. Never write the
+                    // bytes back in that case (issue #1038).
+                    if (controller.signal.aborted) {
+                        throw new Error("Download cancelled.");
+                    }
                     const bytes = new Uint8Array(buffer);
                     if (keepFile) {
                         // Permanent: write into the project (files/ is gitignored,
@@ -2189,6 +2290,25 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         // Temporary session cache: write outside the project so
                         // files/ stays a pointer. Cleared on reload.
                         await writeCachedVideo(provider.extensionContext, pointer.oid, ext, bytes);
+                    }
+                    // A cancel (or delete/replace) that raced the write above:
+                    // honor it now by reverting to the pre-download state, so
+                    // the cancel wins and no downloaded bytes remain saved.
+                    if (controller.signal.aborted) {
+                        try {
+                            if (keepFile) {
+                                if (preDownloadStub) {
+                                    await vscode.workspace.fs.writeFile(filesUri, preDownloadStub);
+                                } else {
+                                    await vscode.workspace.fs.delete(filesUri);
+                                }
+                            } else {
+                                await deleteCachedVideo(provider.extensionContext, pointer.oid, ext);
+                            }
+                        } catch {
+                            // Best effort — worst case a complete (never partial) file remains.
+                        }
+                        throw new Error("Download cancelled.");
                     }
                 }
             );
@@ -2225,6 +2345,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // refresh the reference status to surface the "Free up space" action.
             await postVideoReferenceStatus(document, webviewPanel, provider);
         } catch (error) {
+            // An intentional cancel (progress button, or the video was deleted/
+            // replaced mid-download) is not an error — quietly reset the player.
+            if (controller.signal.aborted) {
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "videoStreamUnavailable",
+                    reason: "error",
+                    message: "Download cancelled.",
+                });
+                return;
+            }
             const msg = error instanceof Error ? error.message : String(error);
             const reason: "not-authenticated" | "error" = /not authenticated|log in/i.test(msg)
                 ? "not-authenticated"
@@ -2234,6 +2364,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 reason,
                 message: `Download failed: ${msg}`,
             });
+        } finally {
+            endVideoOperation(workspaceUri, videoUrl);
         }
     },
 
@@ -3410,14 +3542,21 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                     const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
                                     const filesAbs = path.join(workspaceFolder.uri.fsPath, filesRel);
                                     try {
+                                        // files/ is authoritative when present: a pointer stub →
+                                        // not downloaded, real bytes → downloaded.
                                         await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
                                         const { isPointerFile } = await import("../../utils/lfsHelpers");
                                         const isPtr = await isPointerFile(filesAbs).catch(() => false);
                                         if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
                                     } catch {
-                                        const pointerAbs = filesAbs.includes("/.project/attachments/files/")
-                                            ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
-                                            : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
+                                        // files/ absent — fall back to pointers/ (undownloaded media).
+                                        // Swap files/→pointers/ on a POSIX-normalized path so this
+                                        // works on Windows too (path.join yields backslashes, which
+                                        // never match a hardcoded forward-slash needle).
+                                        const filesPosix = toPosixPath(filesAbs);
+                                        const pointerAbs = filesPosix.includes("/.project/attachments/files/")
+                                            ? filesPosix.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
+                                            : filesPosix.replace(".project/attachments/files/", ".project/attachments/pointers/");
                                         try {
                                             await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
                                             hasAvailablePointer = true;
@@ -3820,7 +3959,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     confirmCellMerge: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "confirmCellMerge"; }>;
-        const { currentCellId, previousCellId, currentContent, previousContent, message } = typedEvent.content;
+        const { currentCellId, previousCellId, currentContent, previousContent } = typedEvent.content;
 
         debug("confirmCellMerge message received for cells:", { currentCellId, previousCellId });
 
@@ -3848,45 +3987,36 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
 
-            // No child cells found, proceed with existing confirmation flow
-            const confirmed = await vscode.window.showWarningMessage(
-                message,
-                { modal: false },
-                "Yes",
-                "No"
-            );
-
-            if (confirmed === "Yes") {
-                // User confirmed, proceed with merge
-                const mergeEvent: EditorPostMessages = {
-                    command: "mergeCellWithPrevious" as const,
-                    content: {
-                        currentCellId,
-                        previousCellId,
-                        currentContent,
-                        previousContent
-                    }
-                };
-
-                // Call the existing merge handler
-                await messageHandlers.mergeCellWithPrevious({
-                    event: mergeEvent,
-                    document,
-                    webviewPanel,
-                    provider,
-                    updateWebview: () => {
-                        provider.refreshWebview(webviewPanel, document);
-                    }
-                });
-
-                // Only merge in target if we're working with a source file
-                if (isSourceFile) {
-                    const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-                    if (!workspaceFolder) {
-                        throw new Error("No workspace folder found");
-                    }
-                    await provider.mergeMatchingCellsInTargetFile(currentCellId, previousCellId, document.uri.toString(), workspaceFolder);
+            // No child cells found. Confirmation already happened in the webview modal, so
+            // proceed directly with the merge.
+            const mergeEvent: EditorPostMessages = {
+                command: "mergeCellWithPrevious" as const,
+                content: {
+                    currentCellId,
+                    previousCellId,
+                    currentContent,
+                    previousContent
                 }
+            };
+
+            // Call the existing merge handler
+            await messageHandlers.mergeCellWithPrevious({
+                event: mergeEvent,
+                document,
+                webviewPanel,
+                provider,
+                updateWebview: () => {
+                    provider.refreshWebview(webviewPanel, document);
+                }
+            });
+
+            // Only merge in target if we're working with a source file
+            if (isSourceFile) {
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (!workspaceFolder) {
+                    throw new Error("No workspace folder found");
+                }
+                await provider.mergeMatchingCellsInTargetFile(currentCellId, previousCellId, document.uri.toString(), workspaceFolder);
             }
         } catch (error) {
             console.error("Error in confirmCellMerge:", error);

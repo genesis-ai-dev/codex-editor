@@ -17,6 +17,7 @@ import {
     Eye,
     BarChart3,
     AlertCircle,
+    ChevronDown,
 } from "lucide-react";
 import { ImporterComponentProps, CellAligner, AlignedCell } from "../types/plugin";
 import { NotebookPair, ImportProgress } from "../types/common";
@@ -82,6 +83,13 @@ export interface UnifiedImporterFormProps {
      * above the import button (e.g. timestamp corruption warnings).
      */
     analyzeWarnings?: (files: File[]) => Promise<string[]>;
+
+    /**
+     * Optional custom controls rendered in a collapsible "Advanced Settings"
+     * section below the file-selection card. Importer-specific knobs
+     * (e.g. ideal cell length for DOCX splitting) can live here.
+     */
+    advancedSettings?: React.ReactNode;
 }
 
 export const UnifiedImporterForm: React.FC<UnifiedImporterFormProps> = ({
@@ -99,7 +107,9 @@ export const UnifiedImporterForm: React.FC<UnifiedImporterFormProps> = ({
     onSourceImportComplete,
     showEnforceStructure = false,
     analyzeWarnings,
+    advancedSettings,
 }) => {
+    const [showAdvanced, setShowAdvanced] = useState(false);
     const [files, setFiles] = useState<File[]>([]);
     const [enforceStructure, setEnforceStructure] = useState(showEnforceStructure);
     const [previewContent, setPreviewContent] = useState<string>("");
@@ -427,6 +437,27 @@ export const UnifiedImporterForm: React.FC<UnifiedImporterFormProps> = ({
                     )}
                 </CardContent>
             </Card>
+
+            {/* Advanced Settings (optional, importer-specific) */}
+            {advancedSettings && (
+                <div className="border border-gray-300 rounded-md">
+                    <button
+                        type="button"
+                        onClick={() => setShowAdvanced((v) => !v)}
+                        className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-gray-500 hover:text-gray-800 transition-colors"
+                    >
+                        <span>Advanced Settings</span>
+                        <ChevronDown
+                            className={`h-4 w-4 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+                        />
+                    </button>
+                    {showAdvanced && (
+                        <div className="px-3 pb-3 pt-1 space-y-2">
+                            {advancedSettings}
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Enforce HTML Structure Checkbox */}
             {showEnforceStructure && hasFiles && (

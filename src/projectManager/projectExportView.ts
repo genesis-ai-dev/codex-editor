@@ -2002,21 +2002,15 @@ function getWebviewContent(
         }
             </div>
 
-            <div class="popup-overlay" id="contentMismatchPopup" onclick="if(event.target===this)closeContentMismatchPopup()">
+            <div class="popup-overlay" id="contentMismatchPopup">
                 <div class="popup-card">
                     <div class="popup-header">
                         <i class="codicon codicon-warning"></i>
                         <h4 id="contentMismatchTitle">Missing Content</h4>
-                        <button class="popup-close" onclick="closeContentMismatchPopup()" title="Close">
-                            <i class="codicon codicon-close"></i>
-                        </button>
                     </div>
                     <div class="popup-body">
                         <p id="contentMismatchSummary"></p>
                         <div class="popup-file-list" id="contentMismatchFileList"></div>
-                        <p style="margin-top: 8px; color: var(--vscode-descriptionForeground); font-size: 0.85em;">
-                            The export will still proceed, but the listed files will produce empty output for the selected format.
-                        </p>
                     </div>
                     <div class="popup-footer">
                         <button onclick="closeContentMismatchPopup()">OK</button>
@@ -2096,6 +2090,13 @@ function getWebviewContent(
                 const exportOptionsConfig = ${exportOptionsConfigJson};
                 const isStreamOnly = ${JSON.stringify(isStreamOnly)};
                 let currentStep = 1;
+                // File-selection signature at the time the audio mismatch check last ran.
+                // Used to re-fire the warning when the user goes back and changes the file
+                // selection while the audio option is still selected (see #1007 follow-up).
+                let audioMismatchCheckedFor = null;
+                function fileSelectionSignature() {
+                    return Array.from(selectedFiles).sort().join('|');
+                }
                 let selectedFormat = null;
                 let selectedAudioMode = null; // null | 'audio' | 'audio-timestamps' | 'audio-by-character'
                 let exportPath = ${initialExportFolderJson};
@@ -3059,6 +3060,13 @@ function getWebviewContent(
                                 opt.style.backgroundColor = '';
                                 opt.style.borderColor = '';
                             });
+                        }
+                        // The audio option is remembered across back-navigation, so no option
+                        // click will re-fire the mismatch check. If the file selection changed
+                        // since the check last ran (e.g. a no-audio file was added on step 1),
+                        // re-check now so the warning cannot be bypassed.
+                        if (selectedAudioMode && fileSelectionSignature() !== audioMismatchCheckedFor) {
+                            checkAudioSelectionMismatch();
                         }
                     } else if (noAudio && selectedAudioMode) {
                         selectedAudioMode = null;
@@ -4192,11 +4200,12 @@ function getWebviewContent(
                 }
 
                 function checkAudioSelectionMismatch() {
+                    audioMismatchCheckedFor = fileSelectionSignature();
                     const noAudioFiles = getFilesWithoutAudio();
                     if (noAudioFiles.length > 0) {
                         showContentMismatchPopup(
                             'Files Without Audio',
-                            'The following files have no audio translations. Their exported audio folders will be empty.',
+                            'The following files have no audio translations.',
                             noAudioFiles
                         );
                     }
@@ -4207,7 +4216,7 @@ function getWebviewContent(
                     if (noTextFiles.length > 0) {
                         showContentMismatchPopup(
                             'Files Without Text',
-                            'The following files have no text translations. Their text export will be empty.',
+                            'The following files have no text translations.',
                             noTextFiles
                         );
                     }
