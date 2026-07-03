@@ -1244,6 +1244,80 @@ export async function resolveCodexCustomMerge(
         }
     });
 
+    // A wholesale re-import regenerates every cell id, so an id-only merge would
+    // union the old and new copies of the same document — each cue duplicated, an
+    // extra milestone, the whole episode repeated (issue #1079). Before treating
+    // "their-only" cells as new, align them to our cells by content identity:
+    //   - a timed cell (subtitle cue) with the exact same (startTime, endTime) and
+    //     cell type IS the same cue, re-imported under a fresh id;
+    //   - a milestone with the same trimmed value IS the same section marker.
+    // Aligned pairs merge into the our-side cell (our id is canonical; edit
+    // histories union; the newest edit wins per field — and a tombstoned our-cell
+    // stays deleted, since its deletion edit outranks the import's blank state).
+    // Anything ambiguous (several our-cells share a key — e.g. an already-damaged
+    // file) is left alone and falls through to the existing insert path.
+    if (theirCellsMap.size > 0) {
+        const contentKeyForCell = (cell: CustomNotebookCellData): string | null => {
+            const md: any = cell.metadata || {};
+            if (md.type === CodexCellTypes.MILESTONE) {
+                const label = (cell.value || "").trim();
+                return label ? `milestone:${label}` : null;
+            }
+            const data = md.data || {};
+            if (data.startTime != null && data.endTime != null) {
+                return `timed:${md.type}:${data.startTime}:${data.endTime}`;
+            }
+            return null;
+        };
+
+        // Index live and tombstoned cells separately: a repaired file legitimately
+        // keeps tombstoned duplicates that share a timing key with the live cell,
+        // and those must not make the live match "ambiguous". Live cells win;
+        // a tombstoned cell is only a match when no live cell has the key (so a
+        // deleted cue still absorbs its re-imported twin and stays deleted).
+        const liveIndexByKey = new Map<string, number>();
+        const ambiguousLiveKeys = new Set<string>();
+        const tombstonedIndexByKey = new Map<string, number>();
+        const ambiguousTombstonedKeys = new Set<string>();
+        resultCells.forEach((cell, index) => {
+            const key = contentKeyForCell(cell);
+            if (!key) return;
+            const isDeleted = !!(cell.metadata as any)?.data?.deleted;
+            const indexMap = isDeleted ? tombstonedIndexByKey : liveIndexByKey;
+            const ambiguous = isDeleted ? ambiguousTombstonedKeys : ambiguousLiveKeys;
+            if (indexMap.has(key)) {
+                ambiguous.add(key);
+            } else {
+                indexMap.set(key, index);
+            }
+        });
+
+        for (const [theirId, theirCell] of Array.from(theirCellsMap.entries())) {
+            const key = contentKeyForCell(theirCell);
+            if (!key) continue;
+            let ourIndex: number | undefined;
+            if (liveIndexByKey.has(key)) {
+                if (ambiguousLiveKeys.has(key)) continue;
+                ourIndex = liveIndexByKey.get(key);
+            } else {
+                if (ambiguousTombstonedKeys.has(key)) continue;
+                ourIndex = tombstonedIndexByKey.get(key);
+            }
+            if (ourIndex === undefined) continue;
+
+            const ourCell = resultCells[ourIndex];
+            const mergedCell = mergeDuplicateCellsUsingResolverLogic([ourCell, theirCell]);
+            if (mergedCell.metadata && ourCell.metadata?.id) {
+                mergedCell.metadata.id = ourCell.metadata.id;
+            }
+            resultCells[ourIndex] = mergedCell;
+            theirCellsMap.delete(theirId);
+            debugLog(
+                `Aligned re-imported cell ${theirId} to existing cell ${ourCell.metadata?.id} via ${key}`
+            );
+        }
+    }
+
     // Add any new cells from their version, preserving their relative positions
     // These are cells that only exist in "their" version (e.g., paratextual cells they added)
     if (theirCellsMap.size > 0) {
