@@ -2052,6 +2052,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                 const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
                 if (workspaceUri) {
+                    // Cancel any in-flight download of the video being replaced so
+                    // it can't write back over the new selection (#1038).
+                    const { abortVideoOperation } = await import("./utils/videoDownloadUtils");
+                    abortVideoOperation(workspaceUri, oldVideoUrl);
                     await deleteLocalVideoFiles(oldVideoUrl, workspaceUri);
                 }
             }
@@ -2084,6 +2088,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         if (kind === "local") {
             const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
             if (workspaceUri) {
+                // Cancel any in-flight download of this video first, so a finishing
+                // download can't write its bytes back over the file we delete (#1038).
+                const { abortVideoOperation } = await import("./utils/videoDownloadUtils");
+                abortVideoOperation(workspaceUri, currentVideoUrl);
                 await deleteLocalVideoFiles(currentVideoUrl, workspaceUri);
             }
         }
@@ -2174,7 +2182,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         // files/. Every other strategy always keeps the file in files/.
         const keepFile = persist || strategy !== "stream-only";
 
-        const { writeCachedVideo, hasCachedVideo } = await import("../../utils/videoStreamCache");
+        const { writeCachedVideo, hasCachedVideo, deleteCachedVideo } = await import(
+            "../../utils/videoStreamCache"
+        );
 
         // If a saved copy already exists in files/, just play it.
         if (!(await isPointerFile(filesUri.fsPath))) {
@@ -2215,18 +2225,40 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             return;
         }
 
+        // Snapshot whatever files/ holds right now (a pointer stub, or nothing).
+        // A cancel can land while the downloaded bytes are being WRITTEN — after
+        // the pre-write abort check — and a large video's write takes real time.
+        // The post-write check below restores this exact pre-download state so a
+        // cancel always wins and no downloaded bytes remain saved.
+        let preDownloadStub: Uint8Array | undefined;
+        try {
+            preDownloadStub = await vscode.workspace.fs.readFile(filesUri);
+        } catch {
+            preDownloadStub = undefined; // absent — reverting means deleting
+        }
+
+        // Register the fetch so the user can cancel it from the progress
+        // notification, and so deleting/replacing the video mid-download aborts
+        // it and its bytes are never written back (issue #1038). Mirrors the
+        // navigation sidebar's "Get video" flow.
+        const { beginVideoOperation, endVideoOperation } = await import(
+            "./utils/videoDownloadUtils"
+        );
+        const controller = beginVideoOperation(workspaceUri, videoUrl);
         try {
             await vscode.window.withProgress(
                 {
                     location: vscode.ProgressLocation.Notification,
                     title: keepFile ? "Downloading and saving video…" : "Loading video…",
-                    cancellable: false,
+                    cancellable: true,
                 },
-                async () => {
+                async (_progress, token) => {
+                    token.onCancellationRequested(() => controller.abort());
                     const buffer = await authApi.downloadLFSFile(
                         workspaceUri.fsPath,
                         pointer.oid,
-                        pointer.size
+                        pointer.size,
+                        controller.signal
                     );
                     // Never write/play an incomplete file: require non-empty bytes
                     // that match the pointer's expected size. A mismatch means the
@@ -2240,6 +2272,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             `Downloaded ${byteLength} of ${pointer.size} bytes; the file is incomplete.`
                         );
                     }
+                    // The video may have been deleted/replaced (or the download
+                    // cancelled) while the fetch was in flight. Never write the
+                    // bytes back in that case (issue #1038).
+                    if (controller.signal.aborted) {
+                        throw new Error("Download cancelled.");
+                    }
                     const bytes = new Uint8Array(buffer);
                     if (keepFile) {
                         // Permanent: write into the project (files/ is gitignored,
@@ -2252,6 +2290,25 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         // Temporary session cache: write outside the project so
                         // files/ stays a pointer. Cleared on reload.
                         await writeCachedVideo(provider.extensionContext, pointer.oid, ext, bytes);
+                    }
+                    // A cancel (or delete/replace) that raced the write above:
+                    // honor it now by reverting to the pre-download state, so
+                    // the cancel wins and no downloaded bytes remain saved.
+                    if (controller.signal.aborted) {
+                        try {
+                            if (keepFile) {
+                                if (preDownloadStub) {
+                                    await vscode.workspace.fs.writeFile(filesUri, preDownloadStub);
+                                } else {
+                                    await vscode.workspace.fs.delete(filesUri);
+                                }
+                            } else {
+                                await deleteCachedVideo(provider.extensionContext, pointer.oid, ext);
+                            }
+                        } catch {
+                            // Best effort — worst case a complete (never partial) file remains.
+                        }
+                        throw new Error("Download cancelled.");
                     }
                 }
             );
@@ -2288,6 +2345,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // refresh the reference status to surface the "Free up space" action.
             await postVideoReferenceStatus(document, webviewPanel, provider);
         } catch (error) {
+            // An intentional cancel (progress button, or the video was deleted/
+            // replaced mid-download) is not an error — quietly reset the player.
+            if (controller.signal.aborted) {
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "videoStreamUnavailable",
+                    reason: "error",
+                    message: "Download cancelled.",
+                });
+                return;
+            }
             const msg = error instanceof Error ? error.message : String(error);
             const reason: "not-authenticated" | "error" = /not authenticated|log in/i.test(msg)
                 ? "not-authenticated"
@@ -2297,6 +2364,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 reason,
                 message: `Download failed: ${msg}`,
             });
+        } finally {
+            endVideoOperation(workspaceUri, videoUrl);
         }
     },
 
