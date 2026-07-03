@@ -190,12 +190,29 @@ suite("resolveCodexCustomMerge — re-import content alignment (#1079)", () => {
         assert.strictEqual(merged.cells.length, 2, "verse cells are unioned by id as before");
     });
 
-    test("milestones with different values are still treated as distinct", async () => {
-        const ours = [milestoneCell("1", "our-ms-1")];
+    test("milestones with different chapter numbers are still treated as distinct", async () => {
+        const ours = [milestoneCell("TheChosen-103-en-5-2 1", "our-ms-1")];
         const theirs = [milestoneCell("2")];
 
         const merged = JSON.parse(await resolveCodexCustomMerge(notebook(ours), notebook(theirs)));
         const milestones = merged.cells.filter((c: any) => c.metadata?.type === "milestone");
         assert.strictEqual(milestones.length, 2, "a genuinely new chapter milestone is added");
+    });
+
+    test("a re-imported bare-'1' milestone aligns with the long-form '<docName> 1' milestone", async () => {
+        // the importer names milestones "1"; the milestone migration names them
+        // "<docName> <chapter>" — the same chapter must align across formats
+        const ours = [milestoneCell("TheChosen-103-en-5-2 1", "our-ms-1")];
+        const theirs = [milestoneCell("1")];
+
+        const merged = JSON.parse(await resolveCodexCustomMerge(notebook(ours), notebook(theirs)));
+        const milestones = merged.cells.filter((c: any) => c.metadata?.type === "milestone");
+        assert.strictEqual(milestones.length, 1, "same chapter in both formats must not duplicate");
+        assert.strictEqual(milestones[0].metadata.id, "our-ms-1", "our milestone id is canonical");
+        assert.strictEqual(
+            milestones[0].value,
+            "TheChosen-103-en-5-2 1",
+            "our long-form name survives (their import cell has no newer value edit)"
+        );
     });
 });

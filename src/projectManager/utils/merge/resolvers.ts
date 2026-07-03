@@ -1261,7 +1261,16 @@ export async function resolveCodexCustomMerge(
             const md: any = cell.metadata || {};
             if (md.type === CodexCellTypes.MILESTONE) {
                 const label = (cell.value || "").trim();
-                return label ? `milestone:${label}` : null;
+                if (!label) return null;
+                // Milestone values come in two app-generated formats for the same
+                // chapter: the importer's bare "1" and the milestone migration's
+                // "<docName> 1". Key on the chapter number (the last number in the
+                // value — same rule as extractChapterNumberFromMilestoneValue in the
+                // webview) so a re-imported "1" aligns with an existing "<docName> 1"
+                // instead of inserting a duplicate section. Files with several
+                // same-numbered milestones fall into the ambiguity skip.
+                const chapterMatch = label.match(/(\d+)(?!.*\d)/);
+                return chapterMatch ? `milestone:${chapterMatch[1]}` : `milestone:${label}`;
             }
             const data = md.data || {};
             if (data.startTime != null && data.endTime != null) {
