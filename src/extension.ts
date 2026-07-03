@@ -19,6 +19,7 @@ import {
     migration_repairVerseRangeDuplication,
     migration_cellIdsToUuid,
     migration_recoverTempFilesAndMergeDuplicates,
+    mergeDuplicateCellsAcrossWorkspace,
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
 import { StatusBarItem } from "vscode";
@@ -1162,6 +1163,35 @@ export async function activate(context: vscode.ExtensionContext) {
                     await vscode.window.showErrorMessage(
                         `Missing merged children recovery failed: ${msg}`
                     );
+                }
+            }
+        )
+    );
+
+    // Command: Merge duplicate cells (manual, on-demand). Normalizes legacy cell ids to
+    // their canonical UUID form and merges duplicate cells across all notebooks. Not gated
+    // by the run-once migration flag, so it can repair legacy/UUID paratext twins that have
+    // re-appeared via sync. Idempotent — safe to run any time.
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.mergeDuplicateCells",
+            async () => {
+                try {
+                    const { filesScanned, filesChanged } =
+                        await mergeDuplicateCellsAcrossWorkspace();
+                    if (filesChanged > 0) {
+                        await vscode.window.showInformationMessage(
+                            `Merged duplicate cells: updated ${filesChanged} of ${filesScanned} file(s). Reload the window if an editor still shows duplicates.`
+                        );
+                    } else {
+                        await vscode.window.showInformationMessage(
+                            `No duplicate cells found (${filesScanned} file(s) checked).`
+                        );
+                    }
+                } catch (error) {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    console.error("Merge duplicate cells failed:", error);
+                    await vscode.window.showErrorMessage(`Merge duplicate cells failed: ${msg}`);
                 }
             }
         )
