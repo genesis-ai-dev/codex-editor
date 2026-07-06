@@ -3,17 +3,14 @@ Format:
 [Issue Number]-[Issue Name]
 
 ## Summary
-
 Closes #[insert issue number here]
 
 Describe the change.
 
 ## Changes
-
 These should match with the Acceptance Criteria
 
-## Testing Checklist
-
+## Test Checklist
 If generating from Claude, please do the checklist yourself before submitting.
 You may use sub-headers to organize better as follows:
 
@@ -24,5 +21,4 @@ You may use sub-headers to organize better as follows:
 - [ ] It doesn't do the other thing
 
 ## Screenshots
-
 Only if necessary for clarity
