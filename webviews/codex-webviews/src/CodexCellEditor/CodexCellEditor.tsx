@@ -37,6 +37,7 @@ import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { clearCachedAudio } from "../lib/audioCache";
+import { setAudioDownloading } from "../lib/audioDownloadRegistry";
 import { createCacheHelpers, createProgressCacheHelpers } from "./utils";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import { FloatingSearchBar, SearchMatch } from "./FloatingSearchBar";
@@ -476,6 +477,26 @@ const CodexCellEditor: React.FC = () => {
         []
     );
 
+    // Clear the in-flight audio-download flag once the provider responds for a
+    // main-cell request. Lives at the always-mounted root so it fires whether or
+    // not the cell editor that started the download is still open. History-viewer
+    // fetches carry `requestedAudioId` and are ignored here.
+    useMessageHandler(
+        "codexCellEditor-audioDownloadComplete",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type !== "providerSendsAudioData") return;
+            const { cellId, requestedAudioId } = (message.content || {}) as {
+                cellId?: string;
+                requestedAudioId?: string;
+            };
+            if (cellId && !requestedAudioId) {
+                setAudioDownloading(cellId, false);
+            }
+        },
+        []
+    );
+
     // Batch transcription handler
     useMessageHandler(
         "codexCellEditor-startBatchTranscription",
@@ -595,7 +616,8 @@ const CodexCellEditor: React.FC = () => {
                             });
                             // Same lang-mode handling as the per-cell button: omit lang in
                             // auto-detect mode, send the resolved code in project mode.
-                            const sentLang = asrConfig.languageMode === "auto" ? undefined : asrConfig.lang;
+                            const sentLang =
+                                asrConfig.languageMode === "auto" ? undefined : asrConfig.lang;
                             const result = await client.transcribe(blob, { lang: sentLang });
                             const text = (result.text || "").trim();
                             if (text) {
@@ -714,7 +736,7 @@ const CodexCellEditor: React.FC = () => {
                 });
             }
             if (message?.type === "similarWordingInspectionError") {
-                const { cellId, error } = message.content as { cellId: string; error: string; };
+                const { cellId, error } = message.content as { cellId: string; error: string };
                 setSimilarWordingState((prev) => {
                     if (prev.requestedCellId && prev.requestedCellId !== cellId) {
                         return prev;
@@ -1562,6 +1584,11 @@ const CodexCellEditor: React.FC = () => {
             // Store the cell ID to scroll to after loading completes
             setPendingScrollToCellId(cellId);
 
+            // A jump establishes an authoritative position; see the note in
+            // jumpToCellWithPosition. Prevents a late initial payload from clobbering
+            // this jump on a cold-opened pane (issue #996).
+            hasReceivedInitialContentRef.current = true;
+
             // Update chapter number for display
             setChapterNumber(newChapterNumber);
 
@@ -1588,6 +1615,13 @@ const CodexCellEditor: React.FC = () => {
 
             // Store the cell ID to scroll to after loading completes
             setPendingScrollToCellId(cellId);
+
+            // A jump establishes an authoritative position. Mark initial content as
+            // received so a still-in-flight initial payload — e.g. a cold-opened target
+            // pane whose chapter-1 content is posted *after* this jump lands — is treated
+            // as stale by setContentPaginated's guard instead of resetting us to chapter 1.
+            // Without this, the target pane loses the jump on cold open. See issue #996.
+            hasReceivedInitialContentRef.current = true;
 
             // Update indices directly
             setCurrentMilestoneIndex(milestoneIndex);
@@ -1783,9 +1817,7 @@ const CodexCellEditor: React.FC = () => {
             setVideoUrl("");
             setVideoResolving(false);
             setVideoNeedsDownloadStrategy(null);
-            setVideoUnavailableMessage(
-                message || "This video isn't available locally."
-            );
+            setVideoUnavailableMessage(message || "This video isn't available locally.");
         },
         videoNeedsDownload: (strategy) => {
             // The video is an LFS pointer; show strategy-appropriate actions.
@@ -1916,6 +1948,13 @@ const CodexCellEditor: React.FC = () => {
                     "message had",
                     { currentMilestoneIdx, currentSubsectionIdx }
                 );
+                // A jump can land before the very first initial-content payload (cold-opened
+                // target pane: the jump sets our position, then the chapter-1 initial content
+                // arrives here as "stale"). We still need the milestone-index *structure* for
+                // the chapter-nav UI and requestCellsForMilestone validation, so backfill it if
+                // absent — the jump's own requestCellsForMilestone fills the cells for the
+                // correct page, so we keep our jumped-to position untouched. See issue #996.
+                setMilestoneIndex((prev) => prev ?? milestoneIdx);
                 return;
             }
 
@@ -2045,8 +2084,7 @@ const CodexCellEditor: React.FC = () => {
                         // synced cell.audioTimestamps, since the slider reads
                         // staged ?? persisted. Without this, the user has to close
                         // and reopen the editor to see synced audio range changes.
-                        cellAudioTimestamps:
-                            match.audioTimestamps ?? prev.cellAudioTimestamps,
+                        cellAudioTimestamps: match.audioTimestamps ?? prev.cellAudioTimestamps,
                     };
                 });
             } else {
@@ -3132,7 +3170,7 @@ const CodexCellEditor: React.FC = () => {
     // VideoPlayer) on purpose: requesting a fresh URL clears videoUrl and
     // unmounts the player, so a guard inside the player would reset on every
     // remount and loop forever on a persistently-failing URL.
-    const videoErrorRetryRef = useRef<{ url: string; at: number; }>({ url: "", at: 0 });
+    const videoErrorRetryRef = useRef<{ url: string; at: number }>({ url: "", at: 0 });
 
     // Called when the player reports a load/playback error. A remote stream URL
     // may have expired, so re-resolve it once; if the SAME URL keeps failing we
@@ -3144,8 +3182,7 @@ const CodexCellEditor: React.FC = () => {
         const url = videoUrlRef.current;
         const now = Date.now();
         const guard = videoErrorRetryRef.current;
-        const retriedRecently =
-            guard.url === url && now - guard.at < VIDEO_ERROR_RETRY_WINDOW_MS;
+        const retriedRecently = guard.url === url && now - guard.at < VIDEO_ERROR_RETRY_WINDOW_MS;
         if (retriedRecently) {
             // Already retried this URL once recently → give up to avoid a loop.
             setVideoUrl("");
@@ -3737,43 +3774,89 @@ const CodexCellEditor: React.FC = () => {
                         }}
                         ref={videoPlayerRef}
                     >
-                        <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontSize: "24px" }} />
+                        <i
+                            className="codicon codicon-loading codicon-modifier-spin"
+                            style={{ fontSize: "24px" }}
+                        />
                         <span>Loading video…</span>
                     </div>
                 )}
-                {shouldShowVideoPlayer && !videoUrl && !videoResolving && videoNeedsDownloadStrategy && (
-                    <div
-                        style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: "10px",
-                            padding: "24px",
-                            backgroundColor: "black",
-                            color: "white",
-                            textAlign: "center",
-                        }}
-                        ref={videoPlayerRef}
-                    >
-                        <i className="codicon codicon-device-camera-video" style={{ fontSize: "24px" }} />
-                        <span style={{ fontWeight: 600 }}>
-                            {videoNeedsDownloadStrategy === "stream-only"
-                                ? "Streaming mode"
-                                : videoNeedsDownloadStrategy === "stream-and-save"
-                                ? "Stream & save mode"
-                                : "Video not downloaded yet"}
-                        </span>
-                        <span style={{ opacity: 0.85, maxWidth: "420px" }}>
-                            {videoNeedsDownloadStrategy === "stream-only"
-                                ? "This video isn't saved to your project. Load it for this session, or save it so it's kept for next time."
-                                : "This video will be downloaded and saved to your project."}
-                        </span>
-                        <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
-                            {videoNeedsDownloadStrategy === "stream-only" ? (
-                                <>
+                {shouldShowVideoPlayer &&
+                    !videoUrl &&
+                    !videoResolving &&
+                    videoNeedsDownloadStrategy && (
+                        <div
+                            style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: "10px",
+                                padding: "24px",
+                                backgroundColor: "black",
+                                color: "white",
+                                textAlign: "center",
+                            }}
+                            ref={videoPlayerRef}
+                        >
+                            <i
+                                className="codicon codicon-device-camera-video"
+                                style={{ fontSize: "24px" }}
+                            />
+                            <span style={{ fontWeight: 600 }}>
+                                {videoNeedsDownloadStrategy === "stream-only"
+                                    ? "Streaming mode"
+                                    : videoNeedsDownloadStrategy === "stream-and-save"
+                                    ? "Stream & save mode"
+                                    : "Video not downloaded yet"}
+                            </span>
+                            <span style={{ opacity: 0.85, maxWidth: "420px" }}>
+                                {videoNeedsDownloadStrategy === "stream-only"
+                                    ? "This video isn't saved to your project. Load it for this session, or save it so it's kept for next time."
+                                    : "This video will be downloaded and saved to your project."}
+                            </span>
+                            <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+                                {videoNeedsDownloadStrategy === "stream-only" ? (
+                                    <>
+                                        <button
+                                            onClick={() => downloadVideoFile(false)}
+                                            style={{
+                                                cursor: "pointer",
+                                                padding: "6px 14px",
+                                                borderRadius: "4px",
+                                                border: "1px solid var(--vscode-button-border, transparent)",
+                                                background: "var(--vscode-button-background)",
+                                                color: "var(--vscode-button-foreground)",
+                                            }}
+                                        >
+                                            <i
+                                                className="codicon codicon-play"
+                                                style={{ marginRight: "6px" }}
+                                            />
+                                            Load video
+                                        </button>
+                                        <button
+                                            onClick={() => downloadVideoFile(true)}
+                                            style={{
+                                                cursor: "pointer",
+                                                padding: "6px 14px",
+                                                borderRadius: "4px",
+                                                border: "1px solid var(--vscode-button-border, transparent)",
+                                                background:
+                                                    "var(--vscode-button-secondaryBackground)",
+                                                color: "var(--vscode-button-secondaryForeground)",
+                                            }}
+                                        >
+                                            <i
+                                                className="codicon codicon-save"
+                                                style={{ marginRight: "6px" }}
+                                            />
+                                            Save to project
+                                        </button>
+                                    </>
+                                ) : (
                                     <button
-                                        onClick={() => downloadVideoFile(false)}
+                                        onClick={() => downloadVideoFile(true)}
                                         style={{
                                             cursor: "pointer",
                                             padding: "6px 14px",
@@ -3783,27 +3866,42 @@ const CodexCellEditor: React.FC = () => {
                                             color: "var(--vscode-button-foreground)",
                                         }}
                                     >
-                                        <i className="codicon codicon-play" style={{ marginRight: "6px" }} />
-                                        Load video
+                                        <i
+                                            className="codicon codicon-cloud-download"
+                                            style={{ marginRight: "6px" }}
+                                        />
+                                        Download &amp; play
                                     </button>
-                                    <button
-                                        onClick={() => downloadVideoFile(true)}
-                                        style={{
-                                            cursor: "pointer",
-                                            padding: "6px 14px",
-                                            borderRadius: "4px",
-                                            border: "1px solid var(--vscode-button-border, transparent)",
-                                            background: "var(--vscode-button-secondaryBackground)",
-                                            color: "var(--vscode-button-secondaryForeground)",
-                                        }}
-                                    >
-                                        <i className="codicon codicon-save" style={{ marginRight: "6px" }} />
-                                        Save to project
-                                    </button>
-                                </>
-                            ) : (
+                                )}
+                            </div>
+                        </div>
+                    )}
+                {shouldShowVideoPlayer &&
+                    !videoUrl &&
+                    !videoResolving &&
+                    videoUnavailableMessage && (
+                        <div
+                            style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: "12px",
+                                padding: "24px",
+                                backgroundColor: "black",
+                                color: "white",
+                                textAlign: "center",
+                            }}
+                            ref={videoPlayerRef}
+                        >
+                            <i
+                                className="codicon codicon-cloud-offline"
+                                style={{ fontSize: "24px" }}
+                            />
+                            <span>{videoUnavailableMessage}</span>
+                            <div style={{ display: "flex", gap: "8px" }}>
                                 <button
-                                    onClick={() => downloadVideoFile(true)}
+                                    onClick={requestVideoStreamUrl}
                                     style={{
                                         cursor: "pointer",
                                         padding: "6px 14px",
@@ -3813,48 +3911,15 @@ const CodexCellEditor: React.FC = () => {
                                         color: "var(--vscode-button-foreground)",
                                     }}
                                 >
-                                    <i className="codicon codicon-cloud-download" style={{ marginRight: "6px" }} />
-                                    Download &amp; play
+                                    <i
+                                        className="codicon codicon-refresh"
+                                        style={{ marginRight: "6px" }}
+                                    />
+                                    Retry
                                 </button>
-                            )}
+                            </div>
                         </div>
-                    </div>
-                )}
-                {shouldShowVideoPlayer && !videoUrl && !videoResolving && videoUnavailableMessage && (
-                    <div
-                        style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: "12px",
-                            padding: "24px",
-                            backgroundColor: "black",
-                            color: "white",
-                            textAlign: "center",
-                        }}
-                        ref={videoPlayerRef}
-                    >
-                        <i className="codicon codicon-cloud-offline" style={{ fontSize: "24px" }} />
-                        <span>{videoUnavailableMessage}</span>
-                        <div style={{ display: "flex", gap: "8px" }}>
-                            <button
-                                onClick={requestVideoStreamUrl}
-                                style={{
-                                    cursor: "pointer",
-                                    padding: "6px 14px",
-                                    borderRadius: "4px",
-                                    border: "1px solid var(--vscode-button-border, transparent)",
-                                    background: "var(--vscode-button-background)",
-                                    color: "var(--vscode-button-foreground)",
-                                }}
-                            >
-                                <i className="codicon codicon-refresh" style={{ marginRight: "6px" }} />
-                                Retry
-                            </button>
-                        </div>
-                    </div>
-                )}
+                    )}
                 {shouldShowVideoPlayer && videoUrl && (
                     <div
                         style={{

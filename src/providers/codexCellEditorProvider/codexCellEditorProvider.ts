@@ -100,6 +100,43 @@ interface StateStore {
 }
 
 /**
+ * Resolve an attachment's stored relative URL into the absolute paths of both
+ * its `files/` copy and its `pointers/` copy.
+ *
+ * Availability is decided by `files/` FIRST (a pointer stub there → "synced,
+ * not downloaded"; real bytes → "downloaded / local"). The `pointers/` copy is
+ * only consulted as a FALLBACK when `files/` is absent, because undownloaded
+ * media may live solely under `pointers/`. Callers must never check `pointers/`
+ * while a `files/` entry exists, or a fully-downloaded file (whose pointer stub
+ * still lives under `pointers/`) would be misreported as not-downloaded.
+ *
+ * The stored `url` is always POSIX/forward-slash (e.g.
+ * `.project/attachments/files/MAT/audio.webm`), so the files→pointers swap is
+ * done on that forward-slash relative string *before* `path.join` applies the
+ * platform separator. Doing the swap on the absolute path would break on
+ * Windows, where `path.join` yields backslashes and a hardcoded
+ * `/.project/attachments/files/` needle never matches (the original bug that
+ * made undownloaded audio show a play icon instead of the cloud/download icon).
+ *
+ * If the URL isn't under `attachments/files/`, `pointerAbs` equals `filesAbs`
+ * (no pointers/ fallback applies for that layout).
+ */
+function resolveAttachmentPaths(
+    url: string,
+    wsPath: string
+): { filesAbs: string; pointerAbs: string; } {
+    const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+    const pointerRel = filesRel.replace(
+        /(\.project\/attachments\/)files\//,
+        "$1pointers/"
+    );
+    return {
+        filesAbs: path.join(wsPath, filesRel),
+        pointerAbs: path.join(wsPath, pointerRel),
+    };
+}
+
+/**
  * Resolves the audio availability state for a cell based on its explicitly
  * selected attachment (`selectedAudioId`).  If an explicit selection exists
  * and the selected file is an LFS pointer (or cached), the returned state
@@ -137,23 +174,50 @@ export async function resolveSelectedAttachmentState(
     if (selectedAtt.isMissing) return "missing";
     const url = String(selectedAtt.url || "");
     if (!url) return baseState;
-    const filesPath = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-    const abs = path.join(wsPath, filesPath);
+    const { filesAbs, pointerAbs } = resolveAttachmentPaths(url, wsPath);
     const { isPointerFile, parsePointerFile } = await import("../../utils/lfsHelpers");
-    const isPtr = await isPointerFile(abs).catch(() => false);
-    if (isPtr) {
-        const { getCachedLfsBytes } = await import("../../utils/mediaCache");
-        const ptr = await parsePointerFile(abs).catch(() => null);
-        if (ptr?.oid && getCachedLfsBytes(ptr.oid)) return "available-cached";
-        return "available-pointer";
+    const { getCachedLfsBytes } = await import("../../utils/mediaCache");
+
+    // Phase 1: files/ is authoritative when present. A pointer stub there means
+    // "synced, not downloaded" (→ pointer/cached); real bytes mean "downloaded
+    // / local recording" → defer to baseState (the playable states). Only fall
+    // through to pointers/ when files/ is ABSENT — a synced project keeps a
+    // pointer stub under pointers/ even for fully-downloaded files, so checking
+    // it for a real local file would wrongly report it as not-downloaded.
+    try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
+        const isPtr = await isPointerFile(filesAbs).catch(() => false);
+        if (isPtr) {
+            const ptr = await parsePointerFile(filesAbs).catch(() => null);
+            if (ptr?.oid && getCachedLfsBytes(ptr.oid)) return "available-cached";
+            return "available-pointer";
+        }
+        return baseState;
+    } catch {
+        /* file not present under files/ — try the pointers/ fallback below */
     }
+
+    // Phase 2: undownloaded media may live solely under pointers/. Without this
+    // the selected attachment looks absent and the cell renders a (broken) play
+    // icon. Cross-platform via `resolveAttachmentPaths`.
+    if (pointerAbs !== filesAbs) {
+        try {
+            await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
+            const ptr = await parsePointerFile(pointerAbs).catch(() => null);
+            if (ptr?.oid && getCachedLfsBytes(ptr.oid)) return "available-cached";
+            return "available-pointer";
+        } catch {
+            /* not under pointers/ either — fall through to baseState */
+        }
+    }
+
     return baseState;
 }
 
 /**
  * Standalone attachment availability check usable from both the class and
- * message handlers.  Checks the files/ path first, then falls back to the
- * pointers/ path for custom-LFS layouts.
+ * message handlers.  Checks the files/ path first (authoritative when present),
+ * then falls back to the pointers/ path only when files/ is absent.
  */
 export async function checkAttachmentAvailabilityStandalone(
     attachment: { isDeleted?: boolean; isMissing?: boolean; url?: string },
@@ -168,13 +232,13 @@ export async function checkAttachmentAvailabilityStandalone(
     const url = String(attachment.url || "");
     if (!url) return "missing";
 
-    const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-    const filesAbs = path.join(wsPath, filesRel);
+    const { filesAbs, pointerAbs } = resolveAttachmentPaths(url, wsPath);
 
     const { isPointerFile, parsePointerFile } = await import("../../utils/lfsHelpers");
     const { getCachedLfsBytes } = await import("../../utils/mediaCache");
 
-    // Phase 1: check the files/ path
+    // Phase 1: files/ is authoritative when present. A pointer stub → "synced,
+    // not downloaded"; real bytes → "downloaded / local".
     try {
         await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
         const isPtr = await isPointerFile(filesAbs).catch(() => false);
@@ -186,18 +250,18 @@ export async function checkAttachmentAvailabilityStandalone(
         return "available-local";
     } catch { /* file not at files/ path */ }
 
-    // Phase 2: check the pointers/ path
-    try {
-        const pointerAbs = filesAbs.includes("/.project/attachments/files/")
-            ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
-            : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
-        await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
-        const ptrFallback = await parsePointerFile(pointerAbs).catch(() => null);
-        if (ptrFallback?.oid && getCachedLfsBytes(ptrFallback.oid)) return "available-cached";
-        return "available-pointer";
-    } catch {
-        return "missing";
+    // Phase 2: undownloaded media may live solely under pointers/ (cross-platform
+    // via resolveAttachmentPaths). Only reached when files/ is absent.
+    if (pointerAbs !== filesAbs) {
+        try {
+            await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
+            const ptrFallback = await parsePointerFile(pointerAbs).catch(() => null);
+            if (ptrFallback?.oid && getCachedLfsBytes(ptrFallback.oid)) return "available-cached";
+            return "available-pointer";
+        } catch { /* not under pointers/ either */ }
     }
+
+    return "missing";
 }
 
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
@@ -744,6 +808,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Set up file system watcher (only if document is in a workspace)
         let watcher: vscode.FileSystemWatcher | undefined;
         let audioWatcher: vscode.FileSystemWatcher | undefined;
+        // Debounce handle for coalescing bursts of audio file changes (declared
+        // here so the dispose handler can clear any pending flush).
+        let audioRefreshDebounceTimer: NodeJS.Timeout | undefined;
 
         if (workspaceFolder) {
             watcher = vscode.workspace.createFileSystemWatcher(
@@ -785,48 +852,96 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Watch for audio file changes and update webview
         if (audioWatcher) {
+            // Resolve the cell that owns a changed audio file. The on-disk
+            // filename base equals the attachment id stored in cell metadata
+            // (see `saveAudioAttachment`: filename = `${sanitizedAudioId}.${ext}`
+            // and the same id is the `attachments` key). Matching on that id is
+            // layout-agnostic — it works whether the file lives under
+            // `attachments/files/{BOOK}/` (downloaded bytes) or
+            // `attachments/pointers/{BOOK}/` (LFS stub), and regardless of the
+            // id naming scheme. Falls back to the legacy `BOOK_CCC_VVV`
+            // filename convention for pre-attachment-id files.
+            const resolveCellIdForAudioFile = (
+                uri: vscode.Uri
+            ): { cellId: string; attachmentId: string; } | undefined => {
+                const fileName = vscode.workspace.asRelativePath(uri).split("/").pop() || "";
+                const attachmentId = fileName.replace(/\.[^/.]+$/, "");
+
+                try {
+                    const text = document.getText();
+                    if (text.trim().length > 0) {
+                        const data = JSON.parse(text);
+                        const cells = Array.isArray(data?.cells) ? data.cells : [];
+                        for (const cell of cells) {
+                            const atts = cell?.metadata?.attachments || {};
+                            if (Object.prototype.hasOwnProperty.call(atts, attachmentId)) {
+                                const id = cell?.metadata?.id;
+                                if (id) return { cellId: id, attachmentId };
+                            }
+                        }
+                    }
+                } catch {
+                    /* fall through to legacy filename parsing */
+                }
+
+                // Legacy fallback: `{BOOK}_{CCC}_{VVV}.ext` (no attachment id in metadata)
+                const match = fileName.match(/^(\w+)_(\d+)_(\d+)\./);
+                if (match) {
+                    const [, fileBook, chapterStr, verseStr] = match;
+                    return {
+                        cellId: `${fileBook} ${parseInt(chapterStr)}:${parseInt(verseStr)}`,
+                        attachmentId,
+                    };
+                }
+                return undefined;
+            };
+
+            // Coalesce bursts (e.g. a bulk auto-download writing many files at
+            // once) so we recompute each affected cell only once per window
+            // instead of per file event (files/ + pointers/ both fire).
+            const AUDIO_REFRESH_DEBOUNCE_MS = 250;
+            const pendingAudioCellIds = new Set<string>();
+            const flushPendingAudioRefresh = () => {
+                audioRefreshDebounceTimer = undefined;
+                const cellIds = Array.from(pendingAudioCellIds);
+                pendingAudioCellIds.clear();
+                for (const cellId of cellIds) {
+                    updateAudioAttachmentsForCell(webviewPanel, document, cellId);
+                }
+            };
+
             const handleAudioFileChange = (uri: vscode.Uri, changeType: string) => {
                 debug(`${changeType} audio file detected:`, uri.toString());
 
-                // Extract book and cell info from the file path
-                const relativePath = vscode.workspace.asRelativePath(uri);
-                const pathParts = relativePath.split('/');
-                if (pathParts.length >= 3 && pathParts[0] === '.project' && pathParts[1] === 'attachments') {
-                    const bookAbbr = pathParts[2];
-                    const fileName = pathParts[pathParts.length - 1];
+                const resolved = resolveCellIdForAudioFile(uri);
+                if (!resolved) {
+                    debug("Could not resolve owning cell for audio file:", uri.toString());
+                    return;
+                }
+                const { cellId, attachmentId } = resolved;
 
-                    // Parse filename to extract cell information
-                    const match = fileName.match(/^(\w+)_(\d+)_(\d+)\./);
-                    if (match) {
-                        const [, fileBook, chapterStr, verseStr] = match;
-                        if (fileBook === bookAbbr) {
-                            const cellId = `${fileBook} ${parseInt(chapterStr)}:${parseInt(verseStr)}`;
-
-                            // Update the webview with refreshed audio attachment information
-                            updateAudioAttachmentsForCell(webviewPanel, document, cellId);
-
-                            // If this was a deletion and it was the selected audio, clear the selection
-                            if (changeType === "Deleted") {
-                                try {
-                                    // Generate attachment ID from filename
-                                    const attachmentId = fileName.replace(/\.[^/.]+$/, ""); // Remove extension
-
-                                    // Check if this attachment is currently selected
-                                    const currentSelection = document.getExplicitAudioSelection(cellId);
-                                    if (currentSelection === attachmentId) {
-                                        // The deleted file was the selected one, clear selection
-                                        document.clearAudioSelection(cellId);
-                                        debug(`Cleared selectedAudioId for cell ${cellId} due to file deletion`);
-                                    }
-                                } catch (error) {
-                                    debug("Error checking selected audio ID on deletion:", error);
-                                }
-                            }
-
-                            debug(`Updated audio attachments for cell: ${cellId}`);
+                // Deletion of the selected attachment clears the selection
+                // immediately so the editor doesn't keep pointing at a gone file.
+                if (changeType === "Deleted") {
+                    try {
+                        const currentSelection = document.getExplicitAudioSelection(cellId);
+                        if (currentSelection === attachmentId) {
+                            document.clearAudioSelection(cellId);
+                            debug(`Cleared selectedAudioId for cell ${cellId} due to file deletion`);
                         }
+                    } catch (error) {
+                        debug("Error checking selected audio ID on deletion:", error);
                     }
                 }
+
+                pendingAudioCellIds.add(cellId);
+                if (audioRefreshDebounceTimer) {
+                    clearTimeout(audioRefreshDebounceTimer);
+                }
+                audioRefreshDebounceTimer = setTimeout(
+                    flushPendingAudioRefresh,
+                    AUDIO_REFRESH_DEBOUNCE_MS
+                );
             };
 
             audioWatcher.onDidChange((uri) => handleAudioFileChange(uri, "Modified"));
@@ -1050,8 +1165,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     try {
                                         const url = String(att.url || "");
                                         if (ws && url) {
-                                            const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-                                            const filesAbs = path.join(ws.uri.fsPath, filesRel);
+                                            const { filesAbs, pointerAbs } = resolveAttachmentPaths(url, ws.uri.fsPath);
                                             try {
                                                 await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
                                                 const { isPointerFile, parsePointerFile } = await import("../../utils/lfsHelpers");
@@ -1068,9 +1182,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                                     hasAvailable = true;
                                                 }
                                             } catch {
-                                                const pointerAbs = filesAbs.includes("/.project/attachments/files/")
-                                                    ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
-                                                    : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
+                                                // files/ absent — fall back to pointers/ (undownloaded media).
                                                 try {
                                                     await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
                                                     const { parsePointerFile: parsePtrInline } = await import("../../utils/lfsHelpers");
@@ -1200,8 +1312,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                         try {
                                             const url = String(att.url || "");
                                             if (url) {
-                                                const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-                                                const filesAbs = path.join(ws.uri.fsPath, filesRel);
+                                                const { filesAbs, pointerAbs } = resolveAttachmentPaths(url, ws.uri.fsPath);
                                                 try {
                                                     await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
                                                     const { isPointerFile, parsePointerFile } = await import("../../utils/lfsHelpers");
@@ -1212,9 +1323,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                                         if (ptr?.oid && getCachedLfsBytes(ptr.oid)) { hasCached = true; } else { hasAvailablePointer = true; }
                                                     } else { hasAvailable = true; }
                                                 } catch {
-                                                    const pointerAbs = filesAbs.includes("/.project/attachments/files/")
-                                                        ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
-                                                        : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
+                                                    // files/ absent — fall back to pointers/ (undownloaded media).
                                                     try {
                                                         await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
                                                         const { parsePointerFile: parsePtrBg } = await import("../../utils/lfsHelpers");
@@ -1545,6 +1654,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             }
             if (audioWatcher) {
                 audioWatcher.dispose();
+            }
+            if (audioRefreshDebounceTimer) {
+                clearTimeout(audioRefreshDebounceTimer);
+                audioRefreshDebounceTimer = undefined;
             }
         });
 
