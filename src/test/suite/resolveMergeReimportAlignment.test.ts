@@ -131,15 +131,51 @@ suite("resolveCodexCustomMerge — re-import content alignment (#1079)", () => {
         assert.ok(editValues.includes("<span>newer rendering</span>"));
     });
 
-    test("a tombstoned cue stays deleted when the re-import brings it back blank", async () => {
+    test("a live re-imported cue does NOT fold into a tombstoned cell (no cross-cell delete transfer)", async () => {
+        // deletion semantics travel only via same-id merges; a tombstone on one
+        // physical cell must never swallow a different live cell that shares its
+        // timing — the incoming cue is inserted as its own live cell instead
         const ours = [
             cueCell({ id: "our-1", start: 5, end: 7, deleted: true, edits: [deleteEdit(5000)] }),
         ];
         const theirs = [cueCell({ start: 5, end: 7 })];
 
         const merged = JSON.parse(await resolveCodexCustomMerge(notebook(ours), notebook(theirs)));
-        assert.strictEqual(merged.cells.length, 1, "no resurrection duplicate");
-        assert.strictEqual(merged.cells[0].metadata.data.deleted, true, "delete-wins is preserved");
+        assert.strictEqual(merged.cells.length, 2, "incoming live cue is inserted, not folded");
+        const tomb = merged.cells.find((c: any) => c.metadata.id === "our-1");
+        assert.strictEqual(tomb.metadata.data.deleted, true, "our tombstone is untouched");
+        const live = merged.cells.find((c: any) => c.metadata.id !== "our-1");
+        assert.ok(!live.metadata.data?.deleted, "the re-imported cue stays live");
+    });
+
+    test("REGRESSION (Tripuri collision): incoming tombstoned duplicates must not kill live cells", async () => {
+        // One clone repaired by hard-removing duplicates (kept copy A live);
+        // the other side carries the tombstoned duplicate copies (repair via
+        // soft-delete) whose delete edits are NEWER than A's content. The
+        // tombstoned copies must insert as-is — never fold into live copy A.
+        const ours = [
+            milestoneCell("TheChosen-103-en-5-2 1", "ms-A"),
+            cueCell({ id: "cue-A", start: 10, end: 12, value: "<span>translated</span>", edits: [valueEdit("<span>translated</span>", 1000)], cellLabel: "JESUS" }),
+        ];
+        const theirs = [
+            milestoneCell("TheChosen-103-en-5-2 1", "ms-A"), // same id — normal merge
+            cueCell({ id: "cue-A", start: 10, end: 12, value: "<span>translated</span>", edits: [valueEdit("<span>translated</span>", 1000)], cellLabel: "JESUS" }),
+            // their-unique tombstoned duplicate copy of the same cue, newer delete edit
+            cueCell({ id: "cue-C", start: 10, end: 12, deleted: true, edits: [deleteEdit(9000)] }),
+            // their-unique tombstoned duplicate milestone, same chapter number
+            { ...milestoneCell("1", "ms-C"), metadata: { type: "milestone", id: "ms-C", data: { deleted: true }, edits: [deleteEdit(9000)] } },
+        ];
+
+        const merged = JSON.parse(await resolveCodexCustomMerge(notebook(ours), notebook(theirs)));
+        const byId = (id: string) => merged.cells.find((c: any) => c.metadata?.id === id);
+
+        const cueA = byId("cue-A");
+        assert.ok(!cueA.metadata.data?.deleted, "live copy A must STAY LIVE");
+        assert.strictEqual(cueA.value, "<span>translated</span>", "translation intact");
+        const msA = byId("ms-A");
+        assert.ok(!msA.metadata.data?.deleted, "live milestone must stay live");
+        assert.strictEqual(byId("cue-C").metadata.data.deleted, true, "duplicate copy inserted as tombstone");
+        assert.strictEqual(byId("ms-C").metadata.data.deleted, true, "duplicate milestone inserted as tombstone");
     });
 
     test("ambiguous timing keys (already-damaged file) fall back to the old insert behavior", async () => {

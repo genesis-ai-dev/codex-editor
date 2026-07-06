@@ -1250,12 +1250,19 @@ export async function resolveCodexCustomMerge(
     // "their-only" cells as new, align them to our cells by content identity:
     //   - a timed cell (subtitle cue) with the exact same (startTime, endTime) and
     //     cell type IS the same cue, re-imported under a fresh id;
-    //   - a milestone with the same trimmed value IS the same section marker.
+    //   - a milestone with the same chapter number IS the same section marker.
     // Aligned pairs merge into the our-side cell (our id is canonical; edit
-    // histories union; the newest edit wins per field — and a tombstoned our-cell
-    // stays deleted, since its deletion edit outranks the import's blank state).
-    // Anything ambiguous (several our-cells share a key — e.g. an already-damaged
-    // file) is left alone and falls through to the existing insert path.
+    // histories union; the newest edit wins per field).
+    //
+    // Alignment applies ONLY when BOTH cells are live. Cells with the same content
+    // key but different ids are different physical cells: a tombstone on one of
+    // them means "this duplicate copy was removed", not "this cue must die", so
+    // folding across the live/deleted boundary would inject a foreign (and often
+    // newer) delete edit and silently kill live content. Deletion semantics travel
+    // exclusively through same-id merges. Tombstoned cells on either side simply
+    // fall through to the existing insert path, as before this alignment existed.
+    // Anything ambiguous (several live our-cells share a key — e.g. an already-
+    // damaged file) is also left to the insert path.
     if (theirCellsMap.size > 0) {
         const contentKeyForCell = (cell: CustomNotebookCellData): string | null => {
             const md: any = cell.metadata || {};
@@ -1279,39 +1286,30 @@ export async function resolveCodexCustomMerge(
             return null;
         };
 
-        // Index live and tombstoned cells separately: a repaired file legitimately
-        // keeps tombstoned duplicates that share a timing key with the live cell,
-        // and those must not make the live match "ambiguous". Live cells win;
-        // a tombstoned cell is only a match when no live cell has the key (so a
-        // deleted cue still absorbs its re-imported twin and stays deleted).
+        const isTombstoned = (cell: CustomNotebookCellData): boolean =>
+            !!((cell.metadata as any)?.data?.deleted);
+
+        // Index LIVE our-cells only. A repaired file legitimately keeps tombstoned
+        // duplicates sharing a timing key with the live cell — they are neither
+        // alignment targets nor grounds for ambiguity.
         const liveIndexByKey = new Map<string, number>();
         const ambiguousLiveKeys = new Set<string>();
-        const tombstonedIndexByKey = new Map<string, number>();
-        const ambiguousTombstonedKeys = new Set<string>();
         resultCells.forEach((cell, index) => {
+            if (isTombstoned(cell)) return;
             const key = contentKeyForCell(cell);
             if (!key) return;
-            const isDeleted = !!(cell.metadata as any)?.data?.deleted;
-            const indexMap = isDeleted ? tombstonedIndexByKey : liveIndexByKey;
-            const ambiguous = isDeleted ? ambiguousTombstonedKeys : ambiguousLiveKeys;
-            if (indexMap.has(key)) {
-                ambiguous.add(key);
+            if (liveIndexByKey.has(key)) {
+                ambiguousLiveKeys.add(key);
             } else {
-                indexMap.set(key, index);
+                liveIndexByKey.set(key, index);
             }
         });
 
         for (const [theirId, theirCell] of Array.from(theirCellsMap.entries())) {
+            if (isTombstoned(theirCell)) continue; // deleted copies insert as-is
             const key = contentKeyForCell(theirCell);
-            if (!key) continue;
-            let ourIndex: number | undefined;
-            if (liveIndexByKey.has(key)) {
-                if (ambiguousLiveKeys.has(key)) continue;
-                ourIndex = liveIndexByKey.get(key);
-            } else {
-                if (ambiguousTombstonedKeys.has(key)) continue;
-                ourIndex = tombstonedIndexByKey.get(key);
-            }
+            if (!key || ambiguousLiveKeys.has(key)) continue;
+            const ourIndex = liveIndexByKey.get(key);
             if (ourIndex === undefined) continue;
 
             const ourCell = resultCells[ourIndex];
