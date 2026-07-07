@@ -16,6 +16,7 @@ import {
     MilestoneIndex,
 } from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
+import { maybeAutoResolveHtmlStructure } from "./utils/htmlStructureResolver";
 import {
     handleGlobalMessage,
     handleMessages,
@@ -3903,11 +3904,24 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             const allIdentical = variants.every((v: string) => normalize(v) === normalize(variants[0]));
                             if (allIdentical) {
                                 const singleCompletion = variants[0] ?? "";
-                                progress.report({ message: "Updating document...", increment: 40 });
+                                progress.report({ message: "Checking HTML structure...", increment: 10 });
+                                const finalContent = await maybeAutoResolveHtmlStructure(
+                                    currentCellId,
+                                    singleCompletion,
+                                    currentDocument,
+                                    {
+                                        config: completionConfig,
+                                        onResolving: () => progress.report({
+                                            message: "Resolving HTML structure...",
+                                            increment: 10,
+                                        }),
+                                    },
+                                );
+                                progress.report({ message: "Updating document...", increment: 20 });
                                 this.updateSingleCellTranslation(0.9);
                                 currentDocument.updateCellContent(
                                     currentCellId,
-                                    singleCompletion,
+                                    finalContent,
                                     EditType.LLM_GENERATION,
                                     shouldUpdateValue,
                                     false,
@@ -3915,8 +3929,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     completionResult.generationId
                                 );
                                 this.updateSingleCellTranslation(1.0);
-                                debug("LLM completion result (identical variants)", { completion: singleCompletion?.slice?.(0, 80) });
-                                return singleCompletion;
+                                debug("LLM completion result (identical variants)", { completion: finalContent?.slice?.(0, 80) });
+                                return finalContent;
                             }
                         } catch (e) {
                             debug("Error comparing variants for identity; proceeding with A/B UI", { error: e });
@@ -3961,7 +3975,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Otherwise, handle as a single completion using the first variant
                     const singleCompletion = (completionResult as any)?.variants?.[0] ?? "";
 
-                    progress.report({ message: "Updating document...", increment: 40 });
+                    progress.report({ message: "Checking HTML structure...", increment: 10 });
+                    const finalContent = await maybeAutoResolveHtmlStructure(
+                        currentCellId,
+                        singleCompletion,
+                        currentDocument,
+                        {
+                            config: completionConfig,
+                            onResolving: () => progress.report({
+                                message: "Resolving HTML structure...",
+                                increment: 10,
+                            }),
+                        },
+                    );
+
+                    progress.report({ message: "Updating document...", increment: 20 });
 
                     // Update progress in state
                     this.updateSingleCellTranslation(0.9);
@@ -3969,7 +3997,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Update content and metadata atomically - only if not cancelled
                     currentDocument.updateCellContent(
                         currentCellId,
-                        singleCompletion,
+                        finalContent,
                         EditType.LLM_GENERATION,
                         shouldUpdateValue,
                         false,
@@ -3989,8 +4017,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Update progress in state
                     this.updateSingleCellTranslation(1.0);
 
-                    debug("LLM completion result", { completion: singleCompletion?.slice?.(0, 80) });
-                    return singleCompletion;
+                    debug("LLM completion result", { completion: finalContent?.slice?.(0, 80) });
+                    return finalContent;
                 } catch (error: any) {
                     // Check if this is a cancellation error
                     if (error instanceof vscode.CancellationError ||

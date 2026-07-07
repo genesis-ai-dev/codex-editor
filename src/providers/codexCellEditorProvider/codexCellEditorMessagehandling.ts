@@ -1743,12 +1743,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const cellId = typedEvent.content.cellId;
 
         try {
-            const sourceCell = (await vscode.commands.executeCommand(
-                "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
-                cellId
-            )) as { cellId: string; content: string; } | null;
+            const sourceHtml = await (
+                await import("./utils/htmlStructureResolver")
+            ).getSourceCellContent(cellId);
 
-            if (!sourceCell?.content) {
+            if (!sourceHtml) {
                 vscode.window.showWarningMessage("Could not find source cell content to resolve structure.");
                 return;
             }
@@ -1759,39 +1758,14 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 return;
             }
 
-            const { callLLM, fetchCompletionConfig } = await import("../../utils/llmUtils");
+            const { fetchCompletionConfig } = await import("../../utils/llmUtils");
+            const { resolveHtmlStructureWithLLM } = await import("./utils/htmlStructureResolver");
             const config = await fetchCompletionConfig();
-            const prompt = [
-                {
-                    role: "system" as const,
-                    content:
-                        "You fix structural mismatches between a source text and its translation. " +
-                        "The translation is missing some non-translatable elements that exist in the source. These can be:\n" +
-                        "1. USFM markers in angle brackets: <\\f + \\fr 1:7. \\ft>, <\\xt>, <11:44\\xt*>, <\\f*>\n" +
-                        "2. Line breaks: <br/>, <br>\n" +
-                        "3. Formatting tags: <strong>, </strong>, <em>, </em>, <b>, </b>, <i>, </i>, " +
-                        "<sup>, </sup>, <sub>, </sub>\n" +
-                        "4. Semantic spans: <span data-tag=\"...\"> and </span> (for bold, italic, small-caps, etc.)\n" +
-                        "5. Headings: <h1>–<h4> and their closing tags\n" +
-                        "6. Paragraph tags: <p>, </p>\n" +
-                        "Copy ALL missing elements EXACTLY from the source and place them at the corresponding position in the translation. " +
-                        "Keep ALL translated text unchanged. Do NOT revert any translated words back to the source language. " +
-                        "Return ONLY the corrected translation, no explanation.",
-                },
-                {
-                    role: "user" as const,
-                    content: `Source (with structural elements):\n${sourceCell.content}\n\nTranslation (missing elements):\n${targetCell.cellContent}\n\nReturn the translation with ALL missing structural elements inserted:`,
-                },
-            ];
-
-            const llmResult = await callLLM(prompt, config);
-
-            // Strip markdown code fences that LLMs often wrap around HTML output
-            let resolved = llmResult.content.trim();
-            const fenceMatch = resolved.match(/^```(?:html)?\s*\n?([\s\S]*?)\n?\s*```$/);
-            if (fenceMatch) {
-                resolved = fenceMatch[1].trim();
-            }
+            const resolved = await resolveHtmlStructureWithLLM(
+                sourceHtml,
+                targetCell.cellContent,
+                config,
+            );
 
             // Persist the resolved content to the document so it survives reload
             await document.updateCellContent(cellId, resolved, EditType.LLM_GENERATION);
