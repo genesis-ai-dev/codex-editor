@@ -51,6 +51,10 @@ import {
 } from "../../utils/fileTypeUtils";
 import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
 import { convertCellToQuillContent } from "./utils/cellUtils";
+import {
+    enrichSourceCellMapWithTimestamps,
+    type SourceCellMapEntry,
+} from "./utils/sourceCellTimestampsUtils";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -1093,13 +1097,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
 
                 // Build source cell map for the initial cells only
-                const initialSourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+                const initialSourceCellMap: Record<string, SourceCellMapEntry> = {};
                 for (const cell of initialCells) {
                     const cellId = cell.cellMarkers?.[0];
                     if (cellId && document._sourceCellMap[cellId]) {
                         initialSourceCellMap[cellId] = document._sourceCellMap[cellId];
                     }
                 }
+                const enrichedInitialSourceCellMap = await enrichSourceCellMapWithTimestamps(
+                    document,
+                    initialSourceCellMap
+                );
 
                 // Fetch user role/access level if authenticated
                 let userAccessLevel: number | undefined = undefined;
@@ -1248,7 +1256,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     currentMilestoneIndex: initialMilestoneIndex,
                     currentSubsectionIndex: initialSubsectionIndex,
                     isSourceText: isSourceText,
-                    sourceCellMap: initialSourceCellMap,
+                    sourceCellMap: enrichedInitialSourceCellMap,
                     username: username,
                     validationCount: validationCount,
                     validationCountAudio: validationCountAudio,
@@ -2937,13 +2945,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
 
         // Build source cell map for the initial cells only
-        const initialSourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+        const initialSourceCellMap: Record<string, SourceCellMapEntry> = {};
         for (const cell of initialCells) {
             const cellId = cell.cellMarkers?.[0];
             if (cellId && document._sourceCellMap[cellId]) {
                 initialSourceCellMap[cellId] = document._sourceCellMap[cellId];
             }
         }
+        const enrichedInitialSourceCellMap = await enrichSourceCellMapWithTimestamps(
+            document,
+            initialSourceCellMap
+        );
 
         // Schedule updates to wait for webview ready signal
         this.scheduleWebviewUpdate(document.uri.toString(), () => {
@@ -2955,7 +2967,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 currentMilestoneIndex: initialMilestoneIndex,
                 currentSubsectionIndex: initialSubsectionIndex,
                 isSourceText: isSourceText,
-                sourceCellMap: initialSourceCellMap,
+                sourceCellMap: enrichedInitialSourceCellMap,
                 username: username,
                 validationCount: validationCount,
                 validationCountAudio: validationCountAudio,
