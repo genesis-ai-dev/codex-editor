@@ -5850,7 +5850,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     size="sm"
                                                 >
                                                     <RotateCcw className="mr-1 h-4 w-4" />
-                                                    Revert
+                                                    Undo
                                                 </Button>
                                                 {!isSourceText && (
                                                     <Button
