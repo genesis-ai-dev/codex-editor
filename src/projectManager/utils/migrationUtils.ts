@@ -3594,7 +3594,10 @@ export const migration_repairVerseRangeDuplication = async (): Promise<void> => 
                         const report = await repairVerseRangeDuplicationForFile(file, {
                             dryRun: true,
                         });
-                        if (report.changed && report.tombstoned > 0) {
+                        // Include reposition-only files (tombstoned === 0): duplicates may already
+                        // be soft-deleted while their live counterparts are still stranded out of
+                        // their chapter (e.g. after a sync merge reverted an earlier repair).
+                        if (report.changed) {
                             affected.push({ uri: file, tombstoned: report.tombstoned });
                             totalTombstones += report.tombstoned;
                         }
@@ -3648,7 +3651,10 @@ export const migration_repairVerseRangeDuplication = async (): Promise<void> => 
         const previewLimit = 10;
         const previewLines = affected
             .slice(0, previewLimit)
-            .map((r) => `  • ${path.basename(r.uri.fsPath)} (${r.tombstoned})`)
+            .map(
+                (r) =>
+                    `  • ${path.basename(r.uri.fsPath)} (${r.tombstoned > 0 ? r.tombstoned : "reposition only"})`
+            )
             .join("\n");
         const moreLine =
             affected.length > previewLimit
@@ -3658,10 +3664,14 @@ export const migration_repairVerseRangeDuplication = async (): Promise<void> => 
             totalConflicts > 0
                 ? `\n\n${totalConflicts} overlapping-content conflict(s) will be LEFT untouched for manual review.`
                 : "";
-        const detail = `Empty duplicate cells will be soft-deleted (recoverable). No translated text is removed.\n\nFiles:\n${previewLines}${moreLine}${conflictLine}`;
+        const detail = `Empty duplicate cells will be soft-deleted (recoverable) and stranded verse cells moved back to their chapter. No translated text is removed.\n\nFiles:\n${previewLines}${moreLine}${conflictLine}`;
 
+        const headline =
+            totalTombstones > 0
+                ? `Found ${totalTombstones} empty duplicate verse cell(s) across ${affected.length} file(s). Apply repair?`
+                : `Found ${affected.length} file(s) with verse cells stranded out of their chapter. Apply repair?`;
         const choice = await vscode.window.showWarningMessage(
-            `Found ${totalTombstones} empty duplicate verse cell(s) across ${affected.length} file(s). Apply repair?`,
+            headline,
             { modal: true, detail },
             "Apply"
         );
@@ -3714,7 +3724,9 @@ export const migration_repairVerseRangeDuplication = async (): Promise<void> => 
         }
 
         void vscode.window.showInformationMessage(
-            `Verse-duplication repair complete: ${appliedFilePaths.length} file(s) updated, ${totalTombstones} duplicate(s) removed.`
+            totalTombstones > 0
+                ? `Verse-duplication repair complete: ${appliedFilePaths.length} file(s) updated, ${totalTombstones} duplicate(s) removed.`
+                : `Verse-duplication repair complete: ${appliedFilePaths.length} file(s) updated, stranded cells repositioned.`
         );
     } catch (error) {
         console.error("Error running verse-range duplication repair:", error);
