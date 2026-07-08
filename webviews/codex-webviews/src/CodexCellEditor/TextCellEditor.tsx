@@ -501,6 +501,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const userRequestedRecorderAtRef = useRef<number>(0);
     const [isAudioLoading, setIsAudioLoading] = useState(false);
     const [isPlayAudioLoading, setIsPlayAudioLoading] = useState(false);
+    const [isMirrorSourceTimeLoading, setIsMirrorSourceTimeLoading] = useState(false);
     const [hasAudioHistory, setHasAudioHistory] = useState<boolean>(false);
     const [audioHistoryCount, setAudioHistoryCount] = useState<number>(0);
     const [audioWarning, setAudioWarning] = useState<string | null>(null);
@@ -1175,9 +1176,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         if (!micUnavailable) {
             return;
         }
-        const reason = micPermissionDenied
-            ? "Microphone access denied"
-            : "No microphone detected";
+        const reason = micPermissionDenied ? "Microphone access denied" : "No microphone detected";
 
         if (countdown !== null || isStartingRecording) {
             clearRecordingCountdownTimer();
@@ -1920,6 +1919,82 @@ const CellEditor: React.FC<CellEditorProps> = ({
         };
     }, []);
 
+    const requestSourceCellTimestamps = useCallback(
+        (cellId: string): Promise<Timestamps | null> => {
+            return new Promise((resolve) => {
+                let resolved = false;
+                const timeout = setTimeout(() => {
+                    if (!resolved) {
+                        resolved = true;
+                        window.removeEventListener("message", handler);
+                        resolve(null);
+                    }
+                }, 5000);
+
+                const handler = (event: MessageEvent) => {
+                    const message = event.data;
+
+                    if (
+                        message?.type === "providerSendsSourceCellTimestamps" &&
+                        message.content?.cellId === cellId
+                    ) {
+                        if (!resolved) {
+                            resolved = true;
+                            clearTimeout(timeout);
+                            window.removeEventListener("message", handler);
+                            resolve(message.content.timestamps || null);
+                        }
+                    }
+                };
+
+                window.addEventListener("message", handler);
+                window.vscodeApi.postMessage({
+                    command: "requestSourceCellTimestamps",
+                    content: { cellId },
+                } as EditorPostMessages);
+            });
+        },
+        []
+    );
+
+    const handleMirrorSourceTime = useCallback(async () => {
+        setIsMirrorSourceTimeLoading(true);
+        try {
+            const cellId = cellMarkers[0];
+            let sourceTimestamps =
+                sourceCellMap?.[cellId]?.timestamps ?? (await requestSourceCellTimestamps(cellId));
+
+            if (
+                !sourceTimestamps ||
+                typeof sourceTimestamps.startTime !== "number" ||
+                typeof sourceTimestamps.endTime !== "number"
+            ) {
+                return;
+            }
+
+            setContentBeingUpdated({
+                ...contentBeingUpdatedRef.current,
+                cellMarkers: contentBeingUpdatedRef.current.cellMarkers ?? cellMarkers,
+                cellTimestamps: {
+                    startTime: sourceTimestamps.startTime,
+                    endTime: sourceTimestamps.endTime,
+                },
+                cellChanged: true,
+            });
+            setUnsavedChanges(true);
+            debouncedInvalidateCombinedAudio();
+        } finally {
+            setIsMirrorSourceTimeLoading(false);
+        }
+    }, [
+        cellMarkers,
+        sourceCellMap,
+        debouncedInvalidateCombinedAudio,
+        requestSourceCellTimestamps,
+        setContentBeingUpdated,
+        setUnsavedChanges,
+    ]);
+
     // Handler to play audio blob with synchronized video playback
     const handlePlayAudioWithVideo = useCallback(async () => {
         // Validate prerequisites
@@ -2365,8 +2440,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             // started here — no audio and the video isn't playing (not found, or
             // play() was rejected) — that transition never happens, so clear it
             // now to avoid leaving the overlay suppressed.
-            const videoPlaying =
-                !!videoElementRef.current && !videoElementRef.current.paused;
+            const videoPlaying = !!videoElementRef.current && !videoElementRef.current.paused;
             if (!videoPlaying && !audioElementRef.current) {
                 globalAudioController.setVideoPreviewActive(false);
             }
@@ -3089,9 +3163,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         // sees the latest value rather than its captured render-time copy.
         if (micUnavailableRef.current) {
             setRecordingStatus(
-                micPermissionDenied
-                    ? "Microphone access denied"
-                    : "No microphone detected"
+                micPermissionDenied ? "Microphone access denied" : "No microphone detected"
             );
             return;
         }
@@ -3998,9 +4070,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     // so we self-correct if the broadcast really was right.
                     let __localAudioId: string | null = null;
                     try {
-                        __localAudioId = sessionStorage.getItem(
-                            `audio-id-${cellMarkers[0]}`
-                        );
+                        __localAudioId = sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
                     } catch {
                         /* ignore */
                     }
@@ -4284,9 +4354,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         // until providerSendsAudioData re-hydrates it.
                         let localAudioId: string | null = null;
                         try {
-                            localAudioId = sessionStorage.getItem(
-                                `audio-id-${cellMarkers[0]}`
-                            );
+                            localAudioId = sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
                         } catch {
                             /* ignore */
                         }
@@ -4942,20 +5010,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         <DialogTitle>Recording interrupted</DialogTitle>
                     </DialogHeader>
                     <div className="text-sm text-muted-foreground">
-                        Your microphone became unavailable while recording, so we
-                        stopped early. Do you want to keep what was captured up to
-                        that point, or discard it and try again?
+                        Your microphone became unavailable while recording, so we stopped early. Do
+                        you want to keep what was captured up to that point, or discard it and try
+                        again?
                     </div>
                     <DialogFooter>
-                        <Button
-                            variant="destructive"
-                            onClick={handleDiscardInterruptedRecording}
-                        >
+                        <Button variant="destructive" onClick={handleDiscardInterruptedRecording}>
                             Discard
                         </Button>
-                        <Button onClick={handleKeepInterruptedRecording}>
-                            Keep recording
-                        </Button>
+                        <Button onClick={handleKeepInterruptedRecording}>Keep recording</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -5473,7 +5536,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             />
                                                             <div className="flex min-w-max text-xs text-muted-foreground">
                                                                 <span>
-                                                                    End: {formatTimecode(prevEndTime)}
+                                                                    End:{" "}
+                                                                    {formatTimecode(prevEndTime)}
                                                                 </span>
                                                             </div>
                                                         </div>
@@ -5723,27 +5787,29 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                                         <div className="flex justify-between">
                                             <div className="flex gap-2">
-                                                {isSubtitlesType && shouldShowVideoPlayer && videoUrl && (
-                                                    <Button
-                                                        onClick={handlePlayAudioWithVideo}
-                                                        variant="default"
-                                                        size="sm"
-                                                        disabled={
-                                                            (effectiveTimestamps?.endTime ?? 0) -
-                                                                (effectiveTimestamps?.startTime ??
-                                                                    0) <=
-                                                                0 ||
-                                                            isPlayAudioLoading
-                                                        }
-                                                    >
-                                                        {isPlayAudioLoading ? (
-                                                            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                                                        ) : (
-                                                            <Play className="mr-1 h-4 w-4" />
-                                                        )}
-                                                        Play Video
-                                                    </Button>
-                                                )}
+                                                {isSubtitlesType &&
+                                                    shouldShowVideoPlayer &&
+                                                    videoUrl && (
+                                                        <Button
+                                                            onClick={handlePlayAudioWithVideo}
+                                                            variant="default"
+                                                            size="sm"
+                                                            disabled={
+                                                                (effectiveTimestamps?.endTime ??
+                                                                    0) -
+                                                                    (effectiveTimestamps?.startTime ??
+                                                                        0) <=
+                                                                    0 || isPlayAudioLoading
+                                                            }
+                                                        >
+                                                            {isPlayAudioLoading ? (
+                                                                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                                            ) : (
+                                                                <Play className="mr-1 h-4 w-4" />
+                                                            )}
+                                                            Play Video
+                                                        </Button>
+                                                    )}
                                                 <Button
                                                     onClick={() => {
                                                         // Clear both cell-range and audio-range
@@ -5775,8 +5841,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     size="sm"
                                                 >
                                                     <RotateCcw className="mr-1 h-4 w-4" />
-                                                    Revert
+                                                    Undo
                                                 </Button>
+                                                {!isSourceText && (
+                                                    <Button
+                                                        onClick={handleMirrorSourceTime}
+                                                        variant="outline"
+                                                        size="sm"
+                                                        disabled={
+                                                            isCellLocked ||
+                                                            isMirrorSourceTimeLoading
+                                                        }
+                                                        title="Copy timestamps from the matching source cell"
+                                                    >
+                                                        {isMirrorSourceTimeLoading ? (
+                                                            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                                        ) : (
+                                                            <Copy className="mr-1 h-4 w-4" />
+                                                        )}
+                                                        Mirror Source Time
+                                                    </Button>
+                                                )}
                                             </div>
                                             {isSubtitlesType && shouldShowVideoPlayer && (
                                                 <div className="flex items-center gap-2">
@@ -5856,13 +5941,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     const recordAffordanceLabel = micPermissionDenied
                                         ? "Microphone access denied"
                                         : noMicDetected
-                                          ? "No microphone detected"
-                                          : "Re-record";
+                                        ? "No microphone detected"
+                                        : "Re-record";
                                     const recordAffordanceTitle = isCellLocked
                                         ? "Cannot record: cell is locked"
                                         : micUnavailable
-                                          ? `${recordAffordanceLabel} — you can still upload an audio file`
-                                          : "Re-record / Upload New";
+                                        ? `${recordAffordanceLabel} — you can still upload an audio file`
+                                        : "Re-record / Upload New";
 
                                     const renderUploadHistoryRow = () => (
                                         <div className="flex flex-wrap items-center justify-center gap-2 mt-3 px-2">
@@ -5917,7 +6002,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     "var(--vscode-badge-background)",
                                                                 color: "var(--vscode-badge-foreground)",
                                                             }}
-                                                            aria-label={`${audioHistoryCount} audio recording${audioHistoryCount === 1 ? "" : "s"} in history`}
+                                                            aria-label={`${audioHistoryCount} audio recording${
+                                                                audioHistoryCount === 1 ? "" : "s"
+                                                            } in history`}
                                                         >
                                                             {audioHistoryCount}
                                                         </Badge>
@@ -6004,11 +6091,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             ? audioDuration ?? undefined
                                                             : undefined
                                                     }
-                                                    transcriptionLanguageLabel={transcriptionBadgeLabel}
+                                                    transcriptionLanguageLabel={
+                                                        transcriptionBadgeLabel
+                                                    }
                                                     showAdvancedAsrMenu={!isSourceText}
-                                                    asrLanguageMode={asrConfig?.languageMode ?? "project"}
+                                                    asrLanguageMode={
+                                                        asrConfig?.languageMode ?? "project"
+                                                    }
                                                     asrScriptPref={asrConfig?.scriptPref ?? "auto"}
-                                                    projectLanguageName={asrConfig?.projectLanguageName}
+                                                    projectLanguageName={
+                                                        asrConfig?.projectLanguageName
+                                                    }
                                                     onChangeAsrLanguageMode={(mode) => {
                                                         window.vscodeApi.postMessage({
                                                             command: "setAsrLanguageMode",
@@ -6113,25 +6206,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 </Button>
                                                             ) : (
                                                                 <Button
-                                                                onClick={() => {
-                                                                    setIsAudioLoading(true);
-                                                                    setAudioFetchPending(true);
-                                                                    setAudioDownloading(
-                                                                        cellMarkers[0],
-                                                                        true
-                                                                    );
-                                                                    const messageContent: EditorPostMessages =
-                                                                        {
-                                                                            command:
-                                                                                "requestAudioForCell",
-                                                                            content: {
-                                                                                cellId: cellMarkers[0],
-                                                                            },
-                                                                        };
-                                                                    window.vscodeApi.postMessage(
-                                                                        messageContent
-                                                                    );
-                                                                }}
+                                                                    onClick={() => {
+                                                                        setIsAudioLoading(true);
+                                                                        setAudioFetchPending(true);
+                                                                        setAudioDownloading(
+                                                                            cellMarkers[0],
+                                                                            true
+                                                                        );
+                                                                        const messageContent: EditorPostMessages =
+                                                                            {
+                                                                                command:
+                                                                                    "requestAudioForCell",
+                                                                                content: {
+                                                                                    cellId: cellMarkers[0],
+                                                                                },
+                                                                            };
+                                                                        window.vscodeApi.postMessage(
+                                                                            messageContent
+                                                                        );
+                                                                    }}
                                                                     className="h-9 px-3 text-sm"
                                                                 >
                                                                     <i className="codicon codicon-cloud-download mr-1" />
@@ -6291,9 +6384,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             // vertical centering. The `!` (important) prefixes are needed
                                                             // because the base Alert variant pins the SVG with
                                                             // `[&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4`.
-                                                            <Alert
-                                                                className="w-fit flex items-center gap-2 border-yellow-500 bg-yellow-50 dark:bg-yellow-950 [&>svg]:!static [&>svg+div]:!translate-y-0 [&>svg~*]:!pl-0"
-                                                            >
+                                                            <Alert className="w-fit flex items-center gap-2 border-yellow-500 bg-yellow-50 dark:bg-yellow-950 [&>svg]:!static [&>svg+div]:!translate-y-0 [&>svg~*]:!pl-0">
                                                                 <AlertCircle className="h-4 w-4 shrink-0 !text-yellow-600 dark:!text-yellow-400" />
                                                                 <AlertDescription className="text-yellow-800 dark:text-yellow-200">
                                                                     {micPermissionDenied

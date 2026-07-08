@@ -24,6 +24,11 @@ import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 import { deleteLocalVideoFiles, isHttpVideoUrl, processVideoUrl, getVideoWorkspaceRelativePath, resolveVideoAvailability, type VideoAvailability } from "./utils/videoUtils";
 import { parsePointerFile, isPointerFile } from "../../utils/lfsHelpers";
+import {
+    enrichSourceCellMapWithTimestamps,
+    getSourceCellTimestamps,
+    type SourceCellMapEntry,
+} from "./utils/sourceCellTimestampsUtils";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -686,13 +691,17 @@ export async function sendMilestoneRefreshToWebview(
         const cells = document.getCellsForMilestone(currentPosition.milestoneIndex, currentPosition.subsectionIndex, cellsPerPage);
         const processedCells = provider.mergeRangesAndProcess(cells, provider.isCorrectionEditorMode, isSourceText);
 
-        const sourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+        const sourceCellMap: Record<string, SourceCellMapEntry> = {};
         for (const cell of cells) {
             const cellId = cell.cellMarkers?.[0];
             if (cellId && document._sourceCellMap[cellId]) {
                 sourceCellMap[cellId] = document._sourceCellMap[cellId];
             }
         }
+        const enrichedSourceCellMap = await enrichSourceCellMapWithTimestamps(
+            document,
+            sourceCellMap
+        );
 
         const authApi = await provider.getAuthApi();
         const userInfo = await authApi?.getUserInfo();
@@ -707,7 +716,7 @@ export async function sendMilestoneRefreshToWebview(
             currentMilestoneIndex: currentPosition.milestoneIndex,
             currentSubsectionIndex: currentPosition.subsectionIndex,
             isSourceText: isSourceText,
-            sourceCellMap: sourceCellMap,
+            sourceCellMap: enrichedSourceCellMap,
             username: username,
             validationCount: validationCount,
             validationCountAudio: validationCountAudio,
@@ -3365,6 +3374,38 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
+    requestSourceCellTimestamps: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "requestSourceCellTimestamps"; }>;
+        const cellId = typedEvent.content.cellId;
+
+        try {
+            const timestamps = await getSourceCellTimestamps(document, cellId);
+
+            if (!timestamps) {
+                vscode.window.showWarningMessage(
+                    `Could not find source timestamps for cell ${cellId}.`
+                );
+            }
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsSourceCellTimestamps",
+                content: {
+                    cellId,
+                    timestamps,
+                },
+            });
+        } catch (error) {
+            console.error("Error fetching source cell timestamps:", error);
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsSourceCellTimestamps",
+                content: {
+                    cellId,
+                    timestamps: undefined,
+                },
+            });
+        }
+    },
+
     saveAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "saveAudioAttachment"; }>;
         const requestId = typedEvent.requestId;
@@ -4650,13 +4691,17 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             );
 
             // Build source cell map for these cells
-            const sourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+            const sourceCellMap: Record<string, SourceCellMapEntry> = {};
             for (const cell of cells) {
                 const cellId = cell.cellMarkers?.[0];
                 if (cellId && document._sourceCellMap[cellId]) {
                     sourceCellMap[cellId] = document._sourceCellMap[cellId];
                 }
             }
+            const enrichedSourceCellMap = await enrichSourceCellMapWithTimestamps(
+                document,
+                sourceCellMap
+            );
 
             // Store the current milestone/subsection for this document to preserve position during updates
             provider.currentMilestoneSubsectionMap.set(document.uri.toString(), {
@@ -4672,7 +4717,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 subsectionIndex,
                 cells: processedCells,
                 allCellsInMilestone: processedAllCellsInMilestone,
-                sourceCellMap,
+                sourceCellMap: enrichedSourceCellMap,
             });
 
             debug(`Sent cells for milestone ${milestoneIndex}, subsection ${subsectionIndex}: ${processedCells.length} cells`);

@@ -1,10 +1,9 @@
 import React from "react";
+import type { SourceCellMap } from "../../../../types";
 
 interface SourceCellContextProps {
-    sourceCellMap: { [k: string]: { content: string; versions: string[] } };
-    setSourceCellMap: React.Dispatch<
-        React.SetStateAction<{ [k: string]: { content: string; versions: string[] } }>
-    >;
+    sourceCellMap: SourceCellMap;
+    setSourceCellMap: React.Dispatch<React.SetStateAction<SourceCellMap>>;
 }
 
 const SourceCellContext = React.createContext<SourceCellContextProps>({
