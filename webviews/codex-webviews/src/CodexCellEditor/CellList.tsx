@@ -74,6 +74,7 @@ export interface CellListProps {
     showInlineBacktranslations?: boolean;
     backtranslationsMap?: Map<string, any>;
     enforceHtmlStructure?: boolean;
+    currentStructureResolveCellId?: string;
     // Milestone-based pagination props for global line numbering
     milestoneIndex?: MilestoneIndex | null;
     currentMilestoneIndex?: number;
@@ -134,6 +135,7 @@ const CellList: React.FC<CellListProps> = ({
     backtranslationsMap = new Map(),
     isAuthenticated = false,
     enforceHtmlStructure = false,
+    currentStructureResolveCellId,
     milestoneIndex = null,
     playerRef,
     shouldShowVideoPlayer = false,
@@ -1017,6 +1019,9 @@ const CellList: React.FC<CellListProps> = ({
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
                                 htmlStructureError={htmlStructureErrors.get(cellMarkers[0])}
+                                isResolvingStructureExternally={
+                                    currentStructureResolveCellId === cellMarkers[0]
+                                }
                                 isOtherTypeAudioPlaying={isOtherTypeAudioPlaying}
                             />
                         </span>
@@ -1052,6 +1057,7 @@ const CellList: React.FC<CellListProps> = ({
             isAudioOnly,
             lineNumbersEnabled,
             htmlStructureErrors,
+            currentStructureResolveCellId,
         ]
     );
 
@@ -1198,6 +1204,9 @@ const CellList: React.FC<CellListProps> = ({
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
                                 htmlStructureError={htmlStructureErrors.get(cellMarkers[0])}
+                                isResolvingStructureExternally={
+                                    currentStructureResolveCellId === cellMarkers[0]
+                                }
                                 isOtherTypeAudioPlaying={isOtherTypeAudioPlaying}
                             />
                         </span>
