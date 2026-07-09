@@ -23,6 +23,7 @@ import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
 import VideoTimelineEditor from "./VideoTimelineEditor";
 import type { AudioAvailability } from "./utils/audioViewMode";
+import { getStructureMismatchCellIds } from "./utils/structureMismatchCells";
 
 import {
     getCellValueData,
@@ -207,7 +208,7 @@ const CodexCellEditor: React.FC = () => {
     const playerRef = useRef<ReactPlayerRef>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const [muteVideoAudioDuringPlayback, setMuteVideoAudioDuringPlayback] = useState(true);
-    const { setSourceCellMap } = useContext(SourceCellContext);
+    const { sourceCellMap, setSourceCellMap } = useContext(SourceCellContext);
     const { setContentToScrollTo } = useContext(ScrollToContentContext);
     const { setUnsavedChanges } = useContext(UnsavedChangesContext);
 
@@ -244,6 +245,22 @@ const CodexCellEditor: React.FC = () => {
         progress: 0,
     });
 
+    const [structureResolveState, setStructureResolveState] = useState<{
+        isProcessing: boolean;
+        totalCells: number;
+        completedCells: number;
+        currentCellId?: string;
+        cellsToProcess: string[];
+        progress: number;
+    }>({
+        isProcessing: false,
+        totalCells: 0,
+        completedCells: 0,
+        currentCellId: undefined,
+        cellsToProcess: [],
+        progress: 0,
+    });
+
     // Instead of separate state variables, use computed properties
     // These provide backward compatibility for any code that might use these variables
     const isAutocompletingChapter = autocompletionState.isProcessing;
@@ -255,6 +272,8 @@ const CodexCellEditor: React.FC = () => {
     const isSingleCellTranslating = singleCellTranslationState.isProcessing;
     const singleCellId = singleCellTranslationState.cellId;
     const singleCellProgress = singleCellTranslationState.progress;
+    const isResolvingStructureBatch = structureResolveState.isProcessing;
+    const currentStructureResolveCellId = structureResolveState.currentCellId;
 
     // Required state variables that were removed
     const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorCellContent>(
@@ -1706,6 +1725,10 @@ const CodexCellEditor: React.FC = () => {
             setAutocompletionState(state);
         },
 
+        updateStructureResolveState: (state) => {
+            setStructureResolveState(state);
+        },
+
         updateSingleCellTranslationState: (state) => {
             debug("autocomplete", "Received single cell translation state from provider:", state);
             setSingleCellTranslationState(state);
@@ -3014,6 +3037,28 @@ const CodexCellEditor: React.FC = () => {
         } as EditorPostMessages);
     };
 
+    const handleResolveStructureBatch = (numberOfCells: number) => {
+        const selectedCellIds = mismatchedCellIds.slice(0, numberOfCells);
+        if (selectedCellIds.length === 0) {
+            vscode.postMessage({
+                command: "showInformationMessage",
+                message: "No cells with structure mismatches found in this section.",
+            });
+            return;
+        }
+
+        vscode.postMessage({
+            command: "requestResolveHtmlStructureBatch",
+            content: { cellIds: selectedCellIds },
+        } as EditorPostMessages);
+    };
+
+    const handleStopResolveStructureBatch = () => {
+        vscode.postMessage({
+            command: "stopResolveHtmlStructureBatch",
+        } as EditorPostMessages);
+    };
+
     const openSourceText = (sectionIdNumber: number) => {
         vscode.postMessage({
             command: "openSourceText",
@@ -3084,6 +3129,24 @@ const CodexCellEditor: React.FC = () => {
             return unit;
         });
     }, [contentBeingUpdated, translationUnitsForSection]);
+
+    const mismatchedCellIds = useMemo(
+        () =>
+            getStructureMismatchCellIds(
+                translationUnitsWithCurrentEditorContent,
+                sourceCellMap,
+                metadata?.enforceHtmlStructure ?? false,
+                isSourceText,
+            ),
+        [
+            translationUnitsWithCurrentEditorContent,
+            sourceCellMap,
+            metadata?.enforceHtmlStructure,
+            isSourceText,
+        ],
+    );
+
+    const showResolveAllButton = !isSourceText && (metadata?.enforceHtmlStructure ?? false);
 
     const handleMetadataChange = (key: string, value: string) => {
         setMetadata((prev) => {
@@ -3700,6 +3763,11 @@ const CodexCellEditor: React.FC = () => {
                             }}
                             onStopAutocomplete={handleStopAutocomplete}
                             isAutocompletingChapter={isAutocompletingChapter}
+                            onResolveStructureBatch={handleResolveStructureBatch}
+                            onStopResolveStructureBatch={handleStopResolveStructureBatch}
+                            isResolvingStructureBatch={isResolvingStructureBatch}
+                            mismatchedCellIds={mismatchedCellIds}
+                            showResolveAllButton={showResolveAllButton}
                             onSetTextDirection={(direction) => {
                                 setTextDirection(direction);
                                 // Save the text direction with local source marking (similar to font size)
@@ -3987,6 +4055,7 @@ const CodexCellEditor: React.FC = () => {
                             }
                             lineNumbersEnabled={metadata?.lineNumbersEnabled ?? true}
                             enforceHtmlStructure={metadata?.enforceHtmlStructure ?? false}
+                            currentStructureResolveCellId={currentStructureResolveCellId}
                             currentUsername={username}
                             requiredValidations={requiredValidations ?? undefined}
                             requiredAudioValidations={requiredAudioValidations ?? undefined}

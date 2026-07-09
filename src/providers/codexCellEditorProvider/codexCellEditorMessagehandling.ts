@@ -1752,31 +1752,18 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const cellId = typedEvent.content.cellId;
 
         try {
-            const sourceHtml = await (
-                await import("./utils/htmlStructureResolver")
-            ).getSourceCellContent(cellId);
+            const { resolveCellHtmlStructure } = await import("./utils/htmlStructureResolver");
+            const resolved = await resolveCellHtmlStructure(cellId, document);
 
-            if (!sourceHtml) {
-                vscode.window.showWarningMessage("Could not find source cell content to resolve structure.");
+            if (!resolved) {
+                vscode.window.showWarningMessage("Could not find source or target cell content to resolve structure.");
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsResolvedHtmlStructure",
+                    content: { cellId, resolvedContent: "" },
+                });
                 return;
             }
 
-            const targetCell = document.getCellContent(cellId);
-            if (!targetCell) {
-                vscode.window.showWarningMessage("Could not find target cell.");
-                return;
-            }
-
-            const { fetchCompletionConfig } = await import("../../utils/llmUtils");
-            const { resolveHtmlStructureWithLLM } = await import("./utils/htmlStructureResolver");
-            const config = await fetchCompletionConfig();
-            const resolved = await resolveHtmlStructureWithLLM(
-                sourceHtml,
-                targetCell.cellContent,
-                config,
-            );
-
-            // Persist the resolved content to the document so it survives reload
             await document.updateCellContent(cellId, resolved, EditType.LLM_GENERATION);
             await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
 
@@ -1789,11 +1776,26 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             vscode.window.showErrorMessage(
                 `Failed to resolve HTML structure: ${error instanceof Error ? error.message : String(error)}`
             );
-            // Signal failure so the webview can reset the loading state
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerSendsResolvedHtmlStructure",
                 content: { cellId, resolvedContent: "" },
             });
+        }
+    },
+
+    requestResolveHtmlStructureBatch: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "requestResolveHtmlStructureBatch"; }>;
+        await provider.performResolveHtmlStructureBatch(
+            document,
+            webviewPanel,
+            typedEvent.content.cellIds,
+        );
+    },
+
+    stopResolveHtmlStructureBatch: ({ provider }) => {
+        const cancelled = provider.cancelResolveHtmlStructureBatch();
+        if (cancelled) {
+            vscode.window.showInformationMessage("Structure resolve operation stopped.");
         }
     },
 

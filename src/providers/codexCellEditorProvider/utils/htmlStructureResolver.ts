@@ -53,6 +53,26 @@ export const resolveHtmlStructureWithLLM = async (
     return stripMarkdownCodeFences(llmResult.content);
 };
 
+export const resolveCellHtmlStructure = async (
+    cellId: string,
+    document: CodexCellDocument,
+    config?: CompletionConfig,
+): Promise<string | null> => {
+    const sourceHtml = await getSourceCellContent(cellId);
+    if (!sourceHtml) {
+        return null;
+    }
+
+    const targetCell = document.getCellContent(cellId);
+    if (!targetCell) {
+        return null;
+    }
+
+    const { fetchCompletionConfig } = await import("../../../utils/llmUtils");
+    const completionConfig = config ?? (await fetchCompletionConfig());
+    return resolveHtmlStructureWithLLM(sourceHtml, targetCell.cellContent, completionConfig);
+};
+
 export const getSourceCellContent = async (cellId: string): Promise<string | null> => {
     const sourceCell = (await vscode.commands.executeCommand(
         "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
