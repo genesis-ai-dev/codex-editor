@@ -16,6 +16,7 @@ import {
     MilestoneIndex,
 } from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
+import { maybeAutoResolveHtmlStructure } from "./utils/htmlStructureResolver";
 import {
     handleGlobalMessage,
     handleMessages,
@@ -342,6 +343,24 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             cellsToProcess: [],
             progress: 0,
         };
+
+    public structureResolveState: {
+        isProcessing: boolean;
+        totalCells: number;
+        completedCells: number;
+        currentCellId?: string;
+        cellsToProcess: string[];
+        progress: number;
+    } = {
+            isProcessing: false,
+            totalCells: 0,
+            completedCells: 0,
+            currentCellId: undefined,
+            cellsToProcess: [],
+            progress: 0,
+        };
+
+    private structureResolveCancellation?: vscode.CancellationTokenSource;
 
     // Single cell translation state - using the same robust pattern as autocomplete
     public singleCellQueueState: {
@@ -2439,6 +2458,154 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return false;
     }
 
+    public async performResolveHtmlStructureBatch(
+        document: CodexCellDocument,
+        webviewPanel: vscode.WebviewPanel,
+        cellIds: string[],
+    ): Promise<void> {
+        if (cellIds.length === 0) {
+            return;
+        }
+
+        if (this.structureResolveCancellation) {
+            this.structureResolveCancellation.dispose();
+        }
+        this.structureResolveCancellation = new vscode.CancellationTokenSource();
+        const token = this.structureResolveCancellation.token;
+
+        const totalCells = cellIds.length;
+        this.structureResolveState = {
+            isProcessing: true,
+            totalCells,
+            completedCells: 0,
+            currentCellId: undefined,
+            cellsToProcess: cellIds,
+            progress: 0.01,
+        };
+        this.broadcastStructureResolveState();
+
+        try {
+            const { fetchCompletionConfig } = await import("../../utils/llmUtils");
+            const { resolveCellHtmlStructure } = await import("./utils/htmlStructureResolver");
+            const config = await fetchCompletionConfig();
+
+            for (let i = 0; i < cellIds.length; i++) {
+                if (token.isCancellationRequested) {
+                    break;
+                }
+
+                const cellId = cellIds[i];
+                this.structureResolveState.currentCellId = cellId;
+                this.structureResolveState.progress = Math.min(0.99, i / totalCells);
+                this.broadcastStructureResolveState();
+
+                try {
+                    const resolved = await resolveCellHtmlStructure(cellId, document, config);
+                    if (!resolved) {
+                        this.postMessageToWebview(webviewPanel, {
+                            type: "providerSendsResolvedHtmlStructure",
+                            content: { cellId, resolvedContent: "" },
+                        });
+                        continue;
+                    }
+
+                    await document.updateCellContent(cellId, resolved, EditType.LLM_GENERATION);
+                    await this.saveCustomDocument(
+                        document,
+                        new vscode.CancellationTokenSource().token,
+                    );
+
+                    this.structureResolveState.completedCells = i + 1;
+                    this.broadcastStructureResolveState();
+
+                    this.postMessageToWebview(webviewPanel, {
+                        type: "providerSendsResolvedHtmlStructure",
+                        content: { cellId, resolvedContent: resolved },
+                    });
+                } catch (error) {
+                    console.error(`[resolveHtmlStructureBatch] Error for ${cellId}:`, error);
+                    this.postMessageToWebview(webviewPanel, {
+                        type: "providerSendsResolvedHtmlStructure",
+                        content: { cellId, resolvedContent: "" },
+                    });
+                }
+            }
+
+            this.structureResolveState.progress = 1.0;
+            this.broadcastStructureResolveState();
+
+            setTimeout(() => {
+                this.structureResolveState = {
+                    isProcessing: false,
+                    totalCells: 0,
+                    completedCells: 0,
+                    currentCellId: undefined,
+                    cellsToProcess: [],
+                    progress: 0,
+                };
+                this.broadcastStructureResolveState();
+
+                if (this.structureResolveCancellation) {
+                    this.structureResolveCancellation.dispose();
+                    this.structureResolveCancellation = undefined;
+                }
+            }, 1500);
+        } catch (error) {
+            console.error("Error in performResolveHtmlStructureBatch:", error);
+            if (this.structureResolveCancellation) {
+                this.structureResolveCancellation.dispose();
+                this.structureResolveCancellation = undefined;
+            }
+            throw error;
+        }
+    }
+
+    public cancelResolveHtmlStructureBatch(): boolean {
+        if (this.structureResolveCancellation) {
+            this.structureResolveCancellation.cancel();
+
+            this.structureResolveState = {
+                isProcessing: false,
+                totalCells: 0,
+                completedCells: 0,
+                currentCellId: undefined,
+                cellsToProcess: [],
+                progress: 0,
+            };
+            this.broadcastStructureResolveState();
+
+            this.structureResolveCancellation.dispose();
+            this.structureResolveCancellation = undefined;
+            return true;
+        }
+        return false;
+    }
+
+    private broadcastStructureResolveState(): void {
+        const {
+            isProcessing,
+            totalCells,
+            completedCells,
+            currentCellId,
+            cellsToProcess,
+            progress,
+        } = this.structureResolveState;
+
+        this.webviewPanels.forEach((panel) => {
+            safePostMessageToPanel(panel, {
+                type: "providerStructureResolveState",
+                state: {
+                    isProcessing,
+                    totalCells,
+                    completedCells,
+                    currentCellId,
+                    cellsToProcess,
+                    progress,
+                },
+            });
+        });
+    }
+
     // New method to set single cell translation state
     public startSingleCellTranslation(cellId: string): void {
         this.singleCellTranslationState = {
@@ -3915,11 +4082,24 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             const allIdentical = variants.every((v: string) => normalize(v) === normalize(variants[0]));
                             if (allIdentical) {
                                 const singleCompletion = variants[0] ?? "";
-                                progress.report({ message: "Updating document...", increment: 40 });
+                                progress.report({ message: "Checking HTML structure...", increment: 10 });
+                                const finalContent = await maybeAutoResolveHtmlStructure(
+                                    currentCellId,
+                                    singleCompletion,
+                                    currentDocument,
+                                    {
+                                        config: completionConfig,
+                                        onResolving: () => progress.report({
+                                            message: "Resolving HTML structure...",
+                                            increment: 10,
+                                        }),
+                                    },
+                                );
+                                progress.report({ message: "Updating document...", increment: 20 });
                                 this.updateSingleCellTranslation(0.9);
                                 currentDocument.updateCellContent(
                                     currentCellId,
-                                    singleCompletion,
+                                    finalContent,
                                     EditType.LLM_GENERATION,
                                     shouldUpdateValue,
                                     false,
@@ -3927,8 +4107,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     completionResult.generationId
                                 );
                                 this.updateSingleCellTranslation(1.0);
-                                debug("LLM completion result (identical variants)", { completion: singleCompletion?.slice?.(0, 80) });
-                                return singleCompletion;
+                                debug("LLM completion result (identical variants)", { completion: finalContent?.slice?.(0, 80) });
+                                return finalContent;
                             }
                         } catch (e) {
                             debug("Error comparing variants for identity; proceeding with A/B UI", { error: e });
@@ -3973,7 +4153,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Otherwise, handle as a single completion using the first variant
                     const singleCompletion = (completionResult as any)?.variants?.[0] ?? "";
 
-                    progress.report({ message: "Updating document...", increment: 40 });
+                    progress.report({ message: "Checking HTML structure...", increment: 10 });
+                    const finalContent = await maybeAutoResolveHtmlStructure(
+                        currentCellId,
+                        singleCompletion,
+                        currentDocument,
+                        {
+                            config: completionConfig,
+                            onResolving: () => progress.report({
+                                message: "Resolving HTML structure...",
+                                increment: 10,
+                            }),
+                        },
+                    );
+
+                    progress.report({ message: "Updating document...", increment: 20 });
 
                     // Update progress in state
                     this.updateSingleCellTranslation(0.9);
@@ -3981,7 +4175,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Update content and metadata atomically - only if not cancelled
                     currentDocument.updateCellContent(
                         currentCellId,
-                        singleCompletion,
+                        finalContent,
                         EditType.LLM_GENERATION,
                         shouldUpdateValue,
                         false,
@@ -4001,8 +4195,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Update progress in state
                     this.updateSingleCellTranslation(1.0);
 
-                    debug("LLM completion result", { completion: singleCompletion?.slice?.(0, 80) });
-                    return singleCompletion;
+                    debug("LLM completion result", { completion: finalContent?.slice?.(0, 80) });
+                    return finalContent;
                 } catch (error: any) {
                     // Check if this is a cancellation error
                     if (error instanceof vscode.CancellationError ||
