@@ -423,6 +423,8 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
     | { command: "resolveHtmlStructure"; content: { cellId: string; }; }
+    | { command: "requestResolveHtmlStructureBatch"; content: { cellIds: string[]; }; }
+    | { command: "stopResolveHtmlStructureBatch"; }
     | {
         command: "updateNotebookMetadata";
         content: CustomNotebookMetadata;
@@ -2054,6 +2056,17 @@ type EditorReceiveMessages =
     }
     | {
         type: "providerAutocompletionState";
+        state: {
+            isProcessing: boolean;
+            totalCells: number;
+            completedCells: number;
+            currentCellId?: string;
+            cellsToProcess: string[];
+            progress: number;
+        };
+    }
+    | {
+        type: "providerStructureResolveState";
         state: {
             isProcessing: boolean;
             totalCells: number;

@@ -64,6 +64,7 @@ interface CellContentDisplayProps {
     showInlineBacktranslations?: boolean;
     backtranslation?: any;
     htmlStructureError?: string;
+    isResolvingStructureExternally?: boolean;
     // Audio playback state from other webview type (source or target)
     isOtherTypeAudioPlaying?: boolean;
 }
@@ -128,6 +129,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         showInlineBacktranslations = false,
         backtranslation,
         htmlStructureError,
+        isResolvingStructureExternally = false,
         isOtherTypeAudioPlaying = false,
     }) => {
         const cellIds = cell.cellMarkers;
@@ -147,6 +149,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const [isLockButtonGlowing, setIsLockButtonGlowing] = useState(false);
         const [isLockButtonFlashing, setIsLockButtonFlashing] = useState(false);
         const [isResolvingStructure, setIsResolvingStructure] = useState(false);
+        const isResolving = isResolvingStructure || isResolvingStructureExternally;
         const { showTooltip, hideTooltip } = useTooltip();
 
         const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -1093,20 +1096,20 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             >
                                 <i
                                     className={`codicon ${
-                                        isResolvingStructure
+                                        isResolving
                                             ? "codicon-loading codicon-modifier-spin"
                                             : "codicon-warning"
                                     }`}
                                 />
                                 <span style={{ flex: 1 }}>
-                                    {isResolvingStructure
+                                    {isResolving
                                         ? "Resolving structure..."
                                         : `Structure mismatch: ${htmlStructureError}`}
                                 </span>
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    disabled={isResolvingStructure}
+                                    disabled={isResolving}
                                     style={{
                                         height: "1.4rem",
                                         fontSize: "0.75rem",
@@ -1121,7 +1124,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                         } as EditorPostMessages);
                                     }}
                                 >
-                                    {isResolvingStructure ? "Resolving…" : "Resolve"}
+                                    {isResolving ? "Resolving…" : "Resolve"}
                                 </Button>
                             </div>
                         )}
