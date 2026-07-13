@@ -14,6 +14,10 @@ export type ExportMissingReason =
     | "no-text-recorded"
     // Tier 2 — soft warning (yellow)
     | "no-audio-selected"
+    // The selected take's bytes couldn't be resolved, but the cell still has
+    // other usable (non-deleted, non-missing) recordings the user can switch
+    // to — recoverable without re-recording, hence a warning rather than error.
+    | "selected-audio-missing-alternatives"
     | "audio-file-missing"
     | "pointer-corrupt"
     | "source-not-found"
@@ -35,6 +39,7 @@ export function severityForReason(reason: ExportMissingReason): ExportMissingSev
         case "no-text-recorded":
             return "info";
         case "no-audio-selected":
+        case "selected-audio-missing-alternatives":
         case "pointer-corrupt":
         case "source-not-found":
             return "warn";
@@ -61,14 +66,33 @@ export interface ExportProgressEvent {
     increment?: number;
 }
 
+/**
+ * Optional pointer to the exact cell a missing-file event came from. When
+ * present, the webview renders the entry as a clickable row that deep-links
+ * into the codex editor (same UX as the Step 1 audio-stats popover).
+ */
+export interface ExportMissingFileLocation {
+    cellId?: string;
+    codexPath?: string;
+}
+
 export interface ExportMissingFile {
     file: string;
     reason: ExportMissingReason;
     detail?: string;
+    cellId?: string;
+    codexPath?: string;
 }
 
 export interface ExportSummary {
     exportPath: string;
+    /**
+     * Directory the audio files were written into. Differs from `exportPath`
+     * in multi-format exports (where audio lives in an `audio/` subfolder). The
+     * export view remembers this so a targeted "retry failed downloads" can
+     * write the recovered files back into the same folder.
+     */
+    audioExportPath?: string;
     filesExported?: number;
     audioCopied?: number;
     audioMissing?: number;
@@ -79,9 +103,21 @@ export interface ExportSummary {
 
 export interface ExportProgressReporter {
     report(event: ExportProgressEvent): void;
-    fileMissing(file: string, reason: ExportMissingReason, detail?: string): void;
+    fileMissing(
+        file: string,
+        reason: ExportMissingReason,
+        detail?: string,
+        location?: ExportMissingFileLocation
+    ): void;
     complete(summary: ExportSummary): void;
     error(message: string): void;
+    /**
+     * Signals that the export was cancelled by the user before it finished.
+     * Implementations should treat this as a terminal state distinct from
+     * `complete`/`error` (the partial output has already been cleaned up by the
+     * time this fires).
+     */
+    cancelled(summary?: ExportSummary): void;
 }
 
 /**
@@ -95,6 +131,7 @@ export function createNoopReporter(): ExportProgressReporter {
         fileMissing: () => undefined,
         complete: () => undefined,
         error: () => undefined,
+        cancelled: () => undefined,
     };
 }
 
@@ -124,9 +161,9 @@ export function createAggregatingReporter(target: ExportProgressReporter): {
             report(event) {
                 target.report(event);
             },
-            fileMissing(file, reason, detail) {
-                missingFiles.push({ file, reason, detail });
-                target.fileMissing(file, reason, detail);
+            fileMissing(file, reason, detail, location) {
+                missingFiles.push({ file, reason, detail, ...location });
+                target.fileMissing(file, reason, detail, location);
             },
             complete(summary) {
                 if (summary.exportPath) lastExportPath = summary.exportPath;
@@ -136,6 +173,9 @@ export function createAggregatingReporter(target: ExportProgressReporter): {
             error(message) {
                 hadError = true;
                 errorMessages.push(message);
+            },
+            cancelled(summary) {
+                target.cancelled(summary);
             },
         },
         drain() {
@@ -165,10 +205,17 @@ export function createWebviewReporter(
                 context
             );
         },
-        fileMissing(file, reason, detail) {
+        fileMissing(file, reason, detail, location) {
             safePostMessageToPanel(
                 panel,
-                { command: "exportFileMissing", file, reason, detail },
+                {
+                    command: "exportFileMissing",
+                    file,
+                    reason,
+                    detail,
+                    cellId: location?.cellId,
+                    codexPath: location?.codexPath,
+                },
                 context
             );
         },
@@ -183,6 +230,13 @@ export function createWebviewReporter(
             safePostMessageToPanel(
                 panel,
                 { command: "exportError", message },
+                context
+            );
+        },
+        cancelled(summary) {
+            safePostMessageToPanel(
+                panel,
+                { command: "exportCancelled", summary },
                 context
             );
         },

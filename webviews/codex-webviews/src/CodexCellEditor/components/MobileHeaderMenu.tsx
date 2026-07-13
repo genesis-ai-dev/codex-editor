@@ -19,10 +19,13 @@ interface MobileHeaderMenuProps {
     // Translation controls
     isAutocompletingChapter: boolean;
     isTranslatingCell: boolean;
+    isResolvingStructureBatch?: boolean;
     onAutocompleteClick: () => void;
+    onResolveAllClick?: () => void;
     onStopTranslation: () => void;
     unsavedChanges: boolean;
     isSourceText: boolean;
+    showResolveAllButton?: boolean;
 
     // Settings
     textDirection: "ltr" | "rtl";
@@ -65,10 +68,13 @@ interface MobileHeaderMenuProps {
 export function MobileHeaderMenu({
     isAutocompletingChapter,
     isTranslatingCell,
+    isResolvingStructureBatch = false,
     onAutocompleteClick,
+    onResolveAllClick,
     onStopTranslation,
     unsavedChanges,
     isSourceText,
+    showResolveAllButton = false,
     textDirection,
     onSetTextDirection,
     fontSize,
@@ -93,6 +99,7 @@ export function MobileHeaderMenu({
     onCycleRecordingCountdown,
 }: MobileHeaderMenuProps) {
     const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
+    const isAnyBatchOperationInProgress = isAnyTranslationInProgress || isResolvingStructureBatch;
 
     return (
         <DropdownMenu>
@@ -146,27 +153,41 @@ export function MobileHeaderMenu({
                 {/* Translation Controls */}
                 {!isSourceText && (
                     <>
-                        {isAnyTranslationInProgress ? (
+                        {isAnyBatchOperationInProgress ? (
                             <DropdownMenuItem
                                 onClick={onStopTranslation}
                                 className="cursor-pointer"
                             >
                                 <i className="codicon codicon-circle-slash mr-2 h-4 w-4" />
                                 <span>
-                                    {isAutocompletingChapter
+                                    {isResolvingStructureBatch
+                                        ? "Stop Resolve"
+                                        : isAutocompletingChapter
                                         ? "Stop Autocomplete"
                                         : "Stop Translation"}
                                 </span>
                             </DropdownMenuItem>
                         ) : (
-                            <DropdownMenuItem
-                                onClick={onAutocompleteClick}
-                                disabled={unsavedChanges}
-                                className="cursor-pointer"
-                            >
-                                <i className="codicon codicon-sparkle mr-2 h-4 w-4" />
-                                <span>Autocomplete Chapter</span>
-                            </DropdownMenuItem>
+                            <>
+                                <DropdownMenuItem
+                                    onClick={onAutocompleteClick}
+                                    disabled={unsavedChanges}
+                                    className="cursor-pointer"
+                                >
+                                    <i className="codicon codicon-sparkle mr-2 h-4 w-4" />
+                                    <span>Autocomplete Chapter</span>
+                                </DropdownMenuItem>
+                                {showResolveAllButton && onResolveAllClick && (
+                                    <DropdownMenuItem
+                                        onClick={onResolveAllClick}
+                                        disabled={unsavedChanges}
+                                        className="cursor-pointer"
+                                    >
+                                        <i className="codicon codicon-warning mr-2 h-4 w-4" />
+                                        <span>Resolve All</span>
+                                    </DropdownMenuItem>
+                                )}
+                            </>
                         )}
                         <DropdownMenuSeparator />
                     </>

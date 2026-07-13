@@ -559,90 +559,90 @@ function MainMenu() {
                     }}
                 >
                     <CardContent className="p-4">
-                        <div className="flex items-start gap-4">
-                            <div className="flex-shrink-0">
+                        <div className="flex flex-col items-center text-center gap-3">
+                            <div className="flex items-center justify-center gap-2">
                                 <i
                                     className={`${updateInfo.icon} text-xl`}
                                     style={{ color: "var(--ring)" }}
                                 />
+                                <h3
+                                    className="font-semibold text-sm break-words"
+                                    style={{ color: "var(--foreground)" }}
+                                >
+                                    {updateInfo.title}
+                                </h3>
                             </div>
-                            <div className="flex-1 space-y-1">
-                                <div className="flex flex-row flex-wrap items-center justify-between gap-2">
-                                    <h3
-                                        className="font-semibold text-sm"
-                                        style={{ color: "var(--foreground)" }}
+                            {projectState.updateVersion && (
+                                <p
+                                    className="text-xs"
+                                    style={{ color: "var(--muted-foreground)" }}
+                                >
+                                    Version {projectState.updateVersion}
+                                </p>
+                            )}
+                            <div className="flex flex-wrap items-center justify-center gap-2">
+                                {SHOULD_SHOW_RELEASE_NOTES_LINK && (
+                                    <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={() => {
+                                            // Open external URL in default browser
+                                            vscode.postMessage({
+                                                command: "openExternal",
+                                                url: RELEASE_NOTES_URL,
+                                            });
+                                        }}
+                                        disabled={projectState.isCheckingForUpdates}
+                                        className="text-xs px-2 py-1 h-7"
+                                        style={{
+                                            backgroundColor: "var(--muted)",
+                                            color: "var(--muted-foreground)",
+                                        }}
                                     >
-                                        {updateInfo.title}
-                                    </h3>
-                                    <div className="flex items-center gap-2 ml-4">
-                                        {SHOULD_SHOW_RELEASE_NOTES_LINK && (
-                                            <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                onClick={() => {
-                                                    // Open external URL in default browser
-                                                    vscode.postMessage({
-                                                        command: "openExternal",
-                                                        url: RELEASE_NOTES_URL,
-                                                    });
-                                                }}
-                                                disabled={projectState.isCheckingForUpdates}
-                                                className="text-xs px-2 py-1 h-7"
-                                            >
-                                                Release Notes
-                                            </Button>
-                                        )}
-                                        <Button
-                                            size="sm"
-                                            variant={updateInfo.variant}
-                                            onClick={() =>
-                                                handleProjectAction(updateInfo.primaryCommand)
-                                            }
-                                            disabled={
-                                                projectState.isCheckingForUpdates ||
-                                                projectState.updateState === "downloading" ||
-                                                projectState.updateState === "updating"
-                                            }
-                                            className={`text-xs px-3 py-1 h-7 ${
-                                                updateInfo?.isPrimary
-                                                    ? "button-primary"
-                                                    : "button-outline"
-                                            }`}
-                                        >
-                                            {projectState.isCheckingForUpdates ? (
-                                                <>
-                                                    <i className="codicon codicon-loading codicon-modifier-spin mr-1 text-xs" />
-                                                    Checking...
-                                                </>
-                                            ) : projectState.updateState === "downloading" ? (
-                                                <>
-                                                    <i className="codicon codicon-loading codicon-modifier-spin mr-1 text-xs" />
-                                                    Downloading...
-                                                </>
-                                            ) : projectState.updateState === "updating" ? (
-                                                <>
-                                                    <i className="codicon codicon-loading codicon-modifier-spin mr-1 text-xs" />
-                                                    Installing...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <i
-                                                        className={`${updateInfo.icon} mr-1 text-xs`}
-                                                    />
-                                                    {updateInfo.primaryAction}
-                                                </>
-                                            )}
-                                        </Button>
-                                    </div>
-                                </div>
-                                {projectState.updateVersion && (
-                                    <p
-                                        className="text-xs"
-                                        style={{ color: "var(--muted-foreground)" }}
-                                    >
-                                        Version {projectState.updateVersion}
-                                    </p>
+                                        Release Notes
+                                    </Button>
                                 )}
+                                <Button
+                                    size="sm"
+                                    variant={updateInfo.variant}
+                                    onClick={() =>
+                                        handleProjectAction(updateInfo.primaryCommand)
+                                    }
+                                    disabled={
+                                        projectState.isCheckingForUpdates ||
+                                        projectState.updateState === "downloading" ||
+                                        projectState.updateState === "updating"
+                                    }
+                                    className={`text-xs px-3 py-1 h-7 ${
+                                        updateInfo?.isPrimary
+                                            ? "button-primary"
+                                            : "button-outline"
+                                    }`}
+                                >
+                                    {projectState.isCheckingForUpdates ? (
+                                        <>
+                                            <i className="codicon codicon-loading codicon-modifier-spin mr-1 text-xs" />
+                                            Checking...
+                                        </>
+                                    ) : projectState.updateState === "downloading" ? (
+                                        <>
+                                            <i className="codicon codicon-loading codicon-modifier-spin mr-1 text-xs" />
+                                            Downloading...
+                                        </>
+                                    ) : projectState.updateState === "updating" ? (
+                                        <>
+                                            <i className="codicon codicon-loading codicon-modifier-spin mr-1 text-xs" />
+                                            Installing...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <i
+                                                className={`${updateInfo.icon} mr-1 text-xs`}
+                                            />
+                                            {updateInfo.primaryAction}
+                                        </>
+                                    )}
+                                </Button>
                             </div>
                         </div>
                     </CardContent>
@@ -699,7 +699,7 @@ function MainMenu() {
                                         {/* Languages row */}
                                         <div className="grid grid-cols-1 min-[311px]:grid-cols-2 gap-4">
                                             <div
-                                                className="p-3 rounded-lg cursor-pointer hover:bg-accent transition-colors"
+                                                className="p-3 rounded-lg cursor-pointer hover:bg-accent transition-colors min-w-0"
                                                 onClick={() =>
                                                     handleProjectAction(
                                                         "changeSourceLanguage",
@@ -711,14 +711,14 @@ function MainMenu() {
                                                 <div className="text-xs text-muted-foreground mb-1">
                                                     Source
                                                 </div>
-                                                <div className="text-sm font-medium">
+                                                <div className="min-w-0 break-words text-sm font-medium">
                                                     {getLanguageDisplay(
                                                         projectState.projectOverview.sourceLanguage
                                                     )}
                                                 </div>
                                             </div>
                                             <div
-                                                className="p-3 rounded-lg cursor-pointer hover:bg-accent transition-colors"
+                                                className="p-3 rounded-lg cursor-pointer hover:bg-accent transition-colors min-w-0"
                                                 onClick={() =>
                                                     handleProjectAction(
                                                         "changeTargetLanguage",
@@ -847,21 +847,23 @@ function MainMenu() {
 
                             {/* Publish Card - only show if project doesn't have remote */}
                             {!projectState.repoHasRemote && (
-                                <Card className="border shadow-sm bg-muted/20">
+                                <Card className="border shadow-sm bg-muted/20 @container">
                                     <CardContent className="p-4">
-                                        <div className="flex items-center gap-4">
-                                            <div className="flex-shrink-0">
-                                                <i
-                                                    className="codicon codicon-cloud-upload text-2xl"
-                                                    style={{ color: "var(--ring)" }}
-                                                />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="font-semibold text-sm">
-                                                    Publish to Cloud
+                                        <div className="flex flex-col @[280px]:flex-row @[280px]:items-center gap-3 @[280px]:gap-4 min-w-0">
+                                            <div className="flex items-center gap-3 @[280px]:gap-4 min-w-0 @[280px]:flex-1">
+                                                <div className="flex-shrink-0">
+                                                    <i
+                                                        className="codicon codicon-cloud-upload text-2xl"
+                                                        style={{ color: "var(--ring)" }}
+                                                    />
                                                 </div>
-                                                <div className="text-xs text-muted-foreground">
-                                                    Enable syncing and collaboration
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="font-semibold text-sm break-words">
+                                                        Publish to Cloud
+                                                    </div>
+                                                    <div className="text-xs text-muted-foreground break-words">
+                                                        Enable syncing and collaboration
+                                                    </div>
                                                 </div>
                                             </div>
                                             <Button
@@ -881,7 +883,7 @@ function MainMenu() {
                                                 }
                                                 title={!state.isGitAvailable ? "Sync unavailable — missing sync tools" : undefined}
                                                 size="sm"
-                                                className="flex-shrink-0"
+                                                className="flex-shrink-0 self-center @[280px]:self-auto @[280px]:ml-auto"
                                             >
                                                 {!state.isGitAvailable ? (
                                                     "Sync Unavailable"

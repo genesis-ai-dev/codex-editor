@@ -23,6 +23,7 @@ import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
 import VideoTimelineEditor from "./VideoTimelineEditor";
 import type { AudioAvailability } from "./utils/audioViewMode";
+import { getStructureMismatchCellIds } from "./utils/structureMismatchCells";
 
 import {
     getCellValueData,
@@ -37,6 +38,7 @@ import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { clearCachedAudio } from "../lib/audioCache";
+import { setAudioDownloading } from "../lib/audioDownloadRegistry";
 import { createCacheHelpers, createProgressCacheHelpers } from "./utils";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import { FloatingSearchBar, SearchMatch } from "./FloatingSearchBar";
@@ -174,10 +176,39 @@ const CodexCellEditor: React.FC = () => {
         videoUrl: "", // FIXME: use attachments instead of videoUrl
     } as CustomNotebookMetadata);
     const [videoUrl, setVideoUrl] = useState<string>("");
+    // Set when the host reports a streamed video can't be played (offline, not
+    // logged in, no LFS reference, etc.); cleared once a playable URL arrives.
+    const [videoUnavailableMessage, setVideoUnavailableMessage] = useState<string | null>(null);
+    // True while the host resolves a playable URL (stream resolve or download).
+    const [videoResolving, setVideoResolving] = useState<boolean>(false);
+    // Set when the chapter video is an LFS pointer and must be downloaded before
+    // it can play. The active media strategy determines the wording/actions.
+    const [videoNeedsDownloadStrategy, setVideoNeedsDownloadStrategy] = useState<
+        "auto-download" | "stream-and-save" | "stream-only" | null
+    >(null);
+    // Host-reported status of the stored video reference. Drives whether the
+    // "Show Video" toggle appears (a broken/missing reference is treated as no
+    // video) and lets the modal flag a missing file. `null` until first report.
+    const [videoReferenceStatus, setVideoReferenceStatus] = useState<
+        "none" | "url" | "local-usable" | "missing" | null
+    >(null);
+    // Stream-and-save only: a downloaded local copy exists that can be reverted to
+    // a pointer to free disk space (re-streamed on demand).
+    const [videoCanFreeDiskSpace, setVideoCanFreeDiskSpace] = useState<boolean>(false);
+    // Size (bytes) of the referenced video when known (local bytes or LFS pointer
+    // size). null until reported / unknown (e.g. remote URLs).
+    const [videoSizeBytes, setVideoSizeBytes] = useState<number | null>(null);
+    // A video the user picked in the OS dialog but hasn't committed yet. It is
+    // only imported into the project when the metadata modal is saved, so it
+    // lives here as a staged selection (cleared on cancel/save).
+    const [pickedVideoFile, setPickedVideoFile] = useState<{
+        fsPath: string;
+        fileName: string;
+    } | null>(null);
     const playerRef = useRef<ReactPlayerRef>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const [muteVideoAudioDuringPlayback, setMuteVideoAudioDuringPlayback] = useState(true);
-    const { setSourceCellMap } = useContext(SourceCellContext);
+    const { sourceCellMap, setSourceCellMap } = useContext(SourceCellContext);
     const { setContentToScrollTo } = useContext(ScrollToContentContext);
     const { setUnsavedChanges } = useContext(UnsavedChangesContext);
 
@@ -214,6 +245,22 @@ const CodexCellEditor: React.FC = () => {
         progress: 0,
     });
 
+    const [structureResolveState, setStructureResolveState] = useState<{
+        isProcessing: boolean;
+        totalCells: number;
+        completedCells: number;
+        currentCellId?: string;
+        cellsToProcess: string[];
+        progress: number;
+    }>({
+        isProcessing: false,
+        totalCells: 0,
+        completedCells: 0,
+        currentCellId: undefined,
+        cellsToProcess: [],
+        progress: 0,
+    });
+
     // Instead of separate state variables, use computed properties
     // These provide backward compatibility for any code that might use these variables
     const isAutocompletingChapter = autocompletionState.isProcessing;
@@ -225,6 +272,8 @@ const CodexCellEditor: React.FC = () => {
     const isSingleCellTranslating = singleCellTranslationState.isProcessing;
     const singleCellId = singleCellTranslationState.cellId;
     const singleCellProgress = singleCellTranslationState.progress;
+    const isResolvingStructureBatch = structureResolveState.isProcessing;
+    const currentStructureResolveCellId = structureResolveState.currentCellId;
 
     // Required state variables that were removed
     const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorCellContent>(
@@ -447,6 +496,26 @@ const CodexCellEditor: React.FC = () => {
         []
     );
 
+    // Clear the in-flight audio-download flag once the provider responds for a
+    // main-cell request. Lives at the always-mounted root so it fires whether or
+    // not the cell editor that started the download is still open. History-viewer
+    // fetches carry `requestedAudioId` and are ignored here.
+    useMessageHandler(
+        "codexCellEditor-audioDownloadComplete",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type !== "providerSendsAudioData") return;
+            const { cellId, requestedAudioId } = (message.content || {}) as {
+                cellId?: string;
+                requestedAudioId?: string;
+            };
+            if (cellId && !requestedAudioId) {
+                setAudioDownloading(cellId, false);
+            }
+        },
+        []
+    );
+
     // Batch transcription handler
     useMessageHandler(
         "codexCellEditor-startBatchTranscription",
@@ -458,11 +527,10 @@ const CodexCellEditor: React.FC = () => {
                     // Fetch ASR config
                     const asrConfig = await new Promise<{
                         endpoint: string;
-                        provider: string;
-                        model: string;
-                        language: string;
-                        phonetic: boolean;
                         authToken?: string;
+                        lang?: string;
+                        languageMode?: "auto" | "project";
+                        projectLanguageName?: string;
                     }>((resolve, reject) => {
                         let resolved = false;
                         const onMsg = (ev: MessageEvent) => {
@@ -494,28 +562,9 @@ const CodexCellEditor: React.FC = () => {
                         }, 5000);
                     });
 
-                    const toIso3 = (code?: string) => {
-                        const ISO2_TO_ISO3: Record<string, string> = {
-                            en: "eng",
-                            fr: "fra",
-                            es: "spa",
-                            de: "deu",
-                            pt: "por",
-                            it: "ita",
-                            nl: "nld",
-                            ru: "rus",
-                            zh: "zho",
-                            ja: "jpn",
-                            ko: "kor",
-                        };
-                        if (!code) return "eng";
-                        const norm = code.toLowerCase();
-                        return norm.length === 2 ? ISO2_TO_ISO3[norm] ?? "eng" : norm;
-                    };
-
                     const wsEndpoint =
                         asrConfig.endpoint ||
-                        "wss://ryderwishart--asr-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe";
+                        "https://genesis-ai-dev--codex-asr-serve.modal.run/transcribe";
 
                     const targetCount = Math.max(0, message.content.count | 0);
                     const specificCellId: string | undefined = (message as any)?.content?.cellId;
@@ -584,7 +633,11 @@ const CodexCellEditor: React.FC = () => {
                                 next.add(cellId);
                                 return next;
                             });
-                            const result = await client.transcribe(blob);
+                            // Same lang-mode handling as the per-cell button: omit lang in
+                            // auto-detect mode, send the resolved code in project mode.
+                            const sentLang =
+                                asrConfig.languageMode === "auto" ? undefined : asrConfig.lang;
+                            const result = await client.transcribe(blob, { lang: sentLang });
                             const text = (result.text || "").trim();
                             if (text) {
                                 vscode.postMessage({
@@ -592,7 +645,7 @@ const CodexCellEditor: React.FC = () => {
                                     content: {
                                         cellId,
                                         transcribedText: text,
-                                        language: "unknown",
+                                        language: result.lang ?? sentLang ?? null,
                                     },
                                 } as unknown as EditorPostMessages);
 
@@ -702,7 +755,7 @@ const CodexCellEditor: React.FC = () => {
                 });
             }
             if (message?.type === "similarWordingInspectionError") {
-                const { cellId, error } = message.content as { cellId: string; error: string; };
+                const { cellId, error } = message.content as { cellId: string; error: string };
                 setSimilarWordingState((prev) => {
                     if (prev.requestedCellId && prev.requestedCellId !== cellId) {
                         return prev;
@@ -1287,11 +1340,6 @@ const CodexCellEditor: React.FC = () => {
         }
     }, [chapterNumber, isSourceText, highlightedCellId, lastHighlightedChapter]);
 
-    // A "temp" video URL that is used to update the video URL in the metadata modal.
-    // We need to use the client-side file picker, so we need to then pass the picked
-    // video URL back to the extension so the user can save or cancel the change.
-    const [tempVideoUrl, setTempVideoUrl] = useState<string>("");
-
     // Debug timestamp to track when a cell started processing
     const processingStartTimeRef = useRef<number | null>(null);
 
@@ -1555,6 +1603,11 @@ const CodexCellEditor: React.FC = () => {
             // Store the cell ID to scroll to after loading completes
             setPendingScrollToCellId(cellId);
 
+            // A jump establishes an authoritative position; see the note in
+            // jumpToCellWithPosition. Prevents a late initial payload from clobbering
+            // this jump on a cold-opened pane (issue #996).
+            hasReceivedInitialContentRef.current = true;
+
             // Update chapter number for display
             setChapterNumber(newChapterNumber);
 
@@ -1581,6 +1634,13 @@ const CodexCellEditor: React.FC = () => {
 
             // Store the cell ID to scroll to after loading completes
             setPendingScrollToCellId(cellId);
+
+            // A jump establishes an authoritative position. Mark initial content as
+            // received so a still-in-flight initial payload — e.g. a cold-opened target
+            // pane whose chapter-1 content is posted *after* this jump lands — is treated
+            // as stale by setContentPaginated's guard instead of resetting us to chapter 1.
+            // Without this, the target pane loses the jump on cold open. See issue #996.
+            hasReceivedInitialContentRef.current = true;
 
             // Update indices directly
             setCurrentMilestoneIndex(milestoneIndex);
@@ -1665,6 +1725,10 @@ const CodexCellEditor: React.FC = () => {
             setAutocompletionState(state);
         },
 
+        updateStructureResolveState: (state) => {
+            setStructureResolveState(state);
+        },
+
         updateSingleCellTranslationState: (state) => {
             debug("autocomplete", "Received single cell translation state from provider:", state);
             setSingleCellTranslationState(state);
@@ -1734,7 +1798,61 @@ const CodexCellEditor: React.FC = () => {
             }
         },
         updateVideoUrl: (url: string) => {
-            setTempVideoUrl(url);
+            // The host resolves the best playable URL (local webview URI or remote
+            // URL) and pushes it here.
+            setVideoUrl(url);
+            setVideoUnavailableMessage(null);
+            setVideoNeedsDownloadStrategy(null);
+            setVideoResolving(false);
+        },
+        videoReferenceStatus: (status, canFreeDiskSpace, sizeBytes) => {
+            setVideoReferenceStatus(status);
+            setVideoCanFreeDiskSpace(!!canFreeDiskSpace);
+            setVideoSizeBytes(typeof sizeBytes === "number" ? sizeBytes : null);
+            // When the reference is gone (removed/cleared), close the player and
+            // clear any transient video state so nothing lingers on screen.
+            if (status === "none") {
+                setShouldShowVideoPlayer(false);
+                setVideoUrl("");
+                setVideoUnavailableMessage(null);
+                setVideoNeedsDownloadStrategy(null);
+                setVideoResolving(false);
+            }
+        },
+        videoFilePicked: (fsPath: string, fileName: string) => {
+            // The user selected a file in the OS dialog. Stage it so the modal can
+            // show it as a pending video; nothing is written until "Save Changes".
+            setPickedVideoFile({ fsPath, fileName });
+        },
+        videoStreamResolving: () => {
+            // An action started elsewhere (e.g. "Load video" / "Save to project"
+            // from a navigation card) is fetching this chapter's video. Reflect
+            // that in the player area: drop the placeholder and show the loading
+            // state until the host pushes the resolved URL (or an error).
+            setVideoUrl("");
+            setVideoUnavailableMessage(null);
+            setVideoNeedsDownloadStrategy(null);
+            setVideoResolving(true);
+        },
+        videoStreamUnavailable: (_reason: string, message?: string) => {
+            // Drop the (likely pointer/stale) URL so the player is replaced by
+            // the unavailable state with a retry action.
+            setVideoUrl("");
+            setVideoResolving(false);
+            setVideoNeedsDownloadStrategy(null);
+            setVideoUnavailableMessage(message || "This video isn't available locally.");
+        },
+        videoNeedsDownload: (strategy) => {
+            // The video is an LFS pointer; show strategy-appropriate actions.
+            setVideoUrl("");
+            setVideoUnavailableMessage(null);
+            setVideoNeedsDownloadStrategy(strategy);
+            // In auto-download the file is meant to live on disk, so fetch it
+            // automatically (like audio) instead of asking the user to click.
+            // Show the resolving state so the manual overlay doesn't flash before
+            // the auto-download effect runs; a real failure resets this via
+            // `videoStreamUnavailable`.
+            setVideoResolving(strategy === "auto-download");
         },
         // Use cellError handler instead of showErrorMessage
         cellError: (data) => {
@@ -1853,6 +1971,13 @@ const CodexCellEditor: React.FC = () => {
                     "message had",
                     { currentMilestoneIdx, currentSubsectionIdx }
                 );
+                // A jump can land before the very first initial-content payload (cold-opened
+                // target pane: the jump sets our position, then the chapter-1 initial content
+                // arrives here as "stale"). We still need the milestone-index *structure* for
+                // the chapter-nav UI and requestCellsForMilestone validation, so backfill it if
+                // absent — the jump's own requestCellsForMilestone fills the cells for the
+                // correct page, so we keep our jumped-to position untouched. See issue #996.
+                setMilestoneIndex((prev) => prev ?? milestoneIdx);
                 return;
             }
 
@@ -1982,8 +2107,7 @@ const CodexCellEditor: React.FC = () => {
                         // synced cell.audioTimestamps, since the slider reads
                         // staged ?? persisted. Without this, the user has to close
                         // and reopen the editor to see synced audio range changes.
-                        cellAudioTimestamps:
-                            match.audioTimestamps ?? prev.cellAudioTimestamps,
+                        cellAudioTimestamps: match.audioTimestamps ?? prev.cellAudioTimestamps,
                     };
                 });
             } else {
@@ -2913,6 +3037,28 @@ const CodexCellEditor: React.FC = () => {
         } as EditorPostMessages);
     };
 
+    const handleResolveStructureBatch = (numberOfCells: number) => {
+        const selectedCellIds = mismatchedCellIds.slice(0, numberOfCells);
+        if (selectedCellIds.length === 0) {
+            vscode.postMessage({
+                command: "showInformationMessage",
+                message: "No cells with structure mismatches found in this section.",
+            });
+            return;
+        }
+
+        vscode.postMessage({
+            command: "requestResolveHtmlStructureBatch",
+            content: { cellIds: selectedCellIds },
+        } as EditorPostMessages);
+    };
+
+    const handleStopResolveStructureBatch = () => {
+        vscode.postMessage({
+            command: "stopResolveHtmlStructureBatch",
+        } as EditorPostMessages);
+    };
+
     const openSourceText = (sectionIdNumber: number) => {
         vscode.postMessage({
             command: "openSourceText",
@@ -2984,6 +3130,24 @@ const CodexCellEditor: React.FC = () => {
         });
     }, [contentBeingUpdated, translationUnitsForSection]);
 
+    const mismatchedCellIds = useMemo(
+        () =>
+            getStructureMismatchCellIds(
+                translationUnitsWithCurrentEditorContent,
+                sourceCellMap,
+                metadata?.enforceHtmlStructure ?? false,
+                isSourceText,
+            ),
+        [
+            translationUnitsWithCurrentEditorContent,
+            sourceCellMap,
+            metadata?.enforceHtmlStructure,
+            isSourceText,
+        ],
+    );
+
+    const showResolveAllButton = !isSourceText && (metadata?.enforceHtmlStructure ?? false);
+
     const handleMetadataChange = (key: string, value: string) => {
         setMetadata((prev) => {
             const updatedMetadata = { ...prev, [key]: value };
@@ -2993,24 +3157,142 @@ const CodexCellEditor: React.FC = () => {
     };
 
     const handlePickFile = () => {
-        vscode.postMessage({ command: "pickVideoFile" } as EditorPostMessages);
+        // The metadata modal only exposes the file picker once the video field is
+        // empty, which requires passing its type-to-confirm removal step first.
+        // So the host's own replace/delete confirmation would be redundant here.
+        vscode.postMessage({
+            command: "pickVideoFile",
+            skipVideoConfirm: true,
+        } as EditorPostMessages);
     };
 
-    const handleSaveMetadata = () => {
-        const updatedMetadata = { ...metadata };
-        setVideoUrl(updatedMetadata.videoUrl || "");
-        setTempVideoUrl("");
+    // Stream-and-save: revert the downloaded local copy back to an LFS pointer to
+    // free disk space. The host confirms; the video reference is kept so it
+    // re-streams on demand.
+    const handleFreeVideoDiskSpace = () => {
+        vscode.postMessage({ command: "freeVideoDiskSpace" } as EditorPostMessages);
+    };
+
+    // Commit metadata edits from the modal. The modal edits a local draft and only
+    // calls this on "Save Changes", so removals/edits are deferred until here.
+    // When the saved videoUrl changes, the host confirms and (for a local file)
+    // deletes the old file from disk as part of updateNotebookMetadata.
+    const handleSaveMetadata = (
+        updatedMetadata: CustomNotebookMetadata,
+        pendingVideoFilePath?: string
+    ) => {
+        // Don't optimistically clobber videoUrl when a staged pick is being
+        // imported: the host computes the real project-relative path and pushes
+        // it back via providerUpdatesNotebookMetadataForWebview.
+        if (!pendingVideoFilePath) {
+            setMetadata(updatedMetadata);
+            setVideoUrl(updatedMetadata.videoUrl || "");
+        }
         debug("metadata", "Saving metadata:", updatedMetadata);
+        // Any video change in the modal already passed its robust type-to-confirm
+        // removal step, so the host's own replace/delete confirmation would be a
+        // redundant second prompt — skip it. The host still deletes the old file.
+        // A staged pick (pendingVideoFilePath) is imported by the host as part of
+        // this save, so cancelling instead of saving leaves the project untouched.
         vscode.postMessage({
             command: "updateNotebookMetadata",
             content: updatedMetadata,
+            skipVideoConfirm: true,
+            pendingVideoFilePath,
         } as EditorPostMessages);
+        setPickedVideoFile(null);
         setIsMetadataModalOpen(false);
     };
 
-    const handleUpdateVideoUrl = (url: string) => {
-        setVideoUrl(url);
-    };
+    // Keep the reference status fresh: ask the host whenever the stored video
+    // reference changes (and on mount). This drives the toggle + modal badge
+    // independently of whether the player is open.
+    useEffect(() => {
+        vscode.postMessage({ command: "requestVideoReferenceStatus" } as EditorPostMessages);
+    }, [metadata.videoUrl]);
+
+    // Ask the host to resolve a playable source for the chapter video. Remote
+    // URLs play directly; local files resolve to a webview URI; LFS pointers come
+    // back as a "needs download" state (we no longer stream LFS directly). We
+    // clear the current URL so a stale pointer URI isn't shown while resolving.
+    const requestVideoStreamUrl = useCallback(() => {
+        setVideoUnavailableMessage(null);
+        setVideoNeedsDownloadStrategy(null);
+        setVideoResolving(true);
+        setVideoUrl("");
+        vscode.postMessage({ command: "requestVideoStreamUrl" } as EditorPostMessages);
+    }, []);
+
+    // Keep the latest resolved URL in a ref so the error handler reads the
+    // current value (not a stale closure) and can guard retries by URL.
+    const videoUrlRef = useRef(videoUrl);
+    useEffect(() => {
+        videoUrlRef.current = videoUrl;
+    }, [videoUrl]);
+    // Guards auto-retry on playback error. This lives in the parent (not in
+    // VideoPlayer) on purpose: requesting a fresh URL clears videoUrl and
+    // unmounts the player, so a guard inside the player would reset on every
+    // remount and loop forever on a persistently-failing URL.
+    const videoErrorRetryRef = useRef<{ url: string; at: number }>({ url: "", at: 0 });
+
+    // Called when the player reports a load/playback error. A remote stream URL
+    // may have expired, so re-resolve it once; if the SAME URL keeps failing we
+    // stop and surface the "unavailable" state (with a manual retry) instead of
+    // looping — which is what an invalid URL like "https://www.ffdsf" would
+    // otherwise do, flooding the console with errors.
+    const VIDEO_ERROR_RETRY_WINDOW_MS = 10000;
+    const handleVideoStreamError = useCallback(() => {
+        const url = videoUrlRef.current;
+        const now = Date.now();
+        const guard = videoErrorRetryRef.current;
+        const retriedRecently = guard.url === url && now - guard.at < VIDEO_ERROR_RETRY_WINDOW_MS;
+        if (retriedRecently) {
+            // Already retried this URL once recently → give up to avoid a loop.
+            setVideoUrl("");
+            setVideoResolving(false);
+            setVideoNeedsDownloadStrategy(null);
+            setVideoUnavailableMessage(
+                "This video couldn't be played. Please check that the URL is correct and reachable."
+            );
+            return;
+        }
+        videoErrorRetryRef.current = { url, at: now };
+        requestVideoStreamUrl();
+    }, [requestVideoStreamUrl]);
+
+    // Download the LFS-backed video so it can play locally. `persist` controls
+    // whether stream-only keeps the file ("Save to project") or treats it as a
+    // session cache that re-streams next session (the default "Load").
+    const downloadVideoFile = useCallback((persist: boolean = true) => {
+        setVideoUnavailableMessage(null);
+        setVideoNeedsDownloadStrategy(null);
+        setVideoResolving(true);
+        setVideoUrl("");
+        vscode.postMessage({ command: "downloadVideoFile", persist } as EditorPostMessages);
+    }, []);
+
+    // When the player opens (or the video reference changes while open), and the
+    // stored reference isn't already a direct remote URL, request a stream URL.
+    useEffect(() => {
+        if (!shouldShowVideoPlayer) {
+            return;
+        }
+        const stored = metadata.videoUrl;
+        if (!stored || /^https?:\/\//i.test(stored)) {
+            return;
+        }
+        requestVideoStreamUrl();
+    }, [shouldShowVideoPlayer, metadata.videoUrl, requestVideoStreamUrl]);
+
+    // In auto-download mode a pointer-backed video should download on its own
+    // (mirroring audio's auto-fetch) rather than waiting for a manual click.
+    // `downloadVideoFile` clears the strategy, so this can't loop; a failure
+    // surfaces via `videoStreamUnavailable` and won't re-trigger.
+    useEffect(() => {
+        if (videoNeedsDownloadStrategy === "auto-download") {
+            downloadVideoFile(true);
+        }
+    }, [videoNeedsDownloadStrategy, downloadVideoFile]);
 
     // Handler for temporary font size changes (for preview)
     const handleTempFontSizeChange = (fontSize: number) => {
@@ -3092,7 +3374,14 @@ const CodexCellEditor: React.FC = () => {
 
     (window as any).getCurrentEditingCellId = getCurrentEditingCellId;
 
-    const documentHasVideoAvailable = !!metadata.videoUrl;
+    // The "Show Video" toggle should appear only when there's a usable reference:
+    // a remote URL, or a local file with bytes/pointer. A "missing" reference (or
+    // an empty one) hides it. Until the host reports status, fall back to the raw
+    // presence of a videoUrl so the toggle isn't briefly hidden on load.
+    const documentHasVideoAvailable =
+        videoReferenceStatus !== null
+            ? videoReferenceStatus === "url" || videoReferenceStatus === "local-usable"
+            : !!metadata.videoUrl;
 
     // Debug helper: Log info about translation units and their validation status
     useEffect(() => {
@@ -3474,6 +3763,11 @@ const CodexCellEditor: React.FC = () => {
                             }}
                             onStopAutocomplete={handleStopAutocomplete}
                             isAutocompletingChapter={isAutocompletingChapter}
+                            onResolveStructureBatch={handleResolveStructureBatch}
+                            onStopResolveStructureBatch={handleStopResolveStructureBatch}
+                            isResolvingStructureBatch={isResolvingStructureBatch}
+                            mismatchedCellIds={mismatchedCellIds}
+                            showResolveAllButton={showResolveAllButton}
                             onSetTextDirection={(direction) => {
                                 setTextDirection(direction);
                                 // Save the text direction with local source marking (similar to font size)
@@ -3492,11 +3786,15 @@ const CodexCellEditor: React.FC = () => {
                             openSourceText={openSourceText}
                             documentHasVideoAvailable={documentHasVideoAvailable}
                             metadata={metadata}
-                            tempVideoUrl={tempVideoUrl}
+                            videoReferenceStatus={videoReferenceStatus}
                             onMetadataChange={handleMetadataChange}
                             onSaveMetadata={handleSaveMetadata}
                             onPickFile={handlePickFile}
-                            onUpdateVideoUrl={handleUpdateVideoUrl}
+                            pickedVideoFile={pickedVideoFile}
+                            onPickedVideoConsumed={() => setPickedVideoFile(null)}
+                            videoCanFreeDiskSpace={videoCanFreeDiskSpace}
+                            onFreeVideoDiskSpace={handleFreeVideoDiskSpace}
+                            videoSizeBytes={videoSizeBytes}
                             toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
                             scrollSyncEnabled={scrollSyncEnabled}
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}
@@ -3530,6 +3828,166 @@ const CodexCellEditor: React.FC = () => {
                         />
                     </div>
                 </div>
+                {shouldShowVideoPlayer && !videoUrl && videoResolving && (
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: "12px",
+                            padding: "32px",
+                            backgroundColor: "black",
+                            color: "white",
+                        }}
+                        ref={videoPlayerRef}
+                    >
+                        <i
+                            className="codicon codicon-loading codicon-modifier-spin"
+                            style={{ fontSize: "24px" }}
+                        />
+                        <span>Loading video…</span>
+                    </div>
+                )}
+                {shouldShowVideoPlayer &&
+                    !videoUrl &&
+                    !videoResolving &&
+                    videoNeedsDownloadStrategy && (
+                        <div
+                            style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: "10px",
+                                padding: "24px",
+                                backgroundColor: "black",
+                                color: "white",
+                                textAlign: "center",
+                            }}
+                            ref={videoPlayerRef}
+                        >
+                            <i
+                                className="codicon codicon-device-camera-video"
+                                style={{ fontSize: "24px" }}
+                            />
+                            <span style={{ fontWeight: 600 }}>
+                                {videoNeedsDownloadStrategy === "stream-only"
+                                    ? "Streaming mode"
+                                    : videoNeedsDownloadStrategy === "stream-and-save"
+                                    ? "Stream & save mode"
+                                    : "Video not downloaded yet"}
+                            </span>
+                            <span style={{ opacity: 0.85, maxWidth: "420px" }}>
+                                {videoNeedsDownloadStrategy === "stream-only"
+                                    ? "This video isn't saved to your project. Load it for this session, or save it so it's kept for next time."
+                                    : "This video will be downloaded and saved to your project."}
+                            </span>
+                            <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+                                {videoNeedsDownloadStrategy === "stream-only" ? (
+                                    <>
+                                        <button
+                                            onClick={() => downloadVideoFile(false)}
+                                            style={{
+                                                cursor: "pointer",
+                                                padding: "6px 14px",
+                                                borderRadius: "4px",
+                                                border: "1px solid var(--vscode-button-border, transparent)",
+                                                background: "var(--vscode-button-background)",
+                                                color: "var(--vscode-button-foreground)",
+                                            }}
+                                        >
+                                            <i
+                                                className="codicon codicon-play"
+                                                style={{ marginRight: "6px" }}
+                                            />
+                                            Load video
+                                        </button>
+                                        <button
+                                            onClick={() => downloadVideoFile(true)}
+                                            style={{
+                                                cursor: "pointer",
+                                                padding: "6px 14px",
+                                                borderRadius: "4px",
+                                                border: "1px solid var(--vscode-button-border, transparent)",
+                                                background:
+                                                    "var(--vscode-button-secondaryBackground)",
+                                                color: "var(--vscode-button-secondaryForeground)",
+                                            }}
+                                        >
+                                            <i
+                                                className="codicon codicon-save"
+                                                style={{ marginRight: "6px" }}
+                                            />
+                                            Save to project
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button
+                                        onClick={() => downloadVideoFile(true)}
+                                        style={{
+                                            cursor: "pointer",
+                                            padding: "6px 14px",
+                                            borderRadius: "4px",
+                                            border: "1px solid var(--vscode-button-border, transparent)",
+                                            background: "var(--vscode-button-background)",
+                                            color: "var(--vscode-button-foreground)",
+                                        }}
+                                    >
+                                        <i
+                                            className="codicon codicon-cloud-download"
+                                            style={{ marginRight: "6px" }}
+                                        />
+                                        Download &amp; play
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                {shouldShowVideoPlayer &&
+                    !videoUrl &&
+                    !videoResolving &&
+                    videoUnavailableMessage && (
+                        <div
+                            style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: "12px",
+                                padding: "24px",
+                                backgroundColor: "black",
+                                color: "white",
+                                textAlign: "center",
+                            }}
+                            ref={videoPlayerRef}
+                        >
+                            <i
+                                className="codicon codicon-cloud-offline"
+                                style={{ fontSize: "24px" }}
+                            />
+                            <span>{videoUnavailableMessage}</span>
+                            <div style={{ display: "flex", gap: "8px" }}>
+                                <button
+                                    onClick={requestVideoStreamUrl}
+                                    style={{
+                                        cursor: "pointer",
+                                        padding: "6px 14px",
+                                        borderRadius: "4px",
+                                        border: "1px solid var(--vscode-button-border, transparent)",
+                                        background: "var(--vscode-button-background)",
+                                        color: "var(--vscode-button-foreground)",
+                                    }}
+                                >
+                                    <i
+                                        className="codicon codicon-refresh"
+                                        style={{ marginRight: "6px" }}
+                                    />
+                                    Retry
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 {shouldShowVideoPlayer && videoUrl && (
                     <div
                         style={{
@@ -3545,6 +4003,7 @@ const CodexCellEditor: React.FC = () => {
                             playerRef={playerRef}
                             audioAttachments={audioAttachments}
                             muteVideoWhenPlayingAudio={muteVideoAudioDuringPlayback}
+                            onRequestStreamUrl={handleVideoStreamError}
                         />
                     </div>
                 )}
@@ -3596,6 +4055,7 @@ const CodexCellEditor: React.FC = () => {
                             }
                             lineNumbersEnabled={metadata?.lineNumbersEnabled ?? true}
                             enforceHtmlStructure={metadata?.enforceHtmlStructure ?? false}
+                            currentStructureResolveCellId={currentStructureResolveCellId}
                             currentUsername={username}
                             requiredValidations={requiredValidations ?? undefined}
                             requiredAudioValidations={requiredAudioValidations ?? undefined}

@@ -1,10 +1,10 @@
 import { CodexExportFormat, exportCodexContent, checkSubtitleOverlapsAndConfirm } from "../exportHandler/exportHandler";
-import { createWebviewReporter } from "../exportHandler/exportProgress";
+import { createWebviewReporter, type ExportProgressReporter } from "../exportHandler/exportProgress";
 import * as fs from "fs";
 import * as vscode from "vscode";
 import { safePostMessageToPanel } from "../utils/webviewUtils";
 import { EXPORT_OPTIONS_BY_FILE_TYPE } from "../../sharedUtils/exportOptionsEligibility";
-import { groupCodexFilesByImporterType, type FileGroup } from "./utils/exportViewUtils";
+import { groupCodexFilesByImporterType, analyzeCodexFileAudio, type FileGroup } from "./utils/exportViewUtils";
 import { readCodexNotebookFromUri } from "../exportHandler/exportHandlerUtils";
 import { compareHtmlStructure } from "../../sharedUtils/htmlStructureUtils";
 import { getMediaFilesStrategy } from "../utils/localProjectSettings";
@@ -100,6 +100,20 @@ async function checkHtmlStructureMismatches(
  */
 let activeExportPanel: vscode.WebviewPanel | undefined;
 
+/**
+ * Cancellation source for the export currently running in the active panel.
+ * Created when an export starts and disposed when it settles. Used to abort the
+ * run when the user clicks Cancel or closes the export tab mid-export.
+ */
+let activeExportCts: vscode.CancellationTokenSource | undefined;
+
+/**
+ * True while an export is actively running in the active panel. Guards against
+ * starting a second export (e.g. the run still draining its in-flight LFS
+ * downloads after a cancel) before the first has settled.
+ */
+let isExporting = false;
+
 export async function openProjectExportView(context: vscode.ExtensionContext) {
     if (activeExportPanel) {
         // Bring the existing wizard forward instead of stacking another one.
@@ -125,7 +139,62 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
         }
     );
     activeExportPanel = panel;
+
+    // Live Step 1 counts: watch `.codex` files and push a per-file audio-stat
+    // refresh whenever one is saved while the wizard is open (e.g. the user
+    // picks a different take, records, or deletes a take in the cell editor).
+    // We recompute only the changed file and patch that row, so this stays
+    // cheap even on large projects.
+    const codexWatcher = vscode.workspace.createFileSystemWatcher("**/*.codex");
+    const audioStatsRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const scheduleAudioStatsRefresh = (uri: vscode.Uri) => {
+        const key = uri.fsPath;
+        const existing = audioStatsRefreshTimers.get(key);
+        if (existing) {
+            clearTimeout(existing);
+        }
+        // Debounce: the document save path does a tmp-write + atomic rename
+        // (often surfacing as a create+change pair) and autosave can burst —
+        // coalesce into a single recompute per file.
+        audioStatsRefreshTimers.set(
+            key,
+            setTimeout(async () => {
+                audioStatsRefreshTimers.delete(key);
+                const result = await analyzeCodexFileAudio(uri);
+                // null = transient read/parse race or broken file; leave the
+                // existing count in place until the next save.
+                if (!result) {
+                    return;
+                }
+                safePostMessageToPanel(
+                    panel,
+                    {
+                        command: "fileAudioStatsUpdated",
+                        path: uri.fsPath,
+                        hasAudio: result.hasAudio,
+                        hasTranslations: result.hasTranslations,
+                        audioStats: result.audioStats,
+                    },
+                    "ProjectExport"
+                );
+            }, 400)
+        );
+    };
+    codexWatcher.onDidChange(scheduleAudioStatsRefresh);
+    codexWatcher.onDidCreate(scheduleAudioStatsRefresh);
+
     panel.onDidDispose(() => {
+        // Closing the tab while an export is running aborts it (and triggers the
+        // engine's partial-output cleanup). This also prevents a stale run from
+        // continuing in the background after the panel is gone.
+        if (isExporting) {
+            activeExportCts?.cancel();
+        }
+        codexWatcher.dispose();
+        for (const timer of audioStatsRefreshTimers.values()) {
+            clearTimeout(timer);
+        }
+        audioStatsRefreshTimers.clear();
         if (activeExportPanel === panel) {
             activeExportPanel = undefined;
         }
@@ -222,6 +291,11 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                 );
                 break;
             case "export":
+                // Guard against a second export starting while one is still
+                // running (or draining in-flight downloads after a cancel).
+                if (isExporting) {
+                    break;
+                }
                 try {
                     // For round-trip exports, check for HTML structure mismatches and prompt
                     if (message.format === "rebuild-export" && message.filesToExport?.length) {
@@ -251,23 +325,39 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
 
                     const reporter = createWebviewReporter(panel, "ProjectExport");
 
+                    // Fresh cancellation source for this run. The token is
+                    // threaded through the export engine so Cancel / tab-close
+                    // can stop downloads and trigger partial-output cleanup.
+                    activeExportCts = new vscode.CancellationTokenSource();
+                    isExporting = true;
                     try {
                         await exportCodexContent(
                             message.format as CodexExportFormat,
                             message.userSelectedPath,
                             message.filesToExport,
                             message.options,
-                            reporter
+                            reporter,
+                            activeExportCts.token
                         );
                     } catch (error) {
-                        reporter.error(
-                            error instanceof Error
-                                ? error.message
-                                : "Failed to export project. Please check your configuration."
-                        );
+                        // A cancellation surfaces here as an AbortError from an
+                        // in-flight download; the engine has already emitted the
+                        // `cancelled` event and cleaned up, so don't also report
+                        // it as a failure.
+                        if (!activeExportCts.token.isCancellationRequested) {
+                            reporter.error(
+                                error instanceof Error
+                                    ? error.message
+                                    : "Failed to export project. Please check your configuration."
+                            );
+                        }
+                    } finally {
+                        isExporting = false;
+                        activeExportCts.dispose();
+                        activeExportCts = undefined;
                     }
                     // Intentionally do NOT dispose the panel. The webview owns
-                    // the success/error UI and the user clicks Close when ready.
+                    // the success/error/cancelled UI and the user clicks Close when ready.
                 } catch (error) {
                     safePostMessageToPanel(
                         panel,
@@ -282,6 +372,122 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                     );
                 }
                 break;
+            case "retryExport": {
+                // Targeted retry: re-attempt only the cells that failed (with a
+                // transient/recoverable reason) and merge any recovered audio
+                // back into the original export folder. Audio-only path —
+                // download/transcode/write failures only happen there.
+                if (isExporting) {
+                    break;
+                }
+                const audioOutputPath = message.audioOutputPath as string | undefined;
+                const targets = message.targets as
+                    | { cellId: string; codexPath: string; }[]
+                    | undefined;
+                if (!audioOutputPath || !targets || targets.length === 0) {
+                    break;
+                }
+
+                // Group target cellIds by their codex file.
+                const retryCellFilter = new Map<string, Set<string>>();
+                for (const t of targets) {
+                    if (!t?.cellId || !t?.codexPath) continue;
+                    let set = retryCellFilter.get(t.codexPath);
+                    if (!set) {
+                        set = new Set<string>();
+                        retryCellFilter.set(t.codexPath, set);
+                    }
+                    set.add(t.cellId);
+                }
+                const codexPaths = Array.from(retryCellFilter.keys());
+                if (codexPaths.length === 0) {
+                    break;
+                }
+
+                // Custom reporter: still-failing cells stream back as
+                // `exportFileMissing` (so the issues list refreshes), but the
+                // terminal state is a `retryCompleted` — distinct from a full
+                // export's complete/error so the completion screen and its
+                // existing issue list aren't torn down.
+                const retryReporter: ExportProgressReporter = {
+                    report: () => undefined,
+                    fileMissing: (file, reason, detail, location) => {
+                        safePostMessageToPanel(
+                            panel,
+                            {
+                                command: "exportFileMissing",
+                                file,
+                                reason,
+                                detail,
+                                cellId: location?.cellId,
+                                codexPath: location?.codexPath,
+                            },
+                            "ProjectExport"
+                        );
+                    },
+                    complete: (summary) => {
+                        safePostMessageToPanel(
+                            panel,
+                            { command: "retryCompleted", summary },
+                            "ProjectExport"
+                        );
+                    },
+                    error: (errMessage) => {
+                        safePostMessageToPanel(
+                            panel,
+                            { command: "retryCompleted", error: errMessage },
+                            "ProjectExport"
+                        );
+                    },
+                    cancelled: () => {
+                        safePostMessageToPanel(
+                            panel,
+                            { command: "retryCompleted", cancelled: true },
+                            "ProjectExport"
+                        );
+                    },
+                };
+
+                activeExportCts = new vscode.CancellationTokenSource();
+                isExporting = true;
+                try {
+                    const { exportAudioAttachments } = await import(
+                        "../exportHandler/audioExporter"
+                    );
+                    await exportAudioAttachments(
+                        audioOutputPath,
+                        codexPaths,
+                        retryReporter,
+                        {
+                            // Reproduce timestamp behaviour so retried files
+                            // match the original. Milestones are intentionally
+                            // omitted — the cell filter is authoritative.
+                            includeTimestamps: message.options?.includeTimestamps === true,
+                            retryCellFilter,
+                        },
+                        activeExportCts.token
+                    );
+                } catch (error) {
+                    if (!activeExportCts.token.isCancellationRequested) {
+                        safePostMessageToPanel(
+                            panel,
+                            {
+                                command: "retryCompleted",
+                                error:
+                                    error instanceof Error
+                                        ? error.message
+                                        : "Retry failed.",
+                            },
+                            "ProjectExport"
+                        );
+                    }
+                } finally {
+                    isExporting = false;
+                    activeExportCts.dispose();
+                    activeExportCts = undefined;
+                }
+                break;
+            }
             case "openExportFolder": {
                 const target = message.path as string | undefined;
                 if (target && fs.existsSync(target)) {
@@ -327,6 +533,32 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                 );
                 break;
             }
+            case "previewCharacterAudio": {
+                try {
+                    const { getCharacterAudioPreview } = await import(
+                        "../exportHandler/characterAudioExporter"
+                    );
+                    const preview = await getCharacterAudioPreview(
+                        (message.filesToExport as string[]) || []
+                    );
+                    safePostMessageToPanel(
+                        panel,
+                        { command: "characterAudioPreviewResult", preview },
+                        "ProjectExport"
+                    );
+                } catch (err) {
+                    safePostMessageToPanel(
+                        panel,
+                        {
+                            command: "characterAudioPreviewResult",
+                            preview: { files: [] },
+                            error: err instanceof Error ? err.message : String(err),
+                        },
+                        "ProjectExport"
+                    );
+                }
+                break;
+            }
             case "checkSubtitleOverlaps": {
                 const proceed = await checkSubtitleOverlapsAndConfirm(
                     message.filesToExport as string[]
@@ -340,6 +572,12 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
             }
             case "cancel":
                 panel.dispose();
+                break;
+            case "cancelExport":
+                // Stop the in-progress export. Keep the panel open: the engine
+                // cleans up partial output and emits `exportCancelled`, which
+                // the webview renders as a terminal cancelled state.
+                activeExportCts?.cancel();
                 break;
         }
     });
@@ -365,7 +603,6 @@ function getWebviewContent(
     const groupsJson = JSON.stringify(fileGroups);
     const exportOptionsConfigJson = JSON.stringify(EXPORT_OPTIONS_BY_FILE_TYPE);
     const initialExportFolderJson = JSON.stringify(initialExportFolder);
-
     return `<!DOCTYPE html>
     <html>
         <head>
@@ -479,6 +716,45 @@ function getWebviewContent(
                     padding: 12px;
                     background-color: var(--vscode-editor-background);
                     border-top: 1px solid var(--vscode-input-border);
+                }
+                .milestone-file-group {
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 4px;
+                    margin-bottom: 12px;
+                    overflow: hidden;
+                }
+                .milestone-file-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 12px;
+                    background-color: var(--vscode-editor-inactiveSelectionBackground);
+                }
+                .milestone-file-header h4 {
+                    margin: 0;
+                    flex: 1;
+                    font-size: 0.95em;
+                }
+                .milestone-list {
+                    padding: 8px 12px 12px 32px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                    background-color: var(--vscode-editor-background);
+                    border-top: 1px solid var(--vscode-input-border);
+                }
+                .milestone-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+                .milestone-item label {
+                    cursor: pointer;
+                    user-select: none;
+                }
+                .milestone-select-all {
+                    font-size: 0.85em;
+                    color: var(--vscode-descriptionForeground);
                 }
                 .file-item {
                     display: flex;
@@ -658,6 +934,21 @@ function getWebviewContent(
                 .format-option-row[data-option].hidden { display: none !important; }
                 .format-option p, .format-option-content p { line-height: 1.45; margin: 4px 0 0 0; }
                 .format-option-content { display: flex; flex-direction: column; gap: 4px; }
+                .format-option-toggle {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    font-size: 0.9em;
+                    color: var(--vscode-descriptionForeground);
+                    cursor: pointer;
+                    user-select: none;
+                }
+                .format-option-toggle input[type="checkbox"] { margin: 0; cursor: pointer; }
+                .format-section-suboption {
+                    padding: 10px 12px;
+                    background-color: var(--vscode-editor-background);
+                    border-top: 1px solid var(--vscode-input-border);
+                }
                 .format-tag {
                     display: inline-block;
                     padding: 1px 4px;
@@ -713,9 +1004,95 @@ function getWebviewContent(
                     padding: 20px 24px;
                     max-width: 480px;
                     width: 90%;
+                    max-height: 90vh;
+                    display: flex;
+                    flex-direction: column;
                     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
                 }
+                .popup-card .popup-header { flex: 0 0 auto; }
+                .popup-card .popup-body {
+                    flex: 1 1 auto;
+                    min-height: 0;
+                    overflow-y: auto;
+                }
+                .popup-card.wide { max-width: 900px; }
+                .char-preview-file { margin-bottom: 18px; }
+                .char-preview-file h5 {
+                    margin: 0 0 6px 0;
+                    color: var(--vscode-foreground);
+                    font-size: 0.95em;
+                }
+                .char-preview-meta {
+                    color: var(--vscode-descriptionForeground);
+                    font-size: 0.8em;
+                    margin-bottom: 8px;
+                }
+                .char-row {
+                    display: grid;
+                    grid-template-columns: 160px 1fr 80px;
+                    gap: 10px;
+                    align-items: center;
+                    padding: 3px 0;
+                    font-size: 0.85em;
+                }
+                .char-row .char-label {
+                    color: var(--vscode-foreground);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .char-row .char-timeline {
+                    position: relative;
+                    height: 14px;
+                    background: var(--vscode-input-background);
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 2px;
+                    overflow: hidden;
+                }
+                .char-row .speech-segment {
+                    position: absolute;
+                    top: 0;
+                    bottom: 0;
+                    min-width: 1px;
+                    opacity: 0.85;
+                }
+                .char-row .speech-segment.has-audio {
+                    background: var(--vscode-charts-blue, #3b82f6);
+                }
+                .char-row .speech-segment.no-audio {
+                    background: var(--vscode-descriptionForeground, #6b7280);
+                    opacity: 0.45;
+                }
+                .char-row.no-audio .char-label {
+                    color: var(--vscode-descriptionForeground);
+                    font-style: italic;
+                }
+                .char-row .char-stats {
+                    color: var(--vscode-descriptionForeground);
+                    font-size: 0.8em;
+                    text-align: right;
+                    font-variant-numeric: tabular-nums;
+                }
+                .char-legend {
+                    display: flex;
+                    gap: 14px;
+                    margin: 4px 0 12px 0;
+                    font-size: 0.78em;
+                    color: var(--vscode-descriptionForeground);
+                    align-items: center;
+                }
+                .char-legend .swatch {
+                    display: inline-block;
+                    width: 12px;
+                    height: 10px;
+                    border-radius: 2px;
+                    margin-right: 4px;
+                    vertical-align: middle;
+                }
+                .char-legend .swatch.has-audio { background: var(--vscode-charts-blue, #3b82f6); }
+                .char-legend .swatch.no-audio { background: var(--vscode-descriptionForeground, #6b7280); opacity: 0.45; }
                 .popup-header {
+                    flex-shrink: 0;
                     display: flex;
                     align-items: center;
                     gap: 8px;
@@ -737,7 +1114,11 @@ function getWebviewContent(
                     font-size: 0.9em;
                     color: var(--vscode-editor-foreground);
                     line-height: 1.5;
+                    display: flex;
+                    flex-direction: column;
+                    min-height: 0;
                 }
+                .popup-body > p { flex-shrink: 0; }
                 .popup-file-list {
                     margin: 8px 0;
                     padding: 8px 12px;
@@ -745,8 +1126,13 @@ function getWebviewContent(
                     border: 1px solid rgba(202, 138, 4, 0.25);
                     border-radius: 4px;
                     font-size: 0.9em;
+                    flex: 0 1 auto;
+                    min-height: 0;
+                    max-height: 26vh;
+                    overflow-y: auto;
                 }
-                .popup-file-list div { padding: 2px 0; }
+                .popup-file-list div { padding: 2px 0; display: flex; align-items: center; }
+                .popup-footer { display: flex; justify-content: flex-end; margin-top: 16px; flex-shrink: 0; }
 
                 /* Step 4: Exporting screen */
                 .export-progress-card {
@@ -865,6 +1251,179 @@ function getWebviewContent(
                     gap: 4px;
                 }
                 .export-extra-messages div { padding: 2px 0; }
+
+                /*
+                 * Post-export "issues" list. Each problem category (one per
+                 * ExportMissingReason) renders as a collapsible group whose
+                 * header shows a severity-coloured icon, a human label, a
+                 * one-line explanation, and a count badge. Collapsed by
+                 * default — the user expands to see the affected cells/files.
+                 * Severity colours mirror the Step 1 stat pills above.
+                 */
+                .export-issues {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                }
+                .export-issues-toolbar {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 12px;
+                    /* Extra bottom space so the toggle's hover/active fill never
+                     * crowds the first group's header/description below it. */
+                    padding: 2px 2px 10px;
+                }
+                .export-issues-summary {
+                    font-size: 0.82em;
+                    color: var(--vscode-descriptionForeground);
+                }
+                /*
+                 * Rendered as a compact secondary button rather than a bare text
+                 * link. A link-coloured label became unreadable once selected
+                 * (blue text on the blue selection highlight); a solid button
+                 * background + matching foreground stays legible in every state,
+                 * and user-select:none stops it being text-selected at all.
+                 */
+                .export-issues-toggle-all {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 5px;
+                    font: inherit;
+                    font-size: 0.82em;
+                    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+                    background: var(--vscode-button-secondaryBackground, transparent);
+                    border: 1px solid var(--vscode-input-border, transparent);
+                    border-radius: 4px;
+                    cursor: pointer;
+                    padding: 3px 8px;
+                    user-select: none;
+                    -webkit-appearance: none;
+                    appearance: none;
+                }
+                .export-issues-toggle-all:hover {
+                    background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground, rgba(0,0,0,0.06)));
+                    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+                }
+                .export-issues-toggle-all:focus-visible {
+                    outline: 1px solid var(--vscode-focusBorder, transparent);
+                    outline-offset: 1px;
+                }
+                .export-issues-toggle-all .codicon { font-size: 0.95em; }
+                .export-issue-group {
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 6px;
+                    overflow: hidden;
+                    background: var(--vscode-input-background);
+                }
+                .export-issue-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 8px 10px;
+                    cursor: pointer;
+                    user-select: none;
+                    font-size: 0.88em;
+                }
+                .export-issue-header:hover { background: var(--vscode-list-hoverBackground); }
+                .export-issue-header .export-issue-chevron {
+                    flex-shrink: 0;
+                    opacity: 0.7;
+                    transition: transform 120ms ease;
+                }
+                .export-issue-group.open .export-issue-header .export-issue-chevron { transform: rotate(90deg); }
+                .export-issue-header .export-issue-icon { flex-shrink: 0; }
+                .export-issue-title { font-weight: 600; }
+                .export-issue-count {
+                    margin-left: auto;
+                    flex-shrink: 0;
+                    font-size: 0.85em;
+                    padding: 0 7px;
+                    border-radius: 10px;
+                    border: 1px solid transparent;
+                }
+                .export-issue-desc {
+                    font-size: 0.82em;
+                    color: var(--vscode-descriptionForeground);
+                    padding: 0 10px 8px 34px;
+                    margin-top: -2px;
+                }
+                .export-issue-list {
+                    display: none;
+                    flex-direction: column;
+                    gap: 2px;
+                    padding: 0 10px 8px 34px;
+                    max-height: 220px;
+                    overflow-y: auto;
+                }
+                .export-issue-group.open .export-issue-list { display: flex; }
+                .export-issue-item {
+                    font-size: 0.82em;
+                    color: var(--vscode-foreground);
+                    padding: 2px 0;
+                }
+                .export-issue-item .export-issue-item-detail {
+                    display: block;
+                    color: var(--vscode-descriptionForeground);
+                    font-size: 0.95em;
+                }
+                /*
+                 * Clickable variant — rendered as a <button> (keyboard focus +
+                 * Enter/Space for free) that deep-links into the cell, mirroring
+                 * the Step 1 audio-stats popover rows. UA chrome stripped so it
+                 * sits flush with the static rows around it.
+                 */
+                button.export-issue-item {
+                    width: 100%;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    text-align: left;
+                    font-family: inherit;
+                    background: transparent;
+                    border: none;
+                    border-radius: 3px;
+                    cursor: pointer;
+                    -webkit-appearance: none;
+                    appearance: none;
+                }
+                button.export-issue-item .export-issue-item-label {
+                    flex: 1;
+                    min-width: 0;
+                    word-break: break-word;
+                }
+                button.export-issue-item .export-issue-item-icon {
+                    flex-shrink: 0;
+                    font-size: 0.85em;
+                    opacity: 0.55;
+                    transition: transform 80ms ease, opacity 80ms ease;
+                }
+                button.export-issue-item:hover,
+                button.export-issue-item:focus-visible {
+                    background-color: var(--vscode-list-hoverBackground, rgba(0,0,0,0.04));
+                    color: var(--vscode-list-hoverForeground, var(--vscode-foreground));
+                    outline: none;
+                }
+                button.export-issue-item:hover .export-issue-item-icon,
+                button.export-issue-item:focus-visible .export-issue-item-icon {
+                    opacity: 1;
+                    transform: translateX(2px);
+                }
+                button.export-issue-item:focus-visible {
+                    box-shadow: inset 0 0 0 1px var(--vscode-focusBorder, transparent);
+                }
+                /*
+                 * All issue groups share one accent (amber) regardless of
+                 * severity — the icon glyph already conveys the distinction,
+                 * and a uniform colour reads as a single calm "things to
+                 * review" list rather than a red/yellow/grey alarm board.
+                 */
+                .export-issue-group .export-issue-icon { color: var(--vscode-charts-yellow, #ca8a04); }
+                .export-issue-group .export-issue-count {
+                    color: var(--vscode-charts-yellow, #ca8a04);
+                    background-color: rgba(202, 138, 4, 0.10);
+                    border-color: rgba(202, 138, 4, 0.32);
+                }
 
                 /*
                  * Clickable Step 1 audio-stat counters. Styled as actual
@@ -1197,6 +1756,12 @@ function getWebviewContent(
                                         </div>
                                     </div>
                                 </div>
+                                <div class="format-section-suboption">
+                                    <label class="format-option-toggle" id="vttExcludeLabelsToggle">
+                                        <input type="checkbox" id="vttExcludeLabelsCb">
+                                        Exclude speaker labels from WebVTT cues
+                                    </label>
+                                </div>
                             </div>
                             <!-- Round-trip: only for supported file types -->
                             <div class="roundtrip-wrapper" data-option="roundTrip">
@@ -1215,7 +1780,6 @@ function getWebviewContent(
                                                 <span class="format-tag format-tag-roundtrip">CSV/TSV</span>
                                                 <span class="format-tag format-tag-roundtrip">IDML</span>
                                                 <span class="format-tag format-tag-roundtrip">Biblica Study Notes</span>
-                                                <!--<span class="format-tag format-tag-roundtrip">Reach4Life</span>-->
                                             </div>
                                         </div>
                                     </div>
@@ -1276,14 +1840,45 @@ function getWebviewContent(
                                             <p>Export per-cell audio attachments alongside the selected export format, and embed timestamps in audio metadata (WAV, WebM, M4A)</p>
                                         </div>
                                     </div>
+                                    <div class="format-option audio-option" data-audio-mode="audio-by-character">
+                                        <div class="format-option-content">
+                                            <strong>Consolidate by Character</strong>
+                                            <p>One file per character label. All files start at 0:00 so they drop into a DAW aligned; each is trimmed to that character's last spoken line. Named &lt;file&gt;_&lt;lang&gt;_&lt;character&gt;.&lt;ext&gt;.</p>
+                                            <div id="characterAudioControls" style="display:none; margin-top:8px; flex-direction:column; gap:6px;">
+                                                <label style="display:flex; align-items:center; gap:8px; font-size:0.9em;">
+                                                    <span>Format:</span>
+                                                    <select id="characterAudioFormat" onclick="event.stopPropagation()" onchange="event.stopPropagation()" style="background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border); border-radius:3px; padding:2px 6px;">
+                                                        <option value="flac" selected>FLAC (lossless, small)</option>
+                                                        <option value="wav">WAV (PCM, largest)</option>
+                                                        <option value="opus">Opus (lossy, smallest)</option>
+                                                    </select>
+                                                </label>
+                                                <button type="button" class="secondary" onclick="event.stopPropagation(); openCharacterPreview();" style="align-self:flex-start;">
+                                                    <i class="codicon codicon-preview"></i>
+                                                    Preview characters
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- STEP 3: Export Location -->
+                <!-- STEP 3: Milestone Selection (bible audio export) -->
                 <div id="step3" class="step-panel">
+                    <div class="step-content">
+                        <h3>Select Milestones</h3>
+                        <p style="color: var(--vscode-descriptionForeground); margin-bottom: 16px;">
+                            Choose which chapters (milestones) to include in the audio export.
+                        </p>
+                        <div id="milestoneGroupsContainer"></div>
+                    </div>
+                </div>
+
+                <!-- STEP 4: Export Location -->
+                <div id="step4" class="step-panel">
                     <div class="step-content">
                         <h3>Select Export Location</h3>
                         <p style="color: var(--vscode-descriptionForeground); margin-bottom: 16px;">
@@ -1300,8 +1895,8 @@ function getWebviewContent(
                     </div>
                 </div>
 
-                <!-- STEP 4: Exporting -->
-                <div id="step4" class="step-panel">
+                <!-- Export progress (shown when export starts; not a numbered wizard step) -->
+                <div id="stepExporting" class="step-panel">
                     <div class="step-content">
                         <div class="export-progress-card">
                             <div class="export-progress-header">
@@ -1343,9 +1938,22 @@ function getWebviewContent(
 
                             <div class="export-extra-messages" id="exportExtraMessages" style="display:none;"></div>
 
+                            <div class="export-issues" id="exportIssues" style="display:none;"></div>
+
                             <div class="export-output-path" id="exportOutputPath" style="display:none;"></div>
 
+                            <div class="export-action-row" id="exportCancelRow">
+                                <button class="secondary" id="exportCancelBtn" onclick="cancelExportRun()">
+                                    <i class="codicon codicon-close"></i>
+                                    Cancel
+                                </button>
+                            </div>
+
                             <div class="export-action-row" id="exportActionRow" style="display:none;">
+                                <button class="secondary" id="exportRetryBtn" onclick="retryFailedExport()" style="display:none;">
+                                    <i class="codicon codicon-refresh"></i>
+                                    <span id="exportRetryBtnText">Retry failed</span>
+                                </button>
                                 <button class="secondary" id="exportOpenFolderBtn" onclick="openExportFolder()">
                                     <i class="codicon codicon-folder-opened"></i>
                                     Open Export Folder
@@ -1372,10 +1980,13 @@ function getWebviewContent(
                         <div class="progress-circle" id="progressCircle2">2</div>
                         <div class="progress-line" id="progressLine2"></div>
                         <div class="progress-circle" id="progressCircle3">3</div>
+                        <div class="progress-line" id="progressLine3"></div>
+                        <div class="progress-circle" id="progressCircle4">4</div>
                     </div>
                     <div class="bottom-bar-right">
                         <button class="step-btn visible" id="nextStep1" disabled onclick="goToStep2()"><span class="btn-text">Next Step</span><i class="codicon codicon-arrow-right"></i></button>
                         <button class="step-btn" id="nextStep2" disabled onclick="advanceFromStep2()"><span class="btn-text">Next Step</span><i class="codicon codicon-arrow-right"></i></button>
+                        <button class="step-btn" id="nextStep3" disabled onclick="goToStep4()"><span class="btn-text">Next Step</span><i class="codicon codicon-arrow-right"></i></button>
                         <button class="step-btn" id="exportButton" disabled onclick="exportProject()"><span class="btn-text">Export</span><i class="codicon codicon-arrow-down"></i></button>
                     </div>
                 </div>
@@ -1391,21 +2002,40 @@ function getWebviewContent(
         }
             </div>
 
-            <div class="popup-overlay" id="contentMismatchPopup" onclick="if(event.target===this)closeContentMismatchPopup()">
+            <div class="popup-overlay" id="contentMismatchPopup">
                 <div class="popup-card">
                     <div class="popup-header">
                         <i class="codicon codicon-warning"></i>
                         <h4 id="contentMismatchTitle">Missing Content</h4>
-                        <button class="popup-close" onclick="closeContentMismatchPopup()" title="Close">
-                            <i class="codicon codicon-close"></i>
-                        </button>
                     </div>
                     <div class="popup-body">
                         <p id="contentMismatchSummary"></p>
                         <div class="popup-file-list" id="contentMismatchFileList"></div>
-                        <p style="margin-top: 8px; color: var(--vscode-descriptionForeground); font-size: 0.85em;">
-                            The export will still proceed, but the listed files will produce empty output for the selected format.
+                    </div>
+                    <div class="popup-footer">
+                        <button onclick="closeContentMismatchPopup()">OK</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="popup-overlay" id="characterPreviewPopup" onclick="if(event.target===this)closeCharacterPreviewPopup()">
+                <div class="popup-card wide">
+                    <div class="popup-header" style="color: var(--vscode-foreground);">
+                        <i class="codicon codicon-preview"></i>
+                        <h4>Character Audio Preview</h4>
+                        <button class="popup-close" onclick="closeCharacterPreviewPopup()" title="Close">
+                            <i class="codicon codicon-close"></i>
+                        </button>
+                    </div>
+                    <div class="popup-body">
+                        <p style="color: var(--vscode-descriptionForeground); font-size: 0.85em; margin-top: 0;">
+                            One row per character per file. Blue bars are speaking turns with audio attached. Grey bars are lines that have timing but no audio yet — these characters won't be exported until recordings are added. Files start at 0:00 and are trimmed to that character's last <em>recorded</em> line.
                         </p>
+                        <div class="char-legend">
+                            <span><span class="swatch has-audio"></span>has audio (exports)</span>
+                            <span><span class="swatch no-audio"></span>timed line, no audio (skipped)</span>
+                        </div>
+                        <div id="characterPreviewBody"></div>
                     </div>
                 </div>
             </div>
@@ -1460,11 +2090,164 @@ function getWebviewContent(
                 const exportOptionsConfig = ${exportOptionsConfigJson};
                 const isStreamOnly = ${JSON.stringify(isStreamOnly)};
                 let currentStep = 1;
+                // File-selection signature at the time the audio mismatch check last ran.
+                // Used to re-fire the warning when the user goes back and changes the file
+                // selection while the audio option is still selected (see #1007 follow-up).
+                let audioMismatchCheckedFor = null;
+                function fileSelectionSignature() {
+                    return Array.from(selectedFiles).sort().join('|');
+                }
                 let selectedFormat = null;
-                let selectedAudioMode = null; // null | 'audio' | 'audio-timestamps'
+                let selectedAudioMode = null; // null | 'audio' | 'audio-timestamps' | 'audio-by-character'
                 let exportPath = ${initialExportFolderJson};
                 let selectedFiles = new Set();
                 let selectedGroupKey = null;
+                /** @type {Record<string, Set<number>>} */
+                let selectedMilestonesByFile = {};
+
+                function shouldShowMilestoneStep() {
+                    if (!selectedAudioMode) return false;
+                    for (const path of selectedFiles) {
+                        const f = fileLookup[path];
+                        if (f && f.hasSelectableMilestones && f.milestones && f.milestones.length > 0) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+
+                function getTotalStepCount() {
+                    return shouldShowMilestoneStep() ? 4 : 3;
+                }
+
+                function getProgressDisplayStep(step) {
+                    if (!shouldShowMilestoneStep() && step === 4) return 3;
+                    return step;
+                }
+
+                /** @type {string[]} Maps milestone UI file index to codex path */
+                let milestoneFilePaths = [];
+
+                function initMilestoneSelection() {
+                    selectedMilestonesByFile = {};
+                    milestoneFilePaths = [];
+                    for (const path of selectedFiles) {
+                        const f = fileLookup[path];
+                        if (f && f.hasSelectableMilestones && f.milestones && f.milestones.length > 0) {
+                            selectedMilestonesByFile[path] = new Set(f.milestones.map(m => m.index));
+                            milestoneFilePaths.push(path);
+                        }
+                    }
+                    renderMilestoneSelection();
+                    updateStep3Button();
+                }
+
+                function renderMilestoneSelection() {
+                    const container = document.getElementById('milestoneGroupsContainer');
+                    if (!container) return;
+                    if (milestoneFilePaths.length === 0) {
+                        container.innerHTML = '<p style="color: var(--vscode-descriptionForeground);">No milestones found in the selected files.</p>';
+                        return;
+                    }
+                    container.innerHTML = milestoneFilePaths.map((filePath, fileIdx) => {
+                        const f = fileLookup[filePath];
+                        const selectedSet = selectedMilestonesByFile[filePath] || new Set();
+                        const allSelected = f.milestones.every(m => selectedSet.has(m.index));
+                        const selectAllId = 'milestone-select-all-' + fileIdx;
+                        const milestonesHtml = f.milestones.map((m, mIdx) => {
+                            const cbId = 'milestone-' + fileIdx + '-' + mIdx;
+                            const checked = selectedSet.has(m.index) ? 'checked' : '';
+                            const label = ((m.value || String(m.index + 1)).replace(/<[^>]*>/g, '').trim()) || String(m.index + 1);
+                            return \`
+                                <div class="milestone-item">
+                                    <input type="checkbox" id="\${cbId}" data-file-idx="\${fileIdx}" data-milestone-index="\${m.index}" \${checked}
+                                        onchange="onMilestoneCheckboxChange(\${fileIdx}, \${m.index})">
+                                    <label for="\${cbId}">\${label}</label>
+                                </div>
+                            \`;
+                        }).join('');
+                        return \`
+                            <div class="milestone-file-group" data-file-idx="\${fileIdx}">
+                                <div class="milestone-file-header">
+                                    <h4><i class="codicon codicon-file"></i> \${f.displayName}</h4>
+                                    <label class="milestone-select-all" onclick="event.stopPropagation()">
+                                        <input type="checkbox" id="\${selectAllId}" data-file-idx="\${fileIdx}" \${allSelected ? 'checked' : ''}
+                                            onchange="onMilestoneSelectAllChange(\${fileIdx})"> Select all
+                                    </label>
+                                </div>
+                                <div class="milestone-list">\${milestonesHtml}</div>
+                            </div>
+                        \`;
+                    }).join('');
+                }
+
+                function onMilestoneCheckboxChange(fileIdx, milestoneIndex) {
+                    const filePath = milestoneFilePaths[fileIdx];
+                    if (!filePath) return;
+                    if (!selectedMilestonesByFile[filePath]) {
+                        selectedMilestonesByFile[filePath] = new Set();
+                    }
+                    const cb = document.querySelector('input[data-file-idx="' + fileIdx + '"][data-milestone-index="' + milestoneIndex + '"]');
+                    if (cb && cb.checked) {
+                        selectedMilestonesByFile[filePath].add(milestoneIndex);
+                    } else {
+                        selectedMilestonesByFile[filePath].delete(milestoneIndex);
+                    }
+                    syncMilestoneSelectAllCheckbox(fileIdx);
+                    updateStep3Button();
+                }
+
+                function onMilestoneSelectAllChange(fileIdx) {
+                    const filePath = milestoneFilePaths[fileIdx];
+                    const f = filePath ? fileLookup[filePath] : null;
+                    if (!f || !f.milestones) return;
+                    const selectAllCb = document.querySelector('.milestone-file-group[data-file-idx="' + fileIdx + '"] input[data-file-idx]:not([data-milestone-index])');
+                    const shouldSelectAll = selectAllCb && selectAllCb.checked;
+                    if (!selectedMilestonesByFile[filePath]) {
+                        selectedMilestonesByFile[filePath] = new Set();
+                    }
+                    if (shouldSelectAll) {
+                        f.milestones.forEach(m => selectedMilestonesByFile[filePath].add(m.index));
+                    } else {
+                        selectedMilestonesByFile[filePath].clear();
+                    }
+                    renderMilestoneSelection();
+                    updateStep3Button();
+                }
+
+                function syncMilestoneSelectAllCheckbox(fileIdx) {
+                    const filePath = milestoneFilePaths[fileIdx];
+                    const f = filePath ? fileLookup[filePath] : null;
+                    if (!f || !f.milestones) return;
+                    const selectedSet = selectedMilestonesByFile[filePath] || new Set();
+                    const allSelected = f.milestones.every(m => selectedSet.has(m.index));
+                    const selectAllCb = document.querySelector('.milestone-file-group[data-file-idx="' + fileIdx + '"] input[data-file-idx]:not([data-milestone-index])');
+                    if (selectAllCb) selectAllCb.checked = allSelected;
+                }
+
+                function updateStep3Button() {
+                    const btn = document.getElementById('nextStep3');
+                    if (!btn) return;
+                    let anySelected = false;
+                    for (const path of selectedFiles) {
+                        const set = selectedMilestonesByFile[path];
+                        if (set && set.size > 0) {
+                            anySelected = true;
+                            break;
+                        }
+                    }
+                    btn.disabled = !anySelected;
+                }
+
+                function buildSelectedMilestonesPayload() {
+                    if (!shouldShowMilestoneStep()) return undefined;
+                    const payload = {};
+                    for (const path of milestoneFilePaths) {
+                        const set = selectedMilestonesByFile[path];
+                        payload[path] = set ? Array.from(set).sort((a, b) => a - b) : [];
+                    }
+                    return Object.keys(payload).length > 0 ? payload : undefined;
+                }
 
                 // Build a path→file lookup so Step 2 can check audio-only status
                 const fileLookup = {};
@@ -1536,10 +2319,74 @@ function getWebviewContent(
                     scrollMemory: new Map(),
                     bucketKeys: {
                         selectionMissing: 'selectionMissingCells',
+                        selectedPossiblyMissing: 'selectedPossiblyMissingCells',
                         noneSelected: 'noneSelectedCells',
                         noAudioRecorded: 'noAudioRecordedCells'
                     }
                 };
+
+                /*
+                 * Builds the popover body markup for a list of affected cells.
+                 * Shared by the initial open and the in-place refresh so both
+                 * render identical rows. Entries are { label, cellId } (see
+                 * analyzeNotebookAudioStats); when cellId + filePath are both
+                 * present we render a clickable button that deep-links into the
+                 * editor, otherwise a static row (defensive for older shapes).
+                 */
+                function renderCellListPopoverBody(cells, filePath) {
+                    if (!cells || cells.length === 0) {
+                        return '<div class="cell-list-popover-empty">No cells in this bucket.</div>';
+                    }
+                    return cells.map(entry => {
+                        const label = (entry && typeof entry === 'object') ? entry.label : entry;
+                        const cellId = (entry && typeof entry === 'object') ? entry.cellId : '';
+                        const clickable = !!(cellId && filePath);
+                        if (clickable) {
+                            return [
+                                '<button type="button" class="cell-list-popover-item is-clickable"',
+                                ' data-cell-id="' + escapeHtml(String(cellId)) + '"',
+                                ' data-file-path="' + escapeHtml(String(filePath)) + '"',
+                                ' title="Open this cell in the editor">',
+                                '<span class="cell-list-popover-item-label">' + escapeHtml(String(label || '')) + '</span>',
+                                '<i class="codicon codicon-arrow-right cell-list-popover-item-icon" aria-hidden="true"></i>',
+                                '</button>'
+                            ].join('');
+                        }
+                        return '<div class="cell-list-popover-item">' + escapeHtml(String(label || '')) + '</div>';
+                    }).join('');
+                }
+
+                /*
+                 * Refreshes the OPEN popover's contents in place when the file
+                 * it's showing gets a live stats update (e.g. the user fixed a
+                 * take, so it drops out of the list). Does NOT reposition — the
+                 * panel may be hidden in the background (layout rects read 0
+                 * there), and the popover should stay anchored where the user
+                 * left it. Closes the popover only if its bucket is now empty.
+                 */
+                function refreshOpenCellListPopover(path, audioStats) {
+                    if (!cellListPopoverState.open || typeof cellListPopoverState.currentKey !== 'string') return;
+                    // currentKey is 'filePath|bucket'; paths never contain '|',
+                    // so split on the last separator.
+                    const sep = cellListPopoverState.currentKey.lastIndexOf('|');
+                    if (sep < 0) return;
+                    const openPath = cellListPopoverState.currentKey.slice(0, sep);
+                    const openBucket = cellListPopoverState.currentKey.slice(sep + 1);
+                    if (openPath !== path) return;
+                    const statsKey = cellListPopoverState.bucketKeys[openBucket];
+                    const cells = (audioStats && statsKey && Array.isArray(audioStats[statsKey])) ? audioStats[statsKey] : [];
+                    if (cells.length === 0) {
+                        closeCellListPopover();
+                        return;
+                    }
+                    const countEl = document.getElementById('cellListPopoverCount');
+                    const bodyEl = document.getElementById('cellListPopoverBody');
+                    const footerEl = document.getElementById('cellListPopoverFooter');
+                    if (!countEl || !bodyEl || !footerEl) return;
+                    countEl.textContent = String(cells.length);
+                    bodyEl.innerHTML = renderCellListPopoverBody(cells, path);
+                    footerEl.textContent = cells.length === 1 ? '1 cell' : cells.length + ' cells';
+                }
 
                 function openCellListPopover(anchorEl, title, severity, cells, memoryKey, filePath) {
                     const root = document.getElementById('cellListPopover');
@@ -1553,35 +2400,7 @@ function getWebviewContent(
                     titleEl.className = 'cell-list-popover-title title-' + severity;
                     titleEl.textContent = title;
                     countEl.textContent = String(cells.length);
-                    if (cells.length === 0) {
-                        bodyEl.innerHTML = '<div class="cell-list-popover-empty">No cells in this bucket.</div>';
-                    } else {
-                        // Entries are { label, cellId } now (see
-                        // analyzeNotebookAudioStats). When cellId + filePath
-                        // are both present we render a clickable button that
-                        // deep-links into the editor; otherwise we fall back
-                        // to a static row so older payload shapes don't
-                        // crash the popover.
-                        bodyEl.innerHTML = cells
-                            .map(entry => {
-                                const label = (entry && typeof entry === 'object') ? entry.label : entry;
-                                const cellId = (entry && typeof entry === 'object') ? entry.cellId : '';
-                                const clickable = !!(cellId && filePath);
-                                if (clickable) {
-                                    return [
-                                        '<button type="button" class="cell-list-popover-item is-clickable"',
-                                        ' data-cell-id="' + escapeHtml(String(cellId)) + '"',
-                                        ' data-file-path="' + escapeHtml(String(filePath)) + '"',
-                                        ' title="Open this cell in the editor">',
-                                        '<span class="cell-list-popover-item-label">' + escapeHtml(String(label || '')) + '</span>',
-                                        '<i class="codicon codicon-arrow-right cell-list-popover-item-icon" aria-hidden="true"></i>',
-                                        '</button>'
-                                    ].join('');
-                                }
-                                return '<div class="cell-list-popover-item">' + escapeHtml(String(label || '')) + '</div>';
-                            })
-                            .join('');
-                    }
+                    bodyEl.innerHTML = renderCellListPopoverBody(cells, filePath);
                     footerEl.textContent = cells.length === 1
                         ? '1 cell'
                         : cells.length + ' cells';
@@ -1704,9 +2523,32 @@ function getWebviewContent(
                         const target = event.target;
                         if (!target || !target.closest) return;
 
+                        // Clickable cell row in the completion screen's grouped
+                        // issues list — deep-link into the codex editor, same as
+                        // the Step 1 popover rows below.
+                        const issueRow = target.closest('button.export-issue-item.is-clickable');
+                        if (issueRow) {
+                            const cellId = issueRow.getAttribute('data-cell-id');
+                            const filePath = issueRow.getAttribute('data-file-path');
+                            if (cellId && filePath) {
+                                vscode.postMessage({
+                                    command: 'openCellInEditor',
+                                    cellId: cellId,
+                                    filePath: filePath,
+                                });
+                                event.stopPropagation();
+                                return;
+                            }
+                        }
+
                         // Clickable cell row inside the popover — deep-link
-                        // into the codex editor. Handled BEFORE the outside-
-                        // click check below so the popover closes cleanly.
+                        // into the codex editor. We intentionally KEEP the
+                        // popover open: opening the cell sends the export tab
+                        // to the background, and the user wants the list still
+                        // there when they return so they can work through the
+                        // affected cells one by one. (As each cell is fixed and
+                        // saved, the live stats refresh drops it from the list.)
+                        // Handled before the outside-click fallback below.
                         const cellRow = target.closest('button.cell-list-popover-item.is-clickable');
                         if (cellRow) {
                             const cellId = cellRow.getAttribute('data-cell-id');
@@ -1717,7 +2559,6 @@ function getWebviewContent(
                                     cellId: cellId,
                                     filePath: filePath,
                                 });
-                                closeCellListPopover();
                                 event.stopPropagation();
                                 return;
                             }
@@ -1801,6 +2642,172 @@ function getWebviewContent(
                     }, true);
                 }
 
+                /*
+                 * Builds the audio-stat pill row for one file. Shared between
+                 * the initial render and the live per-file patch
+                 * (applyFileAudioStatsUpdate) so both always agree on layout,
+                 * severity ordering, and which buckets get a drill-down pill.
+                 * Returns '' when there's nothing to show.
+                 */
+                function buildAudioStatsHtml(f, gIdx, fIdx) {
+                    if (!f.audioStats || !(f.audioStats.eligibleCellCount > 0)) return '';
+                    const parts = [];
+                    if (f.audioStats.audioReadyCount > 0) {
+                        // No drill-down for the "ready" bucket — these
+                        // cells will export fine, nothing actionable.
+                        parts.push('<span>' + f.audioStats.audioReadyCount + ' with audio</span>');
+                    }
+                    // Severity ordering matches the post-export
+                    // summary: errors first, then warns, then info.
+                    if (f.audioStats.selectionMissingCount > 0) {
+                        parts.push(renderStatPill(
+                            gIdx, fIdx,
+                            'selectionMissing',
+                            'error',
+                            f.audioStats.selectionMissingCount,
+                            'with selected audio missing',
+                            f.displayName + ' — selected audio is missing'
+                        ));
+                    }
+                    if (f.audioStats.selectedPossiblyMissingCount > 0) {
+                        parts.push(renderStatPill(
+                            gIdx, fIdx,
+                            'selectedPossiblyMissing',
+                            'warn',
+                            f.audioStats.selectedPossiblyMissingCount,
+                            'with selected take possibly missing',
+                            f.displayName + ' — selected take flagged as possibly missing'
+                        ));
+                    }
+                    if (f.audioStats.noneSelectedCount > 0) {
+                        parts.push(renderStatPill(
+                            gIdx, fIdx,
+                            'noneSelected',
+                            'warn',
+                            f.audioStats.noneSelectedCount,
+                            'with audio, none selected',
+                            f.displayName + ' — audio available, none selected'
+                        ));
+                    }
+                    if (f.audioStats.noAudioRecordedCount > 0) {
+                        parts.push(renderStatPill(
+                            gIdx, fIdx,
+                            'noAudioRecorded',
+                            'info',
+                            f.audioStats.noAudioRecordedCount,
+                            'without audio',
+                            f.displayName + ' — cells without audio'
+                        ));
+                    }
+                    if (parts.length === 0) return '';
+                    return '<div class="file-audio-stats">' + parts.join(' \u00b7 ') + '</div>';
+                }
+
+                /*
+                 * Builds the markup for a single file row. Extracted so the
+                 * live patch can re-render just one row when a .codex is saved.
+                 */
+                function renderFileItem(group, f, gIdx, fIdx) {
+                    const id = 'file-' + gIdx + '-' + fIdx;
+                    const isEmpty = !f.hasTranslations && !f.hasAudio;
+                    const isAudioOnly = !f.hasTranslations && f.hasAudio;
+                    const isTextOnly = f.hasTranslations && !f.hasAudio;
+                    const isTextAudio = f.hasTranslations && f.hasAudio;
+                    const contentType = isEmpty ? 'none' : (isAudioOnly ? 'audio-only' : (isTextOnly ? 'text-only' : 'text-audio'));
+                    const disabledAttr = isEmpty ? 'disabled' : '';
+                    const itemClass = 'file-item' + (isEmpty ? ' file-item-disabled' : '');
+                    let tooltip = f.displayName;
+                    if (isEmpty) tooltip = 'No translations or audio to export';
+                    else if (isAudioOnly) tooltip = f.displayName + ' (audio only)';
+                    else if (isTextOnly) tooltip = f.displayName + ' (text only)';
+                    else if (isTextAudio) tooltip = f.displayName + ' (text + audio)';
+                    let statusTag = '';
+                    if (isEmpty) {
+                        statusTag = '<span class="file-status-tag no-content-tag">No content</span>';
+                    } else if (isAudioOnly) {
+                        statusTag = '<span class="file-status-tag audio-only-tag">Audio only</span>';
+                    } else if (isTextOnly) {
+                        statusTag = '<span class="file-status-tag text-only-tag">Text only</span>';
+                    } else if (isTextAudio) {
+                        statusTag = '<span class="file-status-tag text-audio-tag">Text + Audio</span>';
+                    }
+                    const audioStatsHtml = buildAudioStatsHtml(f, gIdx, fIdx);
+                    return \`
+                                <div class="\${itemClass}" data-content-type="\${contentType}">
+                                    <input type="checkbox" id="\${id}" value="\${f.path}" data-group-key="\${group.groupKey}" data-content-type="\${contentType}" \${disabledAttr} onchange="onFileCheckboxChange()">
+                                    <div class="file-item-main">
+                                        <label for="\${id}" title="\${tooltip}">\${f.displayName}</label>
+                                        \${audioStatsHtml}
+                                    </div>
+                                    \${statusTag}
+                                </div>
+                            \`;
+                }
+
+                /*
+                 * Live patch: a .codex was saved while the wizard is open, so
+                 * re-render just that file's row (keeping its checkbox selection
+                 * and refreshing filter/footer state). Falls back silently when
+                 * the file isn't on screen (e.g. a brand-new .codex — picked up
+                 * on the next time the wizard opens).
+                 */
+                function applyFileAudioStatsUpdate(path, hasAudio, hasTranslations, audioStats) {
+                    let gIdx = -1, fIdx = -1, group = null, f = null;
+                    for (let gi = 0; gi < fileGroups.length; gi++) {
+                        const files = fileGroups[gi].files;
+                        for (let fi = 0; fi < files.length; fi++) {
+                            if (files[fi].path === path) {
+                                gIdx = gi; fIdx = fi; group = fileGroups[gi]; f = files[fi];
+                                break;
+                            }
+                        }
+                        if (f) break;
+                    }
+                    if (!f) return;
+
+                    f.hasAudio = hasAudio;
+                    f.hasTranslations = hasTranslations;
+                    f.audioStats = audioStats;
+
+                    const cb = document.getElementById('file-' + gIdx + '-' + fIdx);
+                    const item = cb ? cb.closest('.file-item') : null;
+                    if (!item) return;
+
+                    const wasChecked = !!(cb && cb.checked);
+                    const tmp = document.createElement('div');
+                    tmp.innerHTML = renderFileItem(group, f, gIdx, fIdx).trim();
+                    const fresh = tmp.firstElementChild;
+                    if (!fresh) return;
+                    item.replaceWith(fresh);
+
+                    // Restore selection: the template renders unchecked, but the
+                    // file may still be selected. If it just became empty
+                    // (no content), drop it from the selection instead.
+                    const newCb = document.getElementById('file-' + gIdx + '-' + fIdx);
+                    const isEmptyNow = !f.hasTranslations && !f.hasAudio;
+                    if (newCb) {
+                        if (isEmptyNow) {
+                            newCb.checked = false;
+                            selectedFiles.delete(path);
+                        } else {
+                            newCb.checked = wasChecked;
+                            if (wasChecked) selectedFiles.add(path); else selectedFiles.delete(path);
+                        }
+                    }
+
+                    // Refresh dependent UI (group lock, compatibility, footer).
+                    updateSelectedGroup();
+                    syncHeaderCheckboxes();
+                    updateStep1Button();
+
+                    // If the drill-down popover is open for THIS file, refresh
+                    // its list in place (the popover is a separate top-level
+                    // element, so re-rendering the row above didn't disturb it).
+                    // This keeps the list open while the user fixes cells, with
+                    // fixed cells dropping out as their saves arrive.
+                    refreshOpenCellListPopover(path, audioStats);
+                }
+
                 function renderFileGroups() {
                     const container = document.getElementById('fileGroupsContainer');
                     if (!container) return;
@@ -1814,85 +2821,7 @@ function getWebviewContent(
                         const groupDisabled = enabledCount === 0;
                         const hasTextFiles = group.files.some(f => f.hasTranslations);
                         const hasAudioFiles = group.files.some(f => f.hasAudio);
-                        const filesHtml = group.files.map((f, fIdx) => {
-                            const id = 'file-' + gIdx + '-' + fIdx;
-                            const isEmpty = !f.hasTranslations && !f.hasAudio;
-                            const isAudioOnly = !f.hasTranslations && f.hasAudio;
-                            const isTextOnly = f.hasTranslations && !f.hasAudio;
-                            const isTextAudio = f.hasTranslations && f.hasAudio;
-                            const contentType = isEmpty ? 'none' : (isAudioOnly ? 'audio-only' : (isTextOnly ? 'text-only' : 'text-audio'));
-                            const disabledAttr = isEmpty ? 'disabled' : '';
-                            const itemClass = 'file-item' + (isEmpty ? ' file-item-disabled' : '');
-                            let tooltip = f.displayName;
-                            if (isEmpty) tooltip = 'No translations or audio to export';
-                            else if (isAudioOnly) tooltip = f.displayName + ' (audio only)';
-                            else if (isTextOnly) tooltip = f.displayName + ' (text only)';
-                            else if (isTextAudio) tooltip = f.displayName + ' (text + audio)';
-                            let statusTag = '';
-                            if (isEmpty) {
-                                statusTag = '<span class="file-status-tag no-content-tag">No content</span>';
-                            } else if (isAudioOnly) {
-                                statusTag = '<span class="file-status-tag audio-only-tag">Audio only</span>';
-                            } else if (isTextOnly) {
-                                statusTag = '<span class="file-status-tag text-only-tag">Text only</span>';
-                            } else if (isTextAudio) {
-                                statusTag = '<span class="file-status-tag text-audio-tag">Text + Audio</span>';
-                            }
-                            let audioStatsHtml = '';
-                            if (f.audioStats && f.audioStats.eligibleCellCount > 0) {
-                                const parts = [];
-                                if (f.audioStats.audioReadyCount > 0) {
-                                    // No drill-down for the "ready" bucket — these
-                                    // cells will export fine, nothing actionable.
-                                    parts.push('<span>' + f.audioStats.audioReadyCount + ' with audio</span>');
-                                }
-                                // Severity ordering matches the post-export
-                                // summary: errors first, then warns, then info.
-                                if (f.audioStats.selectionMissingCount > 0) {
-                                    parts.push(renderStatPill(
-                                        gIdx, fIdx,
-                                        'selectionMissing',
-                                        'error',
-                                        f.audioStats.selectionMissingCount,
-                                        'with selected audio missing',
-                                        f.displayName + ' — selected audio is missing'
-                                    ));
-                                }
-                                if (f.audioStats.noneSelectedCount > 0) {
-                                    parts.push(renderStatPill(
-                                        gIdx, fIdx,
-                                        'noneSelected',
-                                        'warn',
-                                        f.audioStats.noneSelectedCount,
-                                        'with audio, none selected',
-                                        f.displayName + ' — audio available, none selected'
-                                    ));
-                                }
-                                if (f.audioStats.noAudioRecordedCount > 0) {
-                                    parts.push(renderStatPill(
-                                        gIdx, fIdx,
-                                        'noAudioRecorded',
-                                        'info',
-                                        f.audioStats.noAudioRecordedCount,
-                                        'without audio',
-                                        f.displayName + ' — cells without audio'
-                                    ));
-                                }
-                                if (parts.length > 0) {
-                                    audioStatsHtml = '<div class="file-audio-stats">' + parts.join(' \u00b7 ') + '</div>';
-                                }
-                            }
-                            return \`
-                                <div class="\${itemClass}" data-content-type="\${contentType}">
-                                    <input type="checkbox" id="\${id}" value="\${f.path}" data-group-key="\${group.groupKey}" data-content-type="\${contentType}" \${disabledAttr} onchange="onFileCheckboxChange()">
-                                    <div class="file-item-main">
-                                        <label for="\${id}" title="\${tooltip}">\${f.displayName}</label>
-                                        \${audioStatsHtml}
-                                    </div>
-                                    \${statusTag}
-                                </div>
-                            \`;
-                        }).join('');
+                        const filesHtml = group.files.map((f, fIdx) => renderFileItem(group, f, gIdx, fIdx)).join('');
                         return \`
                             <div class="file-group" id="\${groupId}" data-group-key="\${group.groupKey}">
                                 <div class="file-group-header">
@@ -2132,6 +3061,13 @@ function getWebviewContent(
                                 opt.style.borderColor = '';
                             });
                         }
+                        // The audio option is remembered across back-navigation, so no option
+                        // click will re-fire the mismatch check. If the file selection changed
+                        // since the check last ran (e.g. a no-audio file was added on step 1),
+                        // re-check now so the warning cannot be bypassed.
+                        if (selectedAudioMode && fileSelectionSignature() !== audioMismatchCheckedFor) {
+                            checkAudioSelectionMismatch();
+                        }
                     } else if (noAudio && selectedAudioMode) {
                         selectedAudioMode = null;
                         document.querySelectorAll('#step2 .audio-option').forEach(opt => {
@@ -2140,6 +3076,7 @@ function getWebviewContent(
                             opt.style.borderColor = '';
                         });
                     }
+                    try { updateCharacterAudioControls(); } catch (e) {}
                     updateStep2Button();
                 }
 
@@ -2149,6 +3086,7 @@ function getWebviewContent(
                     const back = document.getElementById('btnBack');
                     const next1 = document.getElementById('nextStep1');
                     const next2 = document.getElementById('nextStep2');
+                    const next3 = document.getElementById('nextStep3');
                     const exportBtn = document.getElementById('exportButton');
                     if (currentStep === 1) {
                         if (cancel) cancel.classList.add('visible');
@@ -2158,39 +3096,95 @@ function getWebviewContent(
                         if (next2) next2.classList.add('visible');
                     } else if (currentStep === 3) {
                         if (back) back.classList.add('visible');
+                        if (next3) next3.classList.add('visible');
+                    } else if (currentStep === 4) {
+                        if (back) back.classList.add('visible');
                         if (exportBtn) exportBtn.classList.add('visible');
                     }
                 }
 
+                function updateProgressBarVisuals(activeStep) {
+                    const showMilestones = shouldShowMilestoneStep();
+                    const circle3 = document.getElementById('progressCircle3');
+                    const circle4 = document.getElementById('progressCircle4');
+                    const line3 = document.getElementById('progressLine3');
+                    if (circle4) circle4.style.display = showMilestones ? '' : 'none';
+                    if (line3) line3.style.display = showMilestones ? '' : 'none';
+
+                    const resetCircle = (circle, label) => {
+                        if (!circle) return;
+                        circle.classList.remove('active', 'completed');
+                        circle.textContent = String(label);
+                    };
+
+                    resetCircle(document.getElementById('progressCircle1'), 1);
+                    resetCircle(document.getElementById('progressCircle2'), 2);
+                    resetCircle(circle3, showMilestones ? 3 : 3);
+                    resetCircle(circle4, 4);
+
+                    const setCircleState = (circleId, state) => {
+                        const circle = document.getElementById(circleId);
+                        if (!circle) return;
+                        circle.classList.remove('active', 'completed');
+                        if (state === 'completed') {
+                            circle.classList.add('completed');
+                            circle.innerHTML = '<i class="codicon codicon-check"></i>';
+                        } else if (state === 'active') {
+                            circle.classList.add('active');
+                        }
+                    };
+
+                    if (showMilestones) {
+                        for (let step = 1; step <= 4; step++) {
+                            const state = step < activeStep ? 'completed' : (step === activeStep ? 'active' : 'idle');
+                            if (state !== 'idle') setCircleState('progressCircle' + step, state);
+                        }
+                        document.querySelectorAll('[id^="progressLine"]').forEach((line, i) => {
+                            line.classList.remove('completed');
+                            if (i + 1 < activeStep) line.classList.add('completed');
+                        });
+                    } else {
+                        const circleSteps = [
+                            { circle: 1, step: 1 },
+                            { circle: 2, step: 2 },
+                            { circle: 3, step: 4 },
+                        ];
+                        for (const { circle, step } of circleSteps) {
+                            const state = step < activeStep ? 'completed' : (step === activeStep ? 'active' : 'idle');
+                            if (state !== 'idle') setCircleState('progressCircle' + circle, state);
+                        }
+                        const line1 = document.getElementById('progressLine1');
+                        const line2 = document.getElementById('progressLine2');
+                        if (line1) line1.classList.toggle('completed', activeStep > 1);
+                        if (line2) line2.classList.toggle('completed', activeStep >= 4);
+                    }
+
+                    const compact = document.getElementById('progressCompact');
+                    if (compact) {
+                        compact.textContent = 'Step ' + getProgressDisplayStep(activeStep) + ' of ' + getTotalStepCount();
+                    }
+                }
+
                 function goBack() {
-                    goToStep(currentStep - 1);
+                    if (currentStep === 4) {
+                        goToStep(shouldShowMilestoneStep() ? 3 : 2);
+                    } else {
+                        goToStep(currentStep - 1);
+                    }
                 }
 
                 function goToStep(n) {
                     const prevStep = currentStep;
                     document.querySelectorAll('.step-panel').forEach(p => p.classList.remove('active'));
                     document.getElementById('step' + n).classList.add('active');
-                    document.querySelectorAll('[id^="progressCircle"]').forEach((circle, i) => {
-                        circle.classList.remove('active', 'completed');
-                        if (i + 1 < n) {
-                            circle.classList.add('completed');
-                            circle.innerHTML = '<i class="codicon codicon-check"></i>';
-                        } else {
-                            circle.textContent = String(i + 1);
-                            if (i + 1 === n) circle.classList.add('active');
-                        }
-                    });
-                    document.querySelectorAll('[id^="progressLine"]').forEach((line, i) => {
-                        line.classList.remove('completed');
-                        if (i + 1 < n) line.classList.add('completed');
-                    });
-                    const compact = document.getElementById('progressCompact');
-                    if (compact) compact.textContent = 'Step ' + n + ' of 3';
+                    updateProgressBarVisuals(n);
                     currentStep = n;
                     updateButtonVisibility();
                     if (n === 2) {
                         initStep2Options(prevStep === 1);
-                    } else if (n === 3) {
+                    } else if (n === 3 && shouldShowMilestoneStep()) {
+                        initMilestoneSelection();
+                    } else if (n === 4) {
                         updateExportButton();
                     }
                 }
@@ -2198,6 +3192,11 @@ function getWebviewContent(
                 function goToStep1() { goToStep(1); }
                 function goToStep2() { goToStep(2); }
                 function goToStep3() { goToStep(3); }
+                function goToStep4() { goToStep(4); }
+
+                function advanceToNextStepAfterFormat() {
+                    goToStep(shouldShowMilestoneStep() ? 3 : 4);
+                }
 
                 function updateStep2Button() {
                     const btn = document.getElementById('nextStep2');
@@ -2224,32 +3223,75 @@ function getWebviewContent(
                     vscode.postMessage({ command: 'cancel' });
                 }
 
+                function cancelExportRun() {
+                    // Avoid a double-send if the user mashes the button; also a
+                    // no-op once the run has already settled.
+                    if (exportState.finished || exportState.cancelRequested) return;
+                    exportState.cancelRequested = true;
+                    const btn = document.getElementById('exportCancelBtn');
+                    if (btn) btn.disabled = true;
+                    setExportTitle('Cancelling export...', 'Stopping downloads and cleaning up partial output.');
+                    vscode.postMessage({ command: 'cancelExport' });
+                }
+
                 // Step 4 (Exporting) state
                 const STAGE_ORDER = ['preparing', 'processing', 'downloading', 'writing', 'finalizing'];
                 const exportState = {
                     started: false,
                     finished: false,
                     succeeded: false,
+                    cancelRequested: false,
+                    cancelled: false,
                     stageIndex: -1,
                     extraMessages: [],
+                    // Per-cell/per-file problems collected from exportFileMissing
+                    // events during the run, rendered as a grouped, expandable
+                    // list once the export completes.
+                    missingFiles: [],
                     outputPath: null,
+                    // Folder the audio files landed in (may be an audio/ subfolder
+                    // for multi-format). A targeted retry writes recovered files
+                    // back here.
+                    audioOutputPath: null,
+                    // Options from the last export request, reused for retry.
+                    lastOptions: null,
+                    // True while a targeted "retry failed downloads" is running.
+                    retrying: false,
+                    // How many cells the in-flight retry attempted (for the
+                    // "X recovered, Y still failing" summary).
+                    retryAttempted: 0,
                     lastTitle: 'Exporting...',
                     lastSubtitle: 'This may take a moment. Please keep this view open.',
                 };
+
+                // Failure reasons that are worth retrying — transient / recoverable
+                // (network, disk, transcode hiccups). User-action reasons (no take
+                // chosen, selected-missing, nothing recorded) are excluded.
+                const RETRYABLE_EXPORT_REASONS = new Set([
+                    'download-failed',
+                    'transcode-failed',
+                    'write-failed',
+                ]);
 
                 function resetExportProgressView() {
                     exportState.started = false;
                     exportState.finished = false;
                     exportState.succeeded = false;
+                    exportState.cancelRequested = false;
+                    exportState.cancelled = false;
                     exportState.stageIndex = -1;
                     exportState.extraMessages = [];
+                    exportState.missingFiles = [];
                     exportState.outputPath = null;
+                    exportState.audioOutputPath = null;
+                    exportState.retrying = false;
+                    exportState.retryAttempted = 0;
                     exportState.lastTitle = 'Exporting...';
                     exportState.lastSubtitle = 'This may take a moment. Please keep this view open.';
 
                     const icon = document.getElementById('exportProgressIcon');
                     if (icon) {
-                        icon.classList.remove('success', 'error');
+                        icon.classList.remove('success', 'error', 'warn');
                         icon.classList.add('export-spinner');
                         icon.innerHTML = '<i class="codicon codicon-sync"></i>';
                     }
@@ -2268,11 +3310,20 @@ function getWebviewContent(
                     const extras = document.getElementById('exportExtraMessages');
                     if (extras) { extras.style.display = 'none'; extras.innerHTML = ''; }
 
+                    const issues = document.getElementById('exportIssues');
+                    if (issues) { issues.style.display = 'none'; issues.innerHTML = ''; }
+
                     const outPath = document.getElementById('exportOutputPath');
                     if (outPath) { outPath.style.display = 'none'; outPath.textContent = ''; }
 
                     const actionRow = document.getElementById('exportActionRow');
                     if (actionRow) actionRow.style.display = 'none';
+
+                    // Cancel control is visible only while the export is running.
+                    const cancelRow = document.getElementById('exportCancelRow');
+                    if (cancelRow) cancelRow.style.display = 'flex';
+                    const cancelBtn = document.getElementById('exportCancelBtn');
+                    if (cancelBtn) cancelBtn.disabled = false;
                 }
 
                 function escapeHtml(s) {
@@ -2312,27 +3363,38 @@ function getWebviewContent(
                 function handleExportStage(stageKey, message, file, current, total) {
                     const idx = STAGE_ORDER.indexOf(stageKey);
                     if (idx === -1) return;
-                    if (idx > exportState.stageIndex) {
-                        for (let i = 0; i < idx; i++) setStageState(STAGE_ORDER[i], 'done');
-                        setStageState(stageKey, 'active');
+                    // Reflect the most-recently-reported stage as the active one.
+                    // Exports interleave stages: the text exporter's "writing"
+                    // runs concurrently with audio "downloading", and audio
+                    // alternates download/write per file. A monotonic (furthest-
+                    // wins) indicator would get stuck on "Writing output" while
+                    // audio is still downloading, so we follow the latest event
+                    // instead. Only re-render when the stage actually changes to
+                    // avoid redundant DOM churn.
+                    if (idx !== exportState.stageIndex) {
+                        for (let i = 0; i < STAGE_ORDER.length; i++) {
+                            if (i < idx) setStageState(STAGE_ORDER[i], 'done');
+                            else if (i === idx) setStageState(STAGE_ORDER[i], 'active');
+                            else setStageState(STAGE_ORDER[i], 'pending');
+                        }
                         exportState.stageIndex = idx;
-                    } else if (idx === exportState.stageIndex) {
-                        setStageState(stageKey, 'active');
                     }
 
                     if (message) {
                         setExportTitle(message, exportState.lastSubtitle);
                     }
 
+                    // The progress count now lives in the title (message); this
+                    // line shows only the specific item in flight — a cell label
+                    // while writing, or a file name for text exports. Audio
+                    // downloads run concurrently (no single item) so the exporter
+                    // omits the file and this line stays hidden, which removes the
+                    // duplicate count and the misleading ".codex" name that isn't
+                    // actually what's being downloaded.
                     const currentFile = document.getElementById('exportCurrentFile');
                     if (currentFile) {
-                        const parts = [];
-                        if (typeof current === 'number' && typeof total === 'number' && total > 0) {
-                            parts.push('(' + current + '/' + total + ')');
-                        }
-                        if (file) parts.push(file);
-                        if (parts.length > 0) {
-                            currentFile.textContent = parts.join(' ');
+                        if (file) {
+                            currentFile.textContent = file;
                             currentFile.style.display = 'block';
                         } else {
                             currentFile.style.display = 'none';
@@ -2352,6 +3414,204 @@ function getWebviewContent(
                     extras.style.display = 'block';
                 }
 
+                // Human-readable metadata for each ExportMissingReason emitted by
+                // the exporters. Severity drives colour + ordering (error >
+                // warn > info); the description spells out what the category
+                // means so the count in the summary line is actionable. Keep in
+                // sync with ExportMissingReason / severityForReason in
+                // src/exportHandler/exportProgress.ts.
+                const EXPORT_REASON_META = {
+                    'download-failed': {
+                        severity: 'error',
+                        icon: 'cloud-download',
+                        label: "Audio couldn't be downloaded",
+                        description: "This audio is stored online but couldn't be downloaded — usually a network or sign-in problem. Trying the export again often fixes it.",
+                    },
+                    'audio-file-missing': {
+                        severity: 'error',
+                        icon: 'circle-slash',
+                        label: 'Audio file(s) missing',
+                        description: "An audio recording is selected for the cell, but it couldn't be found locally or on the server. The recording may need to be re-recorded.",
+                    },
+                    'transcode-failed': {
+                        severity: 'error',
+                        icon: 'error',
+                        label: "Audio couldn't be converted",
+                        description: "We found the audio but couldn't prepare it for export. The recording may be damaged or in a format we don't support.",
+                    },
+                    'write-failed': {
+                        severity: 'error',
+                        icon: 'error',
+                        label: "Couldn't save the file",
+                        description: "We found the audio but couldn't save the exported file. You may be out of disk space or not have permission to save there.",
+                    },
+                    'error': {
+                        severity: 'error',
+                        icon: 'error',
+                        label: 'Something went wrong',
+                        description: "These cells couldn't be exported because of an unexpected problem. See the note next to each one for details.",
+                    },
+                    'selected-audio-missing-alternatives': {
+                        severity: 'warn',
+                        icon: 'warning',
+                        label: 'Selected recording missing (other recordings available)',
+                        description: "The recording chosen for these cells couldn't be found, but each cell has other recordings. Open the cell and pick a different recording — no need to record again.",
+                    },
+                    'no-audio-selected': {
+                        severity: 'warn',
+                        icon: 'warning',
+                        label: 'No recording chosen',
+                        description: 'These cells have one or more recordings, but none was chosen to export. Open the cell and pick which recording to use.',
+                    },
+                    'pointer-corrupt': {
+                        severity: 'warn',
+                        icon: 'warning',
+                        label: 'Audio reference is broken',
+                        description: "The link to this audio is broken, so we couldn't find the actual file. Re-syncing the project will likely fix it.",
+                    },
+                    'source-not-found': {
+                        severity: 'warn',
+                        icon: 'warning',
+                        label: 'Source file missing',
+                        description: "The original file this export is based on couldn't be found, so it was skipped.",
+                    },
+                    'no-audio-recorded': {
+                        severity: 'info',
+                        icon: 'info',
+                        label: 'No audio recorded',
+                        description: "These cells don't have any audio recorded yet, so there was nothing to export.",
+                    },
+                    'no-text-recorded': {
+                        severity: 'info',
+                        icon: 'info',
+                        label: 'No text written',
+                        description: "These files don't have any translated text yet, so there was nothing to export.",
+                    },
+                };
+                const EXPORT_SEVERITY_ORDER = { error: 0, warn: 1, info: 2 };
+
+                function toggleExportIssue(headerEl) {
+                    const group = headerEl.closest('.export-issue-group');
+                    if (group) group.classList.toggle('open');
+                    syncExpandAllLabel();
+                }
+
+                // Expand / collapse every issue group at once. If any group is
+                // still collapsed, the action expands all; otherwise it collapses
+                // all.
+                function toggleAllExportIssues() {
+                    const groups = Array.from(document.querySelectorAll('#exportIssues .export-issue-group'));
+                    if (groups.length === 0) return;
+                    const anyClosed = groups.some(g => !g.classList.contains('open'));
+                    groups.forEach(g => g.classList.toggle('open', anyClosed));
+                    syncExpandAllLabel();
+                }
+
+                // Keep the toggle's label/icon in sync with the current state.
+                function syncExpandAllLabel() {
+                    const btn = document.getElementById('exportIssuesToggleAll');
+                    if (!btn) return;
+                    const groups = Array.from(document.querySelectorAll('#exportIssues .export-issue-group'));
+                    const allOpen = groups.length > 0 && groups.every(g => g.classList.contains('open'));
+                    btn.innerHTML = allOpen
+                        ? '<i class="codicon codicon-collapse-all"></i>Collapse all'
+                        : '<i class="codicon codicon-expand-all"></i>Expand all';
+                }
+
+                function renderExportIssues() {
+                    const container = document.getElementById('exportIssues');
+                    if (!container) return;
+                    const items = exportState.missingFiles || [];
+                    if (items.length === 0) {
+                        container.style.display = 'none';
+                        container.innerHTML = '';
+                        return;
+                    }
+
+                    // Group by reason, preserving first-seen order within a group.
+                    const groups = new Map();
+                    for (const it of items) {
+                        const reason = it.reason || 'error';
+                        if (!groups.has(reason)) groups.set(reason, []);
+                        groups.get(reason).push(it);
+                    }
+
+                    // Order groups by severity (error first), then alphabetically
+                    // by label for stable output.
+                    const ordered = Array.from(groups.entries()).sort((a, b) => {
+                        const ma = EXPORT_REASON_META[a[0]] || { severity: 'error', label: a[0] };
+                        const mb = EXPORT_REASON_META[b[0]] || { severity: 'error', label: b[0] };
+                        const sa = EXPORT_SEVERITY_ORDER[ma.severity] ?? 0;
+                        const sb = EXPORT_SEVERITY_ORDER[mb.severity] ?? 0;
+                        if (sa !== sb) return sa - sb;
+                        return String(ma.label).localeCompare(String(mb.label));
+                    });
+
+                    // Header bar: total count + an expand/collapse-all toggle.
+                    const totalIssues = items.length;
+                    const headerHtml =
+                        '<div class="export-issues-toolbar">' +
+                            '<span class="export-issues-summary">' + totalIssues + ' item' + (totalIssues === 1 ? '' : 's') + ' to review</span>' +
+                            '<button type="button" class="export-issues-toggle-all" id="exportIssuesToggleAll" onclick="toggleAllExportIssues()">' +
+                                '<i class="codicon codicon-expand-all"></i>Expand all' +
+                            '</button>' +
+                        '</div>';
+
+                    const groupsHtml = ordered.map(([reason, list]) => {
+                        const meta = EXPORT_REASON_META[reason] || {
+                            severity: 'error',
+                            icon: 'error',
+                            label: reason,
+                            description: '',
+                        };
+                        // The group header already explains the reason, so we
+                        // don't repeat the per-cell detail on every row (it was
+                        // redundant). Any per-cell specifics (e.g. a raw write
+                        // error) are kept on the title tooltip for hover. When
+                        // we know which cell an entry came from, render it as a
+                        // clickable row that deep-links into the editor — same
+                        // UX as the Step 1 "problematic cells" popover.
+                        const itemsHtml = list.map(it => {
+                            const name = escapeHtml(String(it.file || ''));
+                            const titleAttr = it.detail
+                                ? ' title="' + escapeHtml(String(it.detail)) + '"'
+                                : '';
+                            const cellId = it.cellId ? escapeHtml(String(it.cellId)) : '';
+                            const filePath = it.codexPath ? escapeHtml(String(it.codexPath)) : '';
+                            if (cellId && filePath) {
+                                return (
+                                    '<button type="button" class="export-issue-item is-clickable"' +
+                                    ' data-cell-id="' + cellId + '"' +
+                                    ' data-file-path="' + filePath + '"' +
+                                    (it.detail ? titleAttr : ' title="Open this cell in the editor"') + '>' +
+                                        '<span class="export-issue-item-label">' + name + '</span>' +
+                                        '<i class="codicon codicon-arrow-right export-issue-item-icon" aria-hidden="true"></i>' +
+                                    '</button>'
+                                );
+                            }
+                            return '<div class="export-issue-item"' + titleAttr + '>' + name + '</div>';
+                        }).join('');
+                        return (
+                            '<div class="export-issue-group sev-' + meta.severity + '">' +
+                                '<div class="export-issue-header" onclick="toggleExportIssue(this)">' +
+                                    '<i class="codicon codicon-chevron-right export-issue-chevron"></i>' +
+                                    '<i class="codicon codicon-' + meta.icon + ' export-issue-icon"></i>' +
+                                    '<span class="export-issue-title">' + escapeHtml(meta.label) + '</span>' +
+                                    '<span class="export-issue-count">' + list.length + '</span>' +
+                                '</div>' +
+                                (meta.description
+                                    ? '<div class="export-issue-desc">' + escapeHtml(meta.description) + '</div>'
+                                    : '') +
+                                '<div class="export-issue-list">' + itemsHtml + '</div>' +
+                            '</div>'
+                        );
+                    }).join('');
+                    container.innerHTML = headerHtml + groupsHtml;
+                    container.style.display = 'flex';
+                    syncExpandAllLabel();
+                    updateRetryButton();
+                }
+
                 function showOutputPath(path) {
                     if (!path) return;
                     exportState.outputPath = path;
@@ -2361,16 +3621,58 @@ function getWebviewContent(
                     el.style.display = 'block';
                 }
 
+                function hideCancelRow() {
+                    const cancelRow = document.getElementById('exportCancelRow');
+                    if (cancelRow) cancelRow.style.display = 'none';
+                }
+
+                function showExportCancelled() {
+                    // Terminal state distinct from success/failure. The host has
+                    // already deleted the partial output before sending this.
+                    exportState.finished = true;
+                    exportState.cancelled = true;
+                    exportState.succeeded = false;
+
+                    hideCancelRow();
+
+                    // Reset any spinning stage row back to a static pending icon
+                    // (toggling the class alone leaves the codicon-sync spinning).
+                    document.querySelectorAll('#exportStageList .stage-row.active').forEach(row => {
+                        setStageState(row.dataset.stage, 'pending');
+                    });
+
+                    const icon = document.getElementById('exportProgressIcon');
+                    if (icon) {
+                        icon.classList.remove('export-spinner', 'success', 'error', 'warn');
+                        icon.classList.add('warn');
+                        icon.innerHTML = '<i class="codicon codicon-circle-slash"></i>';
+                    }
+
+                    setExportTitle('Export cancelled', 'The partial export was removed.');
+
+                    const currentFile = document.getElementById('exportCurrentFile');
+                    if (currentFile) { currentFile.style.display = 'none'; currentFile.textContent = ''; }
+
+                    // Output is gone, so only offer Close (no Open Folder).
+                    const actionRow = document.getElementById('exportActionRow');
+                    const openBtn = document.getElementById('exportOpenFolderBtn');
+                    if (openBtn) openBtn.style.display = 'none';
+                    if (actionRow) actionRow.style.display = 'flex';
+                }
+
                 function showExportFinished(success, summaryText) {
                     exportState.finished = true;
                     exportState.succeeded = success;
+
+                    hideCancelRow();
 
                     document.querySelectorAll('#exportStageList .stage-row').forEach(row => {
                         if (success) {
                             setStageState(row.dataset.stage, 'done');
                         } else if (row.classList.contains('active')) {
-                            row.classList.remove('active');
-                            row.classList.add('pending');
+                            // Reset via setStageState so the spinning icon stops
+                            // (toggling the class alone leaves codicon-sync spinning).
+                            setStageState(row.dataset.stage, 'pending');
                         }
                     });
 
@@ -2404,14 +3706,95 @@ function getWebviewContent(
                     if (openBtn) openBtn.style.display = (success && exportState.outputPath) ? 'flex' : 'none';
                 }
 
+                // Failed cells worth retrying: transient/recoverable reason AND
+                // we know which cell to re-run (cellId + codexPath).
+                function getRetryTargets() {
+                    return (exportState.missingFiles || []).filter(it =>
+                        it && it.cellId && it.codexPath && RETRYABLE_EXPORT_REASONS.has(it.reason)
+                    );
+                }
+
+                function updateRetryButton() {
+                    const btn = document.getElementById('exportRetryBtn');
+                    if (!btn) return;
+                    if (exportState.retrying) {
+                        btn.style.display = 'flex';
+                        btn.disabled = true;
+                        return;
+                    }
+                    const targets = getRetryTargets();
+                    const canRetry = targets.length > 0 && !!exportState.audioOutputPath;
+                    btn.style.display = canRetry ? 'flex' : 'none';
+                    btn.disabled = false;
+                    const txt = document.getElementById('exportRetryBtnText');
+                    if (txt) txt.textContent = 'Retry failed (' + targets.length + ')';
+                }
+
+                function retryFailedExport() {
+                    if (exportState.retrying) return;
+                    const targets = getRetryTargets();
+                    if (targets.length === 0 || !exportState.audioOutputPath) return;
+
+                    const retrySet = new Set(targets.map(t => t.cellId));
+                    // Remove the cells we're about to re-run; the ones that fail
+                    // again stream back in via exportFileMissing.
+                    exportState.missingFiles = (exportState.missingFiles || []).filter(it =>
+                        !(it && it.cellId && RETRYABLE_EXPORT_REASONS.has(it.reason) && retrySet.has(it.cellId))
+                    );
+                    exportState.retrying = true;
+                    exportState.retryAttempted = targets.length;
+                    renderExportIssues();
+
+                    const btnText = document.getElementById('exportRetryBtnText');
+                    if (btnText) btnText.textContent = 'Retrying ' + targets.length + '…';
+                    const closeBtn = document.getElementById('exportCloseBtn');
+                    if (closeBtn) closeBtn.disabled = true;
+                    setExportTitle(
+                        'Retrying ' + targets.length + ' cell' + (targets.length === 1 ? '' : 's') + '…',
+                        'Re-attempting the recordings that could not be exported.'
+                    );
+
+                    vscode.postMessage({
+                        command: 'retryExport',
+                        audioOutputPath: exportState.audioOutputPath,
+                        options: exportState.lastOptions || {},
+                        targets: targets.map(t => ({ cellId: t.cellId, codexPath: t.codexPath })),
+                    });
+                }
+
+                function finishRetry(message) {
+                    exportState.retrying = false;
+                    const closeBtn = document.getElementById('exportCloseBtn');
+                    if (closeBtn) closeBtn.disabled = false;
+
+                    if (message && message.error) {
+                        setExportTitle('Retry failed', String(message.error));
+                    } else if (!(message && message.cancelled)) {
+                        const stillFailing = getRetryTargets().length;
+                        const attempted = exportState.retryAttempted || 0;
+                        const recovered = Math.max(0, attempted - stillFailing);
+                        let subtitle;
+                        if (stillFailing === 0) {
+                            subtitle = recovered > 0
+                                ? 'Recovered ' + recovered + ' recording' + (recovered === 1 ? '' : 's') + '.'
+                                : 'Nothing left to retry.';
+                        } else {
+                            subtitle = recovered + ' recovered, ' + stillFailing + ' still need attention.';
+                        }
+                        setExportTitle(exportState.succeeded ? 'Export complete' : exportState.lastTitle, subtitle);
+                    }
+
+                    renderExportIssues();
+                    updateRetryButton();
+                }
+
                 function enterExportingView() {
                     resetExportProgressView();
                     exportState.started = true;
                     document.body.classList.add('exporting');
                     document.querySelectorAll('.step-panel').forEach(p => p.classList.remove('active'));
-                    const step4 = document.getElementById('step4');
-                    if (step4) step4.classList.add('active');
-                    currentStep = 4;
+                    const stepExporting = document.getElementById('stepExporting');
+                    if (stepExporting) stepExporting.classList.add('active');
                     setStageState('preparing', 'active');
                     exportState.stageIndex = 0;
                 }
@@ -2448,8 +3831,11 @@ function getWebviewContent(
                         });
                         return;
                     }
-                    goToStep(3);
+                    advanceToNextStepAfterFormat();
                 }
+
+                window.onMilestoneCheckboxChange = onMilestoneCheckboxChange;
+                window.onMilestoneSelectAllChange = onMilestoneSelectAllChange;
 
                 window.addEventListener('message', event => {
                     const message = event.data;
@@ -2458,6 +3844,17 @@ function getWebviewContent(
                         const el = document.getElementById('exportPath');
                         if (el) el.textContent = message.path;
                         updateExportButton();
+                        return;
+                    }
+                    if (message.command === 'fileAudioStatsUpdated') {
+                        // A .codex was saved while the wizard is open — patch
+                        // just that file's row so the Step 1 counts stay live.
+                        applyFileAudioStatsUpdate(
+                            message.path,
+                            message.hasAudio,
+                            message.hasTranslations,
+                            message.audioStats
+                        );
                         return;
                     }
                     if (message.command === 'htmlStructureCheckResult') {
@@ -2471,6 +3868,10 @@ function getWebviewContent(
                         return;
                     }
                     if (message.command === 'exportProgress') {
+                        // Ignore late progress once we have reached a terminal
+                        // state (e.g. trailing events from in-flight downloads
+                        // draining after a cancel).
+                        if (exportState.finished || exportState.cancelled) return;
                         const event = message.event || {};
                         if (event.stage) {
                             handleExportStage(event.stage, event.message, event.file, event.current, event.total);
@@ -2480,39 +3881,218 @@ function getWebviewContent(
                         return;
                     }
                     if (message.command === 'exportFileMissing') {
-                        // Per-cell missing/info events are intentionally ignored
-                        // in the UI now. Each exporter rolls these counts up
-                        // into its single extraMessages summary line (see
-                        // audioExporter.ts, htmlExporter.ts, etc.), which we
-                        // render via showExtraMessages on completion.
+                        // Collect per-cell/per-file problems as they arrive.
+                        // They're rolled up into the single extraMessages
+                        // summary line by the exporters; here we keep the
+                        // individual entries so the completion screen can show
+                        // an expandable, grouped breakdown. Stop collecting once
+                        // we've reached a terminal state (late events from
+                        // in-flight work draining after a cancel).
+                        // During a targeted retry the run is already "finished",
+                        // but we still want to collect the cells that failed
+                        // again so the issues list reflects the new state.
+                        if ((exportState.finished && !exportState.retrying) || exportState.cancelled) return;
+                        exportState.missingFiles.push({
+                            file: message.file,
+                            reason: message.reason,
+                            detail: message.detail,
+                            cellId: message.cellId,
+                            codexPath: message.codexPath,
+                        });
+                        if (exportState.retrying) {
+                            // Live-refresh while retrying so recovered cells drop
+                            // off and any that still fail re-appear.
+                            renderExportIssues();
+                        }
                         return;
                     }
                     if (message.command === 'exportCompleted') {
+                        // A cancel that already won the race takes precedence;
+                        // don't flip a cancelled run to "complete".
+                        if (exportState.cancelled) return;
                         const summary = message.summary || {};
                         if (summary.exportPath) showOutputPath(summary.exportPath);
+                        if (summary.audioExportPath) exportState.audioOutputPath = summary.audioExportPath;
                         if (summary.extraMessages && summary.extraMessages.length > 0) {
                             showExtraMessages(summary.extraMessages);
                         }
                         showExportFinished(true);
+                        // Render after marking finished so the grouped issue
+                        // list reflects everything collected during the run.
+                        renderExportIssues();
                         return;
                     }
                     if (message.command === 'exportError') {
+                        if (exportState.cancelled) return;
                         showExportFinished(false, message.message || 'Export failed.');
+                        return;
+                    }
+                    if (message.command === 'exportCancelled') {
+                        // Terminal: the host deleted the partial output and will
+                        // not send complete/error for this run.
+                        showExportCancelled();
+                        return;
+                    }
+                    if (message.command === 'retryCompleted') {
+                        finishRetry(message);
                         return;
                     }
                     if (message.command === 'subtitleOverlapResult') {
                         pendingSubtitleOverlapCheck = false;
                         updateStep2Button();
                         if (message.proceed) {
-                            goToStep(3);
+                            advanceToNextStepAfterFormat();
                         }
                     }
+                    if (message.command === 'characterAudioPreviewResult') {
+                        renderCharacterPreview(message.preview, message.error);
+                    }
                 });
+
+                function updateCharacterAudioControls() {
+                    const controls = document.getElementById('characterAudioControls');
+                    if (!controls) return;
+                    controls.style.display = selectedAudioMode === 'audio-by-character' ? 'flex' : 'none';
+                }
+
+                function openCharacterPreview() {
+                    if (selectedFiles.size === 0) return;
+                    const body = document.getElementById('characterPreviewBody');
+                    if (body) {
+                        body.replaceChildren();
+                        const loading = document.createElement('p');
+                        loading.style.color = 'var(--vscode-descriptionForeground)';
+                        loading.textContent = 'Loading preview...';
+                        body.appendChild(loading);
+                    }
+                    const popup = document.getElementById('characterPreviewPopup');
+                    if (popup) popup.classList.add('visible');
+                    vscode.postMessage({
+                        command: 'previewCharacterAudio',
+                        filesToExport: Array.from(selectedFiles)
+                    });
+                }
+
+                function closeCharacterPreviewPopup() {
+                    const popup = document.getElementById('characterPreviewPopup');
+                    if (popup) popup.classList.remove('visible');
+                }
+
+                function formatMmSs(totalSeconds) {
+                    if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '0:00';
+                    const total = Math.floor(totalSeconds);
+                    const m = Math.floor(total / 60);
+                    const s = total % 60;
+                    return m + ':' + String(s).padStart(2, '0');
+                }
+
+                function makeFileBlock(f) {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'char-preview-file';
+                    const title = document.createElement('h5');
+                    title.textContent = f.fileBase;
+                    wrapper.appendChild(title);
+                    const meta = document.createElement('div');
+                    meta.className = 'char-preview-meta';
+                    if (f.missingTiming) {
+                        meta.textContent = 'No timing data — this file will be skipped.';
+                        wrapper.appendChild(meta);
+                        return wrapper;
+                    }
+                    if (!f.characters || f.characters.length === 0) {
+                        meta.textContent = 'Episode length: ' + formatMmSs(f.episodeDurationSec) + ' — no character audio found.';
+                        wrapper.appendChild(meta);
+                        return wrapper;
+                    }
+                    const exportingCount = (f.characters || []).filter(function(c) { return c.willExport; }).length;
+                    const totalCount = f.characters.length;
+                    const skippedNote = f.skippedCells > 0
+                        ? ' • ' + f.skippedCells + ' cell' + (f.skippedCells === 1 ? '' : 's') + ' missing timing'
+                        : '';
+                    meta.textContent = 'Episode length: ' + formatMmSs(f.episodeDurationSec) +
+                        ' • ' + totalCount + ' character' + (totalCount === 1 ? '' : 's') +
+                        ' (' + exportingCount + ' will export)' + skippedNote;
+                    wrapper.appendChild(meta);
+
+                    const dur = f.episodeDurationSec;
+                    for (const c of f.characters) {
+                        const row = document.createElement('div');
+                        row.className = 'char-row' + (c.willExport ? '' : ' no-audio');
+
+                        const label = document.createElement('div');
+                        label.className = 'char-label';
+                        const audioCount = c.audioCellCount || 0;
+                        const noAudioCount = c.noAudioCellCount || 0;
+                        const untimed = c.untimedCellCount || 0;
+                        const tooltipParts = [c.label];
+                        if (audioCount) tooltipParts.push(audioCount + ' with audio');
+                        if (noAudioCount) tooltipParts.push(noAudioCount + ' timed, no audio');
+                        if (untimed) tooltipParts.push(untimed + ' untimed');
+                        label.title = tooltipParts.join(' • ');
+                        label.textContent = c.label;
+                        row.appendChild(label);
+
+                        const timeline = document.createElement('div');
+                        timeline.className = 'char-timeline';
+                        for (const iv of (c.intervals || [])) {
+                            const seg = document.createElement('div');
+                            seg.className = 'speech-segment ' + (iv.hasAudio ? 'has-audio' : 'no-audio');
+                            const left = dur > 0 ? Math.max(0, Math.min(100, (iv.startSec / dur) * 100)) : 0;
+                            const widthRaw = dur > 0 ? ((iv.endSec - iv.startSec) / dur) * 100 : 0;
+                            const width = Math.max(0.2, Math.min(100 - left, widthRaw));
+                            seg.style.left = left.toFixed(3) + '%';
+                            seg.style.width = width.toFixed(3) + '%';
+                            timeline.appendChild(seg);
+                        }
+                        row.appendChild(timeline);
+
+                        const stats = document.createElement('div');
+                        stats.className = 'char-stats';
+                        if (c.willExport) {
+                            const trim = formatMmSs(c.lastEndSec);
+                            const audioSpeaking = formatMmSs(c.speakingSecAudio || 0);
+                            const noAudioSpeaking = (c.speakingSecNoAudio || 0) > 0 ? ' • ' + formatMmSs(c.speakingSecNoAudio) + ' no audio' : '';
+                            stats.title = 'Trim: ' + trim + ' • Speaking (audio): ' + audioSpeaking + noAudioSpeaking;
+                            stats.textContent = trim;
+                        } else {
+                            stats.title = 'No audio recorded yet — not exported';
+                            stats.textContent = 'no audio';
+                        }
+                        row.appendChild(stats);
+
+                        wrapper.appendChild(row);
+                    }
+                    return wrapper;
+                }
+
+                function renderCharacterPreview(preview, error) {
+                    const body = document.getElementById('characterPreviewBody');
+                    if (!body) return;
+                    body.replaceChildren();
+                    if (error) {
+                        const p = document.createElement('p');
+                        p.style.color = 'var(--vscode-errorForeground)';
+                        p.textContent = error;
+                        body.appendChild(p);
+                        return;
+                    }
+                    if (!preview || !preview.files || preview.files.length === 0) {
+                        const p = document.createElement('p');
+                        p.style.color = 'var(--vscode-descriptionForeground)';
+                        p.textContent = 'No files to preview.';
+                        body.appendChild(p);
+                        return;
+                    }
+                    for (const f of preview.files) {
+                        body.appendChild(makeFileBlock(f));
+                    }
+                }
 
                 document.addEventListener('DOMContentLoaded', () => {
                     renderFileGroups();
                     setupCellListPopover();
                     updateStep1Button();
+                    updateProgressBarVisuals(1);
                     if (exportPath) {
                         const pathEl = document.getElementById('exportPath');
                         if (pathEl) pathEl.textContent = exportPath;
@@ -2537,7 +4117,7 @@ function getWebviewContent(
                                 option.classList.add('selected');
                                 checkAudioSelectionMismatch();
                             }
-                            try { updateStep2Button(); updateExportButton(); } catch (e) {}
+                            try { updateStep2Button(); updateExportButton(); updateCharacterAudioControls(); } catch (e) {}
                         });
                     });
 
@@ -2620,11 +4200,12 @@ function getWebviewContent(
                 }
 
                 function checkAudioSelectionMismatch() {
+                    audioMismatchCheckedFor = fileSelectionSignature();
                     const noAudioFiles = getFilesWithoutAudio();
                     if (noAudioFiles.length > 0) {
                         showContentMismatchPopup(
                             'Files Without Audio',
-                            'The following files have no audio translations. Their exported audio folders will be empty.',
+                            'The following files have no audio translations.',
                             noAudioFiles
                         );
                     }
@@ -2635,7 +4216,7 @@ function getWebviewContent(
                     if (noTextFiles.length > 0) {
                         showContentMismatchPopup(
                             'Files Without Text',
-                            'The following files have no text translations. Their text export will be empty.',
+                            'The following files have no text translations.',
                             noTextFiles
                         );
                     }
@@ -2674,11 +4255,27 @@ function getWebviewContent(
                     if (selectedAudioMode) {
                         options.includeAudio = true;
                         options.includeTimestamps = selectedAudioMode === 'audio-timestamps';
+                        options.consolidateByCharacter = selectedAudioMode === 'audio-by-character';
+                        if (options.consolidateByCharacter) {
+                            const fmtEl = document.getElementById('characterAudioFormat');
+                            options.consolidatedAudioFormat = (fmtEl && fmtEl.value) ? fmtEl.value : 'flac';
+                        }
+                    }
+                    if (selectedFormat && selectedFormat.startsWith('subtitles-vtt-')) {
+                        const cb = document.getElementById('vttExcludeLabelsCb');
+                        if (cb && cb.checked) options.excludeLabels = true;
+                    }
+                    const selectedMilestones = buildSelectedMilestonesPayload();
+                    if (selectedMilestones) {
+                        options.selectedMilestonesByFile = selectedMilestones;
                     }
                     // Optimistically switch UI to the in-panel exporting screen so
                     // the user does not see Cancel / Back / Export anymore. The host
                     // also broadcasts exportStarted, which is idempotent.
                     enterExportingView();
+                    // Remember the options so a "retry failed downloads" can
+                    // reproduce the same export behaviour (e.g. timestamps).
+                    exportState.lastOptions = options;
                     vscode.postMessage({
                         command: 'export',
                         format: formatToSend,

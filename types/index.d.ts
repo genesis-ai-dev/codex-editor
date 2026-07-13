@@ -288,6 +288,7 @@ export type MessagesFromStartupFlowProvider =
     | { command: "project.renamingInProgress"; projectPath: string; renaming: boolean; }
     | { command: "project.zippingInProgress"; projectPath: string; zipType: "full" | "mini"; zipping: boolean; }
     | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; }
+    | { command: "project.deletingInProgress"; projectPath: string; deleting: boolean; stage?: "verifying" | "deleting"; }
     | {
         command: "project.swapCloneWarning";
         repoUrl: string;
@@ -372,6 +373,14 @@ type SourceCellVersions = {
     notebookId: string;
 };
 
+type SourceCellMapEntry = {
+    content: string;
+    versions: string[];
+    timestamps?: Timestamps;
+};
+
+type SourceCellMap = { [k: string]: SourceCellMapEntry };
+
 type EditorCellContent = {
     cellMarkers: string[];
     cellContent: string;
@@ -414,8 +423,26 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
     | { command: "resolveHtmlStructure"; content: { cellId: string; }; }
-    | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
-    | { command: "pickVideoFile"; }
+    | { command: "requestResolveHtmlStructureBatch"; content: { cellIds: string[]; }; }
+    | { command: "stopResolveHtmlStructureBatch"; }
+    | {
+        command: "updateNotebookMetadata";
+        content: CustomNotebookMetadata;
+        skipVideoConfirm?: boolean;
+        /**
+         * Absolute path of a video file the user picked but hasn't committed yet.
+         * The picker stages the selection (it is NOT written on pick); the host
+         * imports it into the project as part of this save, so cancelling the
+         * modal leaves nothing behind.
+         */
+        pendingVideoFilePath?: string;
+    }
+    | { command: "pickVideoFile"; skipVideoConfirm?: boolean; }
+    | { command: "deleteVideoFile"; }
+    | { command: "freeVideoDiskSpace"; }
+    | { command: "requestVideoStreamUrl"; }
+    | { command: "requestVideoReferenceStatus"; }
+    | { command: "downloadVideoFile"; persist?: boolean; }
     | { command: "getSourceText"; content: { cellId: string; }; }
     | { command: "searchSimilarCellIds"; content: { cellId: string; }; }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
@@ -465,7 +492,7 @@ export type EditorPostMessages =
     | { command: "updateTextDirection"; direction: "ltr" | "rtl"; }
     | { command: "openSourceText"; content: { chapterNumber: number; }; }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
-    | { command: "pickVideoFile"; }
+    | { command: "pickVideoFile"; skipVideoConfirm?: boolean; }
     | {
         command: "exportFile";
         content: { subtitleData: string; format: string; includeStyles: boolean; };
@@ -504,6 +531,7 @@ export type EditorPostMessages =
     // removed: requestAudioAttachments
     | { command: "requestAudioForCell"; content: { cellId: string; audioId?: string; }; }
     | { command: "requestCellAudioTimestamps"; content: { cellId: string; }; }
+    | { command: "requestSourceCellTimestamps"; content: { cellId: string; }; }
     | { command: "getCommentsForCell"; content: { cellId: string; }; }
     | { command: "getCommentsForCells"; content: { cellIds: string[]; }; }
     | {
@@ -576,10 +604,24 @@ export type EditorPostMessages =
         content: {
             cellId: string;
             transcribedText: string;
-            language: string;
+            /** OmniASR `{iso639_3}_{Script}` code the server reported (or that we sent and the server
+             *  used silently). `null` when transcription ran in auto-detect mode and the server did
+             *  not echo a language back. Persisted on the audio attachment so the badge survives
+             *  re-renders. */
+            language: string | null;
         };
     }
     | { command: "getAsrConfig"; }
+    | {
+        command: "setAsrLanguageMode";
+        content: { mode: "auto" | "project"; };
+    }
+    | {
+        command: "setAsrScriptPref";
+        /** `"auto"` (best guess), `"latin"` (force Latin where supported), or a 4-letter
+         *  ISO 15924 tag (`"Arab"`, `"Cyrl"`, ...). */
+        content: { scriptPref: string; };
+    }
     | {
         command: "mergeCellWithPrevious";
         content: {
@@ -603,7 +645,6 @@ export type EditorPostMessages =
             previousCellId: string;
             currentContent: string;
             previousContent: string;
-            message: string;
         };
     }
     | {
@@ -912,7 +953,6 @@ type FileImporterType =
     | "ebibleCorpus"
     | "macula"
     | "biblica"
-    | "reach4life"
     | "obs";
 
 /**
@@ -1898,6 +1938,30 @@ interface CodexItem {
     sortOrder?: string;
     fileDisplayName?: string;
     enforceHtmlStructure?: boolean;
+    /** True when this document references a chapter video (remote URL or local file). */
+    hasVideo?: boolean;
+    /**
+     * How the referenced chapter video is currently available:
+     *  - "url"        → remote streamed URL
+     *  - "saved"      → downloaded real bytes in the project
+     *  - "streamable" → LFS pointer only (download/stream on demand)
+     *  - "missing"    → local reference resolving to neither bytes nor a pointer
+     */
+    videoAvailability?: "url" | "saved" | "streamable" | "missing";
+    /**
+     * True when a streamable (not-downloaded) video currently has a temporary
+     * copy in this session's video cache (i.e. it was "loaded" this session).
+     * Lets the card distinguish "loaded (temporary)" from "available to download".
+     */
+    videoCached?: boolean;
+    /** Size of a local video in bytes when known (real bytes or LFS pointer size). */
+    videoSizeBytes?: number;
+    /**
+     * Internal: the raw stored video reference, kept on the host so video
+     * availability can be recomputed on demand (download/free) without
+     * re-reading the notebook. Stripped before sending to the webview.
+     */
+    videoUrl?: string;
 }
 type EditorReceiveMessages =
     | {
@@ -1910,10 +1974,21 @@ type EditorReceiveMessages =
         };
     }
     | {
+        /**
+         * Forwarded from the extension host's `vscode.window.onDidChangeWindowState`.
+         * Webview iframes don't reliably receive OS-level focus / visibilitychange
+         * events, so the host relays them. The audio recorder uses `focused: true`
+         * to refresh microphone availability (a permission can only change while
+         * the user is away in OS settings).
+         */
+        type: "windowFocusChanged";
+        focused: boolean;
+    }
+    | {
         type: "providerSendsInitialContent";
         content: QuillCellContent[];
         isSourceText: boolean;
-        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+        sourceCellMap: SourceCellMap;
         username?: string;
         validationCount?: number;
         validationCountAudio?: number;
@@ -1932,7 +2007,7 @@ type EditorReceiveMessages =
         currentMilestoneIndex: number;
         currentSubsectionIndex: number;
         isSourceText: boolean;
-        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+        sourceCellMap: SourceCellMap;
         username?: string;
         validationCount?: number;
         validationCountAudio?: number;
@@ -1949,7 +2024,7 @@ type EditorReceiveMessages =
         milestoneIndex: number;
         subsectionIndex: number;
         cells: QuillCellContent[];
-        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+        sourceCellMap: SourceCellMap;
     }
     | {
         type: "providerSendsSubsectionProgress";
@@ -1981,6 +2056,17 @@ type EditorReceiveMessages =
     }
     | {
         type: "providerAutocompletionState";
+        state: {
+            isProcessing: boolean;
+            totalCells: number;
+            completedCells: number;
+            currentCellId?: string;
+            cellsToProcess: string[];
+            progress: number;
+        };
+    }
+    | {
+        type: "providerStructureResolveState";
         state: {
             isProcessing: boolean;
             totalCells: number;
@@ -2068,6 +2154,27 @@ type EditorReceiveMessages =
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
+    | { type: "videoStreamResolving"; }
+    | {
+          // The user picked a video file in the OS dialog. It is staged (not yet
+          // imported into the project); the editor shows it as pending until the
+          // metadata modal is saved.
+          type: "videoFilePicked";
+          fsPath: string;
+          fileName: string;
+      }
+    | { type: "videoStreamUnavailable"; reason: "offline" | "not-authenticated" | "not-found" | "error"; message?: string; }
+    | { type: "videoNeedsDownload"; strategy: "auto-download" | "stream-and-save" | "stream-only"; }
+    | {
+          type: "videoReferenceStatus";
+          status: "none" | "url" | "local-usable" | "missing";
+          // True only in stream-and-save when a downloaded local copy exists and is
+          // LFS-backed, so it can be reverted to a pointer to free space and re-streamed.
+          canFreeDiskSpace?: boolean;
+          // Size of the referenced video in bytes when known (real local bytes or the
+          // size recorded in the LFS pointer). Omitted for remote URLs / unknown.
+          videoSizeBytes?: number;
+      }
     | {
         type: "milestoneProgressUpdate";
         milestoneProgress: Record<number, {
@@ -2150,7 +2257,25 @@ type EditorReceiveMessages =
         milestoneIndex?: number;
         subsectionIndex?: number;
     }
-    | { type: "asrConfig"; content: { endpoint: string; authToken?: string; }; }
+    | {
+        type: "asrConfig";
+        content: {
+            endpoint: string;
+            authToken?: string;
+            /** OmniASR `{iso639_3}_{Script}` code to send as `?lang=...`. Omitted when the
+             *  user picks Auto-Detect or when we can't safely resolve a code. */
+            lang?: string;
+            /** "project" (default) → send `lang`. "auto" → omit `lang`, let the server transcribe
+             *  without language conditioning. Persisted as workspace setting `asrLanguageMode`. */
+            languageMode: "auto" | "project";
+            /** Script preference: "auto" (best guess), "latin", or a 4-letter ISO 15924 tag.
+             *  Persisted as workspace setting `asrScriptPref`. */
+            scriptPref?: string;
+            /** Project target-language refName, e.g. "Swahili". Used as the badge fallback when
+             *  the server doesn't echo `lang` in the response. */
+            projectLanguageName?: string;
+        };
+    }
     | { type: "startBatchTranscription"; content: { count: number; }; }
     | {
         type: "providerConfirmsBacktranslationSet";
@@ -2300,6 +2425,13 @@ type EditorReceiveMessages =
         content: {
             cellId: string;
             audioTimestamps?: Timestamps;
+        };
+    }
+    | {
+        type: "providerSendsSourceCellTimestamps";
+        content: {
+            cellId: string;
+            timestamps?: Timestamps;
         };
     }
     | {
@@ -2468,6 +2600,7 @@ export type ExportMissingFileReason =
     | "no-text-recorded"
     // Tier 2 — soft warning
     | "no-audio-selected"
+    | "selected-audio-missing-alternatives"
     | "audio-file-missing"
     | "pointer-corrupt"
     | "source-not-found"
@@ -2492,10 +2625,15 @@ export interface ExportMissingFilePayload {
     file: string;
     reason: ExportMissingFileReason;
     detail?: string;
+    /** Cell + codex path the entry came from, when known. Enables a deep-link. */
+    cellId?: string;
+    codexPath?: string;
 }
 
 export interface ExportSummaryPayload {
     exportPath: string;
+    /** Folder audio landed in (an `audio/` subfolder in multi-format). Used for targeted retry. */
+    audioExportPath?: string;
     filesExported?: number;
     audioCopied?: number;
     audioMissing?: number;
@@ -2509,9 +2647,10 @@ export type MessagesToProjectExportView =
     | { command: "htmlStructureCheckResult"; mismatches: { totalMismatches: number; fileDetails: { file: string; count: number; }[]; }; }
     | { command: "exportStarted"; }
     | { command: "exportProgress"; event: ExportProgressEventPayload; }
-    | { command: "exportFileMissing"; file: string; reason: ExportMissingFileReason; detail?: string; }
+    | { command: "exportFileMissing"; file: string; reason: ExportMissingFileReason; detail?: string; cellId?: string; codexPath?: string; }
     | { command: "exportCompleted"; summary: ExportSummaryPayload; }
-    | { command: "exportError"; message: string; };
+    | { command: "exportError"; message: string; }
+    | { command: "retryCompleted"; summary?: ExportSummaryPayload; error?: string; cancelled?: boolean; };
 
 export type MessagesFromProjectExportView =
     | { command: "selectExportPath"; }
@@ -2521,4 +2660,5 @@ export type MessagesFromProjectExportView =
     | { command: "openExportFolder"; path: string; }
     | { command: "closeExportView"; }
     | { command: "openCellInEditor"; cellId: string; filePath: string; }
+    | { command: "retryExport"; audioOutputPath: string; targets: { cellId: string; codexPath: string; }[]; options?: Record<string, unknown>; }
     | { command: "cancel"; };

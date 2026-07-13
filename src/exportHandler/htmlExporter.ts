@@ -142,7 +142,8 @@ export async function exportCodexContentAsHtml(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    options?: ExportOptions
+    options?: ExportOptions,
+    token?: vscode.CancellationToken
 ) {
     try {
         debug("Starting exportCodexContentAsHtml function");
@@ -172,6 +173,7 @@ export async function exportCodexContentAsHtml(
         await vscode.workspace.fs.createDirectory(baseExportFolder);
 
         for (const [index, file] of selectedFiles.entries()) {
+            if (token?.isCancellationRequested) return;
             reporter.report({
                 stage: "writing",
                 message: `Processing file ${index + 1}/${selectedFiles.length}`,

@@ -3,6 +3,7 @@ import { QuillCellContent } from "../../../../../types";
 import { WebviewApi } from "vscode-webview";
 import type { ReactPlayerRef } from "../types/reactPlayerTypes";
 import { globalAudioController, AudioControllerEvent } from "../../lib/audioController";
+import { resolveVideoElement } from "../utils/videoElement";
 import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../../lib/audioCache";
 import { EditorPostMessages } from "../../../../../types";
 import type { AudioAvailability } from "../utils/audioViewMode";
@@ -48,35 +49,13 @@ export function useMultiCellAudioPlayback({
     const messageHandlerRef = useRef<((event: MessageEvent) => void) | null>(null);
     const isCleaningUpRef = useRef<boolean>(false);
 
-    // Get video element helper
-    const getVideoElement = useCallback((): HTMLVideoElement | null => {
-        if (!playerRef.current) return null;
-
-        const internalPlayer = playerRef.current.getInternalPlayer?.();
-        if (internalPlayer instanceof HTMLVideoElement) {
-            return internalPlayer;
-        }
-
-        if (internalPlayer && typeof internalPlayer === "object") {
-            const foundVideo =
-                (internalPlayer as any).querySelector?.("video") ||
-                (internalPlayer as any).video ||
-                internalPlayer;
-            if (foundVideo instanceof HTMLVideoElement) {
-                return foundVideo;
-            }
-        }
-
-        // Last resort: Try to find video element in the DOM
-        const wrapper = playerRef.current as any;
-        const foundVideo =
-            wrapper.querySelector?.("video") || wrapper.parentElement?.querySelector?.("video");
-        if (foundVideo instanceof HTMLVideoElement) {
-            return foundVideo;
-        }
-
-        return null;
-    }, [playerRef]);
+    // Get video element helper. For HLS this reaches into the <hls-video> custom element's
+    // shadow DOM; otherwise muting the video while recorded audio plays no-ops (see
+    // resolveVideoElement).
+    const getVideoElement = useCallback(
+        (): HTMLVideoElement | null => resolveVideoElement(playerRef.current),
+        [playerRef]
+    );
 
     // Clean up audio elements
     const cleanupAudioElements = useCallback(() => {
@@ -474,6 +453,25 @@ export function useMultiCellAudioPlayback({
             return;
         }
 
+        // A cell-scoped "Play Video" preview owns playback for a single cell's
+        // range; don't overlay other cells' recorded audio while it runs. Stop
+        // any element that may have already started (e.g. a debounced check that
+        // raced the preview start) so it can't linger past the video stop.
+        if (globalAudioController.isVideoPreviewActive()) {
+            audioElementsRef.current.forEach((data) => {
+                if (!data.audioElement.paused || data.isPlaying) {
+                    try {
+                        data.audioElement.pause();
+                        data.audioElement.currentTime = 0;
+                        data.isPlaying = false;
+                    } catch (error) {
+                        console.error(`Error stopping audio for cell ${data.cellId}:`, error);
+                    }
+                }
+            });
+            return;
+        }
+
         const currentTime = currentVideoTime;
         const tolerance = 0.1; // 100ms tolerance for starting audio
 
@@ -662,6 +660,12 @@ export function useMultiCellAudioPlayback({
                 }
             });
             restoreVideoMuteState();
+            // The video has stopped, so any cell-scoped "Play Video" preview is
+            // over. Clear the suppression flag here (rather than at the preview's
+            // endTime) so it stays set until the video is confirmed stopped —
+            // closing the race where a debounced check could start overlay audio
+            // in the gap between the flag clearing and isVideoPlaying flipping.
+            globalAudioController.setVideoPreviewActive(false);
         }
     }, [isVideoPlaying, restoreVideoMuteState]);
 

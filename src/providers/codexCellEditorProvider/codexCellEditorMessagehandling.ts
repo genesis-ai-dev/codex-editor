@@ -22,6 +22,13 @@ import { toPosixPath } from "../../utils/pathUtils";
 import { revalidateCellMissingFlags, clearMissingFlagAfterSuccess } from "../../utils/audioMissingUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
+import { deleteLocalVideoFiles, isHttpVideoUrl, processVideoUrl, getVideoWorkspaceRelativePath, resolveVideoAvailability, type VideoAvailability } from "./utils/videoUtils";
+import { parsePointerFile, isPointerFile } from "../../utils/lfsHelpers";
+import {
+    enrichSourceCellMapWithTimestamps,
+    getSourceCellTimestamps,
+    type SourceCellMapEntry,
+} from "./utils/sourceCellTimestampsUtils";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -140,6 +147,484 @@ function getDocumentSegment(document: CodexCellDocument): string {
     return "UNKNOWN";
 }
 
+type VideoKind = "url" | "local" | "none";
+
+/** Classify a stored video reference as a remote URL, a local file, or empty. */
+function classifyVideo(videoUrl: string | undefined | null): VideoKind {
+    if (!videoUrl) {
+        return "none";
+    }
+    return isHttpVideoUrl(videoUrl) ? "url" : "local";
+}
+
+/**
+ * Show the appropriate replace/delete confirmation when the current video is a
+ * local file. Returns true to proceed. URL/empty sources need no confirmation
+ * (there is no local file to delete), so they return true immediately.
+ */
+async function confirmVideoReplacement(
+    oldKind: VideoKind,
+    newKind: VideoKind
+): Promise<boolean> {
+    // Nothing to confirm when there was no video to begin with.
+    if (oldKind === "none") {
+        return true;
+    }
+
+    const removing = newKind === "none";
+    const confirmLabel = removing ? "Remove" : "Replace";
+
+    let detail: string;
+    if (oldKind === "local") {
+        // A local file will actually be deleted from disk — always warn.
+        detail = removing
+            ? "Remove the current video? The local video file will be deleted from this project."
+            : "Replace the existing video? The current local video file will be deleted from this project.";
+    } else {
+        // URL source: nothing is deleted from disk, but confirm for consistency.
+        detail = removing
+            ? "Remove the current streamed video URL?"
+            : "Replace the current streamed video URL?";
+    }
+
+    const choice = await vscode.window.showWarningMessage(detail, { modal: true }, confirmLabel);
+    return choice === confirmLabel;
+}
+
+/**
+ * Imports a video file the user picked from the OS dialog into the project's
+ * attachments. This is deliberately run at *save* time (not at pick time) so
+ * that picking a file and then cancelling the metadata modal leaves the project
+ * untouched. It writes the bytes into files/ (and best-effort into pointers/),
+ * deletes any previous local video, and — in stream-only mode — offers to keep
+ * the file via the persisted allowlist.
+ *
+ * In stream-only mode the user is asked up front whether to keep the video.
+ * Cancelling that prompt aborts the import before anything is written/deleted,
+ * in which case this resolves to `null` and the existing video is left intact.
+ *
+ * @returns the workspace-relative path to store in `videoUrl`, or `null` if the
+ * user cancelled the import.
+ */
+async function importPickedVideoIntoProject(
+    document: CodexCellDocument,
+    sourceFsPath: string
+): Promise<string | null> {
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+    if (!workspaceFolder) {
+        throw new Error("No workspace folder found");
+    }
+
+    // Read the picked file (still at its original location on the user's disk).
+    const fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(sourceFsPath));
+
+    // Enforce a reasonable max size (1.5 GB) for video files.
+    const MAX_BYTES = 1.5 * 1024 * 1024 * 1024;
+    if (fileData.length > MAX_BYTES) {
+        throw new Error("Video file exceeds the maximum allowed size (1.5 GB).");
+    }
+
+    // In stream-only, a newly added local video would be reverted to an LFS
+    // pointer after the next sync (to free space), so ask up front whether to
+    // keep it saved in the project ("Save to project" → persisted allowlist) or
+    // treat it as a session-only stream ("Stream only"). Asking *before* any
+    // write means Cancel can abort the whole import cleanly — nothing is written
+    // and the previous video is left untouched. Other strategies never prompt.
+    let persistInStreamOnly = false;
+    try {
+        const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+        const strategy = (await getMediaFilesStrategy(workspaceFolder.uri)) ?? "auto-download";
+        if (strategy === "stream-only") {
+            const SAVE = "Save to project";
+            const STREAM = "Stream only";
+            const choice = await vscode.window.showInformationMessage(
+                "Save this video to the project?",
+                {
+                    modal: true,
+                    detail: "Save keeps it until you remove it. Stream only keeps it for this session.",
+                },
+                SAVE,
+                STREAM
+            );
+            // Cancel / dismissed (Escape) → abort the import entirely.
+            if (choice !== SAVE && choice !== STREAM) {
+                return null;
+            }
+            persistInStreamOnly = choice === SAVE;
+        }
+    } catch (storageChoiceErr) {
+        console.warn("Could not determine stream-only storage choice for video:", storageChoiceErr);
+    }
+
+    const documentSegment = getDocumentSegment(document);
+
+    // Generate a safe filename from the original file.
+    const originalFileName = path.basename(sourceFsPath);
+    const ext = path.extname(originalFileName).toLowerCase().slice(1);
+    const allowedExtensions = new Set(["mp4", "mkv", "avi", "mov", "webm", "m4v"]);
+    const safeExt = allowedExtensions.has(ext) ? ext : "mp4";
+    const baseName = path.basename(originalFileName, path.extname(originalFileName));
+    const sanitizedBaseName = baseName.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const fileName = `${sanitizedBaseName}.${safeExt}`;
+
+    const pointersDir = path.join(
+        workspaceFolder.uri.fsPath,
+        ".project",
+        "attachments",
+        "pointers",
+        documentSegment
+    );
+    const filesDir = path.join(
+        workspaceFolder.uri.fsPath,
+        ".project",
+        "attachments",
+        "files",
+        documentSegment
+    );
+
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(pointersDir));
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(filesDir));
+
+    const pointersPath = path.join(pointersDir, fileName);
+    const filesPath = path.join(filesDir, fileName);
+
+    // Atomic write helper (write to temp then rename).
+    const writeFileAtomically = async (finalFsPath: string, data: Uint8Array): Promise<void> => {
+        const tmpPath = `${finalFsPath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const tmpUri = vscode.Uri.file(tmpPath);
+        const finalUri = vscode.Uri.file(finalFsPath);
+        await vscode.workspace.fs.writeFile(tmpUri, data);
+        await vscode.workspace.fs.rename(tmpUri, finalUri, { overwrite: true });
+        try {
+            const stat = await vscode.workspace.fs.stat(finalUri);
+            if (typeof stat.size === "number" && stat.size !== data.length) {
+                console.warn("Size mismatch after write for", finalFsPath, {
+                    expected: data.length,
+                    actual: stat.size,
+                });
+            }
+        } catch {
+            // ignore stat issues
+        }
+    };
+
+    // Write actual file (primary). Pointer write is best-effort.
+    await writeFileAtomically(filesPath, fileData);
+    try {
+        await writeFileAtomically(pointersPath, fileData);
+    } catch (pointerErr) {
+        console.warn("Pointer write failed; proceeding with saved file only", pointerErr);
+    }
+
+    // Delete the previous local video (if any) now that the new file is written,
+    // skipping the freshly-written paths in case the replacement reuses the same
+    // filename.
+    const existingVideoUrl = document.getNotebookMetadata()?.videoUrl;
+    if (classifyVideo(existingVideoUrl) === "local") {
+        await deleteLocalVideoFiles(
+            existingVideoUrl,
+            workspaceFolder.uri,
+            new Set([filesPath, pointersPath])
+        );
+    }
+
+    const relativePath = toPosixPath(path.relative(workspaceFolder.uri.fsPath, filesPath));
+
+    // "Save to project" in stream-only → record the rel-path on the persisted
+    // allowlist so post-sync / strategy-switch cleanup never reverts this saved
+    // video to a pointer.
+    if (persistInStreamOnly) {
+        try {
+            const { addPersistedMediaFile } = await import("../../utils/localProjectSettings");
+            const FILES_SEG = "attachments/files/";
+            const savedRel = relativePath.includes(FILES_SEG)
+                ? relativePath.slice(relativePath.indexOf(FILES_SEG) + FILES_SEG.length)
+                : null;
+            if (savedRel) {
+                await addPersistedMediaFile(savedRel, workspaceFolder.uri);
+            }
+        } catch (storageChoiceErr) {
+            console.warn("Could not persist stream-only video to allowlist:", storageChoiceErr);
+        }
+    }
+
+    return relativePath;
+}
+
+/**
+ * Tracks stream-only "session cache" videos that were activated (downloaded)
+ * during the current extension-host session, keyed by `${projectPath}::${rel}`.
+ * Module-level so it is naturally empty after a reload, which is what makes a
+ * previously cached video re-stream on the next session.
+ */
+/**
+ * Resolve the best playable source for the chapter video and post it to the
+ * webview. Remote URLs play as-is; local files with real bytes are served via a
+ * webview URI; in stream-only, a video previously "Loaded" this session is
+ * served from the external cache (outside the project). LFS pointers are NOT
+ * streamed directly — instead we tell the webview the video needs downloading
+ * and what the active media strategy implies, so it can present the right
+ * action(s).
+ */
+/**
+ * Resolves the LFS pointer OID for a document's local (non-remote) chapter
+ * video, or `undefined` if there is no LFS-backed reference. Used to match a
+ * session-cache change against the right open editor.
+ */
+export async function getVideoPointerOidForDocument(
+    document: CodexCellDocument
+): Promise<string | undefined> {
+    const videoUrl = document.getNotebookMetadata()?.videoUrl;
+    if (!videoUrl || isHttpVideoUrl(videoUrl)) {
+        return undefined;
+    }
+    const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
+    if (!workspaceUri) {
+        return undefined;
+    }
+    const rel = getVideoWorkspaceRelativePath(videoUrl, workspaceUri);
+    if (!rel) {
+        return undefined;
+    }
+    const filesAbs = vscode.Uri.joinPath(workspaceUri, rel).fsPath;
+    const pointersRel = rel.includes("attachments/files/")
+        ? rel.replace("attachments/files/", "attachments/pointers/")
+        : rel;
+    const pointersAbs = vscode.Uri.joinPath(workspaceUri, pointersRel).fsPath;
+    const pointer =
+        (await parsePointerFile(filesAbs)) ?? (await parsePointerFile(pointersAbs));
+    return pointer?.oid;
+}
+
+export async function resolveAndPostVideoStreamUrl(
+    document: CodexCellDocument,
+    webviewPanel: vscode.WebviewPanel,
+    provider: CodexCellEditorProvider
+): Promise<void> {
+    const videoUrl = document.getNotebookMetadata()?.videoUrl;
+    if (!videoUrl) {
+        return;
+    }
+
+    // Remote URLs already stream directly via the browser.
+    if (isHttpVideoUrl(videoUrl)) {
+        provider.postMessageToWebview(webviewPanel, {
+            type: "updateVideoUrlInWebview",
+            content: videoUrl,
+        });
+        return;
+    }
+
+    const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
+    if (!workspaceUri) {
+        return;
+    }
+
+    // If a fetch for this video is already running (e.g. "Load video"/"Save to
+    // project" started from a navigation card), show the loading state instead
+    // of the "needs download" placeholder. The operation's completion path
+    // re-resolves this editor with the playable URL.
+    const { isVideoOperationInFlight } = await import("./utils/videoDownloadUtils");
+    if (isVideoOperationInFlight(workspaceUri, videoUrl)) {
+        provider.postMessageToWebview(webviewPanel, { type: "videoStreamResolving" });
+        return;
+    }
+
+    const rel = getVideoWorkspaceRelativePath(videoUrl, workspaceUri);
+    if (!rel) {
+        // Path outside the workspace — let processVideoUrl decide (likely null).
+        const direct = processVideoUrl(videoUrl, webviewPanel.webview);
+        if (direct) {
+            provider.postMessageToWebview(webviewPanel, {
+                type: "updateVideoUrlInWebview",
+                content: direct,
+            });
+        }
+        return;
+    }
+
+    const filesAbs = vscode.Uri.joinPath(workspaceUri, rel).fsPath;
+    const pointersRel = rel.includes("attachments/files/")
+        ? rel.replace("attachments/files/", "attachments/pointers/")
+        : rel;
+    const pointersAbs = vscode.Uri.joinPath(workspaceUri, pointersRel).fsPath;
+
+    let filesExists = false;
+    let filesIsPointer = true;
+    let filesSize = 0;
+    try {
+        const stat = await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
+        filesExists = true;
+        filesSize = stat.size;
+        filesIsPointer = await isPointerFile(filesAbs);
+    } catch {
+        filesExists = false;
+    }
+
+    // Real bytes saved locally → serve from disk via a webview URI. Append a
+    // content-based cache-buster (file size) so that when a file changes from a
+    // pointer to real bytes (e.g. after "Save to project"), the player fetches
+    // the new content instead of a stale cached response for the same URL.
+    if (filesExists && !filesIsPointer) {
+        const localUri = processVideoUrl(videoUrl, webviewPanel.webview);
+        if (localUri) {
+            const busted = `${localUri}${localUri.includes("?") ? "&" : "?"}v=${filesSize}`;
+            provider.postMessageToWebview(webviewPanel, {
+                type: "updateVideoUrlInWebview",
+                content: busted,
+            });
+            return;
+        }
+    }
+
+    // Recovery: files/ is a pointer or missing, but the pointers/ sibling still
+    // holds REAL bytes (e.g. an unsynced local video, or an interrupted strategy
+    // switch). Serve those directly from disk instead of re-downloading from LFS.
+    // The whole workspace is in the webview's localResourceRoots, so pointers/ is
+    // loadable. (Skip when pointersAbs === filesAbs — already handled above.)
+    if (pointersAbs !== filesAbs) {
+        try {
+            const pStat = await vscode.workspace.fs.stat(vscode.Uri.file(pointersAbs));
+            if (pStat.size > 0 && !(await isPointerFile(pointersAbs))) {
+                const pUri = webviewPanel.webview
+                    .asWebviewUri(vscode.Uri.file(pointersAbs))
+                    .toString();
+                const bustedPointer = `${pUri}${pUri.includes("?") ? "&" : "?"}v=${pStat.size}`;
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "updateVideoUrlInWebview",
+                    content: bustedPointer,
+                });
+                return;
+            }
+        } catch {
+            // pointers/ missing — fall through to normal LFS resolution.
+        }
+    }
+
+    const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+    const strategy = (await getMediaFilesStrategy(workspaceUri)) ?? "auto-download";
+
+    // Otherwise this is an LFS pointer (or missing). Confirm a pointer exists so
+    // the video is actually downloadable.
+    let pointer = filesExists && filesIsPointer ? await parsePointerFile(filesAbs) : null;
+    if (!pointer) {
+        pointer = await parsePointerFile(pointersAbs);
+    }
+
+    if (!pointer) {
+        provider.postMessageToWebview(webviewPanel, {
+            type: "videoStreamUnavailable",
+            reason: "not-found",
+            message:
+                "This video isn't available yet. It may still be syncing, or the file couldn't be found.",
+        });
+        return;
+    }
+
+    // In stream-only, a video "Loaded" earlier this session lives in the external
+    // cache (outside the project). Serve it from there so it doesn't re-download.
+    const { hasCachedVideo, getCachedVideoUri } = await import("../../utils/videoStreamCache");
+    const ext = path.extname(rel);
+    if (await hasCachedVideo(provider.extensionContext, pointer.oid, ext)) {
+        const cacheUri = getCachedVideoUri(provider.extensionContext, pointer.oid, ext);
+        if (cacheUri) {
+            provider.postMessageToWebview(webviewPanel, {
+                type: "updateVideoUrlInWebview",
+                content: webviewPanel.webview.asWebviewUri(cacheUri).toString(),
+            });
+            return;
+        }
+    }
+
+    provider.postMessageToWebview(webviewPanel, {
+        type: "videoNeedsDownload",
+        strategy,
+    });
+}
+
+/**
+ * Map the fine-grained {@link resolveVideoAvailability} result onto the coarse
+ * status the webview consumes ("saved"/"streamable" both collapse to
+ * "local-usable" — i.e. the "Show Video" toggle is offered for either).
+ */
+function toReferenceStatus(
+    availability: VideoAvailability
+): "none" | "url" | "local-usable" | "missing" {
+    if (availability === "saved" || availability === "streamable") {
+        return "local-usable";
+    }
+    return availability;
+}
+
+/**
+ * Whether the chapter video has an on-disk copy in the project (`files/`) that
+ * can be safely reverted to an LFS pointer to free disk space (and re-streamed
+ * on demand). Offered in stream-and-save (downloaded copy) and stream-only
+ * (a "Save to project" copy) — never auto-download (it would just re-download),
+ * and never the stream-only session cache (that lives in global storage and is
+ * already ephemeral). Requires a real local file AND a real LFS pointer backing
+ * it (so it isn't a local-unsynced file we'd lose).
+ */
+async function computeCanFreeVideoDiskSpace(document: CodexCellDocument): Promise<boolean> {
+    const videoUrl = document.getNotebookMetadata()?.videoUrl;
+    if (!videoUrl || isHttpVideoUrl(videoUrl)) {
+        return false;
+    }
+    const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
+    if (!workspaceUri) {
+        return false;
+    }
+    const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+    const strategy = (await getMediaFilesStrategy(workspaceUri)) ?? "auto-download";
+    if (strategy !== "stream-and-save" && strategy !== "stream-only") {
+        return false;
+    }
+
+    const rel = getVideoWorkspaceRelativePath(videoUrl, workspaceUri);
+    if (!rel) {
+        return false;
+    }
+    const filesAbs = vscode.Uri.joinPath(workspaceUri, rel).fsPath;
+    const pointersRel = rel.includes("attachments/files/")
+        ? rel.replace("attachments/files/", "attachments/pointers/")
+        : rel;
+    const pointersAbs = vscode.Uri.joinPath(workspaceUri, pointersRel).fsPath;
+
+    // Real bytes present in files/ (taking space)?
+    try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
+    } catch {
+        return false;
+    }
+    const filesIsPointer = await isPointerFile(filesAbs).catch(() => false);
+    if (filesIsPointer) {
+        return false;
+    }
+    // A real LFS pointer must back it so it can be re-streamed without data loss.
+    const pointer = await parsePointerFile(pointersAbs).catch(() => null);
+    return !!pointer;
+}
+
+/** Compute and push the chapter video reference status to the webview. */
+export async function postVideoReferenceStatus(
+    document: CodexCellDocument,
+    webviewPanel: vscode.WebviewPanel,
+    provider: CodexCellEditorProvider
+): Promise<void> {
+    const videoUrl = document.getNotebookMetadata()?.videoUrl;
+    const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
+    const { availability, sizeBytes } = await resolveVideoAvailability(videoUrl, workspaceUri);
+    const status = toReferenceStatus(availability);
+    const canFreeDiskSpace =
+        status === "local-usable" ? await computeCanFreeVideoDiskSpace(document) : false;
+    provider.postMessageToWebview(webviewPanel, {
+        type: "videoReferenceStatus",
+        status,
+        canFreeDiskSpace,
+        videoSizeBytes: status === "local-usable" ? sizeBytes : undefined,
+    });
+}
+
 // Get a reference to the provider
 function getProvider(): CodexCellEditorProvider | undefined {
     // Find the provider through the window object
@@ -206,13 +691,17 @@ export async function sendMilestoneRefreshToWebview(
         const cells = document.getCellsForMilestone(currentPosition.milestoneIndex, currentPosition.subsectionIndex, cellsPerPage);
         const processedCells = provider.mergeRangesAndProcess(cells, provider.isCorrectionEditorMode, isSourceText);
 
-        const sourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+        const sourceCellMap: Record<string, SourceCellMapEntry> = {};
         for (const cell of cells) {
             const cellId = cell.cellMarkers?.[0];
             if (cellId && document._sourceCellMap[cellId]) {
                 sourceCellMap[cellId] = document._sourceCellMap[cellId];
             }
         }
+        const enrichedSourceCellMap = await enrichSourceCellMapWithTimestamps(
+            document,
+            sourceCellMap
+        );
 
         const authApi = await provider.getAuthApi();
         const userInfo = await authApi?.getUserInfo();
@@ -227,7 +716,7 @@ export async function sendMilestoneRefreshToWebview(
             currentMilestoneIndex: currentPosition.milestoneIndex,
             currentSubsectionIndex: currentPosition.subsectionIndex,
             isSourceText: isSourceText,
-            sourceCellMap: sourceCellMap,
+            sourceCellMap: enrichedSourceCellMap,
             username: username,
             validationCount: validationCount,
             validationCountAudio: validationCountAudio,
@@ -484,6 +973,25 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             const config = vscode.workspace.getConfiguration("codex-editor-extension");
             let endpoint = config.get<string>("asrEndpoint", "http://localhost:8000/api/v1/asr/transcribe");
 
+            // ASR language plumbing — see sharedUtils/asrLanguageUtils.ts for the resolver
+            // contract. The webview drives "auto-detect" vs "use project language" via the
+            // gear menu on the Transcribe button; that picker is persisted to the workspace
+            // setting `asrLanguageMode`.
+            const { resolveOmniAsrCode } = await import("../../../sharedUtils/asrLanguageUtils");
+            const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
+            const targetLanguage = projectConfig.get<any>("targetLanguage") as
+                | { tag?: string; refName?: string; iso1?: string; iso2t?: string; iso2b?: string; }
+                | undefined;
+            const languageMode = (config.get<string>("asrLanguageMode", "project") === "auto"
+                ? "auto"
+                : "project") as "auto" | "project";
+            const scriptPref = config.get<string>("asrScriptPref", "auto");
+            const resolvedCode =
+                languageMode === "auto"
+                    ? undefined
+                    : resolveOmniAsrCode(targetLanguage, scriptPref);
+            const projectLanguageName = targetLanguage?.refName;
+
             let authToken: string | undefined;
 
             // Try to get authenticated endpoint from FrontierAPI
@@ -536,10 +1044,17 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 console.error(`[getAsrConfig] This will cause transcription to fail. Please check authentication status.`);
             }
 
-            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}`);
+            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}, lang=${resolvedCode}, mode=${languageMode}, scriptPref=${scriptPref}`);
             safePostMessageToPanel(webviewPanel, {
                 type: "asrConfig",
-                content: { endpoint, authToken }
+                content: {
+                    endpoint,
+                    authToken,
+                    lang: resolvedCode,
+                    languageMode,
+                    scriptPref,
+                    projectLanguageName,
+                },
             });
         } catch (error) {
             console.error("Error sending ASR config:", error);
@@ -549,14 +1064,46 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 type: "asrConfig",
                 content: {
                     endpoint: fallbackEndpoint,
-                    provider: "mms",
-                    model: "facebook/mms-1b-all",
-                    language: "eng",
-                    phonetic: false,
-                    authToken: undefined
+                    authToken: undefined,
+                    languageMode: "project",
                 }
             });
         }
+    },
+
+    setAsrLanguageMode: async ({ event, webviewPanel }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "setAsrLanguageMode"; }>;
+        const mode = typedEvent.content?.mode === "auto" ? "auto" : "project";
+        try {
+            await vscode.workspace
+                .getConfiguration("codex-editor-extension")
+                .update("asrLanguageMode", mode, vscode.ConfigurationTarget.Workspace);
+        } catch (err) {
+            console.warn("Failed to update asrLanguageMode", err);
+        }
+        // Rebroadcast so the webview can refresh its local asrConfig snapshot.
+        await messageHandlers.getAsrConfig({ webviewPanel } as any);
+    },
+
+    setAsrScriptPref: async ({ event, webviewPanel }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "setAsrScriptPref"; }>;
+        const rawPref = typedEvent.content?.scriptPref;
+        // Accept "auto", "latin", or any 4-letter ISO 15924 tag. Anything else falls back to "auto".
+        const isFourLetter = typeof rawPref === "string" && /^[A-Za-z]{4}$/.test(rawPref);
+        const normalized =
+            rawPref === "auto" || rawPref === "latin"
+                ? rawPref
+                : isFourLetter
+                    ? rawPref!.charAt(0).toUpperCase() + rawPref!.slice(1).toLowerCase()
+                    : "auto";
+        try {
+            await vscode.workspace
+                .getConfiguration("codex-editor-extension")
+                .update("asrScriptPref", normalized, vscode.ConfigurationTarget.Workspace);
+        } catch (err) {
+            console.warn("Failed to update asrScriptPref", err);
+        }
+        await messageHandlers.getAsrConfig({ webviewPanel } as any);
     },
 
     updateCellAfterTranscription: async ({ event, document, webviewPanel, provider }) => {
@@ -574,7 +1121,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 ...(attachment || {}),
                 transcription: {
                     content: transcribedText,
-                    language: language || "unknown",
+                    // `language` is the OmniASR `{iso639_3}_{Script}` code the server reported
+                    // (or null when the server ran in auto-detect mode and didn't echo one).
+                    // The webview labels the badge with `labelForTranscriptionLanguage()` from
+                    // sharedUtils/asrLanguageUtils.ts — never trust "language" to be a human
+                    // string here.
+                    language: language ?? null,
                     timestamp: Date.now(),
                 },
                 updatedAt: Date.now(),
@@ -1200,57 +1752,18 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const cellId = typedEvent.content.cellId;
 
         try {
-            const sourceCell = (await vscode.commands.executeCommand(
-                "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
-                cellId
-            )) as { cellId: string; content: string; } | null;
+            const { resolveCellHtmlStructure } = await import("./utils/htmlStructureResolver");
+            const resolved = await resolveCellHtmlStructure(cellId, document);
 
-            if (!sourceCell?.content) {
-                vscode.window.showWarningMessage("Could not find source cell content to resolve structure.");
+            if (!resolved) {
+                vscode.window.showWarningMessage("Could not find source or target cell content to resolve structure.");
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsResolvedHtmlStructure",
+                    content: { cellId, resolvedContent: "" },
+                });
                 return;
             }
 
-            const targetCell = document.getCellContent(cellId);
-            if (!targetCell) {
-                vscode.window.showWarningMessage("Could not find target cell.");
-                return;
-            }
-
-            const { callLLM, fetchCompletionConfig } = await import("../../utils/llmUtils");
-            const config = await fetchCompletionConfig();
-            const prompt = [
-                {
-                    role: "system" as const,
-                    content:
-                        "You fix structural mismatches between a source text and its translation. " +
-                        "The translation is missing some non-translatable elements that exist in the source. These can be:\n" +
-                        "1. USFM markers in angle brackets: <\\f + \\fr 1:7. \\ft>, <\\xt>, <11:44\\xt*>, <\\f*>\n" +
-                        "2. Line breaks: <br/>, <br>\n" +
-                        "3. Formatting tags: <strong>, </strong>, <em>, </em>, <b>, </b>, <i>, </i>, " +
-                        "<sup>, </sup>, <sub>, </sub>\n" +
-                        "4. Semantic spans: <span data-tag=\"...\"> and </span> (for bold, italic, small-caps, etc.)\n" +
-                        "5. Headings: <h1>–<h4> and their closing tags\n" +
-                        "6. Paragraph tags: <p>, </p>\n" +
-                        "Copy ALL missing elements EXACTLY from the source and place them at the corresponding position in the translation. " +
-                        "Keep ALL translated text unchanged. Do NOT revert any translated words back to the source language. " +
-                        "Return ONLY the corrected translation, no explanation.",
-                },
-                {
-                    role: "user" as const,
-                    content: `Source (with structural elements):\n${sourceCell.content}\n\nTranslation (missing elements):\n${targetCell.cellContent}\n\nReturn the translation with ALL missing structural elements inserted:`,
-                },
-            ];
-
-            const llmResult = await callLLM(prompt, config);
-
-            // Strip markdown code fences that LLMs often wrap around HTML output
-            let resolved = llmResult.content.trim();
-            const fenceMatch = resolved.match(/^```(?:html)?\s*\n?([\s\S]*?)\n?\s*```$/);
-            if (fenceMatch) {
-                resolved = fenceMatch[1].trim();
-            }
-
-            // Persist the resolved content to the document so it survives reload
             await document.updateCellContent(cellId, resolved, EditType.LLM_GENERATION);
             await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
 
@@ -1263,11 +1776,26 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             vscode.window.showErrorMessage(
                 `Failed to resolve HTML structure: ${error instanceof Error ? error.message : String(error)}`
             );
-            // Signal failure so the webview can reset the loading state
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerSendsResolvedHtmlStructure",
                 content: { cellId, resolvedContent: "" },
             });
+        }
+    },
+
+    requestResolveHtmlStructureBatch: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "requestResolveHtmlStructureBatch"; }>;
+        await provider.performResolveHtmlStructureBatch(
+            document,
+            webviewPanel,
+            typedEvent.content.cellIds,
+        );
+    },
+
+    stopResolveHtmlStructureBatch: ({ provider }) => {
+        const cancelled = provider.cancelResolveHtmlStructureBatch();
+        if (cancelled) {
+            vscode.window.showInformationMessage("Structure resolve operation stopped.");
         }
     },
 
@@ -1453,6 +1981,71 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateNotebookMetadata"; }>;
         debug("updateNotebookMetadata message received", { event });
         const newMetadata = typedEvent.content;
+
+        // A staged video pick is imported here, at save time, so that picking a
+        // file and then cancelling the modal leaves nothing behind. The import
+        // both writes the new file and deletes any previous local video, so it
+        // takes the place of the generic video-change guard below.
+        const pendingVideoFilePath = typedEvent.pendingVideoFilePath;
+        if (pendingVideoFilePath) {
+            try {
+                const imported = await importPickedVideoIntoProject(
+                    document,
+                    pendingVideoFilePath
+                );
+                // `null` means the user cancelled the import (nothing was written);
+                // keep whatever video was already saved.
+                newMetadata.videoUrl =
+                    imported ?? document.getNotebookMetadata()?.videoUrl ?? "";
+            } catch (error) {
+                console.error("Error saving video file:", error);
+                vscode.window.showErrorMessage(
+                    `Failed to save video file: ${error instanceof Error ? error.message : "Unknown error"}`
+                );
+                // Keep the previously saved video so a failed import doesn't drop it.
+                newMetadata.videoUrl = document.getNotebookMetadata()?.videoUrl ?? "";
+            }
+        }
+
+        // Guard the video field: if the user is replacing an existing local
+        // video (file -> URL, file -> file, or removal), confirm first and
+        // delete the old local file from files/ and pointers/. Skipped for a
+        // staged pick, which already handled the previous file during import.
+        const oldVideoUrl = document.getNotebookMetadata()?.videoUrl;
+        const newVideoUrl = newMetadata.videoUrl;
+        const videoChanged = (oldVideoUrl ?? "") !== (newVideoUrl ?? "");
+        if (!pendingVideoFilePath && videoChanged) {
+            const oldKind = classifyVideo(oldVideoUrl);
+            const newKind = classifyVideo(newVideoUrl);
+            if (oldKind === "local") {
+                // The metadata modal already runs a robust type-to-confirm step
+                // before any video removal/replace, so it sets skipVideoConfirm to
+                // avoid a redundant second prompt. Other callers still confirm.
+                const proceed = typedEvent.skipVideoConfirm
+                    ? true
+                    : await confirmVideoReplacement(oldKind, newKind);
+                if (!proceed) {
+                    // Revert the webview's optimistic edit by re-sending current
+                    // metadata, and restore the player's URL to the unchanged video.
+                    provider.postMessageToWebview(webviewPanel, {
+                        type: "providerUpdatesNotebookMetadataForWebview",
+                        content: document.getNotebookMetadata(),
+                    });
+                    await resolveAndPostVideoStreamUrl(document, webviewPanel, provider);
+                    return;
+                }
+
+                const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
+                if (workspaceUri) {
+                    // Cancel any in-flight download of the video being replaced so
+                    // it can't write back over the new selection (#1038).
+                    const { abortVideoOperation } = await import("./utils/videoDownloadUtils");
+                    abortVideoOperation(workspaceUri, oldVideoUrl);
+                    await deleteLocalVideoFiles(oldVideoUrl, workspaceUri);
+                }
+            }
+        }
+
         await document.updateNotebookMetadata(newMetadata);
         await document.save(new vscode.CancellationTokenSource().token);
 
@@ -1461,10 +2054,315 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             type: "providerUpdatesNotebookMetadataForWebview",
             content: await document.getNotebookMetadata(),
         });
+        await postVideoReferenceStatus(document, webviewPanel, provider);
     },
 
-    pickVideoFile: async ({ document, webviewPanel, provider }) => {
+    deleteVideoFile: async ({ document, webviewPanel, provider }) => {
+        debug("deleteVideoFile message received");
+        const currentVideoUrl = document.getNotebookMetadata()?.videoUrl;
+        const kind = classifyVideo(currentVideoUrl);
+        if (kind === "none") {
+            return;
+        }
+
+        const proceed = await confirmVideoReplacement(kind, "none");
+        if (!proceed) {
+            return;
+        }
+
+        if (kind === "local") {
+            const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
+            if (workspaceUri) {
+                // Cancel any in-flight download of this video first, so a finishing
+                // download can't write its bytes back over the file we delete (#1038).
+                const { abortVideoOperation } = await import("./utils/videoDownloadUtils");
+                abortVideoOperation(workspaceUri, currentVideoUrl);
+                await deleteLocalVideoFiles(currentVideoUrl, workspaceUri);
+            }
+        }
+
+        await document.updateNotebookMetadata({ videoUrl: "" });
+        await document.save(new vscode.CancellationTokenSource().token);
+
+        // Lightweight update instead of a full refresh: push the cleared metadata
+        // and a "none" reference status so the webview hides the toggle and closes
+        // the player if it's open.
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerUpdatesNotebookMetadataForWebview",
+            content: document.getNotebookMetadata(),
+        });
+        await postVideoReferenceStatus(document, webviewPanel, provider);
+    },
+
+    freeVideoDiskSpace: async ({ document, webviewPanel, provider }) => {
+        debug("freeVideoDiskSpace message received");
+        // Revert a downloaded stream-and-save video back to an LFS pointer to free
+        // disk space. The reference (videoUrl) is kept, so it re-streams on demand.
+        const videoUrl = document.getNotebookMetadata()?.videoUrl;
+        const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
+        if (!videoUrl || !workspaceUri || !(await computeCanFreeVideoDiskSpace(document))) {
+            return;
+        }
+
+        const proceed = await vscode.window.showInformationMessage(
+            "Free up space for this video?",
+            {
+                modal: true,
+                detail: "The downloaded file is removed and the video streams again on demand.",
+            },
+            "Free up space"
+        );
+        if (proceed !== "Free up space") {
+            return;
+        }
+
+        const { freeVideoFileToPointer } = await import("./utils/videoDownloadUtils");
+        await freeVideoFileToPointer(workspaceUri, videoUrl);
+
+        // Re-resolve playback (local bytes are gone → the player shows the
+        // download/stream action) and refresh the modal's reference status.
+        await resolveAndPostVideoStreamUrl(document, webviewPanel, provider);
+        await postVideoReferenceStatus(document, webviewPanel, provider);
+    },
+
+    requestVideoReferenceStatus: async ({ document, webviewPanel, provider }) => {
+        await postVideoReferenceStatus(document, webviewPanel, provider);
+    },
+
+    requestVideoStreamUrl: async ({ document, webviewPanel, provider }) => {
+        debug("requestVideoStreamUrl message received");
+        await resolveAndPostVideoStreamUrl(document, webviewPanel, provider);
+    },
+
+    downloadVideoFile: async ({ event, document, webviewPanel, provider }) => {
+        debug("downloadVideoFile message received");
+        // `persist` defaults to true so any non-stream-only mode keeps the file.
+        const persist = event.command === "downloadVideoFile" ? event.persist !== false : true;
+        const videoUrl = document.getNotebookMetadata()?.videoUrl;
+        if (!videoUrl || isHttpVideoUrl(videoUrl)) {
+            return;
+        }
+
+        const workspaceUri = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
+        if (!workspaceUri) {
+            return;
+        }
+
+        const rel = getVideoWorkspaceRelativePath(videoUrl, workspaceUri);
+        if (!rel) {
+            return;
+        }
+
+        const filesUri = vscode.Uri.joinPath(workspaceUri, rel);
+        const pointersRel = rel.includes("attachments/files/")
+            ? rel.replace("attachments/files/", "attachments/pointers/")
+            : rel;
+        const pointersUri = vscode.Uri.joinPath(workspaceUri, pointersRel);
+        const ext = path.extname(rel);
+
+        const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+        const strategy = (await getMediaFilesStrategy(workspaceUri)) ?? "auto-download";
+        // In stream-only, a plain "Load" is a temporary session cache stored
+        // outside the project; an explicit "Save to project" (persist) writes to
+        // files/. Every other strategy always keeps the file in files/.
+        const keepFile = persist || strategy !== "stream-only";
+
+        const { writeCachedVideo, hasCachedVideo, deleteCachedVideo } = await import(
+            "../../utils/videoStreamCache"
+        );
+
+        // If a saved copy already exists in files/, just play it.
+        if (!(await isPointerFile(filesUri.fsPath))) {
+            try {
+                await vscode.workspace.fs.stat(filesUri);
+                await resolveAndPostVideoStreamUrl(document, webviewPanel, provider);
+                return;
+            } catch {
+                // Not present; fall through to download.
+            }
+        }
+
+        const pointer =
+            (await parsePointerFile(filesUri.fsPath)) ?? (await parsePointerFile(pointersUri.fsPath));
+        if (!pointer) {
+            provider.postMessageToWebview(webviewPanel, {
+                type: "videoStreamUnavailable",
+                reason: "not-found",
+                message:
+                    "This video isn't available yet. It may still be syncing, or the file couldn't be found.",
+            });
+            return;
+        }
+
+        // A session cache from this session already exists → play it, no re-download.
+        if (!keepFile && (await hasCachedVideo(provider.extensionContext, pointer.oid, ext))) {
+            await resolveAndPostVideoStreamUrl(document, webviewPanel, provider);
+            return;
+        }
+
+        const authApi = getAuthApi();
+        if (!authApi?.downloadLFSFile) {
+            provider.postMessageToWebview(webviewPanel, {
+                type: "videoStreamUnavailable",
+                reason: "error",
+                message: "Cannot download: the Frontier Authentication extension is unavailable.",
+            });
+            return;
+        }
+
+        // Snapshot whatever files/ holds right now (a pointer stub, or nothing).
+        // A cancel can land while the downloaded bytes are being WRITTEN — after
+        // the pre-write abort check — and a large video's write takes real time.
+        // The post-write check below restores this exact pre-download state so a
+        // cancel always wins and no downloaded bytes remain saved.
+        let preDownloadStub: Uint8Array | undefined;
+        try {
+            preDownloadStub = await vscode.workspace.fs.readFile(filesUri);
+        } catch {
+            preDownloadStub = undefined; // absent — reverting means deleting
+        }
+
+        // Register the fetch so the user can cancel it from the progress
+        // notification, and so deleting/replacing the video mid-download aborts
+        // it and its bytes are never written back (issue #1038). Mirrors the
+        // navigation sidebar's "Get video" flow.
+        const { beginVideoOperation, endVideoOperation } = await import(
+            "./utils/videoDownloadUtils"
+        );
+        const controller = beginVideoOperation(workspaceUri, videoUrl);
+        try {
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: keepFile ? "Downloading and saving video…" : "Loading video…",
+                    cancellable: true,
+                },
+                async (_progress, token) => {
+                    token.onCancellationRequested(() => controller.abort());
+                    const buffer = await authApi.downloadLFSFile(
+                        workspaceUri.fsPath,
+                        pointer.oid,
+                        pointer.size,
+                        controller.signal
+                    );
+                    // Never write/play an incomplete file: require non-empty bytes
+                    // that match the pointer's expected size. A mismatch means the
+                    // download didn't fully succeed.
+                    const byteLength = buffer?.byteLength ?? 0;
+                    if (byteLength === 0) {
+                        throw new Error("Download returned no data.");
+                    }
+                    if (pointer.size > 0 && byteLength !== pointer.size) {
+                        throw new Error(
+                            `Downloaded ${byteLength} of ${pointer.size} bytes; the file is incomplete.`
+                        );
+                    }
+                    // The video may have been deleted/replaced (or the download
+                    // cancelled) while the fetch was in flight. Never write the
+                    // bytes back in that case (issue #1038).
+                    if (controller.signal.aborted) {
+                        throw new Error("Download cancelled.");
+                    }
+                    const bytes = new Uint8Array(buffer);
+                    if (keepFile) {
+                        // Permanent: write into the project (files/ is gitignored,
+                        // so this is local-only and survives reloads).
+                        await vscode.workspace.fs.createDirectory(
+                            vscode.Uri.joinPath(filesUri, "..")
+                        );
+                        await vscode.workspace.fs.writeFile(filesUri, bytes);
+                    } else {
+                        // Temporary session cache: write outside the project so
+                        // files/ stays a pointer. Cleared on reload.
+                        await writeCachedVideo(provider.extensionContext, pointer.oid, ext, bytes);
+                    }
+                    // A cancel (or delete/replace) that raced the write above:
+                    // honor it now by reverting to the pre-download state, so
+                    // the cancel wins and no downloaded bytes remain saved.
+                    if (controller.signal.aborted) {
+                        try {
+                            if (keepFile) {
+                                if (preDownloadStub) {
+                                    await vscode.workspace.fs.writeFile(filesUri, preDownloadStub);
+                                } else {
+                                    await vscode.workspace.fs.delete(filesUri);
+                                }
+                            } else {
+                                await deleteCachedVideo(provider.extensionContext, pointer.oid, ext);
+                            }
+                        } catch {
+                            // Best effort — worst case a complete (never partial) file remains.
+                        }
+                        throw new Error("Download cancelled.");
+                    }
+                }
+            );
+
+            if (keepFile) {
+                // Confirm the bytes actually landed on disk (not still a pointer)
+                // before we ever ask the webview to open it.
+                const writtenIsPointer = await isPointerFile(filesUri.fsPath).catch(() => true);
+                if (writtenIsPointer) {
+                    throw new Error("The video file is not available after download.");
+                }
+
+                // Only an explicit "Save to project" in stream-only needs the
+                // allowlist: other strategies keep files/ by design, and adding
+                // them would wrongly block a later switch to stream-only from
+                // freeing space. Record the rel-path so post-sync / strategy-switch
+                // cleanup never reverts this saved video to a pointer.
+                if (persist && strategy === "stream-only") {
+                    const FILES_SEG = "attachments/files/";
+                    const savedRel = rel.includes(FILES_SEG)
+                        ? rel.slice(rel.indexOf(FILES_SEG) + FILES_SEG.length)
+                        : null;
+                    if (savedRel) {
+                        const { addPersistedMediaFile } = await import("../../utils/localProjectSettings");
+                        await addPersistedMediaFile(savedRel, workspaceUri);
+                    }
+                }
+            }
+
+            // Verified bytes present (in files/ or the external cache) → resolves
+            // to a playable webview URI.
+            await resolveAndPostVideoStreamUrl(document, webviewPanel, provider);
+            // A "Save to project"/"download & save" now has a real local copy, so
+            // refresh the reference status to surface the "Free up space" action.
+            await postVideoReferenceStatus(document, webviewPanel, provider);
+        } catch (error) {
+            // An intentional cancel (progress button, or the video was deleted/
+            // replaced mid-download) is not an error — quietly reset the player.
+            if (controller.signal.aborted) {
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "videoStreamUnavailable",
+                    reason: "error",
+                    message: "Download cancelled.",
+                });
+                return;
+            }
+            const msg = error instanceof Error ? error.message : String(error);
+            const reason: "not-authenticated" | "error" = /not authenticated|log in/i.test(msg)
+                ? "not-authenticated"
+                : "error";
+            provider.postMessageToWebview(webviewPanel, {
+                type: "videoStreamUnavailable",
+                reason,
+                message: `Download failed: ${msg}`,
+            });
+        } finally {
+            endVideoOperation(workspaceUri, videoUrl);
+        }
+    },
+
+    pickVideoFile: async ({ webviewPanel, provider }) => {
         debug("pickVideoFile message received");
+
+        // Stage the selection only — the file is NOT written into the project
+        // here. The metadata modal shows it as a pending video and the host
+        // imports it (writing files/pointers + deleting any previous local
+        // video) when the user clicks "Save Changes" (see
+        // updateNotebookMetadata's pendingVideoFilePath). Cancelling the modal
+        // therefore leaves the project untouched.
         const result = await vscode.window.showOpenDialog({
             canSelectMany: false,
             openLabel: "Select Video File",
@@ -1473,97 +2371,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             },
         });
         const fileUri = result?.[0];
-        if (fileUri) {
-            try {
-                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-                if (!workspaceFolder) {
-                    throw new Error("No workspace folder found");
-                }
-
-                // Read the video file content
-                const fileData = await vscode.workspace.fs.readFile(fileUri);
-
-                // Enforce a reasonable max size (e.g., 600 MB) for video files
-                const MAX_BYTES = 600 * 1024 * 1024;
-                if (fileData.length > MAX_BYTES) {
-                    throw new Error("Video file exceeds maximum allowed size (500 MB)");
-                }
-
-                // Determine document segment
-                const documentSegment = getDocumentSegment(document);
-
-                // Generate safe filename from original file
-                const originalFileName = path.basename(fileUri.fsPath);
-                const ext = path.extname(originalFileName).toLowerCase().slice(1); // Remove leading dot
-                const allowedExtensions = new Set(["mp4", "mkv", "avi", "mov", "webm", "m4v"]);
-                const safeExt = allowedExtensions.has(ext) ? ext : "mp4";
-
-                // Sanitize filename (keep base name, replace unsafe chars)
-                const baseName = path.basename(originalFileName, path.extname(originalFileName));
-                const sanitizedBaseName = baseName.replace(/[^a-zA-Z0-9._-]/g, "-");
-                const fileName = `${sanitizedBaseName}.${safeExt}`;
-
-                // Create directory paths
-                const pointersDir = path.join(
-                    workspaceFolder.uri.fsPath,
-                    ".project",
-                    "attachments",
-                    "pointers",
-                    documentSegment
-                );
-                const filesDir = path.join(
-                    workspaceFolder.uri.fsPath,
-                    ".project",
-                    "attachments",
-                    "files",
-                    documentSegment
-                );
-
-                // Create directories if they don't exist
-                await vscode.workspace.fs.createDirectory(vscode.Uri.file(pointersDir));
-                await vscode.workspace.fs.createDirectory(vscode.Uri.file(filesDir));
-
-                const pointersPath = path.join(pointersDir, fileName);
-                const filesPath = path.join(filesDir, fileName);
-
-                // Atomic write helper (write to temp then rename)
-                const writeFileAtomically = async (finalFsPath: string, data: Uint8Array): Promise<void> => {
-                    const tmpPath = `${finalFsPath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                    const tmpUri = vscode.Uri.file(tmpPath);
-                    const finalUri = vscode.Uri.file(finalFsPath);
-                    await vscode.workspace.fs.writeFile(tmpUri, data);
-                    await vscode.workspace.fs.rename(tmpUri, finalUri, { overwrite: true });
-                    // Optional sanity check to ensure size matches
-                    try {
-                        const stat = await vscode.workspace.fs.stat(finalUri);
-                        if (typeof stat.size === 'number' && stat.size !== data.length) {
-                            console.warn("Size mismatch after write for", finalFsPath, { expected: data.length, actual: stat.size });
-                        }
-                    } catch {
-                        // ignore stat issues
-                    }
-                };
-
-                // Write actual file (primary). Pointer write is best-effort.
-                await writeFileAtomically(filesPath, fileData);
-                try {
-                    await writeFileAtomically(pointersPath, fileData);
-                } catch (pointerErr) {
-                    console.warn("Pointer write failed; proceeding with saved file only", pointerErr);
-                }
-
-                // Store the files path in metadata (relative path from workspace root)
-                const relativePath = toPosixPath(path.relative(workspaceFolder.uri.fsPath, filesPath));
-                await document.updateNotebookMetadata({ videoUrl: relativePath });
-                await document.save(new vscode.CancellationTokenSource().token);
-                provider.refreshWebview(webviewPanel, document);
-            } catch (error) {
-                console.error("Error saving video file:", error);
-                vscode.window.showErrorMessage(
-                    `Failed to save video file: ${error instanceof Error ? error.message : "Unknown error"}`
-                );
-            }
+        if (!fileUri) {
+            return;
         }
+
+        provider.postMessageToWebview(webviewPanel, {
+            type: "videoFilePicked",
+            fsPath: fileUri.fsPath,
+            fileName: path.basename(fileUri.fsPath),
+        });
     },
 
     replaceDuplicateCells: ({ event, document }) => {
@@ -2534,6 +3350,38 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
+    requestSourceCellTimestamps: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "requestSourceCellTimestamps"; }>;
+        const cellId = typedEvent.content.cellId;
+
+        try {
+            const timestamps = await getSourceCellTimestamps(document, cellId);
+
+            if (!timestamps) {
+                vscode.window.showWarningMessage(
+                    `Could not find source timestamps for cell ${cellId}.`
+                );
+            }
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsSourceCellTimestamps",
+                content: {
+                    cellId,
+                    timestamps,
+                },
+            });
+        } catch (error) {
+            console.error("Error fetching source cell timestamps:", error);
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsSourceCellTimestamps",
+                content: {
+                    cellId,
+                    timestamps: undefined,
+                },
+            });
+        }
+    },
+
     saveAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "saveAudioAttachment"; }>;
         const requestId = typedEvent.requestId;
@@ -2711,14 +3559,21 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                     const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
                                     const filesAbs = path.join(workspaceFolder.uri.fsPath, filesRel);
                                     try {
+                                        // files/ is authoritative when present: a pointer stub →
+                                        // not downloaded, real bytes → downloaded.
                                         await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
                                         const { isPointerFile } = await import("../../utils/lfsHelpers");
                                         const isPtr = await isPointerFile(filesAbs).catch(() => false);
                                         if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
                                     } catch {
-                                        const pointerAbs = filesAbs.includes("/.project/attachments/files/")
-                                            ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
-                                            : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
+                                        // files/ absent — fall back to pointers/ (undownloaded media).
+                                        // Swap files/→pointers/ on a POSIX-normalized path so this
+                                        // works on Windows too (path.join yields backslashes, which
+                                        // never match a hardcoded forward-slash needle).
+                                        const filesPosix = toPosixPath(filesAbs);
+                                        const pointerAbs = filesPosix.includes("/.project/attachments/files/")
+                                            ? filesPosix.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
+                                            : filesPosix.replace(".project/attachments/files/", ".project/attachments/pointers/");
                                         try {
                                             await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
                                             hasAvailablePointer = true;
@@ -3121,7 +3976,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     confirmCellMerge: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "confirmCellMerge"; }>;
-        const { currentCellId, previousCellId, currentContent, previousContent, message } = typedEvent.content;
+        const { currentCellId, previousCellId, currentContent, previousContent } = typedEvent.content;
 
         debug("confirmCellMerge message received for cells:", { currentCellId, previousCellId });
 
@@ -3149,45 +4004,36 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
 
-            // No child cells found, proceed with existing confirmation flow
-            const confirmed = await vscode.window.showWarningMessage(
-                message,
-                { modal: false },
-                "Yes",
-                "No"
-            );
-
-            if (confirmed === "Yes") {
-                // User confirmed, proceed with merge
-                const mergeEvent: EditorPostMessages = {
-                    command: "mergeCellWithPrevious" as const,
-                    content: {
-                        currentCellId,
-                        previousCellId,
-                        currentContent,
-                        previousContent
-                    }
-                };
-
-                // Call the existing merge handler
-                await messageHandlers.mergeCellWithPrevious({
-                    event: mergeEvent,
-                    document,
-                    webviewPanel,
-                    provider,
-                    updateWebview: () => {
-                        provider.refreshWebview(webviewPanel, document);
-                    }
-                });
-
-                // Only merge in target if we're working with a source file
-                if (isSourceFile) {
-                    const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-                    if (!workspaceFolder) {
-                        throw new Error("No workspace folder found");
-                    }
-                    await provider.mergeMatchingCellsInTargetFile(currentCellId, previousCellId, document.uri.toString(), workspaceFolder);
+            // No child cells found. Confirmation already happened in the webview modal, so
+            // proceed directly with the merge.
+            const mergeEvent: EditorPostMessages = {
+                command: "mergeCellWithPrevious" as const,
+                content: {
+                    currentCellId,
+                    previousCellId,
+                    currentContent,
+                    previousContent
                 }
+            };
+
+            // Call the existing merge handler
+            await messageHandlers.mergeCellWithPrevious({
+                event: mergeEvent,
+                document,
+                webviewPanel,
+                provider,
+                updateWebview: () => {
+                    provider.refreshWebview(webviewPanel, document);
+                }
+            });
+
+            // Only merge in target if we're working with a source file
+            if (isSourceFile) {
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (!workspaceFolder) {
+                    throw new Error("No workspace folder found");
+                }
+                await provider.mergeMatchingCellsInTargetFile(currentCellId, previousCellId, document.uri.toString(), workspaceFolder);
             }
         } catch (error) {
             console.error("Error in confirmCellMerge:", error);
@@ -3821,13 +4667,17 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             );
 
             // Build source cell map for these cells
-            const sourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+            const sourceCellMap: Record<string, SourceCellMapEntry> = {};
             for (const cell of cells) {
                 const cellId = cell.cellMarkers?.[0];
                 if (cellId && document._sourceCellMap[cellId]) {
                     sourceCellMap[cellId] = document._sourceCellMap[cellId];
                 }
             }
+            const enrichedSourceCellMap = await enrichSourceCellMapWithTimestamps(
+                document,
+                sourceCellMap
+            );
 
             // Store the current milestone/subsection for this document to preserve position during updates
             provider.currentMilestoneSubsectionMap.set(document.uri.toString(), {
@@ -3843,7 +4693,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 subsectionIndex,
                 cells: processedCells,
                 allCellsInMilestone: processedAllCellsInMilestone,
-                sourceCellMap,
+                sourceCellMap: enrichedSourceCellMap,
             });
 
             debug(`Sent cells for milestone ${milestoneIndex}, subsection ${subsectionIndex}: ${processedCells.length} cells`);

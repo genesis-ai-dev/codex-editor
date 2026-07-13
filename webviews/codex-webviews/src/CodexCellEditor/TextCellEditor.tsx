@@ -10,6 +10,7 @@ import {
 import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import Editor, { EditorHandles } from "./Editor";
 import { getCleanedHtml } from "./utils";
+import { formatTimecode } from "@sharedUtils";
 import { CodexCellTypes } from "../../../../types/enums";
 import { AddParatextButton } from "./AddParatextButton";
 import ReactMarkdown from "react-markdown";
@@ -20,8 +21,10 @@ import { generateChildCellId } from "../../../../src/providers/codexCellEditorPr
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
+import { labelForTranscriptionLanguage } from "@sharedUtils/asrLanguageUtils";
 import { AudioValidationBadge } from "./AudioValidationBadge";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
+import { useAudioInputDevices, type MicAvailability } from "./hooks/useAudioInputDevices";
 import SourceTextDisplay from "./SourceTextDisplay";
 import { AudioHistoryViewer } from "./AudioHistoryViewer";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
@@ -32,6 +35,7 @@ import {
     getCachedAttachmentAudioDataUrl,
     setCachedAttachmentAudioDataUrl,
 } from "../lib/audioCache";
+import { setAudioDownloading } from "../lib/audioDownloadRegistry";
 import { globalAudioController } from "../lib/audioController";
 import { trimRecordingTail } from "../utils/audioProcessing";
 import { getAudioTabMode, audioRecorderHint, type AudioAvailability } from "./utils/audioViewMode";
@@ -90,6 +94,7 @@ import {
     RefreshCcw,
     ListOrdered,
     Mic,
+    MicOff,
     Play,
     Trash2,
     CircleDotDashed,
@@ -385,6 +390,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // Audio-related state
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
+    // Holds the partial audio captured when a recording was cut short by the
+    // mic going away; non-null drives the keep/discard prompt.
+    const [interruptedRecording, setInterruptedRecording] = useState<Blob | null>(null);
+    const [showInterruptedRecordingModal, setShowInterruptedRecordingModal] = useState(false);
     const [audioAuthor, setAudioAuthor] = useState<string | undefined>(undefined);
     const [audioDuration, setAudioDuration] = useState<number | null>(null);
     // While awaiting provider response, avoid showing "No audio attached" to prevent flicker
@@ -405,6 +414,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [recordingElapsedTime, setRecordingElapsedTime] = useState<number>(0);
     const audioSaveRequestIdRef = useRef<string | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
+    // Set true right before we stop the recorder because the mic became
+    // unavailable mid-recording (vs. the user pressing stop). `onstop` reads
+    // this to prompt keep/discard instead of silently saving the partial clip.
+    const recordingInterruptedRef = useRef<boolean>(false);
     const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
     /** Wall-clock end time for the active pre-record countdown (performance.now()). */
     const countdownEndTimeRef = useRef<number | null>(null);
@@ -478,8 +491,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
             return false;
         }
     });
+    // Timestamp of the user's most recent explicit "Re-record" click. In-flight
+    // audio loads (cache hydration / provider broadcasts) normally drop us back
+    // to the waveform via `setShowRecorder(false)`; if one resolves right after
+    // the user asks to re-record, that flip yanks them back to the waveform and
+    // causes a visible flicker + scroll jump. Audio-load hides are funneled
+    // through `hideRecorderAfterAudioLoad`, which honors this intent window so
+    // the user's explicit action wins the race.
+    const userRequestedRecorderAtRef = useRef<number>(0);
     const [isAudioLoading, setIsAudioLoading] = useState(false);
     const [isPlayAudioLoading, setIsPlayAudioLoading] = useState(false);
+    const [isMirrorSourceTimeLoading, setIsMirrorSourceTimeLoading] = useState(false);
     const [hasAudioHistory, setHasAudioHistory] = useState<boolean>(false);
     const [audioHistoryCount, setAudioHistoryCount] = useState<number>(0);
     const [audioWarning, setAudioWarning] = useState<string | null>(null);
@@ -497,12 +519,57 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const transcriptionClientRef = useRef<WhisperTranscriptionClient | null>(null);
     const [asrConfig, setAsrConfig] = useState<{
         endpoint: string;
-        provider: string;
-        model: string;
-        language: string; // ISO-639-3 expected by MMS; may be ISO-639-1 and mapped
-        phonetic: boolean;
         authToken?: string;
+        /** OmniASR code (e.g. `swh_Latn`) to send as `?lang=...`. Omitted in auto-detect mode. */
+        lang?: string;
+        /** What the user picked in the gear menu: "project" (default) or "auto". */
+        languageMode?: "auto" | "project";
+        /** Script preference: "auto" (best guess), "latin", or a 4-letter ISO 15924 tag. */
+        scriptPref?: string;
+        /** Project's target-language refName, used as fallback when the server doesn't echo `lang`. */
+        projectLanguageName?: string;
     } | null>(null);
+
+    /**
+     * Friendly label shown on the transcription badge.
+     *
+     * Auto-detect mode:
+     *   - Server echoed `lang` (LID succeeded) → show that language's friendly name.
+     *   - Server returned no `lang` (LID failed, OR client is talking to a legacy
+     *     endpoint without LID like the old `mms-zeroshot-asr` Modal app) →
+     *     **"Auto Detect"**. We deliberately do NOT fall back to the project
+     *     language here — the whole point of auto-detect is that we're not
+     *     assuming it's the project language.
+     *
+     * Project mode:
+     *   - Server echoed `lang` → show that.
+     *   - Server didn't echo but we sent a code → show what we sent.
+     *   - Otherwise fall back to the project language refName.
+     *
+     * Returns null → render no badge.
+     */
+    const transcriptionBadgeLabel: string | null = useMemo(() => {
+        if (!savedTranscription) return null;
+        const isAuto = asrConfig?.languageMode === "auto";
+        const serverLang = savedTranscription.language ?? null;
+        // In auto mode neither sentLang nor projectName are meaningful labels —
+        // we didn't send a code and we don't know that the speaker used the
+        // project's language. Force the labeller down its server-echo path only.
+        const sentLang = isAuto ? null : asrConfig?.lang ?? null;
+        const projectName = isAuto ? null : asrConfig?.projectLanguageName ?? null;
+        const friendly = labelForTranscriptionLanguage(serverLang, sentLang, projectName);
+        if (friendly) return friendly;
+        // No usable label and we're in auto mode → display "Auto Detect" rather
+        // than nothing, so the user can tell auto-detect ran but failed (or the
+        // endpoint they're hitting doesn't do server-side LID).
+        if (isAuto) return "Auto Detect";
+        return null;
+    }, [
+        savedTranscription,
+        asrConfig?.lang,
+        asrConfig?.languageMode,
+        asrConfig?.projectLanguageName,
+    ]);
 
     // Helper to smoothly center the editor. Coalesces multiple calls and
     // performs a single smooth scroll after layout settles.
@@ -532,6 +599,53 @@ const CellEditor: React.FC<CellEditorProps> = ({
             (window as any)?.initialData?.validationCountAudio ??
             undefined,
     };
+
+    // Microphone availability — drives the disabled state and warning under
+    // the recorder. Reacts live to both `devicechange` and permission changes
+    // so the UI stays in sync without a reload. See
+    // `hooks/useAudioInputDevices.ts` (top of file) for the in-code constant
+    // reviewers can flip to simulate "no microphone" / "permission denied"
+    // on machines with a working mic.
+    const {
+        noMicDetected,
+        micPermissionDenied,
+        micUnavailable,
+        reportRecorderError,
+        probeMicAccess,
+    } = useAudioInputDevices({ active: activeTab === "audio" && !isCellLocked });
+    // Mirror `micUnavailable` into a ref so guards inside callbacks (and
+    // setTimeout-deferred work like the auto-start path) can read the
+    // latest value without becoming stale closures.
+    const micUnavailableRef = useRef<boolean>(micUnavailable);
+    useEffect(() => {
+        micUnavailableRef.current = micUnavailable;
+    }, [micUnavailable]);
+    // Guards re-entry while the authoritative pre-record mic probe is running
+    // (the probe is async, so without this a second click could start a
+    // duplicate countdown).
+    const recordPrecheckInFlightRef = useRef(false);
+    // Ref for the runtime classifier so `startActualRecording`'s deps stay
+    // stable. `startActualRecording` is wrapped in `useCallback([audioUrl])`
+    // and changing its deps to include a new function on every render would
+    // ripple through several effects.
+    const reportRecorderErrorRef = useRef(reportRecorderError);
+    useEffect(() => {
+        reportRecorderErrorRef.current = reportRecorderError;
+    }, [reportRecorderError]);
+
+    // Probe real mic access (via a silent `getUserMedia` + immediate stop)
+    // whenever the user opens the audio tab. Chromium's Permissions API
+    // misreports the OS-level state on macOS and Windows, so this is the
+    // only way to disable the record button before the user clicks. The
+    // hook caches the result at module scope, so repeated tab opens and
+    // cell switches don't re-prompt or re-flash the OS recording indicator.
+    // Skipped for locked cells (the button is already disabled for other
+    // reasons; no point asking the OS for permission we won't use).
+    useEffect(() => {
+        if (activeTab !== "audio") return;
+        if (isCellLocked) return;
+        probeMicAccess();
+    }, [activeTab, isCellLocked, probeMicAccess]);
 
     const centerEditor = useCallback(() => {
         const el = cellEditorRef.current;
@@ -600,6 +714,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
             scrollTimeoutRef.current = null;
         }, 120);
     }, []);
+
+    // Window (ms) during which a just-issued "Re-record" intent suppresses an
+    // audio-load-driven swap back to the waveform.
+    const RECORDER_INTENT_WINDOW_MS = 1500;
+
+    // Hide the recorder in response to audio finishing loading — but only if the
+    // user hasn't just asked to re-record. This prevents an in-flight load from
+    // oscillating waveform↔recorder (and from triggering a scroll jump). When the
+    // user's intent is active, we leave the recorder up and skip the scroll.
+    const hideRecorderAfterAudioLoad = useCallback(
+        (opts?: { scroll?: boolean }) => {
+            if (Date.now() - userRequestedRecorderAtRef.current < RECORDER_INTENT_WINDOW_MS) {
+                return;
+            }
+            setShowRecorder(false);
+            if (opts?.scroll) {
+                scrollEditorBottomIntoView();
+            }
+        },
+        [scrollEditorBottomIntoView]
+    );
 
     // Conditionally scrolls only when part of the editor is hidden. Used when
     // opening a cell so we don't "jump" the page if the editor already fits in
@@ -773,6 +908,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 },
             });
 
+            // Successful stream acquisition is the ground-truth signal that
+            // mic access works. Clear any previous runtime-reported denial so
+            // the UI recovers without waiting for a (potentially unreliable)
+            // OS-level permission event.
+            reportRecorderErrorRef.current?.(null);
+
             const mediaRecorderOptions: MediaRecorderOptions = {};
             try {
                 if (typeof MediaRecorder !== "undefined") {
@@ -791,6 +932,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
             const recorder = new MediaRecorder(stream, mediaRecorderOptions);
 
             audioChunksRef.current = [];
+
+            // If the mic disappears mid-recording — device unplugged, or OS
+            // permission revoked while capturing — the audio track fires
+            // `ended`. Stop immediately so we persist the partial clip rather
+            // than continuing with a dead/silent stream, and surface the
+            // unavailability so the UI greys out without waiting on a
+            // (sometimes unreliable) device/permission event.
+            const handleMidRecordingMicLoss = () => {
+                reportRecorderErrorRef.current?.(
+                    Object.assign(new Error("Microphone disconnected"), {
+                        name: "NotFoundError",
+                    })
+                );
+                setRecordingStatus("Microphone disconnected");
+                if (recorder.state !== "inactive") {
+                    // Mark this as an interruption so `onstop` prompts the user
+                    // to keep or discard rather than auto-saving.
+                    recordingInterruptedRef.current = true;
+                    recorder.stop();
+                }
+            };
 
             recorder.ondataavailable = (e) => {
                 if (e.data.size > 0) {
@@ -814,7 +976,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 // Release the microphone immediately — no further data will
                 // arrive after stop, and holding the tracks open delays the
                 // OS-level recording indicator from turning off.
+                stream.getAudioTracks().forEach((track) => {
+                    track.removeEventListener("ended", handleMidRecordingMicLoss);
+                });
                 stream.getTracks().forEach((track) => track.stop());
+
+                const rawBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+
+                // If the mic became unavailable mid-recording we got here via an
+                // interruption, not a user-initiated stop. Don't silently save a
+                // half-finished clip — hand the raw audio to a keep/discard
+                // prompt and let the user decide. Skip the trailing trim too:
+                // there's no "stop click" to remove, and trimming would drop
+                // real audio from the abrupt end.
+                if (recordingInterruptedRef.current) {
+                    recordingInterruptedRef.current = false;
+                    setInterruptedRecording(rawBlob);
+                    setShowInterruptedRecordingModal(true);
+                    return;
+                }
 
                 // Trim a short tail off the recording to remove the click
                 // sound from the user pressing stop. Mirrors the leading
@@ -822,7 +1002,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 // a small notice in the recorder UI. If the trim fails
                 // (decoder error, very short clip, etc.) the helper returns
                 // the original blob unchanged.
-                const rawBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
                 const blob = await trimRecordingTail(rawBlob, RECORDING_TAIL_TRIM_MS);
 
                 setAudioBlob(blob);
@@ -843,10 +1022,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 setShowRecorder(false);
             };
 
+            stream.getAudioTracks().forEach((track) => {
+                track.addEventListener("ended", handleMidRecordingMicLoss);
+            });
+
             recorder.start();
             setMediaRecorder(recorder);
         } catch (err) {
-            setRecordingStatus("Microphone access denied");
+            // Promote the raw error to a typed availability state so the UI
+            // flips to the right warning (grey slashed mic + "Access denied"
+            // alert for `NotAllowedError`, "No microphone detected" for
+            // `NotFoundError`). The hook ignores unrecognized error names so
+            // transient failures don't accidentally disable recording.
+            reportRecorderErrorRef.current?.(err);
+            const errName = (err as { name?: string } | null)?.name;
+            const statusMessage =
+                errName === "NotFoundError" || errName === "DevicesNotFoundError"
+                    ? "No microphone detected"
+                    : "Microphone access denied";
+            setRecordingStatus(statusMessage);
             console.error("Error accessing microphone:", err);
             setCountdown(null);
             setIsStartingRecording(false);
@@ -895,6 +1089,54 @@ const CellEditor: React.FC<CellEditorProps> = ({
         [clearRecordingCountdownTimer]
     );
 
+    // Switch the audio tab into the recorder view (used by the waveform's
+    // "Re-record" button and the download view's record affordance). Records
+    // the user-intent timestamp so an in-flight audio load can't immediately
+    // bounce us back to the waveform (see `hideRecorderAfterAudioLoad`).
+    const handleShowRecorder = useCallback(() => {
+        userRequestedRecorderAtRef.current = Date.now();
+        setShowRecorder(true);
+        setCountdown(null);
+        setRecordingStartTime(null);
+        setRecordingElapsedTime(0);
+        clearRecordingCountdownTimer();
+        if (recordingTimerRef.current) {
+            clearInterval(recordingTimerRef.current);
+            recordingTimerRef.current = null;
+        }
+    }, [clearRecordingCountdownTimer]);
+
+    // Keep the partial audio captured before the mic was lost: run it through
+    // the normal save path (URL + cell persistence) just like a clean stop.
+    const handleKeepInterruptedRecording = useCallback(() => {
+        const blob = interruptedRecording;
+        setShowInterruptedRecordingModal(false);
+        setInterruptedRecording(null);
+        if (!blob) {
+            return;
+        }
+        setAudioBlob(blob);
+        if (audioUrl) {
+            URL.revokeObjectURL(audioUrl);
+        }
+        const url = URL.createObjectURL(blob);
+        setAudioUrl(url);
+        setRecordingStatus("Recording complete");
+        saveAudioToCellRef.current?.(blob);
+        setShowRecorder(false);
+    }, [interruptedRecording, audioUrl]);
+
+    // Discard the interrupted clip entirely and return to the recorder so the
+    // user can try again once the mic is back. Nothing is persisted, so any
+    // previously saved audio for the cell is left untouched.
+    const handleDiscardInterruptedRecording = useCallback(() => {
+        setShowInterruptedRecordingModal(false);
+        setInterruptedRecording(null);
+        audioChunksRef.current = [];
+        setRecordingStatus("");
+        setShowRecorder(true);
+    }, []);
+
     // Recording elapsed time tracker - updates every 100ms while recording
     useEffect(() => {
         if (!isRecording || recordingStartTime === null) {
@@ -920,6 +1162,46 @@ const CellEditor: React.FC<CellEditorProps> = ({
             }
         };
     }, [isRecording, recordingStartTime]);
+
+    // React the instant the mic becomes unavailable (unplugged, or permission
+    // revoked in OS settings) rather than letting an in-progress flow run to a
+    // dead end:
+    //   • during the pre-record countdown / warmup → cancel it before it tries
+    //     (and fails) to open a stream, leaving the button greyed-out.
+    //   • mid-recording → stop the recorder now so we persist what was captured
+    //     instead of streaming silence (mid-recording device removal is also
+    //     caught immediately by the track `ended` listener in
+    //     `startActualRecording`; this covers detections surfaced by the hook).
+    useEffect(() => {
+        if (!micUnavailable) {
+            return;
+        }
+        const reason = micPermissionDenied ? "Microphone access denied" : "No microphone detected";
+
+        if (countdown !== null || isStartingRecording) {
+            clearRecordingCountdownTimer();
+            setCountdown(null);
+            setIsStartingRecording(false);
+            setRecordingStatus(reason);
+        }
+
+        if (isRecording && mediaRecorder && mediaRecorder.state !== "inactive") {
+            // `onstop` releases the tracks and the elapsed-time interval clears
+            // itself when `isRecording` flips false. Flag the interruption so
+            // `onstop` prompts the user to keep/discard the partial clip.
+            recordingInterruptedRef.current = true;
+            mediaRecorder.stop();
+            setRecordingStatus(reason);
+        }
+    }, [
+        micUnavailable,
+        micPermissionDenied,
+        countdown,
+        isStartingRecording,
+        isRecording,
+        mediaRecorder,
+        clearRecordingCountdownTimer,
+    ]);
 
     // Helper function to request audio timestamps for a cell
     const requestCellAudioTimestamps = useCallback((cellId: string): Promise<Timestamps | null> => {
@@ -1338,8 +1620,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
             audioAttachments?.[nextCellId] === "available-local" ||
             audioAttachments?.[nextCellId] === "available-pointer" ||
             audioAttachments?.[nextCellId] === "available-cached");
-    const canPlayAudioWithVideo =
-        Boolean(audioBlob) || hasPrevAudioAvailable || hasNextAudioAvailable;
 
     // Helper function to request audio blob for a cell
     const requestAudioBlob = useCallback((cellId: string): Promise<Blob | null> => {
@@ -1639,6 +1919,82 @@ const CellEditor: React.FC<CellEditorProps> = ({
         };
     }, []);
 
+    const requestSourceCellTimestamps = useCallback(
+        (cellId: string): Promise<Timestamps | null> => {
+            return new Promise((resolve) => {
+                let resolved = false;
+                const timeout = setTimeout(() => {
+                    if (!resolved) {
+                        resolved = true;
+                        window.removeEventListener("message", handler);
+                        resolve(null);
+                    }
+                }, 5000);
+
+                const handler = (event: MessageEvent) => {
+                    const message = event.data;
+
+                    if (
+                        message?.type === "providerSendsSourceCellTimestamps" &&
+                        message.content?.cellId === cellId
+                    ) {
+                        if (!resolved) {
+                            resolved = true;
+                            clearTimeout(timeout);
+                            window.removeEventListener("message", handler);
+                            resolve(message.content.timestamps || null);
+                        }
+                    }
+                };
+
+                window.addEventListener("message", handler);
+                window.vscodeApi.postMessage({
+                    command: "requestSourceCellTimestamps",
+                    content: { cellId },
+                } as EditorPostMessages);
+            });
+        },
+        []
+    );
+
+    const handleMirrorSourceTime = useCallback(async () => {
+        setIsMirrorSourceTimeLoading(true);
+        try {
+            const cellId = cellMarkers[0];
+            let sourceTimestamps =
+                sourceCellMap?.[cellId]?.timestamps ?? (await requestSourceCellTimestamps(cellId));
+
+            if (
+                !sourceTimestamps ||
+                typeof sourceTimestamps.startTime !== "number" ||
+                typeof sourceTimestamps.endTime !== "number"
+            ) {
+                return;
+            }
+
+            setContentBeingUpdated({
+                ...contentBeingUpdatedRef.current,
+                cellMarkers: contentBeingUpdatedRef.current.cellMarkers ?? cellMarkers,
+                cellTimestamps: {
+                    startTime: sourceTimestamps.startTime,
+                    endTime: sourceTimestamps.endTime,
+                },
+                cellChanged: true,
+            });
+            setUnsavedChanges(true);
+            debouncedInvalidateCombinedAudio();
+        } finally {
+            setIsMirrorSourceTimeLoading(false);
+        }
+    }, [
+        cellMarkers,
+        sourceCellMap,
+        debouncedInvalidateCombinedAudio,
+        requestSourceCellTimestamps,
+        setContentBeingUpdated,
+        setUnsavedChanges,
+    ]);
+
     // Handler to play audio blob with synchronized video playback
     const handlePlayAudioWithVideo = useCallback(async () => {
         // Validate prerequisites
@@ -1656,6 +2012,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
 
         setIsPlayAudioLoading(true);
+        // This cell-scoped preview owns the shared video for [startTime, endTime];
+        // suppress the multi-cell audio overlay so it can't play other cells'
+        // recorded audio over (or past) this section. Cleared when the video
+        // stops (isVideoPlaying → false in useMultiCellAudioPlayback), or in the
+        // finally below if nothing ends up playing.
+        globalAudioController.setVideoPreviewActive(true);
         try {
             // Clean up any existing playback
             if (audioElementRef.current) {
@@ -1796,14 +2158,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         combinedBlob = null;
                     }
                 } else {
-                    setAudioWarning("No audio available in the current video timestamp range");
-                    return;
+                    // No recorded audio overlaps this range — fall through and
+                    // play the video alone from the subtitle start time. Clear
+                    // any stale cached blob so we don't replay another cell's
+                    // audio over this video-only section.
+                    combinedBlob = null;
+                    setAudioWarning(null);
                 }
-            }
-
-            if (!combinedBlob) {
-                console.warn("No combined audio blob available");
-                return;
             }
 
             // Helper function to clean up all audio and video
@@ -1848,135 +2209,162 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 }
             };
 
-            // Create single audio element from combined blob
-            const audioUrl = URL.createObjectURL(combinedBlob);
-            overlappingAudioUrlsRef.current.set("combined", audioUrl);
-            const audio = new Audio(audioUrl);
-            audioElementRef.current = audio;
+            // Create single audio element from combined blob. Skipped when no
+            // recorded audio overlaps this range — the video then plays alone.
+            if (combinedBlob) {
+                const audioUrl = URL.createObjectURL(combinedBlob);
+                overlappingAudioUrlsRef.current.set("combined", audioUrl);
+                const audio = new Audio(audioUrl);
+                audioElementRef.current = audio;
 
-            // Set up audio event handlers
-            audio.onended = () => {
-                if (!videoElementRef.current) {
-                    cleanupAll();
-                }
-            };
-            audio.onerror = () => {
-                const error = audio.error;
-                // Only log if it's a real error (not just unsupported format - code 4)
-                // MediaError codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
-                if (error && error.code !== 4) {
-                    const errorMessage = error.message
-                        ? `Error loading combined audio: ${error.message}`
-                        : "Error loading combined audio";
-                    console.warn(errorMessage);
-                }
-            };
-
-            // Set up timeupdate listener to stop at endTime
-            const audioTimeUpdateHandler = (e: Event) => {
-                const target = e.target as HTMLAudioElement;
-                if (target.currentTime >= totalDuration) {
-                    target.pause();
-                    if (audioTimeUpdateHandlerRef.current) {
-                        target.removeEventListener("timeupdate", audioTimeUpdateHandlerRef.current);
-                        audioTimeUpdateHandlerRef.current = null;
+                // Set up audio event handlers
+                audio.onended = () => {
+                    if (!videoElementRef.current) {
+                        cleanupAll();
                     }
-                    cleanupAll();
-                }
-            };
-
-            audioTimeUpdateHandlerRef.current = audioTimeUpdateHandler;
-            audio.addEventListener("timeupdate", audioTimeUpdateHandler);
-
-            // Wait for audio to be ready
-            await new Promise<void>((resolve, reject) => {
-                const handleLoadedMetadata = () => {
-                    audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
-                    audio.removeEventListener("error", handleError);
-                    resolve();
                 };
-
-                const handleError = () => {
-                    audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
-                    audio.removeEventListener("error", handleError);
+                audio.onerror = () => {
                     const error = audio.error;
-                    const errorMessage = error?.message || "Error loading combined audio";
-                    reject(new Error(errorMessage));
+                    // Only log if it's a real error (not just unsupported format - code 4)
+                    // MediaError codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
+                    if (error && error.code !== 4) {
+                        const errorMessage = error.message
+                            ? `Error loading combined audio: ${error.message}`
+                            : "Error loading combined audio";
+                        console.warn(errorMessage);
+                    }
                 };
 
-                if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
-                    handleLoadedMetadata();
-                } else {
-                    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
-                    audio.addEventListener("error", handleError);
-                }
-            });
+                // Set up timeupdate listener to stop at endTime
+                const audioTimeUpdateHandler = (e: Event) => {
+                    const target = e.target as HTMLAudioElement;
+                    if (target.currentTime >= totalDuration) {
+                        target.pause();
+                        if (audioTimeUpdateHandlerRef.current) {
+                            target.removeEventListener(
+                                "timeupdate",
+                                audioTimeUpdateHandlerRef.current
+                            );
+                            audioTimeUpdateHandlerRef.current = null;
+                        }
+                        cleanupAll();
+                    }
+                };
+
+                audioTimeUpdateHandlerRef.current = audioTimeUpdateHandler;
+                audio.addEventListener("timeupdate", audioTimeUpdateHandler);
+
+                // Wait for audio to be ready
+                await new Promise<void>((resolve, reject) => {
+                    const handleLoadedMetadata = () => {
+                        audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+                        audio.removeEventListener("error", handleError);
+                        resolve();
+                    };
+
+                    const handleError = () => {
+                        audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+                        audio.removeEventListener("error", handleError);
+                        const error = audio.error;
+                        const errorMessage = error?.message || "Error loading combined audio";
+                        reject(new Error(errorMessage));
+                    };
+
+                    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
+                        handleLoadedMetadata();
+                    } else {
+                        audio.addEventListener("loadedmetadata", handleLoadedMetadata);
+                        audio.addEventListener("error", handleError);
+                    }
+                });
+            }
 
             // Handle video playback if available
             if (
                 shouldShowVideoPlayer &&
                 videoUrl &&
-                playerRef?.current &&
                 startTime !== undefined &&
                 endTime !== undefined
             ) {
                 try {
                     let videoElement: HTMLVideoElement | null = null;
                     let seeked = false;
+                    const player = playerRef?.current;
 
-                    // First try seekTo method if available
-                    if (typeof playerRef.current.seekTo === "function") {
-                        playerRef.current.seekTo(startTime, "seconds");
+                    // Duck-type a media element. For HLS/streaming sources
+                    // react-player v3 renders a custom element (e.g.
+                    // <hls-video>) whose real <video> lives in shadow DOM.
+                    // These elements are drop-in <video> replacements: they
+                    // expose play()/currentTime/muted/etc and proxy to the
+                    // inner video, so we can drive them directly without
+                    // reaching into the shadow root. A plain <video> matches
+                    // this too, covering the non-HLS case.
+                    const asMediaElement = (el: unknown): HTMLVideoElement | null => {
+                        const candidate = el as any;
+                        if (
+                            candidate &&
+                            typeof candidate === "object" &&
+                            typeof candidate.play === "function" &&
+                            typeof candidate.pause === "function" &&
+                            typeof candidate.addEventListener === "function" &&
+                            "currentTime" in candidate &&
+                            "paused" in candidate
+                        ) {
+                            return candidate as HTMLVideoElement;
+                        }
+                        return null;
+                    };
+
+                    // 1. The ref itself is the media element (native <video>
+                    //    or a media-compatible custom element like <hls-video>).
+                    videoElement = asMediaElement(player);
+
+                    // 2. Older API: seekTo method if available.
+                    if (!videoElement && typeof player?.seekTo === "function") {
+                        player.seekTo(startTime, "seconds");
                         seeked = true;
                     }
 
-                    // Try to find the video element
-                    const internalPlayer = playerRef.current.getInternalPlayer?.();
-
-                    if (internalPlayer instanceof HTMLVideoElement) {
-                        videoElement = internalPlayer;
-                        if (!seeked) {
-                            videoElement.currentTime = startTime;
-                            seeked = true;
-                        }
-                    } else if (internalPlayer && typeof internalPlayer === "object") {
-                        // Try different ways to access the video element
-                        const foundVideo =
-                            (internalPlayer as any).querySelector?.("video") ||
-                            (internalPlayer as any).video ||
-                            internalPlayer;
-
-                        if (foundVideo instanceof HTMLVideoElement) {
-                            videoElement = foundVideo;
-                            if (!seeked) {
-                                videoElement.currentTime = startTime;
-                                seeked = true;
-                            }
-                        }
+                    // 3. getInternalPlayer (react-player v2 style).
+                    if (!videoElement && player) {
+                        const internalPlayer = player.getInternalPlayer?.();
+                        videoElement =
+                            asMediaElement(internalPlayer) ||
+                            asMediaElement((internalPlayer as any)?.querySelector?.("video")) ||
+                            asMediaElement((internalPlayer as any)?.video);
                     }
 
-                    // Last resort: Try to find video element in the DOM
-                    if (!videoElement && playerRef.current) {
-                        const wrapper = playerRef.current as any;
-                        const foundVideo =
-                            wrapper.querySelector?.("video") ||
-                            wrapper.parentElement?.querySelector?.("video");
+                    // 4. Look for a <video> in light DOM near the ref, then in
+                    //    its shadow root (custom elements keep it there).
+                    if (!videoElement && player) {
+                        const wrapper = player as any;
+                        videoElement =
+                            asMediaElement(wrapper.querySelector?.("video")) ||
+                            asMediaElement(wrapper.parentElement?.querySelector?.("video")) ||
+                            asMediaElement(wrapper.shadowRoot?.querySelector?.("video"));
+                    }
 
-                        if (foundVideo instanceof HTMLVideoElement) {
-                            videoElement = foundVideo;
-                            if (!seeked) {
-                                videoElement.currentTime = startTime;
-                                seeked = true;
-                            }
-                        }
+                    // 5. Last resort: the editor renders a single player, so
+                    //    fall back to the only <video> in the document.
+                    if (!videoElement) {
+                        videoElement = asMediaElement(document.querySelector("video"));
+                    }
+
+                    // Seek to the subtitle start unless an API seek already did
+                    if (videoElement && !seeked) {
+                        videoElement.currentTime = startTime;
+                        seeked = true;
                     }
 
                     // If we found the video element, mute it and set up playback
                     if (videoElement) {
                         videoElementRef.current = videoElement;
                         previousVideoMuteStateRef.current = videoElement.muted;
-                        // Only mute if checkbox is checked
-                        videoElement.muted = muteVideoAudioDuringPlayback;
+                        // Mute only when recorded audio is overlaying the video
+                        // (the checkbox exists to avoid double audio). With no
+                        // recorded audio, play the video's own track so the
+                        // section isn't silent.
+                        videoElement.muted = combinedBlob ? muteVideoAudioDuringPlayback : false;
 
                         // Check if we're already past the end time (shouldn't happen, but be safe)
                         if (videoElement.currentTime >= endTime) {
@@ -2028,21 +2416,34 @@ const CellEditor: React.FC<CellEditorProps> = ({
             }
 
             // Play the combined audio using globalAudioController to prevent duplicate playback
-            // This ensures useMultiCellAudioPlayback knows audio is already playing
-            try {
-                await globalAudioController.playExclusive(audio);
-            } catch (playError) {
-                if (
-                    playError instanceof Error &&
-                    playError.name !== "AbortError" &&
-                    playError.name !== "NotAllowedError"
-                ) {
-                    console.error("Error playing combined audio:", playError);
-                    cleanupAll();
+            // This ensures useMultiCellAudioPlayback knows audio is already playing.
+            // Skipped for video-only playback where no audio element was created.
+            const audioToPlay = audioElementRef.current;
+            if (audioToPlay) {
+                try {
+                    await globalAudioController.playExclusive(audioToPlay);
+                } catch (playError) {
+                    if (
+                        playError instanceof Error &&
+                        playError.name !== "AbortError" &&
+                        playError.name !== "NotAllowedError"
+                    ) {
+                        console.error("Error playing combined audio:", playError);
+                        cleanupAll();
+                    }
                 }
             }
         } finally {
             setIsPlayAudioLoading(false);
+            // Normally the flag is cleared when the video stops (isVideoPlaying
+            // → false in useMultiCellAudioPlayback). But if nothing actually
+            // started here — no audio and the video isn't playing (not found, or
+            // play() was rejected) — that transition never happens, so clear it
+            // now to avoid leaving the overlay suppressed.
+            const videoPlaying = !!videoElementRef.current && !videoElementRef.current.paused;
+            if (!videoPlaying && !audioElementRef.current) {
+                globalAudioController.setVideoPreviewActive(false);
+            }
         }
     }, [
         audioBlob,
@@ -2113,6 +2514,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 }
                 videoElementRef.current = null;
             }
+
+            // Clear the preview flag in case the cell changed mid-preview, so the
+            // multi-cell overlay isn't left suppressed.
+            globalAudioController.setVideoPreviewActive(false);
         };
     }, [cellMarkers]);
 
@@ -2745,10 +3150,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // (backtranslation tab was removed; no automatic switching needed)
 
     // Audio recording functions
-    const startRecording = () => {
+    const startRecording = async () => {
         // Prevent recording if cell is locked
         if (isCellLocked) {
             setRecordingStatus("Cannot record: cell is locked");
+            return;
+        }
+
+        // Prevent recording — and importantly, the visible pre-record
+        // countdown — when no mic is available or permission is denied.
+        // Read from the ref so the auto-start path (deferred via setTimeout)
+        // sees the latest value rather than its captured render-time copy.
+        if (micUnavailableRef.current) {
+            setRecordingStatus(
+                micPermissionDenied ? "Microphone access denied" : "No microphone detected"
+            );
             return;
         }
 
@@ -2758,6 +3174,41 @@ const CellEditor: React.FC<CellEditorProps> = ({
         if (isRecording || countdown !== null || isStartingRecording) {
             return;
         }
+
+        // Authoritative pre-countdown mic check. The passive guard above can be
+        // stale: a permission revoked in OS settings while the editor was open
+        // doesn't always fire a reliable event (notably on Windows), so the
+        // cached/passive state may still say "available". Probe with a real
+        // `getUserMedia` (cache-bypassing) BEFORE the countdown so we never let
+        // the user count down to zero only to fail at the last moment. The OS
+        // indicator flash is acceptable here — the user explicitly asked to
+        // record. A re-entry guard prevents a duplicate countdown from a second
+        // click landing while this async probe is in flight.
+        if (recordPrecheckInFlightRef.current) {
+            return;
+        }
+        recordPrecheckInFlightRef.current = true;
+        setRecordingStatus("Checking microphone...");
+        let access: MicAvailability;
+        try {
+            access = await probeMicAccess({ force: true });
+        } finally {
+            recordPrecheckInFlightRef.current = false;
+        }
+        if (access !== "available") {
+            setRecordingStatus(
+                access === "permission-denied"
+                    ? "Microphone access denied"
+                    : "No microphone detected"
+            );
+            return;
+        }
+        // The probe may have taken a beat; bail if state changed underneath us
+        // (e.g. the user clicked stop, or recording already began).
+        if (isRecording || countdown !== null || isStartingRecording) {
+            return;
+        }
+        setRecordingStatus("");
 
         // Read configured countdown duration (set by the chapter header /
         // mobile menu and persisted in project settings). Default to 3.
@@ -3074,18 +3525,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 setTranscriptionStatus(`Error: ${error}`);
             };
 
-            // Perform transcription
-            const result = await client.transcribe(audioBlob);
+            // Perform transcription. In project-language mode `asrConfig.lang` is the OmniASR
+            // code we want OmniASR to bias toward. In auto-detect mode it's undefined so the
+            // server transcribes without language conditioning.
+            const sentLang = asrConfig?.languageMode === "auto" ? undefined : asrConfig?.lang;
+            const result = await client.transcribe(audioBlob, { lang: sentLang });
 
             // Success - save transcription but don't automatically insert
             const transcribedText = result.text.trim();
             if (transcribedText) {
-                // Save transcription to cell metadata
+                // Save transcription to cell metadata. Prefer the language the server echoed
+                // back; fall back to what we sent (the server used it silently). Both can be
+                // null in auto-detect mode — that's fine, the badge code handles that.
+                const echoedOrSentLang = result.lang ?? sentLang ?? null;
                 const audioId = sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
                 if (audioId) {
                     const transcriptionData = {
                         content: transcribedText,
                         timestamp: Date.now(),
+                        language: echoedOrSentLang ?? undefined,
                     };
 
                     // Save to cell metadata via provider
@@ -3094,7 +3552,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         content: {
                             cellId: cellMarkers[0],
                             transcribedText: transcribedText,
-                            language: "unknown",
+                            language: echoedOrSentLang,
                         },
                     };
                     window.vscodeApi.postMessage(messageContent);
@@ -3271,7 +3729,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         const resp = await fetch(cached);
                         const blob = await resp.blob();
                         setAudioBlob(blob);
-                        setShowRecorder(false);
+                        hideRecorderAfterAudioLoad();
                         setRecordingStatus("Audio loaded");
                         setIsAudioLoading(false);
                         setAudioFetchPending(false);
@@ -3292,6 +3750,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         if (shouldAutoDownload || isLocal) {
             setAudioFetchPending(true);
             setIsAudioLoading(true);
+            setAudioDownloading(cellMarkers[0], true);
             const messageContent: EditorPostMessages = {
                 command: "requestAudioForCell",
                 content: { cellId: cellMarkers[0] },
@@ -3468,11 +3927,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 const resp = await fetch(attachmentCached);
                                 const blob = await resp.blob();
                                 setAudioBlob(blob);
-                                setShowRecorder(false);
                                 setRecordingStatus("Audio loaded");
                                 setIsAudioLoading(false);
                                 setAudioFetchPending(false);
-                                scrollEditorBottomIntoView();
+                                hideRecorderAfterAudioLoad({ scroll: true });
                             } catch {
                                 /* ignore, fall through to normal flow */
                             }
@@ -3483,12 +3941,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
                     const autoFlag = (window as any).__autoDownloadAudioOnOpen;
                     const shouldAutoDownload = autoInit ? !!autoFlag : false;
-                    const stateForCell = audioAttachments?.[cellMarkers[0]];
+                    // Use the availability the provider just resolved for the NEWLY
+                    // selected attachment. The cell-level `audioAttachments` React
+                    // state is stale in this closure — it still reflects the
+                    // previously-selected attachment, which can be "available-local"
+                    // even when the one we just picked is only a pointer. Trusting it
+                    // would auto-download the new attachment despite the toggle being
+                    // off.
+                    const stateForCell =
+                        message.content.updatedAvailability ?? audioAttachments?.[cellMarkers[0]];
                     const isLocal = stateForCell === "available-local";
 
                     if (shouldAutoDownload || isLocal) {
                         setIsAudioLoading(true);
                         setAudioFetchPending(true);
+                        setAudioDownloading(cellMarkers[0], true);
                         window.vscodeApi.postMessage({
                             command: "requestAudioForCell",
                             content: { cellId: cellMarkers[0] },
@@ -3603,9 +4070,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     // so we self-correct if the broadcast really was right.
                     let __localAudioId: string | null = null;
                     try {
-                        __localAudioId = sessionStorage.getItem(
-                            `audio-id-${cellMarkers[0]}`
-                        );
+                        __localAudioId = sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
                     } catch {
                         /* ignore */
                     }
@@ -3656,6 +4121,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             shouldAutoDownload))
                 ) {
                     setIsAudioLoading(true);
+                    setAudioDownloading(cellMarkers[0], true);
                     const messageContent: EditorPostMessages = {
                         command: "requestAudioForCell",
                         content: { cellId: cellMarkers[0] },
@@ -3715,11 +4181,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         } catch {
                             /* empty */
                         }
-                        setShowRecorder(false);
                         setRecordingStatus("Audio loaded");
                         setIsAudioLoading(false);
                         setAudioFetchPending(false);
-                        scrollEditorBottomIntoView();
+                        hideRecorderAfterAudioLoad({ scroll: true });
                         if (message.content.transcription) {
                             setSavedTranscription({
                                 content: message.content.transcription.content,
@@ -3889,9 +4354,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         // until providerSendsAudioData re-hydrates it.
                         let localAudioId: string | null = null;
                         try {
-                            localAudioId = sessionStorage.getItem(
-                                `audio-id-${cellMarkers[0]}`
-                            );
+                            localAudioId = sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
                         } catch {
                             /* ignore */
                         }
@@ -4055,8 +4518,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     }}
                 />
                 <div className="flex justify-between text-xs text-muted-foreground mt-4">
-                    <span>Min: {formatTime(audioMinBound)}</span>
-                    <span>Max: {formatTime(audioMaxBound)}</span>
+                    <span>Min: {formatTimecode(audioMinBound)}</span>
+                    <span>Max: {formatTimecode(audioMaxBound)}</span>
                 </div>
             </>
         );
@@ -4162,8 +4625,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         }}
                     />
                     <div className="flex justify-between text-xs text-muted-foreground mt-2">
-                        <span>Min: {formatTime(Math.max(0, previousEndBound))}</span>
-                        <span>Max: {formatTime(computedMaxBound)}</span>
+                        <span>Min: {formatTimecode(Math.max(0, previousEndBound))}</span>
+                        <span>Max: {formatTimecode(computedMaxBound)}</span>
                     </div>
                 </>
             );
@@ -4527,6 +4990,35 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         >
                             Discard
                         </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Keep/discard prompt for a recording cut short by mic loss.
+                Dismissing (Esc / backdrop) defaults to Keep so we never silently
+                throw away captured audio. */}
+            <Dialog
+                open={showInterruptedRecordingModal}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        handleKeepInterruptedRecording();
+                    }
+                }}
+            >
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Recording interrupted</DialogTitle>
+                    </DialogHeader>
+                    <div className="text-sm text-muted-foreground">
+                        Your microphone became unavailable while recording, so we stopped early. Do
+                        you want to keep what was captured up to that point, or discard it and try
+                        again?
+                    </div>
+                    <DialogFooter>
+                        <Button variant="destructive" onClick={handleDiscardInterruptedRecording}>
+                            Discard
+                        </Button>
+                        <Button onClick={handleKeepInterruptedRecording}>Keep recording</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -5044,7 +5536,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             />
                                                             <div className="flex min-w-max text-xs text-muted-foreground">
                                                                 <span>
-                                                                    End: {formatTime(prevEndTime)}
+                                                                    End:{" "}
+                                                                    {formatTimecode(prevEndTime)}
                                                                 </span>
                                                             </div>
                                                         </div>
@@ -5088,7 +5581,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             <div className="flex min-w-max text-xs text-muted-foreground">
                                                                 <span>
                                                                     End:{" "}
-                                                                    {formatTime(
+                                                                    {formatTimecode(
                                                                         prevAudioTimestamps.endTime
                                                                     )}
                                                                 </span>
@@ -5141,9 +5634,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                         undefined &&
                                                                     (effectiveTimestamps.endTime as number) >
                                                                         (effectiveTimestamps.startTime as number)
-                                                                        ? `${formatTime(
+                                                                        ? `${formatTimecode(
                                                                               effectiveTimestamps.startTime as number
-                                                                          )} → ${formatTime(
+                                                                          )} → ${formatTimecode(
                                                                               effectiveTimestamps.endTime as number
                                                                           )}`
                                                                         : ""}
@@ -5178,9 +5671,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                         undefined &&
                                                                     (effectiveAudioTimestamps.endTime as number) >
                                                                         (effectiveAudioTimestamps.startTime as number)
-                                                                        ? `${formatTime(
+                                                                        ? `${formatTimecode(
                                                                               effectiveAudioTimestamps.startTime as number
-                                                                          )} → ${formatTime(
+                                                                          )} → ${formatTimecode(
                                                                               effectiveAudioTimestamps.endTime as number
                                                                           )}`
                                                                         : ""}
@@ -5233,7 +5726,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             <div className="flex min-w-max text-xs text-muted-foreground">
                                                                 <span>
                                                                     Start:{" "}
-                                                                    {formatTime(nextStartTime)}
+                                                                    {formatTimecode(nextStartTime)}
                                                                 </span>
                                                             </div>
                                                         </div>
@@ -5282,7 +5775,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             <div className="flex min-w-max text-xs text-muted-foreground">
                                                                 <span>
                                                                     Start:{" "}
-                                                                    {formatTime(
+                                                                    {formatTimecode(
                                                                         nextAudioTimestamps.startTime
                                                                     )}
                                                                 </span>
@@ -5294,28 +5787,29 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                                         <div className="flex justify-between">
                                             <div className="flex gap-2">
-                                                {isSubtitlesType && shouldShowVideoPlayer && videoUrl && (
-                                                    <Button
-                                                        onClick={handlePlayAudioWithVideo}
-                                                        variant="default"
-                                                        size="sm"
-                                                        disabled={
-                                                            !canPlayAudioWithVideo ||
-                                                            (effectiveTimestamps?.endTime ?? 0) -
-                                                                (effectiveTimestamps?.startTime ??
-                                                                    0) <=
-                                                                0 ||
-                                                            isPlayAudioLoading
-                                                        }
-                                                    >
-                                                        {isPlayAudioLoading ? (
-                                                            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                                                        ) : (
-                                                            <Play className="mr-1 h-4 w-4" />
-                                                        )}
-                                                        Play Video
-                                                    </Button>
-                                                )}
+                                                {isSubtitlesType &&
+                                                    shouldShowVideoPlayer &&
+                                                    videoUrl && (
+                                                        <Button
+                                                            onClick={handlePlayAudioWithVideo}
+                                                            variant="default"
+                                                            size="sm"
+                                                            disabled={
+                                                                (effectiveTimestamps?.endTime ??
+                                                                    0) -
+                                                                    (effectiveTimestamps?.startTime ??
+                                                                        0) <=
+                                                                    0 || isPlayAudioLoading
+                                                            }
+                                                        >
+                                                            {isPlayAudioLoading ? (
+                                                                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                                            ) : (
+                                                                <Play className="mr-1 h-4 w-4" />
+                                                            )}
+                                                            Play Video
+                                                        </Button>
+                                                    )}
                                                 <Button
                                                     onClick={() => {
                                                         // Clear both cell-range and audio-range
@@ -5347,8 +5841,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     size="sm"
                                                 >
                                                     <RotateCcw className="mr-1 h-4 w-4" />
-                                                    Revert
+                                                    Undo
                                                 </Button>
+                                                {!isSourceText && (
+                                                    <Button
+                                                        onClick={handleMirrorSourceTime}
+                                                        variant="outline"
+                                                        size="sm"
+                                                        disabled={
+                                                            isCellLocked ||
+                                                            isMirrorSourceTimeLoading
+                                                        }
+                                                        title="Copy timestamps from the matching source cell"
+                                                    >
+                                                        {isMirrorSourceTimeLoading ? (
+                                                            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                                        ) : (
+                                                            <Copy className="mr-1 h-4 w-4" />
+                                                        )}
+                                                        Mirror Source Time
+                                                    </Button>
+                                                )}
                                             </div>
                                             {isSubtitlesType && shouldShowVideoPlayer && (
                                                 <div className="flex items-center gap-2">
@@ -5391,7 +5904,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                     {activeTab === "audio" && (
                         <TabsContent value="audio">
-                            <div className="content-section space-y-6">
+                            {/* min-height keeps the section from collapsing when
+                                swapping the (taller) waveform card for the recorder
+                                card, which otherwise lets the browser's scroll
+                                anchoring "jump" the view during a re-record. */}
+                            <div className="content-section space-y-6 min-h-[260px]">
                                 <h3 className="text-lg font-medium">Audio Recording</h3>
 
                                 {(() => {
@@ -5416,6 +5933,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             isStartingRecording,
                                         showRecorder,
                                     });
+
+                                    // Mic-aware copy for the download-view record
+                                    // affordance (mirrors the waveform "Re-record"
+                                    // button so the option is always reachable, even
+                                    // before the existing audio is downloaded).
+                                    const recordAffordanceLabel = micPermissionDenied
+                                        ? "Microphone access denied"
+                                        : noMicDetected
+                                        ? "No microphone detected"
+                                        : "Re-record";
+                                    const recordAffordanceTitle = isCellLocked
+                                        ? "Cannot record: cell is locked"
+                                        : micUnavailable
+                                        ? `${recordAffordanceLabel} — you can still upload an audio file`
+                                        : "Re-record / Upload New";
 
                                     const renderUploadHistoryRow = () => (
                                         <div className="flex flex-wrap items-center justify-center gap-2 mt-3 px-2">
@@ -5470,7 +6002,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     "var(--vscode-badge-background)",
                                                                 color: "var(--vscode-badge-foreground)",
                                                             }}
-                                                            aria-label={`${audioHistoryCount} audio recording${audioHistoryCount === 1 ? "" : "s"} in history`}
+                                                            aria-label={`${audioHistoryCount} audio recording${
+                                                                audioHistoryCount === 1 ? "" : "s"
+                                                            } in history`}
                                                         >
                                                             {audioHistoryCount}
                                                         </Badge>
@@ -5486,6 +6020,30 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 >
                                                     <ArrowLeft className="h-3 w-3 mr-2" />
                                                     Back
+                                                </Button>
+                                            )}
+
+                                            {mode === "download" && (
+                                                <Button
+                                                    variant="outline"
+                                                    className={
+                                                        micUnavailable
+                                                            ? "flex items-center justify-center h-8 px-2 text-xs border-red-500 text-red-600 hover:text-red-600 dark:text-red-400"
+                                                            : "flex items-center justify-center h-8 px-2 text-xs"
+                                                    }
+                                                    disabled={isCellLocked}
+                                                    title={recordAffordanceTitle}
+                                                    onClick={() => {
+                                                        if (isCellLocked) return;
+                                                        handleShowRecorder();
+                                                    }}
+                                                >
+                                                    {micUnavailable ? (
+                                                        <MicOff className="h-3 w-3 mr-1" />
+                                                    ) : (
+                                                        <Mic className="h-3 w-3 mr-1" />
+                                                    )}
+                                                    {recordAffordanceLabel}
                                                 </Button>
                                             )}
                                         </div>
@@ -5510,19 +6068,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     }}
                                                     onShowHistory={() => setShowAudioHistory(true)}
                                                     historyCount={audioHistoryCount}
-                                                    onShowRecorder={() => {
-                                                        setShowRecorder(true);
-                                                        setCountdown(null);
-                                                        setRecordingStartTime(null);
-                                                        setRecordingElapsedTime(0);
-                                                        clearRecordingCountdownTimer();
-                                                        if (recordingTimerRef.current) {
-                                                            clearInterval(
-                                                                recordingTimerRef.current
-                                                            );
-                                                            recordingTimerRef.current = null;
-                                                        }
-                                                    }}
+                                                    micUnavailable={micUnavailable}
+                                                    noMicDetected={noMicDetected}
+                                                    micPermissionDenied={micPermissionDenied}
+                                                    onShowRecorder={handleShowRecorder}
                                                     disabled={!audioBlob}
                                                     validationStatusProps={audioValidationIconProps}
                                                     author={audioAuthor}
@@ -5542,6 +6091,29 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             ? audioDuration ?? undefined
                                                             : undefined
                                                     }
+                                                    transcriptionLanguageLabel={
+                                                        transcriptionBadgeLabel
+                                                    }
+                                                    showAdvancedAsrMenu={!isSourceText}
+                                                    asrLanguageMode={
+                                                        asrConfig?.languageMode ?? "project"
+                                                    }
+                                                    asrScriptPref={asrConfig?.scriptPref ?? "auto"}
+                                                    projectLanguageName={
+                                                        asrConfig?.projectLanguageName
+                                                    }
+                                                    onChangeAsrLanguageMode={(mode) => {
+                                                        window.vscodeApi.postMessage({
+                                                            command: "setAsrLanguageMode",
+                                                            content: { mode },
+                                                        } as EditorPostMessages);
+                                                    }}
+                                                    onChangeAsrScriptPref={(scriptPref) => {
+                                                        window.vscodeApi.postMessage({
+                                                            command: "setAsrScriptPref",
+                                                            content: { scriptPref },
+                                                        } as EditorPostMessages);
+                                                    }}
                                                 />
 
                                                 {confirmingDiscard && (
@@ -5637,6 +6209,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     onClick={() => {
                                                                         setIsAudioLoading(true);
                                                                         setAudioFetchPending(true);
+                                                                        setAudioDownloading(
+                                                                            cellMarkers[0],
+                                                                            true
+                                                                        );
                                                                         const messageContent: EditorPostMessages =
                                                                             {
                                                                                 command:
@@ -5707,6 +6283,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             : "idle";
                                     const recorderTitle = isCellLocked
                                         ? "Cannot record: cell is locked"
+                                        : micPermissionDenied
+                                        ? "Microphone access denied"
+                                        : noMicDetected
+                                        ? "No microphone detected"
                                         : isRecording
                                         ? "Stop Recording"
                                         : countdown !== null
@@ -5727,6 +6307,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     : startRecording
                                                             }
                                                             disabled={isCellLocked}
+                                                            unavailable={micUnavailable}
                                                             title={recorderTitle}
                                                         />
 
@@ -5796,6 +6377,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     auto-trimmed
                                                                 </span>
                                                             </div>
+                                                        )}
+                                                        {micUnavailable && (
+                                                            // Override the Alert's default absolute-icon layout so the
+                                                            // AlertCircle and text share a single flex row with proper
+                                                            // vertical centering. The `!` (important) prefixes are needed
+                                                            // because the base Alert variant pins the SVG with
+                                                            // `[&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4`.
+                                                            <Alert className="w-fit flex items-center gap-2 border-yellow-500 bg-yellow-50 dark:bg-yellow-950 [&>svg]:!static [&>svg+div]:!translate-y-0 [&>svg~*]:!pl-0">
+                                                                <AlertCircle className="h-4 w-4 shrink-0 !text-yellow-600 dark:!text-yellow-400" />
+                                                                <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+                                                                    {micPermissionDenied
+                                                                        ? "Microphone access denied. Enable microphone permissions in your system settings to record — you may need to fully quit and reopen the app for the change to take effect."
+                                                                        : "No microphone detected. Connect an input device to record."}
+                                                                </AlertDescription>
+                                                            </Alert>
                                                         )}
                                                         {hint && (
                                                             <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
@@ -5883,16 +6479,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
             )}
         </Card>
     );
-};
-
-// Helper function to format time in MM:SS.mmm format
-const formatTime = (timeInSeconds: number): string => {
-    const minutes = Math.floor(timeInSeconds / 60);
-    const seconds = Math.floor(timeInSeconds % 60);
-    const milliseconds = Math.floor((timeInSeconds % 1) * 1000);
-    return `${minutes.toString().padStart(2, "0")}:${seconds
-        .toString()
-        .padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
 };
 
 export default CellEditor;
