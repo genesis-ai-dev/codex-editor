@@ -259,6 +259,228 @@ suite("Codex Custom Merge - Paratextual Cell Position Preservation", () => {
     });
 });
 
+/**
+ * Asymmetric "ours-empty / theirs-full" matrix.
+ *
+ * Regression guard for the gan-ji-an metadata-loss bug: prior to Fix 1,
+ * resolveMetadataConflictsUsingEditHistory started from { ...ourCell } and only
+ * applied edit-history operations on top. Fields that exist only on theirCell
+ * and aren't tracked by edit history (attachments, milestoneIndex, etc.) were
+ * silently dropped. With the union-spread fix, these MUST be preserved.
+ *
+ * Cases below intentionally test the "ours is empty, theirs has data" direction
+ * because that's the side that previously failed.
+ */
+suite("Codex Custom Merge - Asymmetric Metadata Preservation (Fix 1 regression guard)", () => {
+    function cellWithMetadata(id: string, value: string, metadataOverrides: Record<string, any>) {
+        return {
+            kind: 2,
+            languageId: "html",
+            value: `<span>${value}</span>`,
+            metadata: {
+                type: "text",
+                id,
+                data: {},
+                edits: [],
+                ...metadataOverrides,
+            },
+        };
+    }
+
+    test("preserves theirs-only `attachments` when ours has none (the .webm case)", async () => {
+        const ourContent = JSON.stringify({
+            cells: [cellWithMetadata("JUD 1:25", "ours text", {})],
+            metadata: { id: "JUD", originalName: "JUD" },
+        });
+        const theirContent = JSON.stringify({
+            cells: [cellWithMetadata("JUD 1:25", "ours text", {
+                attachments: {
+                    "JUD_001_025-rec-1234.webm": {
+                        url: ".project/attachments/JUD/JUD_001_025-rec-1234.webm",
+                        type: "audio",
+                        createdAt: 1735689600000,
+                        updatedAt: 1735689600000,
+                        isDeleted: false,
+                        pointer: { oid: "abc", size: 1234, version: "https://git-lfs.github.com/spec/v1" },
+                    },
+                },
+                selectedAudioId: "JUD_001_025-rec-1234.webm",
+                selectionTimestamp: 1735689600000,
+            })],
+            metadata: { id: "JUD", originalName: "JUD" },
+        });
+
+        const merged = await resolveCodexCustomMerge(ourContent, theirContent);
+        const notebook = JSON.parse(merged);
+        const cell = notebook.cells.find((c: any) => c.metadata?.id === "JUD 1:25");
+
+        assert.ok(cell, "Expected cell to exist after merge");
+        assert.ok(cell.metadata.attachments, "attachments should be preserved from theirCell");
+        assert.ok(
+            cell.metadata.attachments["JUD_001_025-rec-1234.webm"],
+            "specific attachment from theirCell should survive merge"
+        );
+        assert.strictEqual(
+            cell.metadata.selectedAudioId,
+            "JUD_001_025-rec-1234.webm",
+            "selectedAudioId should be carried over from theirCell"
+        );
+    });
+
+    test("preserves theirs-only `data.milestoneIndex` when ours has none", async () => {
+        const ourContent = JSON.stringify({
+            cells: [cellWithMetadata("GEN 1:1", "verse", { data: {} })],
+            metadata: { id: "GEN", originalName: "GEN" },
+        });
+        const theirContent = JSON.stringify({
+            cells: [cellWithMetadata("GEN 1:1", "verse", {
+                data: { milestoneIndex: 7, startTime: 0.0, endTime: 2.5 },
+            })],
+            metadata: { id: "GEN", originalName: "GEN" },
+        });
+
+        const merged = await resolveCodexCustomMerge(ourContent, theirContent);
+        const notebook = JSON.parse(merged);
+        const cell = notebook.cells.find((c: any) => c.metadata?.id === "GEN 1:1");
+
+        assert.ok(cell, "Expected cell to exist after merge");
+        assert.strictEqual(cell.metadata.data.milestoneIndex, 7, "milestoneIndex should be preserved");
+        assert.strictEqual(cell.metadata.data.startTime, 0.0, "startTime should be preserved");
+        assert.strictEqual(cell.metadata.data.endTime, 2.5, "endTime should be preserved");
+    });
+
+    test("ours wins on overlapping keys; non-overlapping keys union", async () => {
+        const ourContent = JSON.stringify({
+            cells: [cellWithMetadata("GEN 1:1", "verse", {
+                cellLabel: "ours-label",
+                data: { milestoneIndex: 99, ourOnly: "keep-me" },
+            })],
+            metadata: { id: "GEN", originalName: "GEN" },
+        });
+        const theirContent = JSON.stringify({
+            cells: [cellWithMetadata("GEN 1:1", "verse", {
+                cellLabel: "theirs-label",
+                data: { milestoneIndex: 7, theirOnly: "also-keep-me" },
+            })],
+            metadata: { id: "GEN", originalName: "GEN" },
+        });
+
+        const merged = await resolveCodexCustomMerge(ourContent, theirContent);
+        const notebook = JSON.parse(merged);
+        const cell = notebook.cells.find((c: any) => c.metadata?.id === "GEN 1:1");
+
+        assert.ok(cell, "Expected cell to exist after merge");
+        // Overlapping data keys: ours wins (union spread has ourCell last).
+        assert.strictEqual(cell.metadata.data.milestoneIndex, 99, "ourCell wins on overlap");
+        // Non-overlapping keys from BOTH sides survive.
+        assert.strictEqual(cell.metadata.data.ourOnly, "keep-me");
+        assert.strictEqual(cell.metadata.data.theirOnly, "also-keep-me");
+    });
+
+    test("does NOT clobber existing ours attachments with theirs-missing", async () => {
+        const ourContent = JSON.stringify({
+            cells: [cellWithMetadata("JUD 1:25", "text", {
+                attachments: {
+                    "ours-only.webm": {
+                        url: ".project/attachments/JUD/ours-only.webm",
+                        type: "audio",
+                        createdAt: 1,
+                        updatedAt: 1,
+                        isDeleted: false,
+                    },
+                },
+            })],
+            metadata: { id: "JUD", originalName: "JUD" },
+        });
+        const theirContent = JSON.stringify({
+            cells: [cellWithMetadata("JUD 1:25", "text", {})],
+            metadata: { id: "JUD", originalName: "JUD" },
+        });
+
+        const merged = await resolveCodexCustomMerge(ourContent, theirContent);
+        const notebook = JSON.parse(merged);
+        const cell = notebook.cells.find((c: any) => c.metadata?.id === "JUD 1:25");
+
+        assert.ok(cell.metadata.attachments?.["ours-only.webm"], "ours-only attachment must remain");
+    });
+});
+
+/**
+ * mergeDuplicateCellsUsingResolverLogic is called by migration code that deduplicates
+ * cell entries that got duplicated during earlier sync incidents. Fix 1 changes its
+ * baseline merge behavior from "first cell wins" to "union of all fields" — this is a
+ * strict improvement (no data lost during dedup) and these tests pin that contract so
+ * the behavior change is visible if anyone reverts it.
+ */
+suite("mergeDuplicateCellsUsingResolverLogic - union preservation (Fix 1 side-effect)", () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { mergeDuplicateCellsUsingResolverLogic } = require("../../../src/projectManager/utils/merge/resolvers");
+
+    test("preserves attachments from later duplicates even if first duplicate has none", () => {
+        const first = {
+            kind: 2,
+            languageId: "html",
+            value: "<span>verse</span>",
+            metadata: { id: "JUD 1:25", type: "text", data: {}, edits: [] },
+        };
+        const second = {
+            kind: 2,
+            languageId: "html",
+            value: "<span>verse</span>",
+            metadata: {
+                id: "JUD 1:25",
+                type: "text",
+                data: {},
+                edits: [],
+                attachments: {
+                    "JUD_001_025-rec-9999.webm": {
+                        url: ".project/attachments/JUD/JUD_001_025-rec-9999.webm",
+                        type: "audio",
+                        createdAt: 1,
+                        updatedAt: 1,
+                        isDeleted: false,
+                    },
+                },
+            },
+        };
+
+        const merged = mergeDuplicateCellsUsingResolverLogic([first, second]);
+
+        assert.ok(
+            merged.metadata.attachments?.["JUD_001_025-rec-9999.webm"],
+            "Dedup must preserve attachments from later duplicate"
+        );
+    });
+
+    test("preserves data.milestoneIndex from later duplicates", () => {
+        const first = {
+            kind: 2,
+            languageId: "html",
+            value: "<span>v</span>",
+            metadata: { id: "GEN 1:1", type: "text", data: {}, edits: [] },
+        };
+        const second = {
+            kind: 2,
+            languageId: "html",
+            value: "<span>v</span>",
+            metadata: {
+                id: "GEN 1:1",
+                type: "text",
+                data: { milestoneIndex: 42 },
+                edits: [],
+            },
+        };
+
+        const merged = mergeDuplicateCellsUsingResolverLogic([first, second]);
+
+        assert.strictEqual(
+            merged.metadata.data?.milestoneIndex,
+            42,
+            "Dedup must preserve data.milestoneIndex from later duplicate"
+        );
+    });
+});
+
 suite("Codex Custom Merge - Verse Range Order Preservation Across Sync", () => {
     /**
      * Build a notebook with a chapter milestone and three single-verse cells.

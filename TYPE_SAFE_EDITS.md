@@ -276,6 +276,88 @@ const edit: EditHistory<["metadata", "cellLabel"]> = {
 4. **Create type guards** for runtime type checking
 5. **Document new editMap paths** in the EditMapValueTypes mapping
 
-This type system provides a robust foundation for the CRDT edit system, ensuring type safety while maintaining flexibility for future extensions.</contents>
+This type system provides a robust foundation for the CRDT edit system, ensuring type safety while maintaining flexibility for future extensions.
+
+## Merge-Time Field Preservation Invariant
+
+The CRDT edit system replays `editMap`-tracked operations during merge to reach the
+canonical post-merge state. However, **not every field on a cell's metadata is
+necessarily tracked by an edit-history entry**. Examples include (but are not
+limited to):
+
+- `metadata.attachments` (audio recordings, LFS pointers, image cards)
+- `metadata.selectedAudioId` / `metadata.selectionTimestamp` (current selection)
+- `metadata.data.milestoneIndex` (timing milestones)
+- `metadata.data.startTime` / `metadata.data.endTime` (subtitle timing — sometimes
+  written without an edit-history entry depending on the call site)
+- future fields added by features that don't write through `EditHistory`
+
+### The Invariant
+
+> When merging two cells, the resulting cell's metadata MUST be a union of both
+> sides' metadata as a baseline, with edit-history replay applied on top.
+> Fields that exist on only one side and are not tracked by edit history MUST
+> still appear on the merged cell.
+
+Concretely, in `resolveMetadataConflictsUsingEditHistory` (see
+[src/projectManager/utils/merge/resolvers.ts](src/projectManager/utils/merge/resolvers.ts)),
+the resolved cell is initialized as:
+
+```typescript
+const resolvedCell: CustomNotebookCellData = {
+    ...theirCell,
+    ...ourCell,
+    metadata: {
+        ...(theirCell.metadata ?? {}),
+        ...(ourCell.metadata ?? {}),
+        data: {
+            ...((theirCell.metadata ?? {}).data ?? {}),
+            ...((ourCell.metadata ?? {}).data ?? {}),
+        },
+    } as CustomNotebookCellData["metadata"],
+};
+```
+
+Edit-history-driven overrides (`applyEditToCell`, intelligent attachment merging
+via `mergeAttachments`, audio-selection resolution via `resolveAudioSelection`)
+then run on top.
+
+### Why This Invariant Exists
+
+In late-2025, a regression replaced this union spread with `{ ...ourCell }` plus
+edit-history replay. That implicitly assumed all meaningful metadata changes were
+tracked by edit-history entries. In practice that wasn't true — `attachments` for
+audio recordings were written without edit-history entries, so any cell whose
+`ourCell` lacked attachments would silently drop the `theirCell` attachments on
+merge. This is exactly the gan-ji-an `.webm` data-loss incident.
+
+### Enforcement
+
+Three regression tests in
+[src/test/suite/resolveCodexCustomMerge.test.ts](src/test/suite/resolveCodexCustomMerge.test.ts)
+pin this invariant:
+
+- `preserves theirs-only attachments when ours has none (the .webm case)`
+- `preserves theirs-only data.milestoneIndex when ours has none`
+- `ours wins on overlapping keys; non-overlapping keys union`
+
+Plus two tests on the migration path which uses the same merge logic to dedupe
+cells: `mergeDuplicateCellsUsingResolverLogic - union preservation`. If any of
+these break, the invariant has been broken — do not "fix" the tests, fix the
+merge logic.
+
+### When Adding New Metadata Fields
+
+If you add a new metadata field to a cell:
+
+1. Prefer routing changes through `EditHistory` so they participate in edit
+   replay during merge. Use `EditMapUtils.*` helpers.
+2. If a field cannot reasonably be edit-tracked (e.g. content-addressed
+   attachment dictionaries), the union-spread baseline above will preserve it
+   on the unmodified side. **Add a regression test in `resolveCodexCustomMerge.test.ts`**
+   asserting your field survives an ours-empty / theirs-full merge.
+3. If a field has its own intelligent-merge logic (like `mergeAttachments`),
+   ensure that logic is invoked AFTER the union spread in
+   `mergeTwoCellsUsingResolverLogic`, not before.</contents>
 </xai:function_call"> wrote to file "/Users/benjaminscholtens/Documents/clear_bible/codex-editor/TYPE_SAFE_EDITS.md
 
