@@ -10,6 +10,7 @@ import React, {
 import Quill, { Delta, Op } from "quill";
 import "quill/dist/quill.snow.css";
 import { installPreserveWhitespaceMatcher } from "./utils/preserveWhitespace";
+import { restoreTrailingBlankLine } from "./utils/preserveTrailingBlankLines";
 import { getCleanedHtml } from "./utils";
 import {
     isSuperscriptibleDigit,
@@ -852,10 +853,16 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             if (props.initialValue) {
                 // Parse through the clipboard pipeline so TEXT_NODE matchers apply
                 // (wraps ⁰⁴–⁹ for consistent sizing vs ¹²³). Raw innerHTML skips that.
-                const initialDelta = clipboardModule.convert({
+                const convertedDelta = clipboardModule.convert({
                     html: props.initialValue,
                     text: "",
                 });
+                // Quill's clipboard.convert() unconditionally strips one trailing
+                // "\n" from the Delta, which silently eats a trailing blank line
+                // (paragraph break at end of cell) on open. Restore it if the
+                // saved HTML actually had one. See utils/preserveTrailingBlankLines
+                // and issue #1103.
+                const initialDelta = restoreTrailingBlankLine(props.initialValue, convertedDelta);
                 quill.setContents(initialDelta, "silent");
 
                 // Position cursor at the end of the content for immediate editing
