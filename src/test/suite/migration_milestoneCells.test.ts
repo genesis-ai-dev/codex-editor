@@ -2,19 +2,23 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import * as os from "os";
 import * as path from "path";
-import { CodexContentSerializer } from "../serializer";
-import { migration_addMilestoneCells } from "../projectManager/utils/migrationUtils";
-import { CodexCellTypes } from "../../types/enums";
-import { createMockExtensionContext } from "./testUtils";
+import sinon from "sinon";
+import { CodexContentSerializer } from "../../serializer";
+import { migration_addMilestoneCells } from "../../projectManager/utils/migrationUtils";
+import { CodexCellTypes, EditType } from "../../../types/enums";
+import { createMockExtensionContext } from "../testUtils";
 
 async function createTempNotebookFile(
     ext: ".codex" | ".source",
     cells: Array<{ id?: string; cellLabel?: string; value?: string; metadata?: any }>,
-    metadata: any = {}
+    metadata: any = {},
+    basename?: string
 ): Promise<vscode.Uri> {
     const serializer = new CodexContentSerializer();
     const tmpDir = os.tmpdir();
-    const fileName = `milestone-test-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+    const base =
+        basename ?? `milestone-test-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const fileName = `${base}${ext}`;
     const uri = vscode.Uri.file(path.join(tmpDir, fileName));
 
     const notebook: any = {
@@ -41,12 +45,34 @@ async function readNotebookFile(uri: vscode.Uri): Promise<any> {
     return await serializer.deserializeNotebook(fileBytes, new vscode.CancellationTokenSource().token);
 }
 
-describe("migration_addMilestoneCells", () => {
+suite("migration_addMilestoneCells", () => {
     let testFiles: vscode.Uri[] = [];
     let context: vscode.ExtensionContext;
+    let sandbox: sinon.SinonSandbox;
 
-    beforeEach(async () => {
+    setup(async () => {
         context = createMockExtensionContext();
+        sandbox = sinon.createSandbox();
+
+        // The migration scans the open workspace folder via `findFiles`. The
+        // extension-host test runner opens no folder, so stub a workspace folder
+        // and route `findFiles` to the temp files each test creates. Individual
+        // tests can override this (see the "no workspace folder" case).
+        const workspaceUri = vscode.Uri.file(os.tmpdir());
+        sandbox.stub(vscode.workspace, "workspaceFolders").value([
+            { uri: workspaceUri, name: "milestone-test-ws", index: 0 },
+        ]);
+        sandbox.stub(vscode.workspace, "findFiles").callsFake(async (include: any) => {
+            const pattern = typeof include === "string" ? include : include?.pattern ?? "";
+            if (pattern.endsWith(".codex")) {
+                return testFiles.filter((u) => u.fsPath.endsWith(".codex"));
+            }
+            if (pattern.endsWith(".source")) {
+                return testFiles.filter((u) => u.fsPath.endsWith(".source"));
+            }
+            return [];
+        });
+
         // Reset migration flag
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         try {
@@ -57,7 +83,8 @@ describe("migration_addMilestoneCells", () => {
         await context.workspaceState.update("milestoneCellsMigrationCompleted", false);
     });
 
-    afterEach(async () => {
+    teardown(async () => {
+        sandbox.restore();
         // Clean up test files
         for (const uri of testFiles) {
             try {
@@ -69,7 +96,7 @@ describe("migration_addMilestoneCells", () => {
         testFiles = [];
     });
 
-    it("should add milestone cell at beginning of file", async () => {
+    test("should add milestone cell at beginning of file", async () => {
         const uri = await createTempNotebookFile(
             ".codex",
             [
@@ -84,11 +111,11 @@ describe("migration_addMilestoneCells", () => {
         const data = await readNotebookFile(uri);
         assert.strictEqual(data.cells.length, 3, "Should have added one milestone cell");
         assert.strictEqual(data.cells[0].metadata?.type, CodexCellTypes.MILESTONE, "First cell should be milestone");
-        assert.strictEqual(data.cells[0].value, "1", "Milestone should have chapter number");
+        assert.strictEqual(data.cells[0].value, "Genesis 1", "Milestone label should be 'Book Chapter'");
         assert.ok(data.cells[0].metadata?.id, "Milestone should have UUID");
     });
 
-    it("should add milestone cells before each new chapter", async () => {
+    test("should add milestone cells before each new chapter", async () => {
         const uri = await createTempNotebookFile(
             ".codex",
             [
@@ -109,7 +136,7 @@ describe("migration_addMilestoneCells", () => {
 
         // First milestone (chapter 1)
         assert.strictEqual(data.cells[0].metadata?.type, CodexCellTypes.MILESTONE);
-        assert.strictEqual(data.cells[0].value, "1");
+        assert.strictEqual(data.cells[0].value, "Genesis 1");
 
         // Original cells
         assert.strictEqual(data.cells[1].metadata?.id, "GEN 1:1");
@@ -117,7 +144,7 @@ describe("migration_addMilestoneCells", () => {
 
         // Second milestone (chapter 2)
         assert.strictEqual(data.cells[3].metadata?.type, CodexCellTypes.MILESTONE);
-        assert.strictEqual(data.cells[3].value, "2");
+        assert.strictEqual(data.cells[3].value, "Genesis 2");
 
         // Original cells
         assert.strictEqual(data.cells[4].metadata?.id, "GEN 2:1");
@@ -125,13 +152,13 @@ describe("migration_addMilestoneCells", () => {
 
         // Third milestone (chapter 3)
         assert.strictEqual(data.cells[6].metadata?.type, CodexCellTypes.MILESTONE);
-        assert.strictEqual(data.cells[6].value, "3");
+        assert.strictEqual(data.cells[6].value, "Genesis 3");
 
         // Original cell
         assert.strictEqual(data.cells[7].metadata?.id, "GEN 3:1");
     });
 
-    it("should be idempotent - skip files that already have milestone cells", async () => {
+    test("should be idempotent - skip files that already have milestone cells", async () => {
         const uri = await createTempNotebookFile(
             ".codex",
             [
@@ -155,7 +182,7 @@ describe("migration_addMilestoneCells", () => {
         assert.strictEqual(data.cells[0].metadata?.id, "milestone-1", "Should preserve existing milestone");
     });
 
-    it("should handle cells without chapter numbers in ID", async () => {
+    test("should handle cells without chapter numbers in ID", async () => {
         const uri = await createTempNotebookFile(
             ".codex",
             [
@@ -168,12 +195,15 @@ describe("migration_addMilestoneCells", () => {
         await migration_addMilestoneCells(context);
 
         const data = await readNotebookFile(uri);
-        assert.strictEqual(data.cells.length, 4);
-        assert.strictEqual(data.cells[0].value, "5");
-        assert.strictEqual(data.cells[2].value, "6");
+        // Chapter BOUNDARIES come from scripture-style ids ("GEN 1:1"); "cell-N" ids
+        // have no chapter token, so only the leading milestone is inserted (3 cells).
+        // Its label still uses the chapterNumber metadata → "<book> <chapter>".
+        assert.strictEqual(data.cells.length, 3);
+        assert.strictEqual(data.cells[0].metadata?.type, CodexCellTypes.MILESTONE);
+        assert.strictEqual(data.cells[0].value, "cell-1 5");
     });
 
-    it("should use metadata.chapter if available", async () => {
+    test("should use metadata.chapter if available", async () => {
         const uri = await createTempNotebookFile(
             ".codex",
             [
@@ -186,12 +216,11 @@ describe("migration_addMilestoneCells", () => {
         await migration_addMilestoneCells(context);
 
         const data = await readNotebookFile(uri);
-        assert.strictEqual(data.cells.length, 4);
-        assert.strictEqual(data.cells[0].value, "10");
-        assert.strictEqual(data.cells[2].value, "11");
+        assert.strictEqual(data.cells.length, 3);
+        assert.strictEqual(data.cells[0].value, "cell-1 10");
     });
 
-    it("should use metadata.data.chapter as fallback", async () => {
+    test("should use metadata.data.chapter as fallback", async () => {
         const uri = await createTempNotebookFile(
             ".codex",
             [
@@ -204,12 +233,11 @@ describe("migration_addMilestoneCells", () => {
         await migration_addMilestoneCells(context);
 
         const data = await readNotebookFile(uri);
-        assert.strictEqual(data.cells.length, 4);
-        assert.strictEqual(data.cells[0].value, "15");
-        assert.strictEqual(data.cells[2].value, "16");
+        assert.strictEqual(data.cells.length, 3);
+        assert.strictEqual(data.cells[0].value, "cell-1 15");
     });
 
-    it("should use milestoneIndex as final fallback", async () => {
+    test("should use milestoneIndex as final fallback", async () => {
         const uri = await createTempNotebookFile(
             ".codex",
             [
@@ -223,11 +251,12 @@ describe("migration_addMilestoneCells", () => {
 
         const data = await readNotebookFile(uri);
         assert.strictEqual(data.cells.length, 3);
-        // First milestone should use index 1
-        assert.strictEqual(data.cells[0].value, "1");
+        // No chapter metadata → ordinal "1" is the chapter fallback; the id
+        // ("cell-1") becomes the pseudo-book prefix → "cell-1 1".
+        assert.strictEqual(data.cells[0].value, "cell-1 1");
     });
 
-    it("should handle empty files gracefully", async () => {
+    test("should handle empty files gracefully", async () => {
         const uri = await createTempNotebookFile(".codex", []);
         testFiles.push(uri);
 
@@ -237,7 +266,7 @@ describe("migration_addMilestoneCells", () => {
         assert.strictEqual(data.cells.length, 0, "Should not add milestones to empty files");
     });
 
-    it("should handle files with cells that have no ID", async () => {
+    test("should handle files with cells that have no ID", async () => {
         const uri = await createTempNotebookFile(
             ".codex",
             [
@@ -257,7 +286,7 @@ describe("migration_addMilestoneCells", () => {
         assert.ok(firstCellWithId, "Should preserve cell with ID");
     });
 
-    it("should process both .codex and .source files", async () => {
+    test("should process both .codex and .source files", async () => {
         const codexUri = await createTempNotebookFile(
             ".codex",
             [{ id: "GEN 1:1", value: "Codex content" }]
@@ -279,7 +308,7 @@ describe("migration_addMilestoneCells", () => {
         assert.strictEqual(sourceData.cells[0].metadata?.type, CodexCellTypes.MILESTONE);
     });
 
-    it("should not duplicate milestones for same chapter", async () => {
+    test("should not duplicate milestones for same chapter", async () => {
         const uri = await createTempNotebookFile(
             ".codex",
             [
@@ -297,10 +326,10 @@ describe("migration_addMilestoneCells", () => {
         // Should only have one milestone for chapter 1 (at the beginning)
         const milestones = data.cells.filter((c: any) => c.metadata?.type === CodexCellTypes.MILESTONE);
         assert.strictEqual(milestones.length, 1, "Should only have one milestone for same chapter");
-        assert.strictEqual(milestones[0].value, "1");
+        assert.strictEqual(milestones[0].value, "Genesis 1");
     });
 
-    it("should prioritize metadata.chapterNumber over metadata.chapter", async () => {
+    test("should prioritize metadata.chapterNumber over metadata.chapter", async () => {
         const uri = await createTempNotebookFile(
             ".codex",
             [
@@ -316,10 +345,10 @@ describe("migration_addMilestoneCells", () => {
         await migration_addMilestoneCells(context);
 
         const data = await readNotebookFile(uri);
-        assert.strictEqual(data.cells[0].value, "5", "Should prioritize chapterNumber");
+        assert.strictEqual(data.cells[0].value, "cell-1 5", "Should prioritize chapterNumber (5, not 1)");
     });
 
-    it("should prioritize metadata.chapter over metadata.data.chapter", async () => {
+    test("should prioritize metadata.chapter over metadata.data.chapter", async () => {
         const uri = await createTempNotebookFile(
             ".codex",
             [
@@ -335,10 +364,10 @@ describe("migration_addMilestoneCells", () => {
         await migration_addMilestoneCells(context);
 
         const data = await readNotebookFile(uri);
-        assert.strictEqual(data.cells[0].value, "3", "Should prioritize chapter");
+        assert.strictEqual(data.cells[0].value, "cell-1 3", "Should prioritize chapter (3, not 1)");
     });
 
-    it("should be idempotent when migration flag is set", async () => {
+    test("should be idempotent when migration flag is set", async () => {
         const uri = await createTempNotebookFile(
             ".codex",
             [{ id: "GEN 1:1", value: "Content" }]
@@ -370,24 +399,28 @@ describe("migration_addMilestoneCells", () => {
         );
     });
 
-    it("should handle files with no workspace folder", async () => {
-        // This test verifies the migration handles missing workspace gracefully
-        // In a real scenario, migration would return early if no workspace
+    test("should handle files with no workspace folder", async () => {
+        // This test verifies the migration handles missing workspace gracefully:
+        // with no open folder it must return early and leave files untouched.
         const uri = await createTempNotebookFile(
             ".codex",
             [{ id: "GEN 1:1", value: "Content" }]
         );
         testFiles.push(uri);
 
-        // Migration should complete without errors even if workspace folder check fails
+        // Override the default workspace stub for this test so there is no folder.
+        sandbox.restore();
+        sandbox.stub(vscode.workspace, "workspaceFolders").value(undefined);
+
+        // Migration should complete without errors when there is no workspace.
         await migration_addMilestoneCells(context);
 
-        // File should still be readable
+        // No workspace → migration is a no-op; the file is unchanged.
         const data = await readNotebookFile(uri);
-        assert.ok(data, "File should still be readable");
+        assert.strictEqual(data.cells.length, 1, "No workspace → migration is a no-op");
     });
 
-    it("should create milestone cells with correct structure", async () => {
+    test("should create milestone cells with correct structure", async () => {
         const uri = await createTempNotebookFile(
             ".codex",
             [{ id: "GEN 1:1", value: "Content" }]
@@ -403,15 +436,34 @@ describe("migration_addMilestoneCells", () => {
         assert.strictEqual(milestone.languageId, "html", "Should have html languageId");
         assert.strictEqual(milestone.metadata?.type, CodexCellTypes.MILESTONE);
         assert.ok(milestone.metadata?.id, "Should have UUID");
-        assert.deepStrictEqual(milestone.metadata?.edits, [], "Should have empty edits array");
+        // The shared builder stamps an INITIAL_IMPORT anchor edit carrying the
+        // label so it survives 3-way merges (not an empty edits array).
+        assert.strictEqual(
+            milestone.metadata?.edits?.length,
+            1,
+            "Should have one INITIAL_IMPORT anchor edit"
+        );
+        assert.strictEqual(
+            milestone.metadata?.edits?.[0]?.type,
+            EditType.INITIAL_IMPORT,
+            "Anchor edit should be INITIAL_IMPORT"
+        );
+        assert.strictEqual(
+            milestone.metadata?.edits?.[0]?.value,
+            milestone.value,
+            "Anchor edit should carry the milestone label"
+        );
     });
 
-    it("should handle chapter extraction from various ID formats", async () => {
+    test("should handle chapter extraction from various ID formats", async () => {
+        // Label format is "<book> <chapter>"; book is the localized name when the
+        // id prefix maps to a USFM code (GEN→Genesis, MAT→Matthew), otherwise the
+        // raw first token of the id.
         const testCases = [
-            { id: "GEN 1:1", expectedChapter: "1" },
-            { id: "Book Name 2:5", expectedChapter: "2" },
-            { id: "filename 10:20", expectedChapter: "10" },
-            { id: "MAT 5:1", expectedChapter: "5" },
+            { id: "GEN 1:1", expectedLabel: "Genesis 1" },
+            { id: "Book Name 2:5", expectedLabel: "Book 2" },
+            { id: "filename 10:20", expectedLabel: "filename 10" },
+            { id: "MAT 5:1", expectedLabel: "Matthew 5" },
         ];
 
         for (const testCase of testCases) {
@@ -426,10 +478,75 @@ describe("migration_addMilestoneCells", () => {
             const data = await readNotebookFile(uri);
             assert.strictEqual(
                 data.cells[0].value,
-                testCase.expectedChapter,
+                testCase.expectedLabel,
                 `Failed for ID: ${testCase.id}`
             );
         }
+    });
+
+    test("should assign identical milestone UUIDs to paired source and codex files", async () => {
+        // Pairing is by basename, so both files must share one.
+        const sharedBase = `milestone-pair-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const codexUri = await createTempNotebookFile(
+            ".codex",
+            [{ id: "GEN 1:1", value: "Codex content" }],
+            {},
+            sharedBase
+        );
+        const sourceUri = await createTempNotebookFile(
+            ".source",
+            [{ id: "GEN 1:1", value: "Source content" }],
+            {},
+            sharedBase
+        );
+        testFiles.push(codexUri, sourceUri);
+
+        await migration_addMilestoneCells(context);
+
+        const codexData = await readNotebookFile(codexUri);
+        const sourceData = await readNotebookFile(sourceUri);
+        const codexMilestone = codexData.cells.find(
+            (c: any) => c.metadata?.type === CodexCellTypes.MILESTONE
+        );
+        const sourceMilestone = sourceData.cells.find(
+            (c: any) => c.metadata?.type === CodexCellTypes.MILESTONE
+        );
+
+        assert.ok(codexMilestone?.metadata?.id, "Codex milestone should have a UUID");
+        assert.ok(sourceMilestone?.metadata?.id, "Source milestone should have a UUID");
+        assert.strictEqual(
+            codexMilestone.metadata.id,
+            sourceMilestone.metadata.id,
+            "Paired source and codex milestones must share the same UUID"
+        );
+    });
+
+    test("should migrate an orphaned source file (no paired codex) without crashing", async () => {
+        const sourceUri = await createTempNotebookFile(
+            ".source",
+            [
+                { id: "GEN 1:1", value: "Source verse 1" },
+                { id: "GEN 2:1", value: "Source chapter 2" },
+            ]
+        );
+        testFiles.push(sourceUri);
+
+        await migration_addMilestoneCells(context);
+
+        const sourceData = await readNotebookFile(sourceUri);
+        const milestones = sourceData.cells.filter(
+            (c: any) => c.metadata?.type === CodexCellTypes.MILESTONE
+        );
+        assert.strictEqual(
+            milestones.length,
+            2,
+            "Orphaned source should still get a milestone per chapter"
+        );
+        assert.strictEqual(
+            sourceData.cells[0].metadata?.type,
+            CodexCellTypes.MILESTONE,
+            "First cell should be a milestone"
+        );
     });
 });
 

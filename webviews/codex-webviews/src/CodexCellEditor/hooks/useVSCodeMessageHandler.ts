@@ -155,7 +155,8 @@ interface UseVSCodeMessageHandlerProps {
         currentMilestoneIndex: number,
         currentSubsectionIndex: number,
         isSourceText: boolean,
-        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; }
+        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; },
+        force?: boolean
     ) => void;
     handleCellPage?: (
         milestoneIndex: number,
@@ -416,7 +417,8 @@ export const useVSCodeMessageHandler = ({
                             message.currentMilestoneIndex,
                             message.currentSubsectionIndex,
                             message.isSourceText,
-                            message.sourceCellMap
+                            message.sourceCellMap,
+                            (message as { force?: boolean; }).force === true
                         );
                     }
                     try {

@@ -536,12 +536,22 @@ const CellList: React.FC<CellListProps> = ({
         return offset;
     }, [milestoneIndex, currentMilestoneIndex]);
 
-    // Offset from previous subsections (pages) in the current milestone. Used when line numbers are computed from current page only (fallback).
+    // Offset from previous subsections (pages) in the current milestone. Used
+    // when line numbers are computed from current page only (fallback). Prefers
+    // the resolver-provided subdivision's `startRootIndex` so user-added breaks
+    // (which produce uneven page sizes) get the correct starting cell number;
+    // falls back to arithmetic `currentSubsectionIndex * cellsPerPage` only when
+    // resolved subdivisions are not yet available.
     const subsectionLineNumberOffset = useCallback((): number => {
         if (!milestoneIndex) return 0;
+        const milestone = milestoneIndex.milestones[currentMilestoneIndex];
+        const subdivision = milestone?.subdivisions?.[currentSubsectionIndex];
+        if (subdivision) {
+            return subdivision.startRootIndex;
+        }
         const effectiveCellsPerPage = milestoneIndex.cellsPerPage ?? cellsPerPage ?? 50;
         return currentSubsectionIndex * effectiveCellsPerPage;
-    }, [milestoneIndex, currentSubsectionIndex, cellsPerPage]);
+    }, [milestoneIndex, currentMilestoneIndex, currentSubsectionIndex, cellsPerPage]);
 
     // Helper function to get the chapter-based verse number (skipping paratext cells)
     // Now uses globalReferences and includes offset for pagination.

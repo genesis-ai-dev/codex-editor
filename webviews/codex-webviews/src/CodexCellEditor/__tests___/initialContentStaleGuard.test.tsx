@@ -65,13 +65,15 @@ function StaleGuardHarness(props: {
         currentMilestoneIdx: number,
         currentSubsectionIdx: number,
         _isSourceTextValue: boolean,
-        _sourceCellMapValue: { [k: string]: { content: string; versions: string[] } }
+        _sourceCellMapValue: { [k: string]: { content: string; versions: string[] } },
+        force?: boolean
     ) => {
         // ---- Exact same guard logic as CodexCellEditor.tsx ----
         const isFirstContent = !hasReceivedInitialContentRef.current;
 
         if (
             !isFirstContent &&
+            !force &&
             (currentMilestoneIndexRef.current !== currentMilestoneIdx ||
                 currentSubsectionIndexRef.current !== currentSubsectionIdx)
         ) {
@@ -111,13 +113,15 @@ const dispatchInitialContent = (
     cells: QuillCellContent[],
     currentMilestoneIndex: number,
     currentSubsectionIndex: number,
-    rev?: number
+    rev?: number,
+    force?: boolean
 ) => {
     window.dispatchEvent(
         new MessageEvent("message", {
             data: {
                 type: "providerSendsInitialContentPaginated",
                 ...(rev !== undefined ? { rev } : {}),
+                ...(force !== undefined ? { force } : {}),
                 milestoneIndex,
                 cells,
                 currentMilestoneIndex,
@@ -258,5 +262,74 @@ describe("setContentPaginated stale-content guard (initial load)", () => {
 
         expect(onAccepted).toHaveBeenCalledTimes(2);
         expect(onRejected).not.toHaveBeenCalled();
+    });
+
+    it("force=true bypasses the stale guard so server-initiated structural updates always apply", () => {
+        // Scenario: user has scrolled to milestone 2 (refs are (2, 0)). The user
+        // clicks demote on milestone 2 on the source side; the provider merges
+        // milestone 2 into milestone 1 and shifts the cached cursor to (1, 0).
+        // Without `force` the webview would compare refs (2, 0) !== (1, 0) and
+        // reject the refresh, leaving the accordion frozen on the pre-demote
+        // structure. With `force` the message is applied unconditionally and
+        // refs realign to (1, 0).
+        const onAccepted = vi.fn();
+        const onRejected = vi.fn();
+
+        render(<StaleGuardHarness onAccepted={onAccepted} onRejected={onRejected} />);
+
+        const beforeDemote = mkMilestoneIndex([
+            { value: "Mark 1", cellIndex: 0 },
+            { value: "Mark 2", cellIndex: 50 },
+            { value: "Mark 3", cellIndex: 100 },
+        ]);
+
+        act(() => {
+            dispatchInitialContent(
+                beforeDemote,
+                [mkCell("MRK 3:1", "<span>chapter 3</span>")],
+                2,
+                0,
+                1
+            );
+        });
+        expect(onAccepted).toHaveBeenCalledTimes(1);
+
+        // Provider issues a forced refresh after demote: shifted to milestone 1.
+        const afterDemote = mkMilestoneIndex([
+            { value: "Mark 1", cellIndex: 0 },
+            { value: "Mark 3", cellIndex: 100 },
+        ]);
+        act(() => {
+            dispatchInitialContent(
+                afterDemote,
+                [mkCell("MRK 2:1", "<span>merged</span>")],
+                1,
+                0,
+                2,
+                true
+            );
+        });
+
+        expect(onAccepted).toHaveBeenCalledTimes(2);
+        expect(onAccepted).toHaveBeenLastCalledWith(1, 0, [
+            expect.objectContaining({ cellMarkers: ["MRK 2:1"] }),
+        ]);
+        expect(onRejected).not.toHaveBeenCalled();
+
+        // After the forced refresh, refs are now (1, 0). A subsequent stale
+        // (non-forced) message for milestone 0 must still be rejected — the
+        // force flag is per-message, not a permanent override.
+        act(() => {
+            dispatchInitialContent(
+                afterDemote,
+                [mkCell("MRK 1:1", "<span>ch1</span>")],
+                0,
+                0,
+                3
+            );
+        });
+        expect(onAccepted).toHaveBeenCalledTimes(2);
+        expect(onRejected).toHaveBeenCalledTimes(1);
+        expect(onRejected).toHaveBeenCalledWith(0, 0);
     });
 });
