@@ -63,8 +63,9 @@ export function ResolveAllModal({
                         <VSCodeTag>{totalAvailable} cells</VSCodeTag>
                     </div>
                     <p className="text-sm text-muted-foreground">
-                        The LLM will insert missing structural elements (tags, markers, line breaks)
-                        from the source into the translation without changing translated text.
+                        Structural differences (tags, markers, line breaks) are corrected to match
+                        the source without changing translated text. Simple cases are fixed
+                        instantly; the rest are resolved with AI and verified before saving.
                     </p>
                 </div>
 

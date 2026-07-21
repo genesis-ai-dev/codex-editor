@@ -7,6 +7,7 @@ import {
     maybeAutoResolveHtmlStructure,
     resolveHtmlStructureWithLLM,
     stripMarkdownCodeFences,
+    verifyResolvedContent,
 } from "../../../providers/codexCellEditorProvider/utils/htmlStructureResolver";
 
 const mockConfig = { model: "test" } as CompletionConfig;
@@ -49,6 +50,44 @@ suite("htmlStructureResolver", () => {
         });
     });
 
+    suite("verifyResolvedContent", () => {
+        test("accepts output whose structure matches the source", () => {
+            const result = verifyResolvedContent(
+                "<p>Hello</p><br/>",
+                "<p>Hola</p>",
+                "<p>Hola</p><br/>",
+            );
+            assert.strictEqual(result, "<p>Hola</p><br/>");
+        });
+
+        test("rejects output whose structure still mismatches", () => {
+            const result = verifyResolvedContent(
+                "<p>Hello</p>",
+                "<p><span>Hola</span></p>",
+                "<p><span>Hola</span></p>",
+            );
+            assert.strictEqual(result, null);
+        });
+
+        test("rejects output that reverted to the source-language text", () => {
+            const result = verifyResolvedContent(
+                "<p>Hello world</p>",
+                "<p>Hola mundo</p>",
+                "<p>Hello world</p>",
+            );
+            assert.strictEqual(result, null);
+        });
+
+        test("accepts identical text when the original was already identical", () => {
+            const result = verifyResolvedContent(
+                "<p>Amen</p>",
+                "Amen",
+                "<p>Amen</p>",
+            );
+            assert.strictEqual(result, "<p>Amen</p>");
+        });
+    });
+
     suite("maybeAutoResolveHtmlStructure", () => {
         let executeCommandStub: sinon.SinonStub;
 
@@ -81,6 +120,43 @@ suite("htmlStructureResolver", () => {
             );
 
             assert.strictEqual(result, "<p>Hola</p>");
+        });
+
+        test("fixes spurious span wrappers deterministically without calling the LLM", async () => {
+            executeCommandStub.resolves({ cellId: "GEN 1:1", content: "<p>Hello</p>" });
+            const resolveWithLLM = sinon.stub().resolves("should not be called");
+
+            const result = await maybeAutoResolveHtmlStructure(
+                "GEN 1:1",
+                "<p><span>Hola</span></p>",
+                createMockDocument(true),
+                {
+                    config: mockConfig,
+                    resolveWithLLM,
+                },
+            );
+
+            assert.strictEqual(result, "<p>Hola</p>");
+            assert.strictEqual(resolveWithLLM.callCount, 0);
+        });
+
+        test("returns raw translation when LLM output fails verification", async () => {
+            executeCommandStub.resolves({ cellId: "GEN 1:1", content: "<p>Hello world</p><br/>" });
+            // LLM reverts to source-language text — must be rejected.
+            const resolveWithLLM = sinon.stub().resolves("<p>Hello world</p><br/>");
+
+            const result = await maybeAutoResolveHtmlStructure(
+                "GEN 1:1",
+                "<p>Hola mundo</p>",
+                createMockDocument(true),
+                {
+                    config: mockConfig,
+                    resolveWithLLM,
+                },
+            );
+
+            assert.strictEqual(result, "<p>Hola mundo</p>");
+            assert.strictEqual(resolveWithLLM.callCount, 1);
         });
 
         test("calls resolve when structures mismatch", async () => {

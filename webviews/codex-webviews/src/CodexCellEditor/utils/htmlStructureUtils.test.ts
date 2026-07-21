@@ -3,6 +3,9 @@ import {
     extractHtmlSkeleton,
     compareHtmlStructure,
     getStructureMismatchDescription,
+    removeBareSpanPairs,
+    tryDeterministicStructureFix,
+    extractPlainTextFromHtml,
     type HtmlStructureDiff,
 } from "../../../../../sharedUtils/htmlStructureUtils";
 
@@ -169,6 +172,97 @@ describe("htmlStructureUtils", () => {
             expect(getStructureMismatchDescription(diff)).toBe(
                 "Missing tags: <br/>"
             );
+        });
+    });
+
+    describe("removeBareSpanPairs", () => {
+        it("removes an attribute-less span wrapper, keeping its content", () => {
+            expect(removeBareSpanPairs("<p><span>Hola</span></p>")).toBe("<p>Hola</p>");
+        });
+
+        it("removes a top-level bare span", () => {
+            expect(removeBareSpanPairs("<span>Hola</span>")).toBe("Hola");
+        });
+
+        it("preserves spans with attributes", () => {
+            const html = '<p><span style="font-size: 18pt">Hola</span></p>';
+            expect(removeBareSpanPairs(html)).toBe(html);
+        });
+
+        it("removes only the bare span when nested inside a styled span", () => {
+            const html = '<span style="color:red"><span>Hola</span> mundo</span>';
+            expect(removeBareSpanPairs(html)).toBe('<span style="color:red">Hola mundo</span>');
+        });
+
+        it("removes a bare span that wraps a styled span", () => {
+            const html = '<span><span data-tag="bd">Hola</span></span>';
+            expect(removeBareSpanPairs(html)).toBe('<span data-tag="bd">Hola</span>');
+        });
+
+        it("removes multiple bare span pairs", () => {
+            expect(removeBareSpanPairs("<span>a</span> <span>b</span>")).toBe("a b");
+        });
+
+        it("returns input unchanged when there are no bare spans", () => {
+            expect(removeBareSpanPairs("<p>Hola</p>")).toBe("<p>Hola</p>");
+        });
+
+        it("handles empty input", () => {
+            expect(removeBareSpanPairs("")).toBe("");
+        });
+    });
+
+    describe("tryDeterministicStructureFix", () => {
+        it("fixes the spurious LLM span wrapper", () => {
+            const fixed = tryDeterministicStructureFix(
+                "<p>Hello world</p>",
+                "<p><span>Hola mundo</span></p>"
+            );
+            expect(fixed).toBe("<p>Hola mundo</p>");
+        });
+
+        it("returns null when structures already match", () => {
+            expect(
+                tryDeterministicStructureFix("<p>Hello</p>", "<p>Hola</p>")
+            ).toBeNull();
+        });
+
+        it("returns null when unwrapping does not produce a match", () => {
+            expect(
+                tryDeterministicStructureFix("<p>Hello</p><br/>", "<p><span>Hola</span></p>")
+            ).toBeNull();
+        });
+
+        it("returns null when the mismatch is not span-related", () => {
+            expect(
+                tryDeterministicStructureFix("<p>Hello</p><br/>", "<p>Hola</p>")
+            ).toBeNull();
+        });
+
+        it("keeps bare spans that the source also has", () => {
+            // Removing all bare spans would overshoot; the fix must verify and bail.
+            expect(
+                tryDeterministicStructureFix(
+                    "<p><span>Hello</span></p>",
+                    "<p><span>Hola</span><span>mundo</span></p>"
+                )
+            ).toBeNull();
+        });
+    });
+
+    describe("extractPlainTextFromHtml", () => {
+        it("strips tags and normalizes whitespace", () => {
+            expect(extractPlainTextFromHtml("<p>Hola  <strong>mundo</strong> </p>")).toBe(
+                "Hola mundo"
+            );
+        });
+
+        it("decodes common entities", () => {
+            expect(extractPlainTextFromHtml("<p>you&#39;re &amp; me</p>")).toBe("you're & me");
+        });
+
+        it("handles empty input", () => {
+            expect(extractPlainTextFromHtml("")).toBe("");
         });
     });
 });

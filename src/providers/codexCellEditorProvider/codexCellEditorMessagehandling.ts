@@ -1753,10 +1753,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         try {
             const { resolveCellHtmlStructure } = await import("./utils/htmlStructureResolver");
-            const resolved = await resolveCellHtmlStructure(cellId, document);
+            const outcome = await resolveCellHtmlStructure(cellId, document);
 
-            if (!resolved) {
-                vscode.window.showWarningMessage("Could not find source or target cell content to resolve structure.");
+            if (outcome.status !== "resolved") {
+                if (outcome.status === "missing-content") {
+                    vscode.window.showWarningMessage("Could not find source or target cell content to resolve structure.");
+                } else if (outcome.status === "unresolved") {
+                    vscode.window.showWarningMessage(
+                        "Could not automatically resolve the structure mismatch for this cell. Please fix it manually."
+                    );
+                }
                 provider.postMessageToWebview(webviewPanel, {
                     type: "providerSendsResolvedHtmlStructure",
                     content: { cellId, resolvedContent: "" },
@@ -1764,12 +1770,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 return;
             }
 
-            await document.updateCellContent(cellId, resolved, EditType.LLM_GENERATION);
+            await document.updateCellContent(cellId, outcome.content, EditType.LLM_GENERATION);
             await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerSendsResolvedHtmlStructure",
-                content: { cellId, resolvedContent: resolved },
+                content: { cellId, resolvedContent: outcome.content },
             });
         } catch (error) {
             console.error("[resolveHtmlStructure] Error:", error);
