@@ -36,6 +36,18 @@ export function ResolveAllModal({
         }
     }, [totalAvailable, numberOfCellsToResolve]);
 
+    useEffect(() => {
+        if (!isOpen) return;
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                event.stopPropagation();
+                onClose();
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [isOpen, onClose]);
+
     if (!isOpen) return null;
 
     const handleNumberChange = (value: string) => {
