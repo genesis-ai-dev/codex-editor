@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { CustomWaveformCanvas } from "./CustomWaveformCanvas.tsx";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { MessageCircle, Copy, Loader2, Trash2, History, Mic, MicOff, Settings as SettingsIcon } from "lucide-react";
+import { MessageCircle, Copy, Loader2, Trash2, History, Mic, MicOff, Scissors, Settings as SettingsIcon } from "lucide-react";
 import type { ValidationStatusIconProps } from "./AudioValidationStatusIcon.tsx";
 import { AudioValidationBadge } from "./AudioValidationBadge.tsx";
 import type { AudioValidationPopoverProps } from "./AudioValidationBadge.tsx";
@@ -19,8 +19,11 @@ import {
     SelectValue,
 } from "../components/ui/select";
 import { Input } from "../components/ui/input";
+import { SimpleAudioEditorPanel } from "./audio-editor/SimpleAudioEditorPanel";
 
 interface AudioWaveformWithTranscriptionProps {
+    cellId?: string;
+    sourceAudioId?: string | null;
     audioUrl: string;
     audioBlob?: Blob | null;
     transcription?: {
@@ -65,11 +68,15 @@ interface AudioWaveformWithTranscriptionProps {
     noMicDetected?: boolean;
     /** Mic permission denied by the OS/browser. */
     micPermissionDenied?: boolean;
+    /** Prevents saving a new edited version, for example when the cell is locked. */
+    editDisabled?: boolean;
 }
 
 const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionProps> = ({
     audioUrl,
     audioBlob,
+    cellId,
+    sourceAudioId,
     transcription,
     isTranscribing,
     transcriptionProgress,
@@ -96,9 +103,11 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     micUnavailable = false,
     noMicDetected = false,
     micPermissionDenied = false,
+    editDisabled = false,
 }) => {
     const [audioSrc, setAudioSrc] = useState<string>("");
     const [audioDuration, setAudioDuration] = useState<number | null>(null);
+    const [showAudioEditor, setShowAudioEditor] = useState(false);
 
     // The Script picker offers three "preset" choices plus a free-form 4-letter input for
     // power users (e.g. someone wants `swa_Cyrl` even though the resolver would never pick
@@ -136,6 +145,10 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
         }
         setAudioSrc("");
     }, [audioBlob, audioUrl]);
+
+    useEffect(() => {
+        setShowAudioEditor(false);
+    }, [sourceAudioId]);
 
     // Decode the audio blob to get its actual duration (best-effort).
     // Only needed when a target duration is supplied so we can render the comparison bar.
@@ -447,6 +460,23 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     variant="outline"
                     size="sm"
                     className="h-8 px-2 text-xs"
+                    disabled={
+                        editDisabled ||
+                        !cellId ||
+                        !sourceAudioId ||
+                        !audioBlob ||
+                        !audioSrc
+                    }
+                    onClick={() => setShowAudioEditor((visible) => !visible)}
+                    title={editDisabled ? "Cannot edit audio: cell is locked" : "Trim audio"}
+                >
+                    <Scissors className="h-3 w-3" />
+                    <span className="ml-1">{showAudioEditor ? "Close editor" : "Edit"}</span>
+                </Button>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-2 text-xs"
                     onClick={() => onRequestRemove?.()}
                     title="Delete Audio"
                 >
@@ -504,6 +534,16 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     <span className="ml-1">{micRecordLabel}</span>
                 </Button>
             </div>
+            {showAudioEditor && cellId && sourceAudioId && audioBlob && audioSrc && (
+                <SimpleAudioEditorPanel
+                    cellId={cellId}
+                    sourceAudioId={sourceAudioId}
+                    audioUrl={audioSrc}
+                    audioBlob={audioBlob}
+                    onClose={() => setShowAudioEditor(false)}
+                    onSaved={() => setShowAudioEditor(false)}
+                />
+            )}
         </div>
     );
 };
