@@ -557,6 +557,9 @@ export type EditorPostMessages =
                 channels?: number; // 1 = mono, 2 = stereo
                 durationSec?: number; // seconds (float)
                 bitrateKbps?: number; // approximate kbps
+                derivedFromAudioId?: string;
+                editOperation?: "timeline";
+                clipCount?: number;
             };
         };
     }
@@ -2485,6 +2488,15 @@ type EditorReceiveMessages =
                         sampleRate?: number;
                         channels?: number;
                         bitrateKbps?: number;
+                        derivedFromAudioId?: string;
+                        editOperation?: "trim" | "timeline";
+                        trimStartSec?: number;
+                        trimEndSec?: number;
+                        clipCount?: number;
+                        gainDb?: number;
+                        normalized?: boolean;
+                        fadeInSec?: number;
+                        fadeOutSec?: number;
                     };
                 };
             }>;
