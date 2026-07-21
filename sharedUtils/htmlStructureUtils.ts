@@ -92,29 +92,29 @@ export const getStructureMismatchDescription = (
 };
 
 /**
- * Locate matching attribute-less `<span>…</span>` pairs in an HTML fragment.
- * Returns [start, end) ranges of the opening and closing tags, sorted by
- * position. Spans with attributes (styles, data-tags) are ignored.
+ * Locate matching attribute-less `<tagName>…</tagName>` pairs in an HTML
+ * fragment. Returns [start, end) ranges of the opening and closing tags,
+ * sorted by position. Tags with attributes (styles, data-tags) are ignored.
  */
-const findBareSpanTagRanges = (html: string): Array<[number, number]> => {
+const findBareTagRanges = (html: string, tagName: string): Array<[number, number]> => {
     const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*\/?>/g;
-    const openSpans: Array<{ start: number; end: number; isBare: boolean }> = [];
+    const openTags: Array<{ start: number; end: number; isBare: boolean }> = [];
     const ranges: Array<[number, number]> = [];
     let match: RegExpExecArray | null;
     while ((match = tagRegex.exec(html)) !== null) {
         const fullTag = match[0];
-        if (match[1].toLowerCase() !== "span") continue;
+        if (match[1].toLowerCase() !== tagName) continue;
         if (fullTag.startsWith("</")) {
-            const open = openSpans.pop();
+            const open = openTags.pop();
             if (open?.isBare) {
                 ranges.push([open.start, open.end]);
                 ranges.push([match.index, match.index + fullTag.length]);
             }
         } else if (!fullTag.endsWith("/>")) {
-            openSpans.push({
+            openTags.push({
                 start: match.index,
                 end: match.index + fullTag.length,
-                isBare: fullTag === "<span>",
+                isBare: fullTag === `<${tagName}>`,
             });
         }
     }
@@ -146,7 +146,19 @@ const replaceRanges = (
  */
 export const removeBareSpanPairs = (html: string): string => {
     if (!html) return html;
-    const ranges = findBareSpanTagRanges(html);
+    const ranges = findBareTagRanges(html, "span");
+    if (ranges.length === 0) return html;
+    return replaceRanges(html, ranges, () => "");
+};
+
+/**
+ * Remove attribute-less `<p>…</p>` pairs from an HTML fragment, keeping their
+ * inner content. The editor always wraps content in a block element, which
+ * mismatches inline sources (e.g. USFM verse cells).
+ */
+export const removeBareParagraphPairs = (html: string): string => {
+    if (!html) return html;
+    const ranges = findBareTagRanges(html, "p");
     if (ranges.length === 0) return html;
     return replaceRanges(html, ranges, () => "");
 };
@@ -160,15 +172,15 @@ export const removeBareSpanPairs = (html: string): string => {
  */
 export const convertBareSpanPairsToParagraphs = (html: string): string => {
     if (!html) return html;
-    const ranges = findBareSpanTagRanges(html);
+    const ranges = findBareTagRanges(html, "span");
     if (ranges.length === 0) return html;
     return replaceRanges(html, ranges, (tag) => (tag === "<span>" ? "<p>" : "</p>"));
 };
 
 /**
  * Attempt to fix a structure mismatch without an LLM. Handles the common
- * artifacts of the editing pipeline: spurious bare `<span>` wrappers that
- * should either be removed or should have been `<p>` tags.
+ * artifacts of the editing pipeline: spurious bare `<span>`/`<p>` wrappers
+ * that should be removed, or bare spans that should have been `<p>` tags.
  *
  * Returns the fixed HTML only if the result verifiably matches the source
  * structure; returns null when no deterministic fix applies.
@@ -181,6 +193,8 @@ export const tryDeterministicStructureFix = (
     const candidates = [
         removeBareSpanPairs(targetHtml),
         convertBareSpanPairsToParagraphs(targetHtml),
+        removeBareParagraphPairs(targetHtml),
+        removeBareParagraphPairs(removeBareSpanPairs(targetHtml)),
     ];
     for (const candidate of candidates) {
         if (candidate !== targetHtml && compareHtmlStructure(sourceHtml, candidate).isMatch) {

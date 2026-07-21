@@ -4,6 +4,7 @@ import {
     compareHtmlStructure,
     getStructureMismatchDescription,
     removeBareSpanPairs,
+    removeBareParagraphPairs,
     convertBareSpanPairsToParagraphs,
     tryDeterministicStructureFix,
     extractPlainTextFromHtml,
@@ -213,6 +214,21 @@ describe("htmlStructureUtils", () => {
         });
     });
 
+    describe("removeBareParagraphPairs", () => {
+        it("removes a bare paragraph wrapper, keeping its content", () => {
+            expect(removeBareParagraphPairs("<p>Hola mundo</p>")).toBe("Hola mundo");
+        });
+
+        it("preserves paragraphs with attributes", () => {
+            const html = '<p data-style-id="Normal">Hola</p>';
+            expect(removeBareParagraphPairs(html)).toBe(html);
+        });
+
+        it("handles empty input", () => {
+            expect(removeBareParagraphPairs("")).toBe("");
+        });
+    });
+
     describe("convertBareSpanPairsToParagraphs", () => {
         it("converts a bare span wrapper to a paragraph", () => {
             expect(convertBareSpanPairsToParagraphs("<span>Hola</span>")).toBe("<p>Hola</p>");
@@ -258,6 +274,23 @@ describe("htmlStructureUtils", () => {
                 "<span>Hola</span><p>mundo</p>"
             );
             expect(fixed).toBe("<p>Hola</p><p>mundo</p>");
+        });
+
+        it("unwraps the editor's block wrapper for inline sources", () => {
+            // USFM/plaintext sources are inline; the editor always saves a block element.
+            const fixed = tryDeterministicStructureFix(
+                'In the beginning <span data-tag="nd">God</span> created',
+                '<p>En el principio <span data-tag="nd">Dios</span> creó</p>'
+            );
+            expect(fixed).toBe('En el principio <span data-tag="nd">Dios</span> creó');
+        });
+
+        it("unwraps combined span and paragraph wrappers", () => {
+            const fixed = tryDeterministicStructureFix(
+                "Hello world",
+                "<p><span>Hola mundo</span></p>"
+            );
+            expect(fixed).toBe("Hola mundo");
         });
 
         it("returns null when structures already match", () => {
