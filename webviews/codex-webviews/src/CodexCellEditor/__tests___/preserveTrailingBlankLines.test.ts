@@ -25,6 +25,7 @@ import {
 
 type ClipboardModule = {
     convert: (args: { html?: string; text?: string }) => Delta;
+    convertHTML: (html: string) => Delta;
     matchers: Array<[number | string, unknown]>;
 };
 
@@ -37,9 +38,14 @@ function makeQuill(): { quill: Quill; clipboard: ClipboardModule } {
     return { quill, clipboard };
 }
 
+/**
+ * Mirrors Editor.tsx's on-open pipeline exactly, including passing the raw
+ * (pre-strip) Delta from `convertHTML` so the phantom-line guard is exercised.
+ */
 function loadThroughEditorPipeline(quill: Quill, clipboard: ClipboardModule, html: string): string {
     const converted = clipboard.convert({ html, text: "" });
-    const withTrailing = restoreTrailingBlankLine(html, converted);
+    const raw = clipboard.convertHTML(html);
+    const withTrailing = restoreTrailingBlankLine(html, converted, raw);
     quill.setContents(withTrailing, "silent");
     return quill.root.innerHTML;
 }
@@ -172,5 +178,85 @@ describe("restoreTrailingBlankLine — round-trip through Quill (issue #1103)", 
         const { quill, clipboard } = makeQuill();
         const html = loadThroughEditorPipeline(quill, clipboard, "<p><br></p>");
         expect(html).toBe("<p><br></p>");
+    });
+});
+
+describe("restoreTrailingBlankLine — no phantom line for formatted trailing blocks (#1103 regression)", () => {
+    beforeEach(() => {
+        document.body.innerHTML = "";
+    });
+
+    it("does NOT add a phantom line when the trailing empty block is aligned", () => {
+        // Regression: convert() does not strip a *formatted* trailing newline,
+        // so it already round-trips. Adding another produced an extra,
+        // un-deletable empty paragraph on every reopen.
+        const { quill, clipboard } = makeQuill();
+        const html = loadThroughEditorPipeline(
+            quill,
+            clipboard,
+            '<span>Hello</span><p class="ql-align-center"><br></p>'
+        );
+        expect(html).toBe('<p>Hello</p><p class="ql-align-center"><br></p>');
+    });
+
+    it("does NOT add a phantom line when the trailing empty block is right-aligned after another empty", () => {
+        const { quill, clipboard } = makeQuill();
+        const html = loadThroughEditorPipeline(
+            quill,
+            clipboard,
+            '<span>Hello</span><p><br></p><p class="ql-align-right"><br></p>'
+        );
+        expect(html).toBe('<p>Hello</p><p><br></p><p class="ql-align-right"><br></p>');
+    });
+
+    it("preserves a plain trailing blank even when the preceding content is formatted", () => {
+        // Here convert() DID strip a plain trailing newline (the empty block
+        // is unformatted), so we must restore it — the preceding paragraph's
+        // alignment must survive too.
+        const { quill, clipboard } = makeQuill();
+        const html = loadThroughEditorPipeline(
+            quill,
+            clipboard,
+            '<p class="ql-align-center">Hello</p><p><br></p>'
+        );
+        expect(html).toBe('<p class="ql-align-center">Hello</p><p><br></p>');
+    });
+
+    it("round-trips a formatted trailing block idempotently (open → reopen stays stable)", () => {
+        // Simulate open → (no edit) → save shape → reopen. The rendered HTML
+        // from the first open must, when re-loaded, produce the same HTML —
+        // no growth of empty paragraphs.
+        const { quill, clipboard } = makeQuill();
+        const first = loadThroughEditorPipeline(
+            quill,
+            clipboard,
+            '<span>Hello</span><p class="ql-align-center"><br></p>'
+        );
+        const second = loadThroughEditorPipeline(quill, clipboard, first);
+        expect(second).toBe(first);
+    });
+});
+
+describe("restoreTrailingBlankLine — fallback path (no raw delta)", () => {
+    beforeEach(() => {
+        document.body.innerHTML = "";
+    });
+
+    it("still restores a plain trailing blank using only the converted delta", () => {
+        const { quill, clipboard } = makeQuill();
+        const converted = clipboard.convert({ html: "<span>Hello</span><p><br></p>", text: "" });
+        // No raw delta passed — exercises the fallback branch.
+        const withTrailing = restoreTrailingBlankLine("<span>Hello</span><p><br></p>", converted);
+        quill.setContents(withTrailing, "silent");
+        expect(quill.root.innerHTML).toBe("<p>Hello</p><p><br></p>");
+    });
+
+    it("does NOT add a phantom line for a formatted trailing block even in the fallback path", () => {
+        const { quill, clipboard } = makeQuill();
+        const srcHtml = '<span>Hello</span><p class="ql-align-center"><br></p>';
+        const converted = clipboard.convert({ html: srcHtml, text: "" });
+        const withTrailing = restoreTrailingBlankLine(srcHtml, converted);
+        quill.setContents(withTrailing, "silent");
+        expect(quill.root.innerHTML).toBe('<p>Hello</p><p class="ql-align-center"><br></p>');
     });
 });
