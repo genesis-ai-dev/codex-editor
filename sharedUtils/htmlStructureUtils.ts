@@ -92,18 +92,14 @@ export const getStructureMismatchDescription = (
 };
 
 /**
- * Remove attribute-less `<span>…</span>` pairs from an HTML fragment, keeping
- * their inner content. Spans with attributes (styles, data-tags) are preserved.
- *
- * These bare spans are artifacts of the LLM completion pipeline, which used to
- * wrap plain-text predictions in a `<span>` wrapper, causing structure
- * mismatches against source cells.
+ * Locate matching attribute-less `<span>…</span>` pairs in an HTML fragment.
+ * Returns [start, end) ranges of the opening and closing tags, sorted by
+ * position. Spans with attributes (styles, data-tags) are ignored.
  */
-export const removeBareSpanPairs = (html: string): string => {
-    if (!html) return html;
+const findBareSpanTagRanges = (html: string): Array<[number, number]> => {
     const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*\/?>/g;
     const openSpans: Array<{ start: number; end: number; isBare: boolean }> = [];
-    const removals: Array<[number, number]> = [];
+    const ranges: Array<[number, number]> = [];
     let match: RegExpExecArray | null;
     while ((match = tagRegex.exec(html)) !== null) {
         const fullTag = match[0];
@@ -111,8 +107,8 @@ export const removeBareSpanPairs = (html: string): string => {
         if (fullTag.startsWith("</")) {
             const open = openSpans.pop();
             if (open?.isBare) {
-                removals.push([open.start, open.end]);
-                removals.push([match.index, match.index + fullTag.length]);
+                ranges.push([open.start, open.end]);
+                ranges.push([match.index, match.index + fullTag.length]);
             }
         } else if (!fullTag.endsWith("/>")) {
             openSpans.push({
@@ -122,12 +118,18 @@ export const removeBareSpanPairs = (html: string): string => {
             });
         }
     }
-    if (removals.length === 0) return html;
-    removals.sort((a, b) => a[0] - b[0]);
+    return ranges.sort((a, b) => a[0] - b[0]);
+};
+
+const replaceRanges = (
+    html: string,
+    ranges: Array<[number, number]>,
+    replacement: (tag: string) => string,
+): string => {
     let result = "";
     let last = 0;
-    for (const [start, end] of removals) {
-        result += html.slice(last, start);
+    for (const [start, end] of ranges) {
+        result += html.slice(last, start) + replacement(html.slice(start, end));
         last = end;
     }
     result += html.slice(last);
@@ -135,8 +137,38 @@ export const removeBareSpanPairs = (html: string): string => {
 };
 
 /**
- * Attempt to fix a structure mismatch without an LLM. Currently handles the
- * common case of spurious bare `<span>` wrappers in the translation.
+ * Remove attribute-less `<span>…</span>` pairs from an HTML fragment, keeping
+ * their inner content. Spans with attributes (styles, data-tags) are preserved.
+ *
+ * These bare spans are artifacts of the LLM completion pipeline, which used to
+ * wrap plain-text predictions in a `<span>` wrapper, causing structure
+ * mismatches against source cells.
+ */
+export const removeBareSpanPairs = (html: string): string => {
+    if (!html) return html;
+    const ranges = findBareSpanTagRanges(html);
+    if (ranges.length === 0) return html;
+    return replaceRanges(html, ranges, () => "");
+};
+
+/**
+ * Convert attribute-less `<span>…</span>` pairs to `<p>…</p>` pairs.
+ *
+ * The cell editor's save pipeline historically converted a cell's first
+ * paragraph to a bare span (the inline cell convention), which breaks the
+ * structure of paragraph-based sources such as docx imports.
+ */
+export const convertBareSpanPairsToParagraphs = (html: string): string => {
+    if (!html) return html;
+    const ranges = findBareSpanTagRanges(html);
+    if (ranges.length === 0) return html;
+    return replaceRanges(html, ranges, (tag) => (tag === "<span>" ? "<p>" : "</p>"));
+};
+
+/**
+ * Attempt to fix a structure mismatch without an LLM. Handles the common
+ * artifacts of the editing pipeline: spurious bare `<span>` wrappers that
+ * should either be removed or should have been `<p>` tags.
  *
  * Returns the fixed HTML only if the result verifiably matches the source
  * structure; returns null when no deterministic fix applies.
@@ -146,9 +178,16 @@ export const tryDeterministicStructureFix = (
     targetHtml: string,
 ): string | null => {
     if (compareHtmlStructure(sourceHtml, targetHtml).isMatch) return null;
-    const unwrapped = removeBareSpanPairs(targetHtml);
-    if (unwrapped === targetHtml) return null;
-    return compareHtmlStructure(sourceHtml, unwrapped).isMatch ? unwrapped : null;
+    const candidates = [
+        removeBareSpanPairs(targetHtml),
+        convertBareSpanPairsToParagraphs(targetHtml),
+    ];
+    for (const candidate of candidates) {
+        if (candidate !== targetHtml && compareHtmlStructure(sourceHtml, candidate).isMatch) {
+            return candidate;
+        }
+    }
+    return null;
 };
 
 /**

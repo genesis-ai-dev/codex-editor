@@ -4,6 +4,7 @@ import {
     compareHtmlStructure,
     getStructureMismatchDescription,
     removeBareSpanPairs,
+    convertBareSpanPairsToParagraphs,
     tryDeterministicStructureFix,
     extractPlainTextFromHtml,
     type HtmlStructureDiff,
@@ -212,6 +213,27 @@ describe("htmlStructureUtils", () => {
         });
     });
 
+    describe("convertBareSpanPairsToParagraphs", () => {
+        it("converts a bare span wrapper to a paragraph", () => {
+            expect(convertBareSpanPairsToParagraphs("<span>Hola</span>")).toBe("<p>Hola</p>");
+        });
+
+        it("preserves spans with attributes", () => {
+            const html = '<span style="color:red">Hola</span>';
+            expect(convertBareSpanPairsToParagraphs(html)).toBe(html);
+        });
+
+        it("converts only the bare span in mixed content", () => {
+            expect(convertBareSpanPairsToParagraphs("<span>a</span><p>b</p>")).toBe(
+                "<p>a</p><p>b</p>"
+            );
+        });
+
+        it("handles empty input", () => {
+            expect(convertBareSpanPairsToParagraphs("")).toBe("");
+        });
+    });
+
     describe("tryDeterministicStructureFix", () => {
         it("fixes the spurious LLM span wrapper", () => {
             const fixed = tryDeterministicStructureFix(
@@ -219,6 +241,23 @@ describe("htmlStructureUtils", () => {
                 "<p><span>Hola mundo</span></p>"
             );
             expect(fixed).toBe("<p>Hola mundo</p>");
+        });
+
+        it("converts the editor's span-first convention back to a paragraph", () => {
+            // The cell editor used to save a single paragraph as <span>…</span>.
+            const fixed = tryDeterministicStructureFix(
+                '<p data-style-id="ListParagraph" style="line-height: 1.2">List five things.</p>',
+                "<span>Enumera cinco cosas.</span>"
+            );
+            expect(fixed).toBe("<p>Enumera cinco cosas.</p>");
+        });
+
+        it("converts the first-paragraph span in multi-paragraph content", () => {
+            const fixed = tryDeterministicStructureFix(
+                "<p>Hello</p><p>world</p>",
+                "<span>Hola</span><p>mundo</p>"
+            );
+            expect(fixed).toBe("<p>Hola</p><p>mundo</p>");
         });
 
         it("returns null when structures already match", () => {
