@@ -3,7 +3,26 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { ChevronUp, ChevronDown, X, Replace, ChevronRight, Files, Trash2 } from "lucide-react";
 import { QuillCellContent } from "../../../../../types";
+import { replaceInCellHtml, deleteInCellHtml } from "../utils/searchReplaceHtml";
 import "./floatingSearchBar.css";
+
+/**
+ * Whether the current user has opted into keeping their own validations
+ * across search/replace edits. Persisted key is shared with ParallelView's
+ * SearchTab so the two find/replace UIs stay in lockstep. When absent, we
+ * default to `false` (matches ParallelView's initial state).
+ *
+ * Read at each call site (not memoized in a hook) so that toggling the
+ * checkbox in ParallelView is picked up immediately by the next find/replace
+ * action here.
+ */
+const readRetainMyValidationsPreference = (): boolean => {
+    try {
+        return localStorage.getItem("retainMyValidations") === "true";
+    } catch {
+        return false;
+    }
+};
 
 // Strip HTML tags for plain text search
 const stripHtml = (html: string): string => {
@@ -182,7 +201,12 @@ interface FloatingSearchBarProps {
     onClose: () => void;
     translationUnits: QuillCellContent[];
     onNavigateToCell: (cellId: string) => void;
-    onReplaceInCell: (cellId: string, oldContent: string, newContent: string) => void;
+    onReplaceInCell: (
+        cellId: string,
+        oldContent: string,
+        newContent: string,
+        options?: { fromSearchReplace?: boolean; retainValidations?: boolean }
+    ) => void;
     currentMilestoneIndex: number;
     totalMilestones: number;
     onNavigateToMilestone: (milestoneIndex: number, subsectionIndex: number) => void;
@@ -439,7 +463,22 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
         ]
     );
 
-    // Replace current match
+    // Common options bag applied to every find/replace-originating save.
+    // `fromSearchReplace` is what tells the extension host to skip
+    // auto-validating the edited cell; `retainValidations` mirrors the
+    // ParallelView preference (see readRetainMyValidationsPreference above)
+    // so a user who's opted into "keep my validations" gets consistent
+    // behavior across both search UIs.
+    const searchReplaceSaveOptions = (): {
+        fromSearchReplace: true;
+        retainValidations: boolean;
+    } => ({
+        fromSearchReplace: true,
+        retainValidations: readRetainMyValidationsPreference(),
+    });
+
+    // Replace current match — DOM-aware so paragraph structure, footnote
+    // markers, and other inline formatting are preserved (issue #1103).
     const replaceCurrentMatch = useCallback(() => {
         if (!replaceText || pageMatches.length === 0) return;
 
@@ -447,30 +486,12 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
         const cell = translationUnits[match.cellIndex];
         if (!cell) return;
 
-        // Perform the replacement in plain text
-        const plainText = stripHtml(cell.cellContent);
-        const searchQuery = matchCase ? query : query.toLowerCase();
-        const searchText = matchCase ? plainText : plainText.toLowerCase();
+        const newContent = replaceInCellHtml(cell.cellContent, query, replaceText, matchCase, {
+            onlyMatchIndex: match.matchIndex,
+        });
 
-        // Find the specific match occurrence
-        let count = 0;
-        let startIdx = 0;
-        while (count <= match.matchIndex) {
-            startIdx = searchText.indexOf(searchQuery, startIdx);
-            if (startIdx === -1) break;
-            if (count === match.matchIndex) break;
-            startIdx += searchQuery.length;
-            count++;
-        }
-
-        if (startIdx !== -1) {
-            // Build new content with replacement
-            const newContent =
-                plainText.substring(0, startIdx) +
-                replaceText +
-                plainText.substring(startIdx + query.length);
-
-            onReplaceInCell(match.cellId, cell.cellContent, newContent);
+        if (newContent !== cell.cellContent) {
+            onReplaceInCell(match.cellId, cell.cellContent, newContent, searchReplaceSaveOptions());
         }
     }, [
         replaceText,
@@ -486,7 +507,7 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
     const replaceAll = useCallback(() => {
         if (!replaceText || pageMatches.length === 0) return;
 
-        // Replace all matches on current page (in reverse order to preserve indices)
+        // Replace all matches on current page, one cell at a time.
         const matchesByCell = new Map<number, SearchMatch[]>();
         for (const match of pageMatches) {
             const existing = matchesByCell.get(match.cellIndex) || [];
@@ -498,12 +519,20 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
             const cell = translationUnits[cellIndex];
             if (!cell) continue;
 
-            const plainText = stripHtml(cell.cellContent);
-            const searchRegex = new RegExp(escapeRegex(query), matchCase ? "g" : "gi");
-            const newContent = plainText.replace(searchRegex, replaceText);
+            const newContent = replaceInCellHtml(
+                cell.cellContent,
+                query,
+                replaceText,
+                matchCase
+            );
 
-            if (newContent !== plainText) {
-                onReplaceInCell(matches[0].cellId, cell.cellContent, newContent);
+            if (newContent !== cell.cellContent) {
+                onReplaceInCell(
+                    matches[0].cellId,
+                    cell.cellContent,
+                    newContent,
+                    searchReplaceSaveOptions()
+                );
             }
         }
 
@@ -524,31 +553,19 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
         onNavigateToMilestone,
     ]);
 
-    // Delete current match (replace with empty string)
+    // Delete current match — DOM-aware.
     const deleteCurrentMatch = useCallback(() => {
         if (pageMatches.length === 0) return;
         const match = pageMatches[currentMatchIndex];
         const cell = translationUnits[match.cellIndex];
         if (!cell) return;
 
-        const plainText = stripHtml(cell.cellContent);
-        const searchQuery = matchCase ? query : query.toLowerCase();
-        const searchText = matchCase ? plainText : plainText.toLowerCase();
+        const newContent = deleteInCellHtml(cell.cellContent, query, matchCase, {
+            onlyMatchIndex: match.matchIndex,
+        });
 
-        let count = 0;
-        let startIdx = 0;
-        while (count <= match.matchIndex) {
-            startIdx = searchText.indexOf(searchQuery, startIdx);
-            if (startIdx === -1) break;
-            if (count === match.matchIndex) break;
-            startIdx += searchQuery.length;
-            count++;
-        }
-
-        if (startIdx !== -1) {
-            const newContent =
-                plainText.substring(0, startIdx) + plainText.substring(startIdx + query.length);
-            onReplaceInCell(match.cellId, cell.cellContent, newContent);
+        if (newContent !== cell.cellContent) {
+            onReplaceInCell(match.cellId, cell.cellContent, newContent, searchReplaceSaveOptions());
         }
     }, [pageMatches, currentMatchIndex, translationUnits, query, matchCase, onReplaceInCell]);
 
@@ -566,11 +583,14 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
         for (const [cellIndex, matches] of matchesByCell) {
             const cell = translationUnits[cellIndex];
             if (!cell) continue;
-            const plainText = stripHtml(cell.cellContent);
-            const searchRegex = new RegExp(escapeRegex(query), matchCase ? "g" : "gi");
-            const newContent = plainText.replace(searchRegex, "");
-            if (newContent !== plainText) {
-                onReplaceInCell(matches[0].cellId, cell.cellContent, newContent);
+            const newContent = deleteInCellHtml(cell.cellContent, query, matchCase);
+            if (newContent !== cell.cellContent) {
+                onReplaceInCell(
+                    matches[0].cellId,
+                    cell.cellContent,
+                    newContent,
+                    searchReplaceSaveOptions()
+                );
             }
         }
 
