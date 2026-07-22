@@ -57,12 +57,22 @@ const tagDifference = (a: string[], b: string[]): string[] => {
     return diff;
 };
 
+/**
+ * Remove paragraphs that contain only whitespace and/or `<br>` tags (e.g.
+ * Quill's `<p><br></p>` blank lines from Enter presses). Used to normalize
+ * both sides before comparing structures, so a user adding or removing a
+ * blank line never triggers a mismatch warning. Empty paragraphs carry no
+ * text, so they are irrelevant to the round-trip export.
+ */
+const stripEmptyParagraphs = (html: string): string =>
+    (html || "").replace(/<p\b[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>/gi, "");
+
 export const compareHtmlStructure = (
     sourceHtml: string,
     targetHtml: string,
 ): HtmlStructureDiff => {
-    const sourceSkeleton = extractHtmlSkeleton(sourceHtml);
-    const targetSkeleton = extractHtmlSkeleton(targetHtml);
+    const sourceSkeleton = extractHtmlSkeleton(stripEmptyParagraphs(sourceHtml));
+    const targetSkeleton = extractHtmlSkeleton(stripEmptyParagraphs(targetHtml));
     if (sourceSkeleton === targetSkeleton) {
         return { isMatch: true, errors: [] };
     }
@@ -178,9 +188,88 @@ export const convertBareSpanPairsToParagraphs = (html: string): string => {
 };
 
 /**
+ * If the (trimmed) fragment is exactly one element wrapping all remaining
+ * content, return its opening tag, tag name, and inner content; otherwise null.
+ */
+const matchFullWrapper = (
+    html: string,
+): { openTag: string; tagName: string; inner: string } | null => {
+    const trimmed = html.trim();
+    const openMatch = /^<([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/.exec(trimmed);
+    if (!openMatch || openMatch[0].endsWith("/>")) return null;
+    const tagName = openMatch[1].toLowerCase();
+    if (isSelfClosing(tagName)) return null;
+    const closeTag = `</${tagName}>`;
+    if (!trimmed.toLowerCase().endsWith(closeTag)) return null;
+    const inner = trimmed.slice(openMatch[0].length, trimmed.length - closeTag.length);
+    // Reject when the closing tag at the end pairs with a nested opening tag
+    // rather than the leading one (e.g. `<p>a</p><p>b</p>`).
+    let depth = 0;
+    const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*\/?>/g;
+    let m: RegExpExecArray | null;
+    while ((m = tagRegex.exec(inner)) !== null) {
+        if (m[1].toLowerCase() !== tagName) continue;
+        if (m[0].startsWith("</")) {
+            depth--;
+            if (depth < 0) return null;
+        } else if (!m[0].endsWith("/>")) {
+            depth++;
+        }
+    }
+    return depth === 0 ? { openTag: openMatch[0], tagName, inner } : null;
+};
+
+/**
+ * Peel off the chain of full-coverage wrapper elements accepted by `accept`,
+ * outermost first. Returns the opening tags, matching closing tags (in
+ * closing order), and the innermost content.
+ */
+const peelWrapperChain = (
+    html: string,
+    accept: (openTag: string) => boolean,
+): { openTags: string[]; closeTags: string[]; inner: string } => {
+    const openTags: string[] = [];
+    const closeTags: string[] = [];
+    let inner = html;
+    let wrapper = matchFullWrapper(inner);
+    while (wrapper && accept(wrapper.openTag)) {
+        openTags.push(wrapper.openTag);
+        closeTags.unshift(`</${wrapper.tagName}>`);
+        inner = wrapper.inner;
+        wrapper = matchFullWrapper(inner);
+    }
+    return { openTags, closeTags, inner };
+};
+
+/**
+ * Re-dress a target fragment with the source's exact wrapper chain: peel the
+ * bare `<p>`/`<span>` wrappers the editor leaves behind (Quill drops inline
+ * styles it has no registered format for, e.g. docx `<span style="font-family:
+ * …">` runs), then wrap the remaining content in the source's verbatim opening
+ * tags. Never changes the target's text. Returns null when the source has no
+ * wrapper chain to copy.
+ */
+export const rewrapWithSourceWrappers = (
+    sourceHtml: string,
+    targetHtml: string,
+): string | null => {
+    if (!sourceHtml || !targetHtml) return null;
+    const source = peelWrapperChain(sourceHtml, () => true);
+    if (source.openTags.length === 0) return null;
+    const target = peelWrapperChain(
+        targetHtml,
+        (openTag) => openTag === "<p>" || openTag === "<span>",
+    );
+    if (!target.inner.trim()) return null;
+    return source.openTags.join("") + target.inner + source.closeTags.join("");
+};
+
+/**
  * Attempt to fix a structure mismatch without an LLM. Handles the common
  * artifacts of the editing pipeline: spurious bare `<span>`/`<p>` wrappers
- * that should be removed, or bare spans that should have been `<p>` tags.
+ * that should be removed, bare spans that should have been `<p>` tags, or
+ * source wrapper chains (styled `<p>`/`<span>` from docx imports) that the
+ * editor stripped on save.
  *
  * Returns the fixed HTML only if the result verifiably matches the source
  * structure; returns null when no deterministic fix applies.
@@ -190,11 +279,18 @@ export const tryDeterministicStructureFix = (
     targetHtml: string,
 ): string | null => {
     if (compareHtmlStructure(sourceHtml, targetHtml).isMatch) return null;
+    const rewrapped = rewrapWithSourceWrappers(sourceHtml, targetHtml);
     const candidates = [
+        // Preferred: re-dressing with the source's verbatim wrappers keeps the
+        // source's attributes (styles, data-style-id) for round-trip export.
+        ...(rewrapped !== null ? [rewrapped] : []),
         removeBareSpanPairs(targetHtml),
         convertBareSpanPairsToParagraphs(targetHtml),
         removeBareParagraphPairs(targetHtml),
         removeBareParagraphPairs(removeBareSpanPairs(targetHtml)),
+        // Plain-text targets (e.g. translations applied from other views) that
+        // just need the source's single block wrapper.
+        `<p>${targetHtml}</p>`,
     ];
     for (const candidate of candidates) {
         if (candidate !== targetHtml && compareHtmlStructure(sourceHtml, candidate).isMatch) {

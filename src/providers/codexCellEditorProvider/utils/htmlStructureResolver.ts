@@ -147,6 +147,32 @@ export const getSourceCellContent = async (cellId: string): Promise<string | nul
     return sourceCell?.content ?? null;
 };
 
+/**
+ * Deterministic-only structure repair for user saves from the cell editor.
+ *
+ * Quill drops any markup it has no registered format for (e.g. docx
+ * `<p style="line-height: …">` and `<span style="font-family: …">` wrappers),
+ * so saving a cell that was open in the editor would otherwise strip the
+ * source's wrappers and create a mismatch. This re-applies the deterministic
+ * fixes (never an LLM call, never a text change) and returns the original
+ * content untouched when no safe fix applies.
+ */
+export const maybeRepairStructureDeterministically = async (
+    cellId: string,
+    html: string,
+    document: CodexCellDocument,
+): Promise<string> => {
+    if (!html?.trim()) return html;
+    const metadata = document.getNotebookMetadata();
+    if (!metadata.enforceHtmlStructure) return html;
+
+    const sourceHtml = await getSourceCellContent(cellId);
+    if (!sourceHtml) return html;
+    if (compareHtmlStructure(sourceHtml, html).isMatch) return html;
+
+    return tryDeterministicStructureFix(sourceHtml, html) ?? html;
+};
+
 export type AutoResolveHtmlStructureOptions = {
     config?: CompletionConfig;
     onResolving?: () => void;

@@ -5,6 +5,7 @@ import type { CompletionConfig } from "../../../utils/llmUtils";
 import type { CodexCellDocument } from "../../../providers/codexCellEditorProvider/codexDocument";
 import {
     maybeAutoResolveHtmlStructure,
+    maybeRepairStructureDeterministically,
     resolveHtmlStructureWithLLM,
     stripMarkdownCodeFences,
     verifyResolvedContent,
@@ -85,6 +86,77 @@ suite("htmlStructureResolver", () => {
                 "<p>Amen</p>",
             );
             assert.strictEqual(result, "<p>Amen</p>");
+        });
+    });
+
+    suite("maybeRepairStructureDeterministically", () => {
+        let executeCommandStub: sinon.SinonStub;
+
+        setup(() => {
+            executeCommandStub = sinon.stub(vscode.commands, "executeCommand");
+        });
+
+        teardown(() => {
+            executeCommandStub.restore();
+        });
+
+        const styledSource =
+            '<p style="line-height: 2"><span style="font-family: Arial">To the church of God</span></p>';
+
+        test("returns content unchanged when enforcement is off", async () => {
+            const result = await maybeRepairStructureDeterministically(
+                "cell-1",
+                "<p>Hola</p>",
+                createMockDocument(false),
+            );
+            assert.strictEqual(result, "<p>Hola</p>");
+            assert.strictEqual(executeCommandStub.callCount, 0);
+        });
+
+        test("re-wraps a Quill-stripped save with the source's styled wrappers", async () => {
+            executeCommandStub.resolves({ cellId: "cell-1", content: styledSource });
+
+            const result = await maybeRepairStructureDeterministically(
+                "cell-1",
+                "<p>A la iglesia de Dios </p>",
+                createMockDocument(true),
+            );
+            assert.strictEqual(
+                result,
+                '<p style="line-height: 2"><span style="font-family: Arial">A la iglesia de Dios </span></p>',
+            );
+        });
+
+        test("returns content unchanged when structures already match", async () => {
+            executeCommandStub.resolves({ cellId: "cell-1", content: "<p>Hello</p>" });
+
+            const result = await maybeRepairStructureDeterministically(
+                "cell-1",
+                "<p>Hola</p>",
+                createMockDocument(true),
+            );
+            assert.strictEqual(result, "<p>Hola</p>");
+        });
+
+        test("returns content unchanged when no deterministic fix applies", async () => {
+            executeCommandStub.resolves({ cellId: "cell-1", content: "<p>Hello</p><br/><p>World</p>" });
+
+            const result = await maybeRepairStructureDeterministically(
+                "cell-1",
+                "<p>Hola</p>",
+                createMockDocument(true),
+            );
+            assert.strictEqual(result, "<p>Hola</p>");
+        });
+
+        test("returns empty content untouched", async () => {
+            const result = await maybeRepairStructureDeterministically(
+                "cell-1",
+                "",
+                createMockDocument(true),
+            );
+            assert.strictEqual(result, "");
+            assert.strictEqual(executeCommandStub.callCount, 0);
         });
     });
 

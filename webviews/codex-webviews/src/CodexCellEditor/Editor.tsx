@@ -229,6 +229,9 @@ function processQuillContentForSaving(htmlContent: string, preserveParagraphs = 
         });
 
         if (preserveParagraphs) {
+            // Keep the content exactly as the user wrote it (including empty
+            // paragraphs from Enter presses); the structure comparison ignores
+            // empty paragraphs, so they don't cause mismatch warnings.
             const hasRealContent = (tempDiv.textContent ?? "").trim().length > 0;
             const result = hasRealContent ? tempDiv.innerHTML : "";
             debug("[processQuillContentForSaving] Preserving paragraphs, result:", result);

@@ -6,6 +6,7 @@ import {
     removeBareSpanPairs,
     removeBareParagraphPairs,
     convertBareSpanPairsToParagraphs,
+    rewrapWithSourceWrappers,
     tryDeterministicStructureFix,
     extractPlainTextFromHtml,
     type HtmlStructureDiff,
@@ -214,6 +215,33 @@ describe("htmlStructureUtils", () => {
         });
     });
 
+    describe("compareHtmlStructure - empty paragraph tolerance", () => {
+        it("ignores a trailing blank line in the translation", () => {
+            // Quill emits <p><br></p> when the user presses Enter at the end.
+            const diff = compareHtmlStructure(
+                "<p>Hello world</p>",
+                "<p>Hola mundo</p><p><br></p>"
+            );
+            expect(diff.isMatch).toBe(true);
+        });
+
+        it("ignores empty paragraphs in the source too", () => {
+            const diff = compareHtmlStructure(
+                '<p>Hello</p><p data-style-id="Normal"> </p>',
+                "<p>Hola</p>"
+            );
+            expect(diff.isMatch).toBe(true);
+        });
+
+        it("still flags paragraphs that contain text", () => {
+            const diff = compareHtmlStructure(
+                "<p>Hello</p>",
+                "<p>Hola</p><p>mundo</p>"
+            );
+            expect(diff.isMatch).toBe(false);
+        });
+    });
+
     describe("removeBareParagraphPairs", () => {
         it("removes a bare paragraph wrapper, keeping its content", () => {
             expect(removeBareParagraphPairs("<p>Hola mundo</p>")).toBe("Hola mundo");
@@ -250,6 +278,49 @@ describe("htmlStructureUtils", () => {
         });
     });
 
+    describe("rewrapWithSourceWrappers", () => {
+        it("copies the source's verbatim wrapper chain around the target's content", () => {
+            const result = rewrapWithSourceWrappers(
+                '<p style="line-height: 2"><span style="font-family: Arial">Hello </span></p>',
+                "<p>Hola </p>"
+            );
+            expect(result).toBe(
+                '<p style="line-height: 2"><span style="font-family: Arial">Hola </span></p>'
+            );
+        });
+
+        it("wraps a plain-text target", () => {
+            const result = rewrapWithSourceWrappers('<p style="margin: 0">Hello</p>', "Hola");
+            expect(result).toBe('<p style="margin: 0">Hola</p>');
+        });
+
+        it("keeps the target's inner markup", () => {
+            const result = rewrapWithSourceWrappers(
+                '<p style="margin: 0">Hello <strong>world</strong></p>',
+                "<p>Hola <strong>mundo</strong></p>"
+            );
+            expect(result).toBe('<p style="margin: 0">Hola <strong>mundo</strong></p>');
+        });
+
+        it("returns null when the source has no full wrapper", () => {
+            expect(rewrapWithSourceWrappers("Hello <br/> world", "<p>Hola</p>")).toBeNull();
+            expect(rewrapWithSourceWrappers("<p>a</p><p>b</p>", "<p>Hola</p>")).toBeNull();
+        });
+
+        it("returns null when the target has no content", () => {
+            expect(rewrapWithSourceWrappers("<p>Hello</p>", "<p> </p>")).toBeNull();
+        });
+
+        it("does not peel attributed or semantic target wrappers", () => {
+            const result = rewrapWithSourceWrappers(
+                '<p style="margin: 0">Hello</p>',
+                "<em>Hola</em>"
+            );
+            // The <em> is kept; the caller's structure check will reject this.
+            expect(result).toBe('<p style="margin: 0"><em>Hola</em></p>');
+        });
+    });
+
     describe("tryDeterministicStructureFix", () => {
         it("fixes the spurious LLM span wrapper", () => {
             const fixed = tryDeterministicStructureFix(
@@ -261,11 +332,14 @@ describe("htmlStructureUtils", () => {
 
         it("converts the editor's span-first convention back to a paragraph", () => {
             // The cell editor used to save a single paragraph as <span>…</span>.
+            // The source's attributes are preserved for round-trip export.
             const fixed = tryDeterministicStructureFix(
                 '<p data-style-id="ListParagraph" style="line-height: 1.2">List five things.</p>',
                 "<span>Enumera cinco cosas.</span>"
             );
-            expect(fixed).toBe("<p>Enumera cinco cosas.</p>");
+            expect(fixed).toBe(
+                '<p data-style-id="ListParagraph" style="line-height: 1.2">Enumera cinco cosas.</p>'
+            );
         });
 
         it("converts the first-paragraph span in multi-paragraph content", () => {
@@ -291,6 +365,35 @@ describe("htmlStructureUtils", () => {
                 "<p><span>Hola mundo</span></p>"
             );
             expect(fixed).toBe("Hola mundo");
+        });
+
+        it("wraps a plain-text target when the source is a single paragraph", () => {
+            const fixed = tryDeterministicStructureFix(
+                '<p data-style-id="Normal">Hello world</p>',
+                "Hola mundo"
+            );
+            expect(fixed).toBe('<p data-style-id="Normal">Hola mundo</p>');
+        });
+
+        it("re-dresses a Quill-stripped save with the source's styled wrappers", () => {
+            // Quill drops unregistered inline styles (docx font/line-height
+            // wrappers), leaving a bare <p> behind on save.
+            const fixed = tryDeterministicStructureFix(
+                '<p style="line-height: 2"><span style="font-family: Arial">To the church of God </span></p>',
+                "<p>A la iglesia de Dios </p>"
+            );
+            expect(fixed).toBe(
+                '<p style="line-height: 2"><span style="font-family: Arial">A la iglesia de Dios </span></p>'
+            );
+        });
+
+        it("does not re-dress when the target has extra semantic markup", () => {
+            expect(
+                tryDeterministicStructureFix(
+                    '<p style="line-height: 2"><span style="font-family: Arial">To the church</span></p>',
+                    "<p><em>A la iglesia</em></p>"
+                )
+            ).toBeNull();
         });
 
         it("returns null when structures already match", () => {
