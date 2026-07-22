@@ -24,6 +24,72 @@ export interface ExistingImportPair {
     codexUri: vscode.Uri;
 }
 
+const resolvePairForBaseName = async (
+    workspaceFolder: vscode.WorkspaceFolder,
+    baseName: string,
+): Promise<ExistingImportPair | null> => {
+    const sourceUri = vscode.Uri.joinPath(
+        workspaceFolder.uri,
+        ".project",
+        "sourceTexts",
+        `${baseName}.source`,
+    );
+    const codexUri = vscode.Uri.joinPath(
+        workspaceFolder.uri,
+        "files",
+        "target",
+        `${baseName}.codex`,
+    );
+    try {
+        await vscode.workspace.fs.stat(sourceUri);
+        await vscode.workspace.fs.stat(codexUri);
+    } catch {
+        return null;
+    }
+
+    let displayName = baseName;
+    try {
+        const content = await vscode.workspace.fs.readFile(sourceUri);
+        const notebook = JSON.parse(new TextDecoder().decode(content));
+        if (typeof notebook?.metadata?.fileDisplayName === "string") {
+            displayName = notebook.metadata.fileDisplayName;
+        }
+    } catch {
+        // Display name is cosmetic; fall back to the base name.
+    }
+
+    return { notebookBaseName: baseName, displayName, sourceUri, codexUri };
+};
+
+/**
+ * Fallback for projects whose original-files registry has no entry for this
+ * hash (imports predating the registry, or a registry lost in a sync merge):
+ * source notebooks store `originalFileHash` in their metadata, so scan them.
+ */
+const findPairBySourceMetadataHash = async (
+    workspaceFolder: vscode.WorkspaceFolder,
+    originalFileHash: string,
+): Promise<ExistingImportPair | null> => {
+    const sourceFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(workspaceFolder, ".project/sourceTexts/*.source"),
+    );
+    const decoder = new TextDecoder();
+    for (const sourceUri of sourceFiles) {
+        try {
+            const notebook = JSON.parse(
+                decoder.decode(await vscode.workspace.fs.readFile(sourceUri)),
+            );
+            if (notebook?.metadata?.originalFileHash !== originalFileHash) continue;
+            const baseName = sourceUri.path.split("/").pop()!.replace(/\.source$/, "");
+            const pair = await resolvePairForBaseName(workspaceFolder, baseName);
+            if (pair) return pair;
+        } catch {
+            continue;
+        }
+    }
+    return null;
+};
+
 /**
  * Find an existing, on-disk notebook pair that references the original file
  * with the given content hash. Returns null when the file is new to the
@@ -34,43 +100,12 @@ export const findExistingImportPair = async (
     originalFileHash: string,
 ): Promise<ExistingImportPair | null> => {
     const entry = await findOriginalFileByHash(workspaceFolder, originalFileHash);
-    if (!entry || entry.referencedBy.length === 0) return null;
-
-    for (const baseName of entry.referencedBy) {
-        const sourceUri = vscode.Uri.joinPath(
-            workspaceFolder.uri,
-            ".project",
-            "sourceTexts",
-            `${baseName}.source`,
-        );
-        const codexUri = vscode.Uri.joinPath(
-            workspaceFolder.uri,
-            "files",
-            "target",
-            `${baseName}.codex`,
-        );
-        try {
-            await vscode.workspace.fs.stat(sourceUri);
-            await vscode.workspace.fs.stat(codexUri);
-        } catch {
-            continue;
-        }
-
-        let displayName = baseName;
-        try {
-            const content = await vscode.workspace.fs.readFile(sourceUri);
-            const notebook = JSON.parse(new TextDecoder().decode(content));
-            if (typeof notebook?.metadata?.fileDisplayName === "string") {
-                displayName = notebook.metadata.fileDisplayName;
-            }
-        } catch {
-            // Display name is cosmetic; fall back to the base name.
-        }
-
-        return { notebookBaseName: baseName, displayName, sourceUri, codexUri };
+    for (const baseName of entry?.referencedBy ?? []) {
+        const pair = await resolvePairForBaseName(workspaceFolder, baseName);
+        if (pair) return pair;
     }
 
-    return null;
+    return findPairBySourceMetadataHash(workspaceFolder, originalFileHash);
 };
 
 export interface UpdateExistingImportResult {

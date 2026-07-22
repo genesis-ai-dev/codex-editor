@@ -1323,6 +1323,24 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     `Updated "${existingPair.displayName}": ${stats.matchedCells} of ${stats.totalNewCells} cell(s) matched, ${stats.translationsCarried} translation(s) preserved.${removedNote}`
                 );
             }
+
+            // If the updated files are open in cell editors, force them to
+            // reload from disk so stale in-memory content can't overwrite the
+            // merged result on the next save.
+            try {
+                const { GlobalProvider } = await import("../../globalProvider");
+                const cellEditorProvider = GlobalProvider.getInstance().getProvider(
+                    "codex-cell-editor"
+                ) as {
+                    refreshWebviewsForFiles?: (paths: string[]) => Promise<void>;
+                } | undefined;
+                if (cellEditorProvider?.refreshWebviewsForFiles) {
+                    const updatedPaths = allFiles.flatMap(f => [f.sourceUri.fsPath, f.codexUri.fsPath]);
+                    await cellEditorProvider.refreshWebviewsForFiles(updatedPaths);
+                }
+            } catch (error) {
+                console.warn("[NewSourceUploader] Failed to refresh webviews after update:", error);
+            }
         }
 
         // Create brand-new pairs for the remaining imports
