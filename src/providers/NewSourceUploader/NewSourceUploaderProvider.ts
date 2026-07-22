@@ -1289,7 +1289,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     summary,
                     {
                         modal: true,
-                        detail: "Update the existing import to rebuild its cells from this file while keeping existing translations (the previous files are backed up first), or import it again as a separate copy.",
+                        detail: "Update the existing import to rebuild its cells from this file while keeping existing translations, or import it again as a separate copy.",
                     },
                     "Update Existing",
                     "Import as New Copy"
@@ -1357,7 +1357,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             const { updateExistingImportPair } = await import('./updateExistingImport');
             for (const [pairIdx, existingPair] of updateTargets) {
                 const result = await updateExistingImportPair(
-                    workspaceFolder,
                     existingPair,
                     sourceNotebooks[pairIdx],
                     codexNotebooks[pairIdx]
@@ -1369,18 +1368,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     ? ` ${stats.droppedOldCells} cell(s) no longer in the document were removed${stats.droppedTranslations > 0 ? ` (${stats.droppedTranslations} had translations)` : ""}.`
                     : "";
                 const summaryText = `Updated "${existingPair.displayName}": ${stats.matchedCells} of ${stats.totalNewCells} cell(s) matched, ${stats.translationsCarried} translation(s) preserved.${removedNote}`;
-                if (stats.droppedTranslations > 0 && result.backupDir) {
-                    // Translated content was removed — tell the user where the
-                    // pre-update copies live so nothing is unrecoverable.
-                    const backupUri = result.backupDir;
-                    vscode.window.showWarningMessage(
-                        `${summaryText} The previous files were backed up.`,
-                        "Show Backup"
-                    ).then(action => {
-                        if (action === "Show Backup") {
-                            vscode.commands.executeCommand("revealFileInOS", backupUri);
-                        }
-                    });
+                if (stats.droppedTranslations > 0) {
+                    // Translated content was hidden; the tombstoned cells keep
+                    // it recoverable inside the file itself.
+                    vscode.window.showWarningMessage(summaryText);
                 } else {
                     vscode.window.showInformationMessage(summaryText);
                 }

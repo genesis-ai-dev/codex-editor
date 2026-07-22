@@ -183,57 +183,23 @@ export interface UpdateExistingImportResult {
     sourceUri: vscode.Uri;
     codexUri: vscode.Uri;
     stats: ReimportMergeStats;
-    /** Directory holding pre-update copies of the pair, for manual recovery. */
-    backupDir: vscode.Uri | null;
 }
 
 /**
- * Copy the pair's current bytes to a timestamped backup directory before the
- * in-place update. Lives under `.project/attachments/files/` which is
- * gitignored, so backups never pollute sync. Best-effort recovery aid only.
- */
-const backupExistingPair = async (
-    workspaceFolder: vscode.WorkspaceFolder,
-    pair: ExistingImportPair,
-): Promise<vscode.Uri | null> => {
-    try {
-        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-        const backupDir = vscode.Uri.joinPath(
-            workspaceFolder.uri,
-            ".project",
-            "attachments",
-            "files",
-            "backups",
-            "reimport",
-            `${pair.notebookBaseName}-${timestamp}`,
-        );
-        await vscode.workspace.fs.createDirectory(backupDir);
-        for (const uri of [pair.sourceUri, pair.codexUri]) {
-            const fileName = uri.path.split("/").pop()!;
-            await vscode.workspace.fs.copy(uri, vscode.Uri.joinPath(backupDir, fileName), {
-                overwrite: true,
-            });
-        }
-        return backupDir;
-    } catch (error) {
-        console.warn("[updateExistingImport] Could not back up existing pair:", error);
-        return null;
-    }
-};
-
-/**
  * Rebuild an existing pair from a freshly parsed pair, carrying translations
- * over, and write the result back to the existing file paths. The previous
- * files are backed up first (see backupExistingPair).
+ * over, and write the result back to the existing file paths.
+ *
+ * No on-disk backup is made: any `.codex`/`.source` copy inside the workspace
+ * would be picked up by the `**\/*.codex` scans (export lists, migrations,
+ * indexing) and show up as a duplicate document. Recovery is covered by the
+ * merge itself being non-destructive — removed cells are soft-deleted
+ * tombstones that retain their content and edit history in the same file.
  */
 export const updateExistingImportPair = async (
-    workspaceFolder: vscode.WorkspaceFolder,
     pair: ExistingImportPair,
     newSource: NotebookPreview,
     newCodex: NotebookPreview,
 ): Promise<UpdateExistingImportResult> => {
-    const backupDir = await backupExistingPair(workspaceFolder, pair);
-
     const decoder = new TextDecoder();
     const existingSource = JSON.parse(
         decoder.decode(await vscode.workspace.fs.readFile(pair.sourceUri)),
@@ -264,11 +230,5 @@ export const updateExistingImportPair = async (
     await writeNotebook(pair.sourceUri, mergedSource as unknown as CodexNotebookAsJSONData);
     await writeNotebook(pair.codexUri, mergedCodex as unknown as CodexNotebookAsJSONData);
 
-    if (backupDir) {
-        console.log(
-            `[updateExistingImport] Pre-update backup of "${pair.notebookBaseName}" saved to ${backupDir.fsPath}`,
-        );
-    }
-
-    return { sourceUri: pair.sourceUri, codexUri: pair.codexUri, stats, backupDir };
+    return { sourceUri: pair.sourceUri, codexUri: pair.codexUri, stats };
 };
