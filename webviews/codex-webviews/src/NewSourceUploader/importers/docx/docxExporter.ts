@@ -125,6 +125,10 @@ function collectTranslations(
     for (const cell of codexCells) {
         const meta = cell.metadata;
 
+        // Skip soft-deleted cells (tombstones from cell deletion or re-import
+        // merges); their paragraph indices refer to a stale parse.
+        if (meta?.data?.deleted === true) continue;
+
         const translated = removeHtmlTags(cell.value).trim();
         if (!translated) continue;
 
