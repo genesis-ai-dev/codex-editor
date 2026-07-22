@@ -9,7 +9,7 @@
 
 import * as vscode from "vscode";
 import type { CodexNotebookAsJSONData, NotebookPreview } from "../../../types";
-import { findOriginalFileByHash } from "./originalFileUtils";
+import { findOriginalFileByHash, loadOriginalFilesRegistry } from "./originalFileUtils";
 import { writeNotebook } from "./codexFIleCreateUtils";
 import {
     mergeReimportedNotebookPair,
@@ -61,68 +61,170 @@ const resolvePairForBaseName = async (
     return { notebookBaseName: baseName, displayName, sourceUri, codexUri };
 };
 
+export interface ExistingImportMatches {
+    /**
+     * "content": the exact same file bytes were imported before.
+     * "fileName": a file with this name was imported before but its content
+     * differs — the document was likely edited since the original import.
+     */
+    matchedBy: "content" | "fileName";
+    pairs: ExistingImportPair[];
+}
+
 /**
- * Fallback for projects whose original-files registry has no entry for this
- * hash (imports predating the registry, or a registry lost in a sync merge):
- * source notebooks store `originalFileHash` in their metadata, so scan them.
+ * Scan source notebooks' own metadata. This is the fallback for projects
+ * whose original-files registry has no entry (imports predating the registry,
+ * or a registry lost in a sync merge): source notebooks store
+ * `originalFileHash` and the original file name in their metadata.
  */
-const findPairBySourceMetadataHash = async (
+const scanSourceMetadata = async (
     workspaceFolder: vscode.WorkspaceFolder,
     originalFileHash: string,
-): Promise<ExistingImportPair | null> => {
+    originalFileName: string | undefined,
+): Promise<{ hashBaseNames: string[]; nameBaseNames: string[] }> => {
+    const hashBaseNames: string[] = [];
+    const nameBaseNames: string[] = [];
     const sourceFiles = await vscode.workspace.findFiles(
         new vscode.RelativePattern(workspaceFolder, ".project/sourceTexts/*.source"),
     );
     const decoder = new TextDecoder();
     for (const sourceUri of sourceFiles) {
         try {
-            const notebook = JSON.parse(
+            const metadata = JSON.parse(
                 decoder.decode(await vscode.workspace.fs.readFile(sourceUri)),
-            );
-            if (notebook?.metadata?.originalFileHash !== originalFileHash) continue;
+            )?.metadata as Record<string, unknown> | undefined;
+            if (!metadata) continue;
             const baseName = sourceUri.path.split("/").pop()!.replace(/\.source$/, "");
-            const pair = await resolvePairForBaseName(workspaceFolder, baseName);
-            if (pair) return pair;
+            if (metadata.originalFileHash === originalFileHash) {
+                hashBaseNames.push(baseName);
+            } else if (
+                originalFileName &&
+                (metadata.originalName === originalFileName ||
+                    metadata.originalFileName === originalFileName)
+            ) {
+                nameBaseNames.push(baseName);
+            }
         } catch {
             continue;
         }
     }
-    return null;
+    return { hashBaseNames, nameBaseNames };
 };
 
 /**
- * Find an existing, on-disk notebook pair that references the original file
- * with the given content hash. Returns null when the file is new to the
- * project or the referencing notebooks no longer exist.
+ * Find existing, on-disk notebook pairs that came from this original file.
+ *
+ * Content-hash matches (registry, then source metadata) take precedence.
+ * When the hash is unknown to the project, fall back to the original file
+ * name — this catches re-imports of a document that was EDITED since the
+ * original import, which is the common repair/update scenario.
  */
-export const findExistingImportPair = async (
+export const findExistingImportPairs = async (
     workspaceFolder: vscode.WorkspaceFolder,
     originalFileHash: string,
-): Promise<ExistingImportPair | null> => {
+    originalFileName?: string,
+): Promise<ExistingImportMatches | null> => {
+    const resolveAll = async (baseNames: Iterable<string>): Promise<ExistingImportPair[]> => {
+        const pairs: ExistingImportPair[] = [];
+        const seen = new Set<string>();
+        for (const baseName of baseNames) {
+            if (seen.has(baseName)) continue;
+            seen.add(baseName);
+            const pair = await resolvePairForBaseName(workspaceFolder, baseName);
+            if (pair) pairs.push(pair);
+        }
+        return pairs;
+    };
+
+    const { hashBaseNames, nameBaseNames } = await scanSourceMetadata(
+        workspaceFolder,
+        originalFileHash,
+        originalFileName,
+    );
+
     const entry = await findOriginalFileByHash(workspaceFolder, originalFileHash);
-    for (const baseName of entry?.referencedBy ?? []) {
-        const pair = await resolvePairForBaseName(workspaceFolder, baseName);
-        if (pair) return pair;
+    const hashPairs = await resolveAll([...(entry?.referencedBy ?? []), ...hashBaseNames]);
+    if (hashPairs.length > 0) {
+        return { matchedBy: "content", pairs: hashPairs };
     }
 
-    return findPairBySourceMetadataHash(workspaceFolder, originalFileHash);
+    if (!originalFileName) return null;
+
+    // Registry entries for other hashes that were imported under this name
+    // (a changed document gets a new hash and a suffixed stored filename, but
+    // keeps its requested name in `originalNames`).
+    const registryNameBaseNames: string[] = [];
+    try {
+        const registry = await loadOriginalFilesRegistry(workspaceFolder);
+        for (const [hash, registryEntry] of Object.entries(registry.files)) {
+            if (hash === originalFileHash) continue;
+            if (registryEntry.originalNames.includes(originalFileName)) {
+                registryNameBaseNames.push(...registryEntry.referencedBy);
+            }
+        }
+    } catch {
+        // Registry unavailable; the metadata scan below still applies.
+    }
+
+    const namePairs = await resolveAll([...registryNameBaseNames, ...nameBaseNames]);
+    return namePairs.length > 0 ? { matchedBy: "fileName", pairs: namePairs } : null;
 };
 
 export interface UpdateExistingImportResult {
     sourceUri: vscode.Uri;
     codexUri: vscode.Uri;
     stats: ReimportMergeStats;
+    /** Directory holding pre-update copies of the pair, for manual recovery. */
+    backupDir: vscode.Uri | null;
 }
 
 /**
+ * Copy the pair's current bytes to a timestamped backup directory before the
+ * in-place update. Lives under `.project/attachments/files/` which is
+ * gitignored, so backups never pollute sync. Best-effort recovery aid only.
+ */
+const backupExistingPair = async (
+    workspaceFolder: vscode.WorkspaceFolder,
+    pair: ExistingImportPair,
+): Promise<vscode.Uri | null> => {
+    try {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const backupDir = vscode.Uri.joinPath(
+            workspaceFolder.uri,
+            ".project",
+            "attachments",
+            "files",
+            "backups",
+            "reimport",
+            `${pair.notebookBaseName}-${timestamp}`,
+        );
+        await vscode.workspace.fs.createDirectory(backupDir);
+        for (const uri of [pair.sourceUri, pair.codexUri]) {
+            const fileName = uri.path.split("/").pop()!;
+            await vscode.workspace.fs.copy(uri, vscode.Uri.joinPath(backupDir, fileName), {
+                overwrite: true,
+            });
+        }
+        return backupDir;
+    } catch (error) {
+        console.warn("[updateExistingImport] Could not back up existing pair:", error);
+        return null;
+    }
+};
+
+/**
  * Rebuild an existing pair from a freshly parsed pair, carrying translations
- * over, and write the result back to the existing file paths.
+ * over, and write the result back to the existing file paths. The previous
+ * files are backed up first (see backupExistingPair).
  */
 export const updateExistingImportPair = async (
+    workspaceFolder: vscode.WorkspaceFolder,
     pair: ExistingImportPair,
     newSource: NotebookPreview,
     newCodex: NotebookPreview,
 ): Promise<UpdateExistingImportResult> => {
+    const backupDir = await backupExistingPair(workspaceFolder, pair);
+
     const decoder = new TextDecoder();
     const existingSource = JSON.parse(
         decoder.decode(await vscode.workspace.fs.readFile(pair.sourceUri)),
@@ -153,5 +255,11 @@ export const updateExistingImportPair = async (
     await writeNotebook(pair.sourceUri, mergedSource as unknown as CodexNotebookAsJSONData);
     await writeNotebook(pair.codexUri, mergedCodex as unknown as CodexNotebookAsJSONData);
 
-    return { sourceUri: pair.sourceUri, codexUri: pair.codexUri, stats };
+    if (backupDir) {
+        console.log(
+            `[updateExistingImport] Pre-update backup of "${pair.notebookBaseName}" saved to ${backupDir.fsPath}`,
+        );
+    }
+
+    return { sourceUri: pair.sourceUri, codexUri: pair.codexUri, stats, backupDir };
 };

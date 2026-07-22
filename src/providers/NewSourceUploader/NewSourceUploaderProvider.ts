@@ -1257,26 +1257,48 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const updateTargets = new Map<number, ExistingImportPair>();
         const skippedPairs = new Set<number>();
         if (workspaceFolder) {
-            const { findExistingImportPair } = await import('./updateExistingImport');
+            const { findExistingImportPairs } = await import('./updateExistingImport');
             for (const [pairIdx, hash] of originalFileHashes) {
-                const existingPair = await findExistingImportPair(workspaceFolder, hash);
-                if (!existingPair) continue;
+                const fileName = message.notebookPairs[pairIdx].source.metadata.originalFileName;
+                const matches = await findExistingImportPairs(workspaceFolder, hash, fileName);
+                if (!matches) continue;
 
-                const fileName = message.notebookPairs[pairIdx].source.metadata.originalFileName || "This document";
+                const displayFileName = fileName || "This document";
+                const summary = matches.matchedBy === "content"
+                    ? `"${displayFileName}" was already imported as "${matches.pairs[0].displayName}".`
+                    : `"${displayFileName}" looks like a new version of "${matches.pairs[0].displayName}" (the content has changed since it was imported).`;
                 const choice = await vscode.window.showInformationMessage(
-                    `"${fileName}" was already imported as "${existingPair.displayName}".`,
+                    summary,
                     {
                         modal: true,
-                        detail: "Update the existing import to rebuild its cells from this file while keeping existing translations, or import it again as a separate copy.",
+                        detail: "Update the existing import to rebuild its cells from this file while keeping existing translations (the previous files are backed up first), or import it again as a separate copy.",
                     },
                     "Update Existing",
                     "Import as New Copy"
                 );
-                if (choice === "Update Existing") {
-                    updateTargets.set(pairIdx, existingPair);
-                } else if (choice === undefined) {
+                if (choice === undefined) {
                     skippedPairs.add(pairIdx);
+                    continue;
                 }
+                if (choice !== "Update Existing") continue;
+
+                let chosenPair = matches.pairs[0];
+                if (matches.pairs.length > 1) {
+                    const picked = await vscode.window.showQuickPick(
+                        matches.pairs.map(pair => ({
+                            label: pair.displayName,
+                            description: pair.notebookBaseName,
+                            pair,
+                        })),
+                        { placeHolder: `Several imports match "${displayFileName}" — choose which one to update` }
+                    );
+                    if (!picked) {
+                        skippedPairs.add(pairIdx);
+                        continue;
+                    }
+                    chosenPair = picked.pair;
+                }
+                updateTargets.set(pairIdx, chosenPair);
             }
         }
 
@@ -1305,10 +1327,19 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
         // Update existing pairs in place (re-imports the user chose to update)
         const allFiles: Array<{ pairIdx: number; sourceUri: vscode.Uri; codexUri: vscode.Uri; }> = [];
-        if (updateTargets.size > 0) {
+        if (workspaceFolder && updateTargets.size > 0) {
+            // Flush unsaved editor changes to disk first so the merge reads the
+            // user's latest translations (custom editors save via saveAll too).
+            try {
+                await vscode.commands.executeCommand("workbench.action.files.saveAll");
+            } catch (error) {
+                console.warn("[NewSourceUploader] saveAll before update failed:", error);
+            }
+
             const { updateExistingImportPair } = await import('./updateExistingImport');
             for (const [pairIdx, existingPair] of updateTargets) {
                 const result = await updateExistingImportPair(
+                    workspaceFolder,
                     existingPair,
                     sourceNotebooks[pairIdx],
                     codexNotebooks[pairIdx]
@@ -1319,9 +1350,22 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 const removedNote = stats.droppedOldCells > 0
                     ? ` ${stats.droppedOldCells} cell(s) no longer in the document were removed${stats.droppedTranslations > 0 ? ` (${stats.droppedTranslations} had translations)` : ""}.`
                     : "";
-                vscode.window.showInformationMessage(
-                    `Updated "${existingPair.displayName}": ${stats.matchedCells} of ${stats.totalNewCells} cell(s) matched, ${stats.translationsCarried} translation(s) preserved.${removedNote}`
-                );
+                const summaryText = `Updated "${existingPair.displayName}": ${stats.matchedCells} of ${stats.totalNewCells} cell(s) matched, ${stats.translationsCarried} translation(s) preserved.${removedNote}`;
+                if (stats.droppedTranslations > 0 && result.backupDir) {
+                    // Translated content was removed — tell the user where the
+                    // pre-update copies live so nothing is unrecoverable.
+                    const backupUri = result.backupDir;
+                    vscode.window.showWarningMessage(
+                        `${summaryText} The previous files were backed up.`,
+                        "Show Backup"
+                    ).then(action => {
+                        if (action === "Show Backup") {
+                            vscode.commands.executeCommand("revealFileInOS", backupUri);
+                        }
+                    });
+                } else {
+                    vscode.window.showInformationMessage(summaryText);
+                }
             }
 
             // If the updated files are open in cell editors, force them to
