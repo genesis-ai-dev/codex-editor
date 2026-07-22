@@ -1259,6 +1259,24 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         if (workspaceFolder) {
             const { findExistingImportPairs } = await import('./updateExistingImport');
             for (const [pairIdx, hash] of originalFileHashes) {
+                // Imports whose standardized filename already exists (biblical
+                // books like GEN.source, or legacy non-UUID names) went through
+                // the overwrite-confirmation flow in handleWriteNotebooks; the
+                // user already chose to overwrite, so don't ask again here.
+                const standardizedName = await createStandardizedFilename(
+                    message.notebookPairs[pairIdx].source.name,
+                    ".source"
+                );
+                try {
+                    await vscode.workspace.fs.stat(
+                        vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts", standardizedName)
+                    );
+                    continue;
+                } catch {
+                    // No standardized-name file; this pair is eligible for
+                    // re-import detection.
+                }
+
                 const fileName = message.notebookPairs[pairIdx].source.metadata.originalFileName;
                 const matches = await findExistingImportPairs(workspaceFolder, hash, fileName);
                 if (!matches) continue;

@@ -88,26 +88,28 @@ const scanSourceMetadata = async (
         new vscode.RelativePattern(workspaceFolder, ".project/sourceTexts/*.source"),
     );
     const decoder = new TextDecoder();
-    for (const sourceUri of sourceFiles) {
-        try {
-            const metadata = JSON.parse(
-                decoder.decode(await vscode.workspace.fs.readFile(sourceUri)),
-            )?.metadata as Record<string, unknown> | undefined;
-            if (!metadata) continue;
-            const baseName = sourceUri.path.split("/").pop()!.replace(/\.source$/, "");
-            if (metadata.originalFileHash === originalFileHash) {
-                hashBaseNames.push(baseName);
-            } else if (
-                originalFileName &&
-                (metadata.originalName === originalFileName ||
-                    metadata.originalFileName === originalFileName)
-            ) {
-                nameBaseNames.push(baseName);
+    await Promise.all(
+        sourceFiles.map(async (sourceUri) => {
+            try {
+                const metadata = JSON.parse(
+                    decoder.decode(await vscode.workspace.fs.readFile(sourceUri)),
+                )?.metadata as Record<string, unknown> | undefined;
+                if (!metadata) return;
+                const baseName = sourceUri.path.split("/").pop()!.replace(/\.source$/, "");
+                if (metadata.originalFileHash === originalFileHash) {
+                    hashBaseNames.push(baseName);
+                } else if (
+                    originalFileName &&
+                    (metadata.originalName === originalFileName ||
+                        metadata.originalFileName === originalFileName)
+                ) {
+                    nameBaseNames.push(baseName);
+                }
+            } catch {
+                // Unreadable notebook; skip.
             }
-        } catch {
-            continue;
-        }
-    }
+        }),
+    );
     return { hashBaseNames, nameBaseNames };
 };
 
@@ -136,34 +138,41 @@ export const findExistingImportPairs = async (
         return pairs;
     };
 
-    const { hashBaseNames, nameBaseNames } = await scanSourceMetadata(
-        workspaceFolder,
-        originalFileHash,
-        originalFileName,
-    );
-
+    // Fast path: the registry answers the common cases without touching any
+    // notebook files (a first-time import should not pay for a full scan).
     const entry = await findOriginalFileByHash(workspaceFolder, originalFileHash);
-    const hashPairs = await resolveAll([...(entry?.referencedBy ?? []), ...hashBaseNames]);
-    if (hashPairs.length > 0) {
-        return { matchedBy: "content", pairs: hashPairs };
+    const registryHashPairs = await resolveAll(entry?.referencedBy ?? []);
+    if (registryHashPairs.length > 0) {
+        return { matchedBy: "content", pairs: registryHashPairs };
     }
-
-    if (!originalFileName) return null;
 
     // Registry entries for other hashes that were imported under this name
     // (a changed document gets a new hash and a suffixed stored filename, but
     // keeps its requested name in `originalNames`).
     const registryNameBaseNames: string[] = [];
-    try {
-        const registry = await loadOriginalFilesRegistry(workspaceFolder);
-        for (const [hash, registryEntry] of Object.entries(registry.files)) {
-            if (hash === originalFileHash) continue;
-            if (registryEntry.originalNames.includes(originalFileName)) {
-                registryNameBaseNames.push(...registryEntry.referencedBy);
+    if (originalFileName) {
+        try {
+            const registry = await loadOriginalFilesRegistry(workspaceFolder);
+            for (const [hash, registryEntry] of Object.entries(registry.files)) {
+                if (hash === originalFileHash) continue;
+                if (registryEntry.originalNames.includes(originalFileName)) {
+                    registryNameBaseNames.push(...registryEntry.referencedBy);
+                }
             }
+        } catch {
+            // Registry unavailable; the metadata scan below still applies.
         }
-    } catch {
-        // Registry unavailable; the metadata scan below still applies.
+    }
+
+    // Slow path: scan source notebook metadata (registry missing or stale).
+    const { hashBaseNames, nameBaseNames } = await scanSourceMetadata(
+        workspaceFolder,
+        originalFileHash,
+        originalFileName,
+    );
+    const hashPairs = await resolveAll(hashBaseNames);
+    if (hashPairs.length > 0) {
+        return { matchedBy: "content", pairs: hashPairs };
     }
 
     const namePairs = await resolveAll([...registryNameBaseNames, ...nameBaseNames]);

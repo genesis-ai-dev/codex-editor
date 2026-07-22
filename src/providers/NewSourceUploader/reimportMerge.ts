@@ -189,7 +189,8 @@ export const mergeReimportedNotebookPair = (
         const newId = sourceCell.metadata?.id;
         const codexCell: ReimportCell =
             (typeof newId === "string" ? newCodexById.get(newId) : undefined) ?? {
-                kind: sourceCell.kind ?? 1,
+                // 2 = vscode.NotebookCellKind.Code, the kind used for all cells
+                kind: sourceCell.kind ?? 2,
                 value: "",
                 languageId: sourceCell.languageId ?? "html",
                 metadata: { ...(sourceCell.metadata ?? {}), edits: [] },
