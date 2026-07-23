@@ -389,6 +389,22 @@ type EditorCellContent = {
     uri?: string;
     cellTimestamps?: Timestamps;
     cellAudioTimestamps?: Timestamps;
+    /**
+     * Set when the save was triggered by a find/replace operation in the
+     * FloatingSearchBar (issue #1103). Instructs the saveHtml handler to
+     * skip auto-validating the changed cell under the current user —
+     * mirroring the behavior `updateCellContentDirect` already applies for
+     * search/replace originating from the ParallelPassagesWebview.
+     */
+    fromSearchReplace?: boolean;
+    /**
+     * When `fromSearchReplace` is set, controls whether the current user's
+     * prior validation on the cell (if any) is carried forward as a new
+     * validation entry on the search-replace edit. Ignored on non-search
+     * saves. See `retainValidations` semantics in
+     * `codexDocument.updateCellContent`.
+     */
+    retainValidations?: boolean;
 };
 
 interface EditHistoryEntry {

@@ -837,13 +837,24 @@ const CodexCellEditor: React.FC = () => {
 
     // Handle replace in cell from search
     const handleSearchReplaceInCell = useCallback(
-        (cellId: string, oldContent: string, newContent: string) => {
+        (
+            cellId: string,
+            oldContent: string,
+            newContent: string,
+            options?: { fromSearchReplace?: boolean; retainValidations?: boolean }
+        ) => {
             vscode.postMessage({
                 command: "saveHtml",
                 content: {
                     cellMarkers: [cellId],
                     cellContent: newContent,
                     cellChanged: true,
+                    // Tell the extension host this save came from find/replace so it
+                    // can skip auto-validating the cell under the current user
+                    // (issue #1103). `retainValidations` mirrors the shared
+                    // "retainMyValidations" preference set by ParallelView.
+                    fromSearchReplace: options?.fromSearchReplace === true,
+                    retainValidations: options?.retainValidations === true,
                 },
             } as EditorPostMessages);
         },
