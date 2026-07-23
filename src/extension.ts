@@ -68,6 +68,7 @@ import {
     migration_addImporterTypeToMetadata,
     migration_hoistDocumentContextToNotebookMetadata,
 } from "./projectManager/utils/migrationUtils";
+import { migration_repairHtmlStructureArtifacts } from "./projectManager/utils/htmlStructureRepairMigration";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 import { initializeAudioExtractor } from "./utils/audioExtractor";
@@ -986,6 +987,7 @@ export async function activate(context: vscode.ExtensionContext) {
             await migration_addGlobalReferences(context);
             await migration_cellIdsToUuid(context);
             await migration_recoverTempFilesAndMergeDuplicates(context);
+            await migration_repairHtmlStructureArtifacts(context);
 
             // One-shot audio metadata schema migrations (currently: v1 backfills
             // `selectedAudioId`/`selectionTimestamp` on legacy pre-Aug-18-2025

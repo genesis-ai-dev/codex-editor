@@ -1465,7 +1465,20 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
 
 
-        const finalContent = typedEvent.content.cellContent === "<span></span>" ? "" : typedEvent.content.cellContent;
+        let finalContent = typedEvent.content.cellContent === "<span></span>" ? "" : typedEvent.content.cellContent;
+
+        // Quill drops markup it has no registered format for (e.g. docx styled
+        // <p>/<span> wrappers), so re-align the saved content with the source
+        // structure. Deterministic-only; no-op unless the notebook has
+        // `enforceHtmlStructure` enabled and a safe fix applies.
+        if (!isSourceText && finalContent) {
+            try {
+                const { maybeRepairStructureDeterministically } = await import("./utils/htmlStructureResolver");
+                finalContent = await maybeRepairStructureDeterministically(cellId, finalContent, document);
+            } catch (error) {
+                console.error("[saveHtml] Structure repair failed:", error);
+            }
+        }
 
         // Search/replace originating from the FloatingSearchBar sets
         // `fromSearchReplace` on the payload. When present, we skip
@@ -1781,10 +1794,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         try {
             const { resolveCellHtmlStructure } = await import("./utils/htmlStructureResolver");
-            const resolved = await resolveCellHtmlStructure(cellId, document);
+            const outcome = await resolveCellHtmlStructure(cellId, document);
 
-            if (!resolved) {
-                vscode.window.showWarningMessage("Could not find source or target cell content to resolve structure.");
+            if (outcome.status !== "resolved") {
+                if (outcome.status === "missing-content") {
+                    vscode.window.showWarningMessage("Could not find source or target cell content to resolve structure.");
+                } else if (outcome.status === "unresolved") {
+                    vscode.window.showWarningMessage(
+                        "Could not automatically resolve the structure mismatch for this cell. Please fix it manually."
+                    );
+                }
                 provider.postMessageToWebview(webviewPanel, {
                     type: "providerSendsResolvedHtmlStructure",
                     content: { cellId, resolvedContent: "" },
@@ -1792,12 +1811,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 return;
             }
 
-            await document.updateCellContent(cellId, resolved, EditType.LLM_GENERATION);
+            await document.updateCellContent(cellId, outcome.content, EditType.LLM_GENERATION);
             await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerSendsResolvedHtmlStructure",
-                content: { cellId, resolvedContent: resolved },
+                content: { cellId, resolvedContent: outcome.content },
             });
         } catch (error) {
             console.error("[resolveHtmlStructure] Error:", error);
@@ -2621,7 +2640,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const contentToSave = attentionCheck ? attentionCheck.correctVariant : selectedContent;
         if (contentToSave && cellId) {
             try {
-                await document.updateCellContent(cellId, contentToSave, EditType.LLM_GENERATION);
+                // Align with the source cell's HTML structure (no-op unless the
+                // notebook has `enforceHtmlStructure` enabled).
+                const { maybeAutoResolveHtmlStructure } = await import("./utils/htmlStructureResolver");
+                const finalContent = await maybeAutoResolveHtmlStructure(cellId, contentToSave, document);
+                await document.updateCellContent(cellId, finalContent, EditType.LLM_GENERATION);
                 await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
             } catch (err) {
                 console.error(`[selectABTestVariant] Failed to persist variant for cell ${cellId}:`, err);
@@ -4920,9 +4943,19 @@ export const handleGlobalMessage = async (
         case "applyTranslation": {
             debug("applyTranslation message received", { event });
             if (provider.currentDocument && event.content.type === "cellAndText") {
-                provider.currentDocument.updateCellContent(
+                // Align with the source cell's HTML structure (no-op unless the
+                // notebook has `enforceHtmlStructure` enabled).
+                const { maybeAutoResolveHtmlStructure } = await import(
+                    "./utils/htmlStructureResolver"
+                );
+                const finalContent = await maybeAutoResolveHtmlStructure(
                     event.content.cellId,
                     event.content.text,
+                    provider.currentDocument
+                );
+                provider.currentDocument.updateCellContent(
+                    event.content.cellId,
+                    finalContent,
                     EditType.LLM_GENERATION
                 );
             }

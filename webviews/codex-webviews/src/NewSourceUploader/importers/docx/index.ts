@@ -349,6 +349,51 @@ const sliceRunsForRange = (charRanges: RunCharRange[], range: TextRange): DocxRu
 };
 
 /**
+ * Formatting fingerprint used to decide whether two adjacent runs would
+ * produce identical HTML markup and can therefore be merged.
+ */
+const runFormattingKey = (run: DocxRun): string => {
+    const p = run.runProperties;
+    return JSON.stringify([
+        p.bold ?? false,
+        p.italic ?? false,
+        p.underline ?? false,
+        p.strike ?? false,
+        p.superscript ?? false,
+        p.subscript ?? false,
+        p.fontSize ?? null,
+        p.fontFamily ?? null,
+        p.color ?? null,
+        p.highlight ?? null,
+    ]);
+};
+
+/**
+ * Merge adjacent runs that share identical formatting. Word fragments text
+ * into separate runs based on editing history (rsids), which would otherwise
+ * produce one <span> per fragment — often splitting mid-word — and make the
+ * source HTML skeleton needlessly hard for translations to match.
+ *
+ * Only used for HTML conversion; the original runs (and their character
+ * offsets) are left untouched for round-trip export.
+ */
+const mergeAdjacentRuns = (runs: DocxRun[]): DocxRun[] => {
+    const merged: DocxRun[] = [];
+    for (const run of runs) {
+        const previous = merged[merged.length - 1];
+        if (previous && runFormattingKey(previous) === runFormattingKey(run)) {
+            merged[merged.length - 1] = {
+                ...previous,
+                content: previous.content + run.content,
+            };
+        } else {
+            merged.push(run);
+        }
+    }
+    return merged;
+};
+
+/**
  * Convert a specific set of runs (a segment) to HTML, applying the parent
  * paragraph's block-level properties (style, alignment, indentation, spacing).
  * Used both for whole paragraphs and for sub-segments after splitting.
@@ -387,7 +432,7 @@ const convertRunGroupToHtml = (runs: DocxRun[], paragraph: DocxParagraph): strin
 
     html += '>';
 
-    for (const run of runs) {
+    for (const run of mergeAdjacentRuns(runs)) {
         html += convertRunToHtml(run);
     }
 
