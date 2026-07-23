@@ -10,6 +10,10 @@ import {
     DocxExportConfig,
     DocxExportError,
 } from './docxTypes';
+import {
+    extractOutermostParagraphRanges,
+    stripFallbackElements,
+} from './utils/ooxmlScanner';
 
 /**
  * NOTE:
@@ -121,6 +125,10 @@ function collectTranslations(
     for (const cell of codexCells) {
         const meta = cell.metadata;
 
+        // Skip soft-deleted cells (tombstones from cell deletion or re-import
+        // merges); their paragraph indices refer to a stale parse.
+        if (meta?.data?.deleted === true) continue;
+
         const translated = removeHtmlTags(cell.value).trim();
         if (!translated) continue;
 
@@ -218,38 +226,43 @@ async function replaceContentInXml(
     }
 
     const before = documentXml.slice(0, bodyStart + 1);
-    const bodyXml = documentXml.slice(bodyStart + 1, bodyCloseIdx);
+    const bodyXmlRaw = documentXml.slice(bodyStart + 1, bodyCloseIdx);
     const after = documentXml.slice(bodyCloseIdx);
 
-    // Match both normal and self-closing paragraphs.
-    const paraRe = /<w:p\b[\s\S]*?<\/w:p>|<w:p\b[^>]*\/>/g;
+    // Remove mc:Fallback branches: they duplicate the mc:Choice content, so
+    // keeping them would leave the untranslated source text in the exported
+    // file (legacy renderers would show it). Word regenerates fallbacks on the
+    // next save. This also keeps paragraph indices aligned with the importer,
+    // which scans a Fallback-stripped body.
+    const bodyXml = stripFallbackElements(bodyXmlRaw);
+
+    // Canonical paragraph enumeration shared with the importer: outermost
+    // <w:p> elements only (text-box paragraphs belong to their anchor).
+    const ranges = extractOutermostParagraphRanges(bodyXml);
     let out = '';
     let last = 0;
-    let paraIndex = 0;
     let replacedCount = 0;
 
-    let m: RegExpExecArray | null;
-    while ((m = paraRe.exec(bodyXml)) !== null) {
-        const start = m.index;
-        const end = start + m[0].length;
+    for (let paraIndex = 0; paraIndex < ranges.length; paraIndex++) {
+        const { start, end } = ranges[paraIndex];
         out += bodyXml.slice(last, start);
 
+        const paragraphXml = bodyXml.slice(start, end);
         const translation = translations.get(paraIndex);
         if (translation) {
-            out += replaceParagraphTextXml(m[0], translation);
+            out += replaceParagraphTextXml(paragraphXml, translation);
             replacedCount++;
             console.log(`[Exporter] ✓ Replaced paragraph ${paraIndex}: "${translation.substring(0, 50)}..."`);
         } else {
-            out += m[0];
+            out += paragraphXml;
         }
 
         last = end;
-        paraIndex++;
     }
     out += bodyXml.slice(last);
 
-    console.log(`[Exporter] Found ${paraIndex} paragraphs in XML`);
-    console.log(`[Exporter] Summary: ${replacedCount} replaced, ${paraIndex - replacedCount} skipped, ${paraIndex} total`);
+    console.log(`[Exporter] Found ${ranges.length} paragraphs in XML`);
+    console.log(`[Exporter] Summary: ${replacedCount} replaced, ${ranges.length - replacedCount} skipped, ${ranges.length} total`);
 
     return `${before}${out}${after}`;
 }

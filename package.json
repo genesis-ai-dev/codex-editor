@@ -571,6 +571,11 @@
                         "default": false,
                         "description": "Internal flag indicating the documentContext hoist migration has completed."
                     },
+                    "codex-project-manager.htmlStructureArtifactsRepairCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the HTML structure artifact repair migration has completed."
+                    },
                     "codex-project-manager.projectName": {
                         "type": "string",
                         "default": "",

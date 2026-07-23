@@ -33,6 +33,7 @@ import { removeLocalizedBooksJsonIfPresent as removeLocalizedBooksJson } from ".
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 import { MetadataManager } from "../../utils/metadataManager";
 import { openCodexDocumentWithSourcePair } from "../../utils/openCodexDocumentWithSourcePair";
+import type { ExistingImportPair } from "./updateExistingImport";
 // import { parseRtfWithPandoc as parseRtfNode } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
 
 const execAsync = promisify(exec);
@@ -1104,6 +1105,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         // Save original files if provided in metadata (with hash-based deduplication)
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         const pairsWithOriginalFiles = new Set<number>();
+        // Content hash per pair, used to detect re-imports of an already-imported file
+        const originalFileHashes = new Map<number, string>();
         if (workspaceFolder) {
             for (let pairIdx = 0; pairIdx < message.notebookPairs.length; pairIdx++) {
                 const pair = message.notebookPairs[pairIdx];
@@ -1163,6 +1166,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     );
 
                     console.log(`[NewSourceUploader] Original file: ${result.message}`);
+                    originalFileHashes.set(pairIdx, result.hash);
 
                     // Store the file hash in metadata for integrity verification and deduplication tracking
                     (pair.source.metadata as any).originalFileHash = result.hash;
@@ -1246,6 +1250,81 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             }
         }
 
+        // Detect re-imports: the original file's content hash already maps to an
+        // existing notebook pair in this project. Offer to update that pair in
+        // place (fixes cells from the fresh parse, preserves translations)
+        // instead of creating a duplicate pair.
+        const updateTargets = new Map<number, ExistingImportPair>();
+        const skippedPairs = new Set<number>();
+        if (workspaceFolder) {
+            const { findExistingImportPairs } = await import('./updateExistingImport');
+            for (const [pairIdx, hash] of originalFileHashes) {
+                // Imports whose standardized filename already exists (biblical
+                // books like GEN.source, or legacy non-UUID names) went through
+                // the overwrite-confirmation flow in handleWriteNotebooks; the
+                // user already chose to overwrite, so don't ask again here.
+                const standardizedName = await createStandardizedFilename(
+                    message.notebookPairs[pairIdx].source.name,
+                    ".source"
+                );
+                try {
+                    await vscode.workspace.fs.stat(
+                        vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts", standardizedName)
+                    );
+                    continue;
+                } catch {
+                    // No standardized-name file; this pair is eligible for
+                    // re-import detection.
+                }
+
+                const fileName = message.notebookPairs[pairIdx].source.metadata.originalFileName;
+                const matches = await findExistingImportPairs(workspaceFolder, hash, fileName);
+                if (!matches) continue;
+
+                const displayFileName = fileName || "This document";
+                const summary = matches.matchedBy === "content"
+                    ? `"${displayFileName}" was already imported as "${matches.pairs[0].displayName}".`
+                    : `"${displayFileName}" looks like a new version of "${matches.pairs[0].displayName}" (the content has changed since it was imported).`;
+                const choice = await vscode.window.showInformationMessage(
+                    summary,
+                    {
+                        modal: true,
+                        detail: "Update the existing import to rebuild its cells from this file while keeping existing translations, or import it again as a separate copy.",
+                    },
+                    "Update Existing",
+                    "Import as New Copy"
+                );
+                if (choice === undefined) {
+                    skippedPairs.add(pairIdx);
+                    continue;
+                }
+                if (choice !== "Update Existing") continue;
+
+                let chosenPair = matches.pairs[0];
+                if (matches.pairs.length > 1) {
+                    const picked = await vscode.window.showQuickPick(
+                        matches.pairs.map(pair => ({
+                            label: pair.displayName,
+                            description: pair.notebookBaseName,
+                            pair,
+                        })),
+                        { placeHolder: `Several imports match "${displayFileName}" — choose which one to update` }
+                    );
+                    if (!picked) {
+                        skippedPairs.add(pairIdx);
+                        continue;
+                    }
+                    chosenPair = picked.pair;
+                }
+                updateTargets.set(pairIdx, chosenPair);
+            }
+        }
+
+        if (skippedPairs.size === message.notebookPairs.length) {
+            webviewPanel.webview.postMessage({ command: "importCancelled" });
+            return;
+        }
+
         reportProgress("creating");
 
         // Convert ProcessedNotebooks to NotebookPreview format
@@ -1264,11 +1343,72 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             })
         );
 
-        // Create the notebook pairs
-        const createdFiles = await createNoteBookPair({
-            token,
-            sourceNotebooks,
-            codexNotebooks,
+        // Update existing pairs in place (re-imports the user chose to update)
+        const allFiles: Array<{ pairIdx: number; sourceUri: vscode.Uri; codexUri: vscode.Uri; }> = [];
+        if (workspaceFolder && updateTargets.size > 0) {
+            // Flush unsaved editor changes to disk first so the merge reads the
+            // user's latest translations (custom editors save via saveAll too).
+            try {
+                await vscode.commands.executeCommand("workbench.action.files.saveAll");
+            } catch (error) {
+                console.warn("[NewSourceUploader] saveAll before update failed:", error);
+            }
+
+            const { updateExistingImportPair } = await import('./updateExistingImport');
+            for (const [pairIdx, existingPair] of updateTargets) {
+                const result = await updateExistingImportPair(
+                    existingPair,
+                    sourceNotebooks[pairIdx],
+                    codexNotebooks[pairIdx]
+                );
+                allFiles.push({ pairIdx, sourceUri: result.sourceUri, codexUri: result.codexUri });
+
+                const { stats } = result;
+                const removedNote = stats.droppedOldCells > 0
+                    ? ` ${stats.droppedOldCells} cell(s) no longer in the document were removed${stats.droppedTranslations > 0 ? ` (${stats.droppedTranslations} had translations)` : ""}.`
+                    : "";
+                const summaryText = `Updated "${existingPair.displayName}": ${stats.matchedCells} of ${stats.totalNewCells} cell(s) matched, ${stats.translationsCarried} translation(s) preserved.${removedNote}`;
+                if (stats.droppedTranslations > 0) {
+                    // Translated content was hidden; the tombstoned cells keep
+                    // it recoverable inside the file itself.
+                    vscode.window.showWarningMessage(summaryText);
+                } else {
+                    vscode.window.showInformationMessage(summaryText);
+                }
+            }
+
+            // If the updated files are open in cell editors, force them to
+            // reload from disk so stale in-memory content can't overwrite the
+            // merged result on the next save.
+            try {
+                const { GlobalProvider } = await import("../../globalProvider");
+                const cellEditorProvider = GlobalProvider.getInstance().getProvider(
+                    "codex-cell-editor"
+                ) as {
+                    refreshWebviewsForFiles?: (paths: string[]) => Promise<void>;
+                } | undefined;
+                if (cellEditorProvider?.refreshWebviewsForFiles) {
+                    const updatedPaths = allFiles.flatMap(f => [f.sourceUri.fsPath, f.codexUri.fsPath]);
+                    await cellEditorProvider.refreshWebviewsForFiles(updatedPaths);
+                }
+            } catch (error) {
+                console.warn("[NewSourceUploader] Failed to refresh webviews after update:", error);
+            }
+        }
+
+        // Create brand-new pairs for the remaining imports
+        const createIndices = message.notebookPairs
+            .map((_, idx) => idx)
+            .filter(idx => !updateTargets.has(idx) && !skippedPairs.has(idx));
+        const createdFiles = createIndices.length > 0
+            ? await createNoteBookPair({
+                token,
+                sourceNotebooks: createIndices.map(idx => sourceNotebooks[idx]),
+                codexNotebooks: createIndices.map(idx => codexNotebooks[idx]),
+            })
+            : [];
+        createdFiles.forEach((file, i) => {
+            allFiles.push({ pairIdx: createIndices[i], sourceUri: file.sourceUri, codexUri: file.codexUri });
         });
 
         // Register notebook references in the original files registry
@@ -1276,11 +1416,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         // (Bible imports from eBible/Macula set originalName to the book code, not a stored file)
         if (workspaceFolder && pairsWithOriginalFiles.size > 0) {
             const { addNotebookReference } = await import('./originalFileUtils');
-            for (let i = 0; i < createdFiles.length; i++) {
-                if (!pairsWithOriginalFiles.has(i)) {
+            for (const createdFile of allFiles) {
+                if (!pairsWithOriginalFiles.has(createdFile.pairIdx)) {
                     continue;
                 }
-                const createdFile = createdFiles[i];
                 try {
                     const sourceContent = await vscode.workspace.fs.readFile(createdFile.sourceUri);
                     const sourceNotebook = JSON.parse(new TextDecoder().decode(sourceContent));
@@ -1300,7 +1439,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
         // Migrate localized-books.json to codex metadata before deleting the file
         // Pass the newly created codex URIs directly to avoid search issues
-        const createdCodexUris = createdFiles.map(f => f.codexUri);
+        const createdCodexUris = allFiles.map(f => f.codexUri);
         await this.migrateLocalizedBooksToMetadata(createdCodexUris);
 
         // Remove any localized book overrides to ensure fresh defaults after new source import
@@ -1318,14 +1457,14 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         await metadataManager.loadMetadata();
 
         // Process newly imported files (line numbers, importerType) before indexing
-        if (createdFiles && createdFiles.length > 0) {
+        if (allFiles.length > 0) {
             reportProgress("processing");
 
-            const allCreatedUris = createdFiles.flatMap(f => [f.sourceUri, f.codexUri]);
+            const allCreatedUris = allFiles.flatMap(f => [f.sourceUri, f.codexUri]);
             await processNewlyImportedFiles(allCreatedUris);
 
             const filePaths: string[] = [];
-            for (const result of createdFiles) {
+            for (const result of allFiles) {
                 filePaths.push(result.sourceUri.fsPath);
                 filePaths.push(result.codexUri.fsPath);
             }
@@ -1346,7 +1485,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             );
         }
 
-        const importedCodexUris = createdFiles.map(f => f.codexUri.fsPath);
+        const importedCodexUris = allFiles.map(f => f.codexUri.fsPath);
         const aiInstructionsCompleted = await MetadataManager.getAIInstructionsCompleted();
 
         webviewPanel.webview.postMessage({

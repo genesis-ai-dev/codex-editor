@@ -67,6 +67,18 @@ export function AutocompleteModal({
         }
     }, [effectiveTotalCells, numberOfCellsToAutocomplete]);
 
+    useEffect(() => {
+        if (!isOpen) return;
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                event.stopPropagation();
+                onClose();
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [isOpen, onClose]);
+
     if (!isOpen) return null;
 
     const handleNumberChange = (value: string) => {
@@ -75,6 +87,15 @@ export function AutocompleteModal({
     };
 
     const isValidSelection = effectiveTotalCells > 0 && numberOfCellsToAutocomplete > 0;
+
+    const handleConfirm = () =>
+        onConfirm(
+            numberOfCellsToAutocomplete,
+            includeEmptyCells,
+            includeNotValidatedByAnyUser,
+            includeNotValidatedByCurrentUser,
+            includeFullyValidatedByOthers
+        );
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]">
@@ -186,6 +207,12 @@ export function AutocompleteModal({
                             type="number"
                             value={numberOfCellsToAutocomplete || ""}
                             onChange={(e) => handleNumberChange(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter" && isValidSelection) {
+                                    e.preventDefault();
+                                    handleConfirm();
+                                }
+                            }}
                             className="flex-1 px-3 py-2 bg-input border border-border rounded text-foreground"
                             placeholder="Enter number of cells"
                             min="1"
@@ -219,18 +246,7 @@ export function AutocompleteModal({
                     <Button variant="secondary" onClick={onClose}>
                         Cancel
                     </Button>
-                    <Button
-                        onClick={() =>
-                            onConfirm(
-                                numberOfCellsToAutocomplete,
-                                includeEmptyCells,
-                                includeNotValidatedByAnyUser,
-                                includeNotValidatedByCurrentUser,
-                                includeFullyValidatedByOthers
-                            )
-                        }
-                        disabled={!isValidSelection}
-                    >
+                    <Button onClick={handleConfirm} disabled={!isValidSelection}>
                         Autocomplete {numberOfCellsToAutocomplete} Cells
                     </Button>
                 </div>

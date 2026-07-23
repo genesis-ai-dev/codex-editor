@@ -3,6 +3,12 @@ import {
     extractHtmlSkeleton,
     compareHtmlStructure,
     getStructureMismatchDescription,
+    removeBareSpanPairs,
+    removeBareParagraphPairs,
+    convertBareSpanPairsToParagraphs,
+    rewrapWithSourceWrappers,
+    tryDeterministicStructureFix,
+    extractPlainTextFromHtml,
     type HtmlStructureDiff,
 } from "../../../../../sharedUtils/htmlStructureUtils";
 
@@ -169,6 +175,269 @@ describe("htmlStructureUtils", () => {
             expect(getStructureMismatchDescription(diff)).toBe(
                 "Missing tags: <br/>"
             );
+        });
+    });
+
+    describe("removeBareSpanPairs", () => {
+        it("removes an attribute-less span wrapper, keeping its content", () => {
+            expect(removeBareSpanPairs("<p><span>Hola</span></p>")).toBe("<p>Hola</p>");
+        });
+
+        it("removes a top-level bare span", () => {
+            expect(removeBareSpanPairs("<span>Hola</span>")).toBe("Hola");
+        });
+
+        it("preserves spans with attributes", () => {
+            const html = '<p><span style="font-size: 18pt">Hola</span></p>';
+            expect(removeBareSpanPairs(html)).toBe(html);
+        });
+
+        it("removes only the bare span when nested inside a styled span", () => {
+            const html = '<span style="color:red"><span>Hola</span> mundo</span>';
+            expect(removeBareSpanPairs(html)).toBe('<span style="color:red">Hola mundo</span>');
+        });
+
+        it("removes a bare span that wraps a styled span", () => {
+            const html = '<span><span data-tag="bd">Hola</span></span>';
+            expect(removeBareSpanPairs(html)).toBe('<span data-tag="bd">Hola</span>');
+        });
+
+        it("removes multiple bare span pairs", () => {
+            expect(removeBareSpanPairs("<span>a</span> <span>b</span>")).toBe("a b");
+        });
+
+        it("returns input unchanged when there are no bare spans", () => {
+            expect(removeBareSpanPairs("<p>Hola</p>")).toBe("<p>Hola</p>");
+        });
+
+        it("handles empty input", () => {
+            expect(removeBareSpanPairs("")).toBe("");
+        });
+    });
+
+    describe("compareHtmlStructure - empty paragraph tolerance", () => {
+        it("ignores a trailing blank line in the translation", () => {
+            // Quill emits <p><br></p> when the user presses Enter at the end.
+            const diff = compareHtmlStructure(
+                "<p>Hello world</p>",
+                "<p>Hola mundo</p><p><br></p>"
+            );
+            expect(diff.isMatch).toBe(true);
+        });
+
+        it("ignores empty paragraphs in the source too", () => {
+            const diff = compareHtmlStructure(
+                '<p>Hello</p><p data-style-id="Normal"> </p>',
+                "<p>Hola</p>"
+            );
+            expect(diff.isMatch).toBe(true);
+        });
+
+        it("still flags paragraphs that contain text", () => {
+            const diff = compareHtmlStructure(
+                "<p>Hello</p>",
+                "<p>Hola</p><p>mundo</p>"
+            );
+            expect(diff.isMatch).toBe(false);
+        });
+    });
+
+    describe("removeBareParagraphPairs", () => {
+        it("removes a bare paragraph wrapper, keeping its content", () => {
+            expect(removeBareParagraphPairs("<p>Hola mundo</p>")).toBe("Hola mundo");
+        });
+
+        it("preserves paragraphs with attributes", () => {
+            const html = '<p data-style-id="Normal">Hola</p>';
+            expect(removeBareParagraphPairs(html)).toBe(html);
+        });
+
+        it("handles empty input", () => {
+            expect(removeBareParagraphPairs("")).toBe("");
+        });
+    });
+
+    describe("convertBareSpanPairsToParagraphs", () => {
+        it("converts a bare span wrapper to a paragraph", () => {
+            expect(convertBareSpanPairsToParagraphs("<span>Hola</span>")).toBe("<p>Hola</p>");
+        });
+
+        it("preserves spans with attributes", () => {
+            const html = '<span style="color:red">Hola</span>';
+            expect(convertBareSpanPairsToParagraphs(html)).toBe(html);
+        });
+
+        it("converts only the bare span in mixed content", () => {
+            expect(convertBareSpanPairsToParagraphs("<span>a</span><p>b</p>")).toBe(
+                "<p>a</p><p>b</p>"
+            );
+        });
+
+        it("handles empty input", () => {
+            expect(convertBareSpanPairsToParagraphs("")).toBe("");
+        });
+    });
+
+    describe("rewrapWithSourceWrappers", () => {
+        it("copies the source's verbatim wrapper chain around the target's content", () => {
+            const result = rewrapWithSourceWrappers(
+                '<p style="line-height: 2"><span style="font-family: Arial">Hello </span></p>',
+                "<p>Hola </p>"
+            );
+            expect(result).toBe(
+                '<p style="line-height: 2"><span style="font-family: Arial">Hola </span></p>'
+            );
+        });
+
+        it("wraps a plain-text target", () => {
+            const result = rewrapWithSourceWrappers('<p style="margin: 0">Hello</p>', "Hola");
+            expect(result).toBe('<p style="margin: 0">Hola</p>');
+        });
+
+        it("keeps the target's inner markup", () => {
+            const result = rewrapWithSourceWrappers(
+                '<p style="margin: 0">Hello <strong>world</strong></p>',
+                "<p>Hola <strong>mundo</strong></p>"
+            );
+            expect(result).toBe('<p style="margin: 0">Hola <strong>mundo</strong></p>');
+        });
+
+        it("returns null when the source has no full wrapper", () => {
+            expect(rewrapWithSourceWrappers("Hello <br/> world", "<p>Hola</p>")).toBeNull();
+            expect(rewrapWithSourceWrappers("<p>a</p><p>b</p>", "<p>Hola</p>")).toBeNull();
+        });
+
+        it("returns null when the target has no content", () => {
+            expect(rewrapWithSourceWrappers("<p>Hello</p>", "<p> </p>")).toBeNull();
+        });
+
+        it("does not peel attributed or semantic target wrappers", () => {
+            const result = rewrapWithSourceWrappers(
+                '<p style="margin: 0">Hello</p>',
+                "<em>Hola</em>"
+            );
+            // The <em> is kept; the caller's structure check will reject this.
+            expect(result).toBe('<p style="margin: 0"><em>Hola</em></p>');
+        });
+    });
+
+    describe("tryDeterministicStructureFix", () => {
+        it("fixes the spurious LLM span wrapper", () => {
+            const fixed = tryDeterministicStructureFix(
+                "<p>Hello world</p>",
+                "<p><span>Hola mundo</span></p>"
+            );
+            expect(fixed).toBe("<p>Hola mundo</p>");
+        });
+
+        it("converts the editor's span-first convention back to a paragraph", () => {
+            // The cell editor used to save a single paragraph as <span>…</span>.
+            // The source's attributes are preserved for round-trip export.
+            const fixed = tryDeterministicStructureFix(
+                '<p data-style-id="ListParagraph" style="line-height: 1.2">List five things.</p>',
+                "<span>Enumera cinco cosas.</span>"
+            );
+            expect(fixed).toBe(
+                '<p data-style-id="ListParagraph" style="line-height: 1.2">Enumera cinco cosas.</p>'
+            );
+        });
+
+        it("converts the first-paragraph span in multi-paragraph content", () => {
+            const fixed = tryDeterministicStructureFix(
+                "<p>Hello</p><p>world</p>",
+                "<span>Hola</span><p>mundo</p>"
+            );
+            expect(fixed).toBe("<p>Hola</p><p>mundo</p>");
+        });
+
+        it("unwraps the editor's block wrapper for inline sources", () => {
+            // USFM/plaintext sources are inline; the editor always saves a block element.
+            const fixed = tryDeterministicStructureFix(
+                'In the beginning <span data-tag="nd">God</span> created',
+                '<p>En el principio <span data-tag="nd">Dios</span> creó</p>'
+            );
+            expect(fixed).toBe('En el principio <span data-tag="nd">Dios</span> creó');
+        });
+
+        it("unwraps combined span and paragraph wrappers", () => {
+            const fixed = tryDeterministicStructureFix(
+                "Hello world",
+                "<p><span>Hola mundo</span></p>"
+            );
+            expect(fixed).toBe("Hola mundo");
+        });
+
+        it("wraps a plain-text target when the source is a single paragraph", () => {
+            const fixed = tryDeterministicStructureFix(
+                '<p data-style-id="Normal">Hello world</p>',
+                "Hola mundo"
+            );
+            expect(fixed).toBe('<p data-style-id="Normal">Hola mundo</p>');
+        });
+
+        it("re-dresses a Quill-stripped save with the source's styled wrappers", () => {
+            // Quill drops unregistered inline styles (docx font/line-height
+            // wrappers), leaving a bare <p> behind on save.
+            const fixed = tryDeterministicStructureFix(
+                '<p style="line-height: 2"><span style="font-family: Arial">To the church of God </span></p>',
+                "<p>A la iglesia de Dios </p>"
+            );
+            expect(fixed).toBe(
+                '<p style="line-height: 2"><span style="font-family: Arial">A la iglesia de Dios </span></p>'
+            );
+        });
+
+        it("does not re-dress when the target has extra semantic markup", () => {
+            expect(
+                tryDeterministicStructureFix(
+                    '<p style="line-height: 2"><span style="font-family: Arial">To the church</span></p>',
+                    "<p><em>A la iglesia</em></p>"
+                )
+            ).toBeNull();
+        });
+
+        it("returns null when structures already match", () => {
+            expect(
+                tryDeterministicStructureFix("<p>Hello</p>", "<p>Hola</p>")
+            ).toBeNull();
+        });
+
+        it("returns null when unwrapping does not produce a match", () => {
+            expect(
+                tryDeterministicStructureFix("<p>Hello</p><br/>", "<p><span>Hola</span></p>")
+            ).toBeNull();
+        });
+
+        it("returns null when the mismatch is not span-related", () => {
+            expect(
+                tryDeterministicStructureFix("<p>Hello</p><br/>", "<p>Hola</p>")
+            ).toBeNull();
+        });
+
+        it("keeps bare spans that the source also has", () => {
+            // Removing all bare spans would overshoot; the fix must verify and bail.
+            expect(
+                tryDeterministicStructureFix(
+                    "<p><span>Hello</span></p>",
+                    "<p><span>Hola</span><span>mundo</span></p>"
+                )
+            ).toBeNull();
+        });
+    });
+
+    describe("extractPlainTextFromHtml", () => {
+        it("strips tags and normalizes whitespace", () => {
+            expect(extractPlainTextFromHtml("<p>Hola  <strong>mundo</strong> </p>")).toBe(
+                "Hola mundo"
+            );
+        });
+
+        it("decodes common entities", () => {
+            expect(extractPlainTextFromHtml("<p>you&#39;re &amp; me</p>")).toBe("you're & me");
+        });
+
+        it("handles empty input", () => {
+            expect(extractPlainTextFromHtml("")).toBe("");
         });
     });
 });

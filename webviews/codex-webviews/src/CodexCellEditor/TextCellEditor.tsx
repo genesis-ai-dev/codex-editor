@@ -5062,6 +5062,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             footnoteOffset={footnoteOffset}
                             pasteAsPlainText={pasteAsPlainText}
                             onCharacterCountChange={setCharacterCount}
+                            preserveParagraphStructure={metadata?.enforceHtmlStructure ?? false}
                         />
                     </div>
                 </div>

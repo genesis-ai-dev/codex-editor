@@ -2500,8 +2500,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 this.broadcastStructureResolveState();
 
                 try {
-                    const resolved = await resolveCellHtmlStructure(cellId, document, config);
-                    if (!resolved) {
+                    const outcome = await resolveCellHtmlStructure(cellId, document, config);
+                    if (outcome.status !== "resolved") {
                         this.postMessageToWebview(webviewPanel, {
                             type: "providerSendsResolvedHtmlStructure",
                             content: { cellId, resolvedContent: "" },
@@ -2509,7 +2509,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         continue;
                     }
 
-                    await document.updateCellContent(cellId, resolved, EditType.LLM_GENERATION);
+                    await document.updateCellContent(cellId, outcome.content, EditType.LLM_GENERATION);
                     await this.saveCustomDocument(
                         document,
                         new vscode.CancellationTokenSource().token,
@@ -2520,7 +2520,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     this.postMessageToWebview(webviewPanel, {
                         type: "providerSendsResolvedHtmlStructure",
-                        content: { cellId, resolvedContent: resolved },
+                        content: { cellId, resolvedContent: outcome.content },
                     });
                 } catch (error) {
                     console.error(`[resolveHtmlStructureBatch] Error for ${cellId}:`, error);

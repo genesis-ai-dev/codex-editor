@@ -49,8 +49,10 @@ function postProcessABTestResult(
 ): string {
     const parsed = parseFinalAnswer(txt || "");
     const lines = parsed.split(/\r?\n/);
-    const processed = lines.map((line) => line.trimEnd()).join(allowHtml || returnHTML ? "<br/>" : "\n");
-    return allowHtml ? processed : (returnHTML ? `<span>${processed}</span>` : processed);
+    // Note: no <span> wrapper here. The <br/>-joined text is already a valid
+    // HTML fragment, and a wrapper span would mismatch the source cell's HTML
+    // structure when `enforceHtmlStructure` is enabled.
+    return lines.map((line) => line.trimEnd()).join(allowHtml || returnHTML ? "<br/>" : "\n");
 }
 
 // Helper function to handle A/B test result
@@ -308,9 +310,8 @@ export async function llmCompletion(
                 .map((line) => line.trimEnd())
                 .join(allowHtml || returnHTML ? "<br/>" : "\n");
 
-            const singleVariant = allowHtml
-                ? processed
-                : (returnHTML ? `<span>${processed}</span>` : processed);
+            // Note: no <span> wrapper here (see postProcessABTestResult).
+            const singleVariant = processed;
             const variants = [singleVariant, singleVariant];
 
             if (debugMode) {
