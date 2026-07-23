@@ -16,6 +16,7 @@ import {
     MilestoneIndex,
 } from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
+import { maybeAutoResolveHtmlStructure } from "./utils/htmlStructureResolver";
 import {
     handleGlobalMessage,
     handleMessages,
@@ -28,6 +29,7 @@ import { SyncManager } from "../../projectManager/syncManager";
 
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { getNonce } from "../../utils/getNonce";
+import { getVideoStreamCacheRoot, onDidChangeVideoStreamCache } from "../../utils/videoStreamCache";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import path from "path";
 import * as fs from "fs";
@@ -42,13 +44,17 @@ import {
     getPasteAsPlainText as getPasteAsPlainTextUtil,
     updatePasteAsPlainText as updatePasteAsPlainTextUtil,
 } from "./utils/workspaceStateUtils";
-import { processVideoUrl } from "./utils/videoUtils";
 import {
     isCodexFileFlexible,
     isSourceFileFlexible,
     isMatchingFilePair as isMatchingFilePairUtil,
 } from "../../utils/fileTypeUtils";
 import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
+import { convertCellToQuillContent } from "./utils/cellUtils";
+import {
+    enrichSourceCellMapWithTimestamps,
+    type SourceCellMapEntry,
+} from "./utils/sourceCellTimestampsUtils";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -92,6 +98,171 @@ interface StateStore {
         callback: (value: CellIdGlobalState | undefined) => void
     ) => () => void;
     updateStoreState: (update: { key: "cellId"; value: CellIdGlobalState; }) => void;
+}
+
+/**
+ * Resolve an attachment's stored relative URL into the absolute paths of both
+ * its `files/` copy and its `pointers/` copy.
+ *
+ * Availability is decided by `files/` FIRST (a pointer stub there → "synced,
+ * not downloaded"; real bytes → "downloaded / local"). The `pointers/` copy is
+ * only consulted as a FALLBACK when `files/` is absent, because undownloaded
+ * media may live solely under `pointers/`. Callers must never check `pointers/`
+ * while a `files/` entry exists, or a fully-downloaded file (whose pointer stub
+ * still lives under `pointers/`) would be misreported as not-downloaded.
+ *
+ * The stored `url` is always POSIX/forward-slash (e.g.
+ * `.project/attachments/files/MAT/audio.webm`), so the files→pointers swap is
+ * done on that forward-slash relative string *before* `path.join` applies the
+ * platform separator. Doing the swap on the absolute path would break on
+ * Windows, where `path.join` yields backslashes and a hardcoded
+ * `/.project/attachments/files/` needle never matches (the original bug that
+ * made undownloaded audio show a play icon instead of the cloud/download icon).
+ *
+ * If the URL isn't under `attachments/files/`, `pointerAbs` equals `filesAbs`
+ * (no pointers/ fallback applies for that layout).
+ */
+function resolveAttachmentPaths(
+    url: string,
+    wsPath: string
+): { filesAbs: string; pointerAbs: string; } {
+    const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+    const pointerRel = filesRel.replace(
+        /(\.project\/attachments\/)files\//,
+        "$1pointers/"
+    );
+    return {
+        filesAbs: path.join(wsPath, filesRel),
+        pointerAbs: path.join(wsPath, pointerRel),
+    };
+}
+
+/**
+ * Resolves the audio availability state for a cell based on its explicitly
+ * selected attachment (`selectedAudioId`).  If an explicit selection exists
+ * and the selected file is an LFS pointer (or cached), the returned state
+ * reflects that — regardless of what other attachments in the cell look like.
+ * Falls back to `baseState` when there is no explicit selection or the
+ * selected attachment is a real local file.
+ */
+export async function resolveSelectedAttachmentState(
+    cell: any,
+    baseState: string,
+    wsPath: string,
+): Promise<string> {
+    const atts = cell?.metadata?.attachments || {};
+    const selectedId = cell?.metadata?.selectedAudioId;
+    const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+
+    // Unified rule: the `missing` icon is shown ONLY when `selectedAudioId` validly
+    // resolves to an attachment with `isMissing: true`. In every other non-resolving
+    // case (no selection, empty-string deselect, invalid/dangling id) the cell icon
+    // falls back to `unselected` when any usable audio exists on the cell, else `none`.
+    //
+    // `selectedAudioId` itself is never auto-mutated by this read path — it stays as
+    // the user's last explicit intent in the JSON.
+    const selectionResolves =
+        !!selectedAtt && selectedAtt.type === "audio" && !selectedAtt.isDeleted;
+
+    if (!selectionResolves) {
+        const vals = Object.values(atts) as any[];
+        const hasUsable = vals.some(
+            (att: any) => att?.type === "audio" && !att.isDeleted && !att.isMissing
+        );
+        return hasUsable ? "unselected" : "none";
+    }
+
+    if (selectedAtt.isMissing) return "missing";
+    const url = String(selectedAtt.url || "");
+    if (!url) return baseState;
+    const { filesAbs, pointerAbs } = resolveAttachmentPaths(url, wsPath);
+    const { isPointerFile, parsePointerFile } = await import("../../utils/lfsHelpers");
+    const { getCachedLfsBytes } = await import("../../utils/mediaCache");
+
+    // Phase 1: files/ is authoritative when present. A pointer stub there means
+    // "synced, not downloaded" (→ pointer/cached); real bytes mean "downloaded
+    // / local recording" → defer to baseState (the playable states). Only fall
+    // through to pointers/ when files/ is ABSENT — a synced project keeps a
+    // pointer stub under pointers/ even for fully-downloaded files, so checking
+    // it for a real local file would wrongly report it as not-downloaded.
+    try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
+        const isPtr = await isPointerFile(filesAbs).catch(() => false);
+        if (isPtr) {
+            const ptr = await parsePointerFile(filesAbs).catch(() => null);
+            if (ptr?.oid && getCachedLfsBytes(ptr.oid)) return "available-cached";
+            return "available-pointer";
+        }
+        return baseState;
+    } catch {
+        /* file not present under files/ — try the pointers/ fallback below */
+    }
+
+    // Phase 2: undownloaded media may live solely under pointers/. Without this
+    // the selected attachment looks absent and the cell renders a (broken) play
+    // icon. Cross-platform via `resolveAttachmentPaths`.
+    if (pointerAbs !== filesAbs) {
+        try {
+            await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
+            const ptr = await parsePointerFile(pointerAbs).catch(() => null);
+            if (ptr?.oid && getCachedLfsBytes(ptr.oid)) return "available-cached";
+            return "available-pointer";
+        } catch {
+            /* not under pointers/ either — fall through to baseState */
+        }
+    }
+
+    return baseState;
+}
+
+/**
+ * Standalone attachment availability check usable from both the class and
+ * message handlers.  Checks the files/ path first (authoritative when present),
+ * then falls back to the pointers/ path only when files/ is absent.
+ */
+export async function checkAttachmentAvailabilityStandalone(
+    attachment: { isDeleted?: boolean; isMissing?: boolean; url?: string },
+    wsPath: string,
+    ignoreMetadataFlags = false,
+): Promise<"available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly"> {
+    if (!ignoreMetadataFlags) {
+        if (attachment.isDeleted) return "deletedOnly";
+        if (attachment.isMissing) return "missing";
+    }
+
+    const url = String(attachment.url || "");
+    if (!url) return "missing";
+
+    const { filesAbs, pointerAbs } = resolveAttachmentPaths(url, wsPath);
+
+    const { isPointerFile, parsePointerFile } = await import("../../utils/lfsHelpers");
+    const { getCachedLfsBytes } = await import("../../utils/mediaCache");
+
+    // Phase 1: files/ is authoritative when present. A pointer stub → "synced,
+    // not downloaded"; real bytes → "downloaded / local".
+    try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
+        const isPtr = await isPointerFile(filesAbs).catch(() => false);
+        if (isPtr) {
+            const pointer = await parsePointerFile(filesAbs).catch(() => null);
+            if (pointer?.oid && getCachedLfsBytes(pointer.oid)) return "available-cached";
+            return "available-pointer";
+        }
+        return "available-local";
+    } catch { /* file not at files/ path */ }
+
+    // Phase 2: undownloaded media may live solely under pointers/ (cross-platform
+    // via resolveAttachmentPaths). Only reached when files/ is absent.
+    if (pointerAbs !== filesAbs) {
+        try {
+            await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
+            const ptrFallback = await parsePointerFile(pointerAbs).catch(() => null);
+            if (ptrFallback?.oid && getCachedLfsBytes(ptrFallback.oid)) return "available-cached";
+            return "available-pointer";
+        } catch { /* not under pointers/ either */ }
+    }
+
+    return "missing";
 }
 
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
@@ -150,6 +321,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         document: CodexCellDocument;
         shouldValidate: boolean;
         isAudioValidation: boolean;
+        attachmentId?: string;
         resolve: (result: any) => void;
         reject: (error: any) => void;
     }[] = [];
@@ -171,6 +343,24 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             cellsToProcess: [],
             progress: 0,
         };
+
+    public structureResolveState: {
+        isProcessing: boolean;
+        totalCells: number;
+        completedCells: number;
+        currentCellId?: string;
+        cellsToProcess: string[];
+        progress: number;
+    } = {
+            isProcessing: false,
+            totalCells: 0,
+            completedCells: 0,
+            currentCellId: undefined,
+            cellsToProcess: [],
+            progress: 0,
+        };
+
+    private structureResolveCancellation?: vscode.CancellationTokenSource;
 
     // Single cell translation state - using the same robust pattern as autocomplete
     public singleCellQueueState: {
@@ -252,6 +442,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     private static readonly viewType = "codex.cellEditor";
 
+    /** Exposes the extension context (e.g. for the external video stream cache). */
+    public get extensionContext(): vscode.ExtensionContext {
+        return this.context;
+    }
+
     constructor(protected readonly context: vscode.ExtensionContext) {
         debug("Constructing CodexCellEditorProvider");
         this.initializeStateStore();
@@ -328,6 +523,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     this.toggleCorrectionEditorMode();
                 }
             )
+        );
+
+        // When a video lands in (or leaves) the session cache — e.g. the user
+        // clicked "Load video" on a navigation card — re-resolve the matching
+        // open editor so its player starts playing instead of staying on the
+        // "Streaming mode" placeholder.
+        this.context.subscriptions.push(
+            onDidChangeVideoStreamCache((oid) => {
+                void this.refreshVideoStreamForCachedOid(oid);
+            })
         );
 
     }
@@ -464,6 +669,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     /**
+     * Reset tracked milestone position so the next updateWebview() treats this
+     * as an initial load (sends full content instead of refreshCurrentPage).
+     * Called when the webview remounts (e.g. after "Developer: Reload Webviews").
+     */
+    public resetPositionForReload(documentUri: string): void {
+        debug("Resetting tracked position for reload:", documentUri);
+        this.currentMilestoneSubsectionMap.delete(documentUri);
+        this.webviewReadyState.set(documentUri, false);
+    }
+
+    /**
      * Wait for a webview to be ready with exponential backoff
      * @param documentUri The URI of the document to wait for
      * @param maxWaitMs Maximum time to wait (default 5000ms)
@@ -557,13 +773,28 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Enable scripts and set local resources in the webview
+        // Get workspace folder early so we can add it to localResourceRoots
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+        const localResourceRoots = [
+            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets"),
+            vscode.Uri.joinPath(this.context.extensionUri, "out", "node_modules", "@vscode", "codicons", "dist"),
+            vscode.Uri.joinPath(this.context.extensionUri, "webviews", "codex-webviews", "dist")
+        ];
+
+        // Add workspace folder to localResourceRoots to allow access to workspace files (e.g., video files)
+        if (workspaceFolder) {
+            localResourceRoots.push(workspaceFolder.uri);
+        }
+
+        // Allow the webview to load stream-only videos cached outside the project.
+        const videoCacheRoot = getVideoStreamCacheRoot(this.context);
+        if (videoCacheRoot) {
+            localResourceRoots.push(videoCacheRoot);
+        }
+
         webviewPanel.webview.options = {
             enableScripts: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(this.context.extensionUri, "src", "assets"),
-                vscode.Uri.joinPath(this.context.extensionUri, "out", "node_modules", "@vscode", "codicons", "dist"),
-                vscode.Uri.joinPath(this.context.extensionUri, "webviews", "codex-webviews", "dist")
-            ]
+            localResourceRoots
         };
 
         // Get text direction and check if it's a source file
@@ -594,9 +825,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Set up file system watcher (only if document is in a workspace)
-        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
         let watcher: vscode.FileSystemWatcher | undefined;
         let audioWatcher: vscode.FileSystemWatcher | undefined;
+        // Debounce handle for coalescing bursts of audio file changes (declared
+        // here so the dispose handler can clear any pending flush).
+        let audioRefreshDebounceTimer: NodeJS.Timeout | undefined;
 
         if (workspaceFolder) {
             watcher = vscode.workspace.createFileSystemWatcher(
@@ -638,48 +871,96 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Watch for audio file changes and update webview
         if (audioWatcher) {
+            // Resolve the cell that owns a changed audio file. The on-disk
+            // filename base equals the attachment id stored in cell metadata
+            // (see `saveAudioAttachment`: filename = `${sanitizedAudioId}.${ext}`
+            // and the same id is the `attachments` key). Matching on that id is
+            // layout-agnostic — it works whether the file lives under
+            // `attachments/files/{BOOK}/` (downloaded bytes) or
+            // `attachments/pointers/{BOOK}/` (LFS stub), and regardless of the
+            // id naming scheme. Falls back to the legacy `BOOK_CCC_VVV`
+            // filename convention for pre-attachment-id files.
+            const resolveCellIdForAudioFile = (
+                uri: vscode.Uri
+            ): { cellId: string; attachmentId: string; } | undefined => {
+                const fileName = vscode.workspace.asRelativePath(uri).split("/").pop() || "";
+                const attachmentId = fileName.replace(/\.[^/.]+$/, "");
+
+                try {
+                    const text = document.getText();
+                    if (text.trim().length > 0) {
+                        const data = JSON.parse(text);
+                        const cells = Array.isArray(data?.cells) ? data.cells : [];
+                        for (const cell of cells) {
+                            const atts = cell?.metadata?.attachments || {};
+                            if (Object.prototype.hasOwnProperty.call(atts, attachmentId)) {
+                                const id = cell?.metadata?.id;
+                                if (id) return { cellId: id, attachmentId };
+                            }
+                        }
+                    }
+                } catch {
+                    /* fall through to legacy filename parsing */
+                }
+
+                // Legacy fallback: `{BOOK}_{CCC}_{VVV}.ext` (no attachment id in metadata)
+                const match = fileName.match(/^(\w+)_(\d+)_(\d+)\./);
+                if (match) {
+                    const [, fileBook, chapterStr, verseStr] = match;
+                    return {
+                        cellId: `${fileBook} ${parseInt(chapterStr)}:${parseInt(verseStr)}`,
+                        attachmentId,
+                    };
+                }
+                return undefined;
+            };
+
+            // Coalesce bursts (e.g. a bulk auto-download writing many files at
+            // once) so we recompute each affected cell only once per window
+            // instead of per file event (files/ + pointers/ both fire).
+            const AUDIO_REFRESH_DEBOUNCE_MS = 250;
+            const pendingAudioCellIds = new Set<string>();
+            const flushPendingAudioRefresh = () => {
+                audioRefreshDebounceTimer = undefined;
+                const cellIds = Array.from(pendingAudioCellIds);
+                pendingAudioCellIds.clear();
+                for (const cellId of cellIds) {
+                    updateAudioAttachmentsForCell(webviewPanel, document, cellId);
+                }
+            };
+
             const handleAudioFileChange = (uri: vscode.Uri, changeType: string) => {
                 debug(`${changeType} audio file detected:`, uri.toString());
 
-                // Extract book and cell info from the file path
-                const relativePath = vscode.workspace.asRelativePath(uri);
-                const pathParts = relativePath.split('/');
-                if (pathParts.length >= 3 && pathParts[0] === '.project' && pathParts[1] === 'attachments') {
-                    const bookAbbr = pathParts[2];
-                    const fileName = pathParts[pathParts.length - 1];
+                const resolved = resolveCellIdForAudioFile(uri);
+                if (!resolved) {
+                    debug("Could not resolve owning cell for audio file:", uri.toString());
+                    return;
+                }
+                const { cellId, attachmentId } = resolved;
 
-                    // Parse filename to extract cell information
-                    const match = fileName.match(/^(\w+)_(\d+)_(\d+)\./);
-                    if (match) {
-                        const [, fileBook, chapterStr, verseStr] = match;
-                        if (fileBook === bookAbbr) {
-                            const cellId = `${fileBook} ${parseInt(chapterStr)}:${parseInt(verseStr)}`;
-
-                            // Update the webview with refreshed audio attachment information
-                            updateAudioAttachmentsForCell(webviewPanel, document, cellId);
-
-                            // If this was a deletion and it was the selected audio, clear the selection
-                            if (changeType === "Deleted") {
-                                try {
-                                    // Generate attachment ID from filename
-                                    const attachmentId = fileName.replace(/\.[^/.]+$/, ""); // Remove extension
-
-                                    // Check if this attachment is currently selected
-                                    const currentSelection = document.getExplicitAudioSelection(cellId);
-                                    if (currentSelection === attachmentId) {
-                                        // The deleted file was the selected one, clear selection
-                                        document.clearAudioSelection(cellId);
-                                        debug(`Cleared selectedAudioId for cell ${cellId} due to file deletion`);
-                                    }
-                                } catch (error) {
-                                    debug("Error checking selected audio ID on deletion:", error);
-                                }
-                            }
-
-                            debug(`Updated audio attachments for cell: ${cellId}`);
+                // Deletion of the selected attachment clears the selection
+                // immediately so the editor doesn't keep pointing at a gone file.
+                if (changeType === "Deleted") {
+                    try {
+                        const currentSelection = document.getExplicitAudioSelection(cellId);
+                        if (currentSelection === attachmentId) {
+                            document.clearAudioSelection(cellId);
+                            debug(`Cleared selectedAudioId for cell ${cellId} due to file deletion`);
                         }
+                    } catch (error) {
+                        debug("Error checking selected audio ID on deletion:", error);
                     }
                 }
+
+                pendingAudioCellIds.add(cellId);
+                if (audioRefreshDebounceTimer) {
+                    clearTimeout(audioRefreshDebounceTimer);
+                }
+                audioRefreshDebounceTimer = setTimeout(
+                    flushPendingAudioRefresh,
+                    AUDIO_REFRESH_DEBOUNCE_MS
+                );
             };
 
             audioWatcher.onDidChange((uri) => handleAudioFileChange(uri, "Modified"));
@@ -825,6 +1106,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
             }
 
+            let initialCellIds = new Set<string>();
+
             // Only send initial content if this is not an update (webview not ready or no tracked position)
             if (!isWebviewReady || !currentPosition) {
                 // Get first page of cells for the initial milestone
@@ -832,13 +1115,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
 
                 // Build source cell map for the initial cells only
-                const initialSourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+                const initialSourceCellMap: Record<string, SourceCellMapEntry> = {};
                 for (const cell of initialCells) {
                     const cellId = cell.cellMarkers?.[0];
                     if (cellId && document._sourceCellMap[cellId]) {
                         initialSourceCellMap[cellId] = document._sourceCellMap[cellId];
                     }
                 }
+                const enrichedInitialSourceCellMap = await enrichSourceCellMapWithTimestamps(
+                    document,
+                    initialSourceCellMap
+                );
 
                 // Fetch user role/access level if authenticated
                 let userAccessLevel: number | undefined = undefined;
@@ -872,56 +1159,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     debug("Could not fetch user role:", error);
                 }
 
-                this.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsInitialContentPaginated",
-                    rev,
-                    milestoneIndex: milestoneIndex,
-                    cells: processedInitialCells,
-                    currentMilestoneIndex: initialMilestoneIndex,
-                    currentSubsectionIndex: initialSubsectionIndex,
-                    isSourceText: isSourceText,
-                    sourceCellMap: initialSourceCellMap,
-                    username: username,
-                    validationCount: validationCount,
-                    validationCountAudio: validationCountAudio,
-                    isAuthenticated: isAuthenticated,
-                    userAccessLevel: userAccessLevel,
-                });
-
-                // Record the initial position so subsequent updateWebview() calls
-                // (e.g. from "getContent") see a tracked position and send
-                // refreshCurrentPage instead of duplicating the initial content.
-                this.currentMilestoneSubsectionMap.set(docUri, {
-                    milestoneIndex: initialMilestoneIndex,
-                    subsectionIndex: initialSubsectionIndex,
-                });
-            }
-
-            // Also send updated metadata plus the autoDownloadAudioOnOpen flag for the project
-            try {
-                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-                const { getAutoDownloadAudioOnOpen } = await import("../../utils/localProjectSettings");
-                const autoFlag = await getAutoDownloadAudioOnOpen(ws?.uri);
-                this.postMessageToWebview(webviewPanel, {
-                    type: "providerUpdatesNotebookMetadataForWebview",
-                    content: { ...notebookData.metadata, autoDownloadAudioOnOpen: !!autoFlag },
-                });
-            } catch {
-                this.postMessageToWebview(webviewPanel, {
-                    type: "providerUpdatesNotebookMetadataForWebview",
-                    content: notebookData.metadata,
-                });
-            }
-
-            // After sending initial content, send refined audio availability with pointer detection
-            try {
-                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                // Compute refined audio availability for the INITIAL PAGE cells only
+                // (not all cells) so the webview has correct icon states without delay.
+                initialCellIds = new Set(
+                    processedInitialCells
+                        .flatMap((c: any) => c.cellMarkers || [])
+                        .filter(Boolean)
+                );
+                try {
+                    const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                 if (ws && Array.isArray(notebookData?.cells)) {
                     const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
                     for (const cell of notebookData.cells as any[]) {
                         const cellId = cell?.metadata?.id;
-                        if (!cellId) continue;
-                        let hasAvailable = false; let hasAvailablePointer = false; let hasMissing = false; let hasDeleted = false;
+                        if (!cellId || !initialCellIds.has(cellId)) continue;
+                        let hasAvailable = false; let hasAvailablePointer = false; let hasCached = false; let hasMissing = false; let hasDeleted = false;
                         const atts = cell?.metadata?.attachments || {};
                         for (const key of Object.keys(atts)) {
                             const att: any = atts[key];
@@ -932,20 +1184,34 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     try {
                                         const url = String(att.url || "");
                                         if (ws && url) {
-                                            const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-                                            const filesAbs = path.join(ws.uri.fsPath, filesRel);
+                                            const { filesAbs, pointerAbs } = resolveAttachmentPaths(url, ws.uri.fsPath);
                                             try {
                                                 await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
-                                                const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                                const { isPointerFile, parsePointerFile } = await import("../../utils/lfsHelpers");
                                                 const isPtr = await isPointerFile(filesAbs).catch(() => false);
-                                                if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                                if (isPtr) {
+                                                    const { getCachedLfsBytes } = await import("../../utils/mediaCache");
+                                                    const ptr = await parsePointerFile(filesAbs).catch(() => null);
+                                                    if (ptr?.oid && getCachedLfsBytes(ptr.oid)) {
+                                                        hasCached = true;
+                                                    } else {
+                                                        hasAvailablePointer = true;
+                                                    }
+                                                } else {
+                                                    hasAvailable = true;
+                                                }
                                             } catch {
-                                                const pointerAbs = filesAbs.includes("/.project/attachments/files/")
-                                                    ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
-                                                    : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
+                                                // files/ absent — fall back to pointers/ (undownloaded media).
                                                 try {
                                                     await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
-                                                    hasAvailablePointer = true;
+                                                    const { parsePointerFile: parsePtrInline } = await import("../../utils/lfsHelpers");
+                                                    const { getCachedLfsBytes: getLfsCacheInline } = await import("../../utils/mediaCache");
+                                                    const ptrInline = await parsePtrInline(pointerAbs).catch(() => null);
+                                                    if (ptrInline?.oid && getLfsCacheInline(ptrInline.oid)) {
+                                                        hasCached = true;
+                                                    } else {
+                                                        hasAvailablePointer = true;
+                                                    }
                                                 } catch {
                                                     hasMissing = true;
                                                 }
@@ -963,16 +1229,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                         // Prefer showing available when a valid file exists,
                         // even if the user's explicit selection points to a missing file.
-                        let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+                        let state: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none";
                         if (hasAvailable) state = "available-local";
+                        else if (hasCached) state = "available-cached";
                         else if (hasAvailablePointer) state = "available-pointer";
                         else if (selectedIsMissing || hasMissing) state = "missing";
                         else if (hasDeleted) state = "deletedOnly";
                         else state = "none";
 
-                        // If Frontier installed version is below minimum, any non-local availability
-                        // should present as "available-pointer" (cloud/download) to avoid Play UI.
-                        if (state !== "available-local") {
+                        state = await resolveSelectedAttachmentState(cell, state, ws.uri.fsPath) as typeof state;
+
+                        if (state !== "available-local" && state !== "available-cached") {
                             try {
                                 const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
                                 const status = await getFrontierVersionStatus();
@@ -997,6 +1264,118 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
             } catch (e) {
                 debug("Failed to compute refined audio availability", e);
+            }
+
+                this.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsInitialContentPaginated",
+                    rev,
+                    milestoneIndex: milestoneIndex,
+                    cells: processedInitialCells,
+                    currentMilestoneIndex: initialMilestoneIndex,
+                    currentSubsectionIndex: initialSubsectionIndex,
+                    isSourceText: isSourceText,
+                    sourceCellMap: enrichedInitialSourceCellMap,
+                    username: username,
+                    validationCount: validationCount,
+                    validationCountAudio: validationCountAudio,
+                    isAuthenticated: isAuthenticated,
+                    userAccessLevel: userAccessLevel,
+                });
+
+                // Record the initial position so subsequent updateWebview() calls
+                // (e.g. from "getContent") see a tracked position and send
+                // refreshCurrentPage instead of duplicating the initial content.
+                this.currentMilestoneSubsectionMap.set(docUri, {
+                    milestoneIndex: initialMilestoneIndex,
+                    subsectionIndex: initialSubsectionIndex,
+                });
+            }
+
+            // Also send updated metadata plus project-level flags
+            try {
+                const { getAutoDownloadAudioOnOpen, getAutoRecordOnMicClick, getRecordingCountdownSeconds } = await import("../../utils/globalUserSettings");
+                const autoFlag = getAutoDownloadAudioOnOpen();
+                const autoRecordFlag = getAutoRecordOnMicClick();
+                const countdownSeconds = getRecordingCountdownSeconds();
+                this.postMessageToWebview(webviewPanel, {
+                    type: "providerUpdatesNotebookMetadataForWebview",
+                    content: { ...notebookData.metadata, autoDownloadAudioOnOpen: !!autoFlag, autoRecordOnMicClick: !!autoRecordFlag, recordingCountdownSeconds: countdownSeconds },
+                });
+            } catch {
+                this.postMessageToWebview(webviewPanel, {
+                    type: "providerUpdatesNotebookMetadataForWebview",
+                    content: notebookData.metadata,
+                });
+            }
+
+            // Compute availability for ALL remaining cells in the background
+            // (the initial page was already sent above).
+            try {
+                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (ws && Array.isArray(notebookData?.cells)) {
+                    const remainingCells = (notebookData.cells as any[]).filter(
+                        (c: any) => c?.metadata?.id && !initialCellIds.has(c.metadata.id)
+                    );
+                    if (remainingCells.length > 0) {
+                        const bgAvailability: { [cellId: string]: string; } = {};
+                        for (const cell of remainingCells) {
+                            const cellId = cell.metadata.id;
+                            let hasAvailable = false; let hasAvailablePointer = false; let hasCached = false; let hasMissing = false; let hasDeleted = false;
+                            const atts = cell?.metadata?.attachments || {};
+                            for (const key of Object.keys(atts)) {
+                                const att: any = atts[key];
+                                if (att && att.type === "audio") {
+                                    if (att.isDeleted) hasDeleted = true;
+                                    else if (att.isMissing) hasMissing = true;
+                                    else {
+                                        try {
+                                            const url = String(att.url || "");
+                                            if (url) {
+                                                const { filesAbs, pointerAbs } = resolveAttachmentPaths(url, ws.uri.fsPath);
+                                                try {
+                                                    await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
+                                                    const { isPointerFile, parsePointerFile } = await import("../../utils/lfsHelpers");
+                                                    const isPtr = await isPointerFile(filesAbs).catch(() => false);
+                                                    if (isPtr) {
+                                                        const { getCachedLfsBytes } = await import("../../utils/mediaCache");
+                                                        const ptr = await parsePointerFile(filesAbs).catch(() => null);
+                                                        if (ptr?.oid && getCachedLfsBytes(ptr.oid)) { hasCached = true; } else { hasAvailablePointer = true; }
+                                                    } else { hasAvailable = true; }
+                                                } catch {
+                                                    // files/ absent — fall back to pointers/ (undownloaded media).
+                                                    try {
+                                                        await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
+                                                        const { parsePointerFile: parsePtrBg } = await import("../../utils/lfsHelpers");
+                                                        const { getCachedLfsBytes: getLfsBg } = await import("../../utils/mediaCache");
+                                                        const ptrBg = await parsePtrBg(pointerAbs).catch(() => null);
+                                                        if (ptrBg?.oid && getLfsBg(ptrBg.oid)) { hasCached = true; } else { hasAvailablePointer = true; }
+                                                    } catch { hasMissing = true; }
+                                                }
+                                            } else { hasMissing = true; }
+                                        } catch { hasMissing = true; }
+                                    }
+                                }
+                            }
+                            let state: string;
+                            if (hasAvailable) state = "available-local";
+                            else if (hasCached) state = "available-cached";
+                            else if (hasAvailablePointer) state = "available-pointer";
+                            else if (hasMissing) state = "missing";
+                            else if (hasDeleted) state = "deletedOnly";
+                            else state = "none";
+                            state = await resolveSelectedAttachmentState(cell, state, ws.uri.fsPath);
+                            bgAvailability[cellId] = state;
+                        }
+                        if (Object.keys(bgAvailability).length > 0) {
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerSendsAudioAttachments",
+                                attachments: bgAvailability as any,
+                            });
+                        }
+                    }
+                }
+            } catch (e) {
+                debug("Failed to compute background audio availability", e);
             }
         };
 
@@ -1052,14 +1431,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // Prefer showing available when a valid file exists,
                     // even if the user's explicit selection points to a missing file.
-                    let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+                    let state: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none";
                     if (hasAvailable) state = "available-local";
                     else if (hasAvailablePointer) state = "available-pointer";
                     else if (selectedIsMissing || hasMissing) state = "missing";
                     else if (hasDeleted) state = "deletedOnly";
                     else state = "none";
 
-                    if (state !== "available-local") {
+                    const wsFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                    if (wsFolder) {
+                        state = await resolveSelectedAttachmentState(cell, state, wsFolder.uri.fsPath) as
+                            "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none";
+                    }
+
+                    if (state !== "available-local" && state !== "available-cached") {
                         try {
                             const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
                             const status = await getFrontierVersionStatus();
@@ -1139,6 +1524,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const listeners: vscode.Disposable[] = [];
         listeners.push(viewStateDisposable);
 
+        // Relay OS-level window focus changes to the webview. Webview iframes
+        // don't reliably get `window.focus` / `visibilitychange` when the whole
+        // VS Code app gains/loses OS focus, so the audio recorder can't refresh
+        // mic availability on its own. `onDidChangeWindowState` is the reliable
+        // host-side signal; forward it so the recorder re-checks permissions
+        // after the user returns from OS settings.
+        listeners.push(
+            vscode.window.onDidChangeWindowState((state) => {
+                this.postMessageToWebview(webviewPanel, {
+                    type: "windowFocusChanged",
+                    focused: state.focused,
+                });
+            })
+        );
+
         listeners.push(
             document.onDidChangeForVsCodeAndWebview((e) => {
                 debug("Document changed for VS Code and webview");
@@ -1167,6 +1567,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     updateWebview();
                 } else if (e.edits && e.edits.length > 0 && e.edits[0].type === "audioValidation") {
                     const selectedAudioId = document.getExplicitAudioSelection(e.edits[0].cellId) ?? undefined;
+                    const selectionTimestamp = document.getSelectionTimestamp(e.edits[0].cellId);
                     // Broadcast the audio validation update to all webviews for this document
                     const audioValidationUpdate = {
                         type: "providerUpdatesAudioValidationState",
@@ -1174,6 +1575,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             cellId: e.edits[0].cellId,
                             validatedBy: e.edits[0].validatedBy,
                             selectedAudioId,
+                            attachmentId: e.edits[0].attachmentId,
+                            selectionTimestamp,
                         },
                     };
 
@@ -1186,13 +1589,26 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // Still update the current webview with the full content
                     updateWebview();
+                } else if (
+                    e.edits?.length > 0 &&
+                    [
+                        "selectAudioAttachment",
+                        "addAudioAttachment",
+                        "softDeleteAudioAttachment",
+                        "restoreAudioAttachment",
+                        "clearAudioSelection",
+                    ].includes(e.edits[0].type)
+                ) {
+                    // Audio metadata changes are handled by their own message
+                    // handlers which send targeted providerSendsAudioAttachments.
+                    // Skipping updateWebview() avoids a stale refreshCurrentPage
+                    // race that overwrites the correct availability state.
+                    debug("Audio metadata edit, skipping updateWebview", { type: e.edits[0].type });
                 } else {
                     // Check if this is a paratext cell addition
                     debug("Document change event", { edits: e.edits, firstEdit: e.edits?.[0] });
                     if (e.edits && e.edits.length > 0 && e.edits[0].cellType === CodexCellTypes.PARATEXT) {
                         debug("Paratext cell added, sending refreshCurrentPage message");
-                        // Send a message to refresh the current page (not reset to initial)
-                        // The webview will handle this by requesting cells for its current milestone/subsection
                         this.webviewPanels.forEach((panel, docUri) => {
                             if (docUri === document.uri.toString()) {
                                 debug(`Sending refreshCurrentPage to webview for ${docUri}`);
@@ -1203,7 +1619,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             }
                         });
                     } else {
-                        // For non-validation updates, just update the webview as normal
                         updateWebview();
                     }
                 }
@@ -1258,6 +1673,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             }
             if (audioWatcher) {
                 audioWatcher.dispose();
+            }
+            if (audioRefreshDebounceTimer) {
+                clearTimeout(audioRefreshDebounceTimer);
+                audioRefreshDebounceTimer = undefined;
             }
         });
 
@@ -1370,8 +1789,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         debug("Posting message:", message);
         if (this.webviewPanels.size > 0) {
             this.webviewPanels.forEach((panel) => safePostMessageToPanel(panel, message));
-        } else {
-            console.error("No active webview panels");
         }
     }
 
@@ -1549,7 +1966,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         const notebookData = this.getDocumentAsJson(document);
         const videoPath = notebookData.metadata?.videoUrl;
-        const videoUri = videoPath ? processVideoUrl(videoPath, webview) : null;
+        // Only embed remote URLs directly. Local files are resolved lazily by the
+        // webview (requestVideoStreamUrl) so we never hand the player a URL to an
+        // LFS pointer — which would fail to decode and poison the resource cache.
+        const videoUri =
+            videoPath && /^https?:\/\//i.test(videoPath) ? videoPath : null;
 
         const nonce = getNonce();
 
@@ -1561,7 +1982,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'strict-dynamic' https://www.youtube.com https://static.cloudflareinsights.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource} blob:; connect-src https://*.vscode-cdn.net https://*.frontierrnd.com wss://*.frontierrnd.com https://languagetool.org/api/ https://*.workers.dev data: wss://ryderwishart--whisper-websocket-transcription-websocket-transcribe.modal.run wss://*.modal.run; img-src 'self' data: ${webview.cspSource} https:; font-src ${webview.cspSource} data:; media-src ${webview.cspSource} https: blob: data:;">
+                                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'strict-dynamic' https://www.youtube.com https://static.cloudflareinsights.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource} blob:; connect-src https://*.vscode-cdn.net https://*.frontierrnd.com wss://*.frontierrnd.com https://languagetool.org/api/ https://*.workers.dev https://*.fastly.net https://*.thechosen.media data: https://*.modal.run wss://*.modal.run; img-src 'self' data: ${webview.cspSource} https:; font-src ${webview.cspSource} data:; media-src ${webview.cspSource} https: blob: data:;">
                 <link href="${styleResetUriWithBuster}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUriWithBuster}" rel="stylesheet" nonce="${nonce}" />
                 <title>Codex Cell Editor</title>
@@ -2037,6 +2458,154 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return false;
     }
 
+    public async performResolveHtmlStructureBatch(
+        document: CodexCellDocument,
+        webviewPanel: vscode.WebviewPanel,
+        cellIds: string[],
+    ): Promise<void> {
+        if (cellIds.length === 0) {
+            return;
+        }
+
+        if (this.structureResolveCancellation) {
+            this.structureResolveCancellation.dispose();
+        }
+        this.structureResolveCancellation = new vscode.CancellationTokenSource();
+        const token = this.structureResolveCancellation.token;
+
+        const totalCells = cellIds.length;
+        this.structureResolveState = {
+            isProcessing: true,
+            totalCells,
+            completedCells: 0,
+            currentCellId: undefined,
+            cellsToProcess: cellIds,
+            progress: 0.01,
+        };
+        this.broadcastStructureResolveState();
+
+        try {
+            const { fetchCompletionConfig } = await import("../../utils/llmUtils");
+            const { resolveCellHtmlStructure } = await import("./utils/htmlStructureResolver");
+            const config = await fetchCompletionConfig();
+
+            for (let i = 0; i < cellIds.length; i++) {
+                if (token.isCancellationRequested) {
+                    break;
+                }
+
+                const cellId = cellIds[i];
+                this.structureResolveState.currentCellId = cellId;
+                this.structureResolveState.progress = Math.min(0.99, i / totalCells);
+                this.broadcastStructureResolveState();
+
+                try {
+                    const resolved = await resolveCellHtmlStructure(cellId, document, config);
+                    if (!resolved) {
+                        this.postMessageToWebview(webviewPanel, {
+                            type: "providerSendsResolvedHtmlStructure",
+                            content: { cellId, resolvedContent: "" },
+                        });
+                        continue;
+                    }
+
+                    await document.updateCellContent(cellId, resolved, EditType.LLM_GENERATION);
+                    await this.saveCustomDocument(
+                        document,
+                        new vscode.CancellationTokenSource().token,
+                    );
+
+                    this.structureResolveState.completedCells = i + 1;
+                    this.broadcastStructureResolveState();
+
+                    this.postMessageToWebview(webviewPanel, {
+                        type: "providerSendsResolvedHtmlStructure",
+                        content: { cellId, resolvedContent: resolved },
+                    });
+                } catch (error) {
+                    console.error(`[resolveHtmlStructureBatch] Error for ${cellId}:`, error);
+                    this.postMessageToWebview(webviewPanel, {
+                        type: "providerSendsResolvedHtmlStructure",
+                        content: { cellId, resolvedContent: "" },
+                    });
+                }
+            }
+
+            this.structureResolveState.progress = 1.0;
+            this.broadcastStructureResolveState();
+
+            setTimeout(() => {
+                this.structureResolveState = {
+                    isProcessing: false,
+                    totalCells: 0,
+                    completedCells: 0,
+                    currentCellId: undefined,
+                    cellsToProcess: [],
+                    progress: 0,
+                };
+                this.broadcastStructureResolveState();
+
+                if (this.structureResolveCancellation) {
+                    this.structureResolveCancellation.dispose();
+                    this.structureResolveCancellation = undefined;
+                }
+            }, 1500);
+        } catch (error) {
+            console.error("Error in performResolveHtmlStructureBatch:", error);
+            if (this.structureResolveCancellation) {
+                this.structureResolveCancellation.dispose();
+                this.structureResolveCancellation = undefined;
+            }
+            throw error;
+        }
+    }
+
+    public cancelResolveHtmlStructureBatch(): boolean {
+        if (this.structureResolveCancellation) {
+            this.structureResolveCancellation.cancel();
+
+            this.structureResolveState = {
+                isProcessing: false,
+                totalCells: 0,
+                completedCells: 0,
+                currentCellId: undefined,
+                cellsToProcess: [],
+                progress: 0,
+            };
+            this.broadcastStructureResolveState();
+
+            this.structureResolveCancellation.dispose();
+            this.structureResolveCancellation = undefined;
+            return true;
+        }
+        return false;
+    }
+
+    private broadcastStructureResolveState(): void {
+        const {
+            isProcessing,
+            totalCells,
+            completedCells,
+            currentCellId,
+            cellsToProcess,
+            progress,
+        } = this.structureResolveState;
+
+        this.webviewPanels.forEach((panel) => {
+            safePostMessageToPanel(panel, {
+                type: "providerStructureResolveState",
+                state: {
+                    isProcessing,
+                    totalCells,
+                    completedCells,
+                    currentCellId,
+                    cellsToProcess,
+                    progress,
+                },
+            });
+        });
+    }
+
     // New method to set single cell translation state
     public startSingleCellTranslation(cellId: string): void {
         this.singleCellTranslationState = {
@@ -2352,24 +2921,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     private processNotebookData(notebook: CodexNotebookAsJSONData, document?: CodexCellDocument) {
         debug("Processing notebook data", notebook);
-        const translationUnits: QuillCellContent[] = notebook.cells.map((cell) => ({
-            cellMarkers: [cell.metadata?.id],
-            cellContent: cell.value,
-            cellType: cell.metadata?.type,
-            editHistory: cell.metadata?.edits,
-            // Prefer nested data for timestamps, but fall back to legacy top-level fields if needed
-            timestamps: cell.metadata?.data,
-            cellLabel: cell.metadata?.cellLabel,
-            merged: cell.metadata?.data?.merged,
-            deleted: cell.metadata?.data?.deleted,
-            data: cell.metadata?.data,
-            attachments: cell.metadata?.attachments,
-            metadata: {
-                selectedAudioId: cell.metadata?.selectedAudioId,
-                selectionTimestamp: cell.metadata?.selectionTimestamp,
-                isLocked: cell.metadata?.isLocked,
-            },
-        }));
+        const translationUnits: QuillCellContent[] = notebook.cells.map((cell) =>
+            convertCellToQuillContent(cell)
+        );
         debug("Translation units:", translationUnits);
 
         // Use the passed document if available, otherwise fall back to currentDocument
@@ -2557,13 +3111,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
 
         // Build source cell map for the initial cells only
-        const initialSourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+        const initialSourceCellMap: Record<string, SourceCellMapEntry> = {};
         for (const cell of initialCells) {
             const cellId = cell.cellMarkers?.[0];
             if (cellId && document._sourceCellMap[cellId]) {
                 initialSourceCellMap[cellId] = document._sourceCellMap[cellId];
             }
         }
+        const enrichedInitialSourceCellMap = await enrichSourceCellMapWithTimestamps(
+            document,
+            initialSourceCellMap
+        );
 
         // Schedule updates to wait for webview ready signal
         this.scheduleWebviewUpdate(document.uri.toString(), () => {
@@ -2575,7 +3133,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 currentMilestoneIndex: initialMilestoneIndex,
                 currentSubsectionIndex: initialSubsectionIndex,
                 isSourceText: isSourceText,
-                sourceCellMap: initialSourceCellMap,
+                sourceCellMap: enrichedInitialSourceCellMap,
                 username: username,
                 validationCount: validationCount,
                 validationCountAudio: validationCountAudio,
@@ -2616,7 +3174,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         videoPath: string | undefined,
         webviewPanel: vscode.WebviewPanel
     ): string | null {
-        return processVideoUrl(videoPath, webviewPanel.webview);
+        // Push remote URLs directly; local files are resolved lazily by the
+        // webview (requestVideoStreamUrl) so the player is never handed a URL to
+        // an LFS pointer. See resolveAndPostVideoStreamUrl.
+        if (videoPath && /^https?:\/\//i.test(videoPath)) {
+            return videoPath;
+        }
+        return null;
     }
 
     /**
@@ -3022,6 +3586,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 merged: false
             });
 
+            // Resolve the user performing the unmerge so the edit is attributed to
+            // them — matching the merge edit — instead of a hardcoded "anonymous"
+            // (PR #1024 review). Best-effort lookup with an anonymous fallback, done
+            // before the edit push so a lookup failure can't drop the edit itself.
+            let unmergeAuthor = "anonymous";
+            try {
+                const authApi = await this.getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                unmergeAuthor = userInfo?.username || "anonymous";
+            } catch (e) {
+                console.warn("Could not resolve user for unmerge edit, using 'anonymous':", e);
+            }
+
             // Append edit history entry for merged=false on the target cell
             try {
                 const cell = (targetDocument as any).getCell(cellIdToUnmerge);
@@ -3032,9 +3609,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         value: false,
                         timestamp: Date.now(),
                         type: "user-edit",
-                        author: "anonymous",
+                        author: unmergeAuthor,
                         validatedBy: []
                     });
+                    // updateCellData() above already fired the change event, which can
+                    // synchronously trigger updateWebview() → getText() and repopulate
+                    // the per-cell cache with the mid-mutation state. Re-invalidate now
+                    // so the upcoming save() re-serializes the cell with the unmerge edit.
+                    targetDocument.markCellMutated(cellIdToUnmerge);
                 }
             } catch (e) {
                 console.warn("Failed to append merged=false edit on target during unmerge", e);
@@ -3122,6 +3704,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         // Only send updates for cells that have audio validations
                         if (audioValidatedBy && audioValidatedBy.length > 0) {
                             const selectedAudioId = doc.getExplicitAudioSelection(cellId) ?? undefined;
+                            const selectionTimestamp = doc.getSelectionTimestamp(cellId);
 
                             // Post audio validation state update to all panels for this document
                             this.webviewPanels.forEach((panel, uri) => {
@@ -3132,6 +3715,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                             cellId,
                                             validatedBy: audioValidatedBy,
                                             selectedAudioId,
+                                            selectionTimestamp,
                                         },
                                     });
                                 }
@@ -3498,11 +4082,24 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             const allIdentical = variants.every((v: string) => normalize(v) === normalize(variants[0]));
                             if (allIdentical) {
                                 const singleCompletion = variants[0] ?? "";
-                                progress.report({ message: "Updating document...", increment: 40 });
+                                progress.report({ message: "Checking HTML structure...", increment: 10 });
+                                const finalContent = await maybeAutoResolveHtmlStructure(
+                                    currentCellId,
+                                    singleCompletion,
+                                    currentDocument,
+                                    {
+                                        config: completionConfig,
+                                        onResolving: () => progress.report({
+                                            message: "Resolving HTML structure...",
+                                            increment: 10,
+                                        }),
+                                    },
+                                );
+                                progress.report({ message: "Updating document...", increment: 20 });
                                 this.updateSingleCellTranslation(0.9);
                                 currentDocument.updateCellContent(
                                     currentCellId,
-                                    singleCompletion,
+                                    finalContent,
                                     EditType.LLM_GENERATION,
                                     shouldUpdateValue,
                                     false,
@@ -3510,8 +4107,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     completionResult.generationId
                                 );
                                 this.updateSingleCellTranslation(1.0);
-                                debug("LLM completion result (identical variants)", { completion: singleCompletion?.slice?.(0, 80) });
-                                return singleCompletion;
+                                debug("LLM completion result (identical variants)", { completion: finalContent?.slice?.(0, 80) });
+                                return finalContent;
                             }
                         } catch (e) {
                             debug("Error comparing variants for identity; proceeding with A/B UI", { error: e });
@@ -3556,7 +4153,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Otherwise, handle as a single completion using the first variant
                     const singleCompletion = (completionResult as any)?.variants?.[0] ?? "";
 
-                    progress.report({ message: "Updating document...", increment: 40 });
+                    progress.report({ message: "Checking HTML structure...", increment: 10 });
+                    const finalContent = await maybeAutoResolveHtmlStructure(
+                        currentCellId,
+                        singleCompletion,
+                        currentDocument,
+                        {
+                            config: completionConfig,
+                            onResolving: () => progress.report({
+                                message: "Resolving HTML structure...",
+                                increment: 10,
+                            }),
+                        },
+                    );
+
+                    progress.report({ message: "Updating document...", increment: 20 });
 
                     // Update progress in state
                     this.updateSingleCellTranslation(0.9);
@@ -3564,7 +4175,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Update content and metadata atomically - only if not cancelled
                     currentDocument.updateCellContent(
                         currentCellId,
-                        singleCompletion,
+                        finalContent,
                         EditType.LLM_GENERATION,
                         shouldUpdateValue,
                         false,
@@ -3584,8 +4195,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Update progress in state
                     this.updateSingleCellTranslation(1.0);
 
-                    debug("LLM completion result", { completion: singleCompletion?.slice?.(0, 80) });
-                    return singleCompletion;
+                    debug("LLM completion result", { completion: finalContent?.slice?.(0, 80) });
+                    return finalContent;
                 } catch (error: any) {
                     // Check if this is a cancellation error
                     if (error instanceof vscode.CancellationError ||
@@ -3927,7 +4538,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         });
                         await request.document.validateCellAudio(
                             request.cellId,
-                            request.shouldValidate
+                            request.shouldValidate,
+                            request.attachmentId
                         );
                         this.webviewPanels.forEach((panel, docUri) => {
                             if (docUri === request.document.uri.toString()) {
@@ -4019,9 +4631,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public enqueueAudioValidation(
         cellId: string,
         document: CodexCellDocument,
-        shouldValidate: boolean
+        shouldValidate: boolean,
+        attachmentId?: string
     ): Promise<any> {
-        debug(`Enqueueing audio validation for cell ${cellId}, validate: ${shouldValidate}`);
+        debug(`Enqueueing audio validation for cell ${cellId}, validate: ${shouldValidate}, attachmentId: ${attachmentId ?? "(selected)"}`);
 
         return new Promise((resolve, reject) => {
             this.validationQueue.push({
@@ -4029,6 +4642,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 document,
                 shouldValidate,
                 isAudioValidation: true,
+                attachmentId,
                 resolve,
                 reject,
             });
@@ -4301,40 +4915,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private async checkAttachmentAvailability(
         attachment: any,
         workspaceFolder: vscode.WorkspaceFolder
-    ): Promise<"available-local" | "available-pointer" | "missing" | "deletedOnly"> {
-        if (attachment.isDeleted) {
-            return "deletedOnly";
-        }
-        if (attachment.isMissing) {
-            return "missing";
-        }
-
-        const url = String(attachment.url || "");
-        if (!url) {
-            return "missing";
-        }
-
-        try {
-            const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-            const abs = path.join(workspaceFolder.uri.fsPath, filesRel);
-            await vscode.workspace.fs.stat(vscode.Uri.file(abs));
-            const { isPointerFile } = await import("../../utils/lfsHelpers");
-            const isPtr = await isPointerFile(abs).catch(() => false);
-            return isPtr ? "available-pointer" : "available-local";
-        } catch {
-            // File doesn't exist at files/ path, check for pointer
-            try {
-                const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-                const filesAbs = path.join(workspaceFolder.uri.fsPath, filesRel);
-                const pointerAbs = filesAbs.includes("/.project/attachments/files/")
-                    ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
-                    : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
-                await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
-                return "available-pointer";
-            } catch {
-                return "missing";
-            }
-        }
+    ): Promise<"available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly"> {
+        return checkAttachmentAvailabilityStandalone(attachment, workspaceFolder.uri.fsPath);
     }
 
     /**
@@ -4354,24 +4936,68 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                 if (!ws) continue;
 
-                const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
+                // The file watcher's `document.revert()` runs asynchronously and is not
+                // awaited, so by the time syncManager calls us the on-disk file may already
+                // hold the merged state while the in-memory document still reflects the
+                // pre-sync version. Reading from that stale model would broadcast the wrong
+                // `selectedAudioId` / availability — e.g. after a delete-then-remote-record
+                // round-trip the local user would be told the cell is still `deletedOnly`
+                // even though the freshly-pulled metadata points to the teammate's new
+                // attachment. Revert here to guarantee the broadcast reflects post-merge
+                // disk state. Skip dirty documents so we never discard unsaved edits.
+                if (!document.isDirty) {
+                    try {
+                        await document.revert();
+                    } catch (revertError) {
+                        console.warn(
+                            `[refreshAudioAttachmentsAfterSync] Failed to revert document before broadcast: ${documentUri}`,
+                            revertError
+                        );
+                    }
+                }
 
+                const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "unselected" | "none"; } = {};
+                // Per-cell `selectedAudioId` snapshot. Included in the broadcast so webviews
+                // can detect remote selection changes (a teammate selected a different audio
+                // for the cell) and bust their `cellId`-keyed caches. Without this, the
+                // local cell-list "Play" button and the editor's playback waveform would
+                // continue using the previous attachment's cached bytes after a sync —
+                // because no `audioAttachmentSelected` event fires for sync-driven changes.
+                const selections: { [cellId: string]: string | null; } = {};
                 // Check audio availability for all cells using getCurrentAttachment()
+                let notebookCells: any[] = [];
+                try {
+                    const docText = document.getText();
+                    if (docText.trim().length > 0) {
+                        const parsed = JSON.parse(docText);
+                        notebookCells = Array.isArray(parsed?.cells) ? parsed.cells : [];
+                    }
+                } catch { /* ignore */ }
+
                 const cellIds = document.getAllCellIds();
                 for (const cellId of cellIds) {
-                    // Get the current attachment (respects selectedAudioId)
+                    const history = document.getAttachmentHistory(cellId, "audio");
+
                     const currentAttachment = document.getCurrentAttachment(cellId, "audio");
+                    // Capture the explicit selection (or null) for every cell, even those
+                    // with no current attachment — a `null` value still informs webviews
+                    // that the prior selection was cleared remotely.
+                    selections[cellId] = document.getExplicitAudioSelection(cellId) ?? null;
 
                     if (!currentAttachment) {
-                        availability[cellId] = "none";
+                        const hasMissingInHistory = history.some((h: any) => h.attachment?.isMissing && !h.attachment?.isDeleted);
+                        const hasDeletedInHistory = history.some((h: any) => h.attachment?.isDeleted);
+                        availability[cellId] = hasMissingInHistory
+                            ? "missing"
+                            : hasDeletedInHistory
+                                ? "unselected"
+                                : "none";
                         continue;
                     }
 
-                    // Check availability only for the current attachment
-                    let state = await this.checkAttachmentAvailability(currentAttachment.attachment, ws);
+                    let state: string = await this.checkAttachmentAvailability(currentAttachment.attachment, ws);
 
-                    // Apply version gate if needed
-                    if (state !== "available-local") {
+                    if (state !== "available-local" && state !== "available-cached") {
                         try {
                             const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
                             const status = await getFrontierVersionStatus();
@@ -4385,14 +5011,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                     }
 
-                    availability[cellId] = state;
+                    const cell = notebookCells.find((c: any) => c?.metadata?.id === cellId);
+                    if (cell) {
+                        state = await resolveSelectedAttachmentState(cell, state, ws.uri.fsPath);
+                    }
+
+                    availability[cellId] = state as typeof availability[string];
                 }
 
                 // Send updated audio attachments to webview
                 if (Object.keys(availability).length > 0) {
                     safePostMessageToPanel(webviewPanel, {
                         type: "providerSendsAudioAttachments",
-                        attachments: availability
+                        attachments: availability,
+                        selections,
                     });
 
                     debug(`Refreshed audio attachments for ${Object.keys(availability).length} cells in ${documentUri}`);
@@ -4407,6 +5039,97 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     /**
+     * Re-post the chapter video reference status to all open editors after a sync.
+     * A just-uploaded video becomes an LFS-backed pointer during sync, which makes
+     * the "Free up space" action eligible — but the webview only re-requests status
+     * on mount / videoUrl change, so without this it stays stale until reload.
+     */
+    public async refreshVideoReferenceStatusAfterSync(): Promise<void> {
+        const { postVideoReferenceStatus } = await import("./codexCellEditorMessagehandling");
+        for (const [documentUri, webviewPanel] of this.webviewPanels.entries()) {
+            try {
+                const document = this.documents.get(documentUri);
+                if (!document || !webviewPanel) continue;
+                await postVideoReferenceStatus(document, webviewPanel, this);
+            } catch (error) {
+                console.warn(
+                    `[refreshVideoReferenceStatusAfterSync] Failed for ${documentUri}:`,
+                    error
+                );
+            }
+        }
+    }
+
+    /**
+     * Put open editors showing this chapter video into the "resolving" (loading)
+     * state. Called when a navigation card starts a "Load video"/"Save to
+     * project" action so the player area reflects progress immediately, before
+     * any bytes have been fetched.
+     */
+    public notifyVideoResolvingForUrl(videoUrl: string): void {
+        for (const [documentUri, webviewPanel] of this.webviewPanels.entries()) {
+            const document = this.documents.get(documentUri);
+            if (!document || !webviewPanel) continue;
+            if (document.getNotebookMetadata()?.videoUrl === videoUrl) {
+                this.postMessageToWebview(webviewPanel, { type: "videoStreamResolving" });
+            }
+        }
+    }
+
+    /**
+     * Re-resolve the playable source for open editors showing this chapter
+     * video. Used after a card-driven download/save/free finishes — including
+     * the fresh-download path that writes straight to files/ and therefore
+     * fires no session-cache event.
+     */
+    public async refreshVideoStreamForUrl(videoUrl: string): Promise<void> {
+        const { resolveAndPostVideoStreamUrl } = await import(
+            "./codexCellEditorMessagehandling"
+        );
+        for (const [documentUri, webviewPanel] of this.webviewPanels.entries()) {
+            try {
+                const document = this.documents.get(documentUri);
+                if (!document || !webviewPanel) continue;
+                if (document.getNotebookMetadata()?.videoUrl !== videoUrl) continue;
+                await resolveAndPostVideoStreamUrl(document, webviewPanel, this);
+            } catch (error) {
+                console.warn(`[refreshVideoStreamForUrl] Failed for ${documentUri}:`, error);
+            }
+        }
+    }
+
+    /**
+     * Re-resolve the playable video source for open editors whose chapter video
+     * matches a session-cache change. Lets a video "loaded" from a navigation
+     * card (or freed/saved) immediately update the editor's player without a
+     * manual re-request. When `oid` is undefined (e.g. the cache was cleared),
+     * every open editor is refreshed.
+     */
+    public async refreshVideoStreamForCachedOid(oid: string | undefined): Promise<void> {
+        const { resolveAndPostVideoStreamUrl, getVideoPointerOidForDocument } = await import(
+            "./codexCellEditorMessagehandling"
+        );
+        for (const [documentUri, webviewPanel] of this.webviewPanels.entries()) {
+            try {
+                const document = this.documents.get(documentUri);
+                if (!document || !webviewPanel) continue;
+                // Only touch the editor whose video matches the changed cache
+                // entry so unrelated players aren't disturbed.
+                if (oid) {
+                    const docOid = await getVideoPointerOidForDocument(document);
+                    if (docOid !== oid) continue;
+                }
+                await resolveAndPostVideoStreamUrl(document, webviewPanel, this);
+            } catch (error) {
+                console.warn(
+                    `[refreshVideoStreamForCachedOid] Failed for ${documentUri}:`,
+                    error
+                );
+            }
+        }
+    }
+
+    /**
      * Refresh webviews for specific files by sending refreshCurrentPage messages.
      * This is used after sync to ensure webviews show newly added cells.
      * Forces open, non-dirty documents to reload from disk before refreshing to ensure latest data.
@@ -4415,7 +5138,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
      */
     public async refreshWebviewsForFiles(
         filePaths: string[],
-        options?: { isSourceAndCodexFiles?: boolean }
+        options?: { isSourceAndCodexFiles?: boolean; }
     ): Promise<void> {
         if (!filePaths || filePaths.length === 0) {
             return;

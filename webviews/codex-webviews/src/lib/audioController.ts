@@ -3,6 +3,7 @@ export type AudioControllerEvent = { type: "stopped"; audio: HTMLAudioElement; }
 export class GlobalAudioController {
     private currentAudio: HTMLAudioElement | null = null;
     private listeners: Set<(e: AudioControllerEvent) => void> = new Set();
+    private videoPreviewActive = false;
 
     addListener(listener: (e: AudioControllerEvent) => void): void {
         this.listeners.add(listener);
@@ -55,6 +56,33 @@ export class GlobalAudioController {
 
     getCurrent(): HTMLAudioElement | null {
         return this.currentAudio;
+    }
+
+    /**
+     * Release an audio element from being considered "current" when it was stopped
+     * programmatically (e.g. via pause() in a timeupdate handler). Call this so
+     * that subsequent playback (e.g. VideoPlayer play) is not blocked by stale state.
+     */
+    release(audio: HTMLAudioElement | null): void {
+        if (audio && this.currentAudio === audio) {
+            this.currentAudio = null;
+            this.notifyStopped(audio);
+        }
+    }
+
+    /**
+     * Marks that a cell-scoped "Play Video" preview is driving the shared video
+     * element. While active, the multi-cell audio overlay must not start other
+     * cells' recorded audio — the preview owns playback for a single cell's
+     * range. Without this, a no-audio cell's preview lets the overlay play an
+     * overlapping cell's audio (which can also linger past the video stop).
+     */
+    setVideoPreviewActive(active: boolean): void {
+        this.videoPreviewActive = active;
+    }
+
+    isVideoPreviewActive(): boolean {
+        return this.videoPreviewActive;
     }
 }
 

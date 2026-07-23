@@ -1,5 +1,12 @@
 import { CellLabelData, FileData, ImportedRow, CellMetadata, MatchOptions } from "./types";
-import { convertTimestampToSeconds, parseTimestampRange } from "./utils";
+import {
+    convertTimestampToSeconds,
+    detectTimecodeFrameRate,
+    isStartTimeHeader,
+    isTimeishHeader,
+    looksLikeTimecodeValue,
+    parseTimestampRange,
+} from "./utils";
 
 /**
  * Match imported labels with existing cell IDs
@@ -18,10 +25,17 @@ export async function matchCellLabels(
 
     // Create a map of all cells by their start time, and also keep a sorted list for nearest match
     // CRITICAL: Now tracking fileUri to ensure labels go to the correct file
+    //
+    // Each start time holds *every* cell that begins at it, in file order, because simultaneous
+    // speakers (a group greeting, a crowd reciting together) legitimately produce several cells
+    // sharing one timestamp. Rows claim them in order via takeCellAt() so that N rows at the same
+    // time fill N distinct cells rather than all collapsing onto the first.
     const cellMap = new Map<
         number,
-        { cellId: string; currentLabel?: string; fileUri: string; startTimeSeconds?: number; endTimeSeconds?: number; }
+        Array<{ cellId: string; currentLabel?: string; fileUri: string; startTimeSeconds?: number; endTimeSeconds?: number; }>
     >();
+    // How many cells at a given start time have already been claimed by an earlier row.
+    const claimedAt = new Map<number, number>();
     // Also create an exact ID lookup for direct ID-based matching
     const idMap = new Map<string, { cellId: string; currentLabel?: string; fileUri: string; startTimeSeconds?: number; endTimeSeconds?: number; }>();
     // Optional: match using a specific metadata field
@@ -128,22 +142,55 @@ export async function matchCellLabels(
                     // For time-based matching, we store per timestamp (may conflict across files)
                     // but we'll prefer exact ID matches when available
                     if (!cellMap.has(startTimeSeconds)) {
-                        cellMap.set(startTimeSeconds, {
-                            cellId,
-                            currentLabel: metadata.cellLabel,
-                            fileUri,
-                            startTimeSeconds,
-                            endTimeSeconds,
-                        });
+                        cellMap.set(startTimeSeconds, []);
                         cellTimes.push(startTimeSeconds);
                     }
+                    cellMap.get(startTimeSeconds)!.push({
+                        cellId,
+                        currentLabel: metadata.cellLabel,
+                        fileUri,
+                        startTimeSeconds,
+                        endTimeSeconds,
+                    });
                 }
             }
         });
     });
-    console.log(`[matchCellLabels] Populated cellMap with ${cellMap.size} cells from ${sourceFiles.length} files.`);
+    const totalIndexedCells = Array.from(cellMap.values()).reduce((sum, cells) => sum + cells.length, 0);
+    const sharedTimestamps = Array.from(cellMap.values()).filter((cells) => cells.length > 1).length;
+    console.log(
+        `[matchCellLabels] Populated cellMap with ${totalIndexedCells} cells across ${cellMap.size} distinct start times from ${sourceFiles.length} files` +
+            (sharedTimestamps ? ` (${sharedTimestamps} start times have simultaneous speakers).` : ".")
+    );
     cellTimes.sort((a, b) => a - b);
     matchNumberValues.sort((a, b) => a - b);
+
+    /**
+     * Claim the next unclaimed cell at `time`. Returns undefined once every cell there is spoken
+     * for, so surplus rows stay unmatched rather than overwriting a label an earlier row set.
+     */
+    const takeCellAt = (time: number) => {
+        const cells = cellMap.get(time);
+        if (!cells || cells.length === 0) return undefined;
+        const claimed = claimedAt.get(time) ?? 0;
+        if (claimed >= cells.length) return undefined;
+        claimedAt.set(time, claimed + 1);
+        return cells[claimed];
+    };
+
+    // Frame rate is a property of the file as a whole, so infer it once from every timecode-ish
+    // column rather than guessing per value. Non-SMPTE imports leave this undefined and are
+    // unaffected.
+    const timecodeValues: string[] = [];
+    for (const row of importedRows) {
+        for (const key of Object.keys(row)) {
+            if (isTimeishHeader(key)) timecodeValues.push(String(row[key] ?? ""));
+        }
+    }
+    const detectedFps = detectTimecodeFrameRate(timecodeValues);
+    if (detectedFps) {
+        console.log(`[matchCellLabels] Detected SMPTE timecode; assuming ${detectedFps}fps.`);
+    }
 
     // Process each imported row
     importedRows.forEach((row) => {
@@ -152,7 +199,7 @@ export async function matchCellLabels(
         const isCue =
             row.type === "cue" ||
             (row.start && row.end) || // Has time fields
-            Object.keys(row).some((key) => key.toLowerCase().includes("time")) ||
+            Object.keys(row).some((key) => isTimeishHeader(key)) ||
             (typeof row["ID"] === "string" && /cue-\d+(?:\.\d+)?-\d+(?:\.\d+)?/.test(row["ID"]));
 
         // New: allow processing when there is an explicit ID, even if not a cue/timed row
@@ -186,7 +233,7 @@ export async function matchCellLabels(
                     if (typeof mappedValue === "number") {
                         startTimeSeconds = mappedValue;
                     } else {
-                        startTimeSeconds = convertTimestampToSeconds(String(mappedValue));
+                        startTimeSeconds = convertTimestampToSeconds(String(mappedValue), detectedFps);
                     }
                 }
             }
@@ -194,10 +241,10 @@ export async function matchCellLabels(
             // 1) STARTTIME or START
             if (!startTimeSeconds && row["STARTTIME"]) {
                 startTimeDisplay = row["STARTTIME"];
-                startTimeSeconds = convertTimestampToSeconds(row["STARTTIME"] || "");
+                startTimeSeconds = convertTimestampToSeconds(row["STARTTIME"] || "", detectedFps);
             } else if (!startTimeSeconds && row["START"]) {
                 startTimeDisplay = row["START"];
-                startTimeSeconds = convertTimestampToSeconds(row["START"] || "");
+                startTimeSeconds = convertTimestampToSeconds(row["START"] || "", detectedFps);
             } else if (!startTimeSeconds && typeof row["ID"] === "string") {
                 const idMatch = row["ID"].match(/cue-(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
                 if (idMatch) {
@@ -210,7 +257,7 @@ export async function matchCellLabels(
                 // Try TIMESTAMP range
                 const tsKey = rowKeys.find((k) => k.toLowerCase() === "timestamp" || k.toLowerCase().replace(/\s+/g, "") === "timestamp");
                 if (tsKey && typeof row[tsKey] === "string") {
-                    const [s] = parseTimestampRange(row[tsKey]);
+                    const [s] = parseTimestampRange(row[tsKey], detectedFps);
                     if (s) {
                         startTimeSeconds = s;
                         // set display to left side of range
@@ -221,15 +268,15 @@ export async function matchCellLabels(
             }
 
             if (!startTimeSeconds) {
-                // Try common alternatives
-                const startKey = rowKeys.find((key) =>
-                    key.toLowerCase().includes("start") ||
-                    key.toLowerCase().includes("begin") ||
-                    key.toLowerCase().replace(/\s+/g, "").includes("timein")
-                );
+                // Try common alternatives. Where several columns claim to be the start, favour one
+                // whose value is actually shaped like a timecode — a mislabelled column holding
+                // line numbers would otherwise be read as a seconds value and match wildly.
+                const startKeys = rowKeys.filter((key) => isStartTimeHeader(key));
+                const startKey =
+                    startKeys.find((key) => looksLikeTimecodeValue(row[key])) ?? startKeys[0];
                 if (startKey) {
                     startTimeDisplay = row[startKey];
-                    startTimeSeconds = convertTimestampToSeconds(row[startKey] || "");
+                    startTimeSeconds = convertTimestampToSeconds(row[startKey] || "", detectedFps);
                 }
             }
 
@@ -244,7 +291,7 @@ export async function matchCellLabels(
                         if (typeof mappedValue === "number") {
                             numericValue = mappedValue;
                         } else {
-                            const parsed = convertTimestampToSeconds(String(mappedValue));
+                            const parsed = convertTimestampToSeconds(String(mappedValue), detectedFps);
                             numericValue = parsed || undefined;
                         }
                         if (numericValue !== undefined) {
@@ -331,8 +378,8 @@ export async function matchCellLabels(
 
             // If we don't have an exact match yet, try time-based matching (exact or nearest)
             if (!match && startTimeSeconds) {
-                match = cellMap.get(startTimeSeconds);
-                if (!match) {
+                match = takeCellAt(startTimeSeconds);
+                if (!match && !cellMap.has(startTimeSeconds)) {
                     // Dynamic threshold: allow up to 300ms, but if input has no ms (integer seconds), allow 600ms
                     const hasMs =
                         String(startTimeDisplay).match(/[.,]\d{1,3}$/) || String(startTimeSeconds).includes(".");
@@ -359,7 +406,7 @@ export async function matchCellLabels(
                         }
                     }
                     if (bestTime !== null) {
-                        match = cellMap.get(bestTime);
+                        match = takeCellAt(bestTime);
                     }
                 }
             }
@@ -373,7 +420,7 @@ export async function matchCellLabels(
             } else {
                 const tsKey = rowKeys.find((k) => k.toLowerCase() === "timestamp" || k.toLowerCase().replace(/\s+/g, "") === "timestamp");
                 if (tsKey && typeof row[tsKey] === "string") {
-                    const [, e] = parseTimestampRange(row[tsKey]);
+                    const [, e] = parseTimestampRange(row[tsKey], detectedFps);
                     if (e) {
                         const right = String(row[tsKey]).split(/\s*-->\s*/)[1] || "";
                         endTimeDisplay = right;

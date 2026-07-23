@@ -57,8 +57,28 @@ export interface LocalProjectSettings {
      * Cleared after the switch is applied on project open.
      */
     keepFilesOnStreamAndSave?: boolean;
-    /** When true, the editor will download/stream audio as soon as a cell opens */
-    autoDownloadAudioOnOpen?: boolean;
+    /**
+     * When switching from auto-download to stream-and-save AND local videos exist,
+     * the user decides about video and audio separately. These track each choice:
+     * true = keep that media type local, false = pointerize it to free space.
+     * Cleared after the switch is applied on project open. Used in place of
+     * keepFilesOnStreamAndSave when the granular (video-present) prompt is shown.
+     */
+    keepVideoOnStreamAndSave?: boolean;
+    keepAudioOnStreamAndSave?: boolean;
+    /**
+     * When switching to stream-only AND local videos exist, tracks the user's
+     * choice: "keep-video" keeps videos local (added to the allowlist) while
+     * freeing the rest; "free-all" frees everything including saved videos
+     * (ignores the allowlist). Cleared after the switch is applied on open.
+     */
+    streamOnlyVideoChoice?: "keep-video" | "free-all";
+    /**
+     * When switching stream-only -> stream-and-save AND local videos exist,
+     * tracks whether to preserve those local videos (true) or pointerize them
+     * (false). Cleared after the switch is applied on open.
+     */
+    streamAndSavePreserveVideos?: boolean;
     /** When true, AI Metrics view shows detailed technical metrics instead of simple mode */
     detailedAIMetrics?: boolean;
     /** Track in-progress update for restart-safe cleanup */
@@ -87,12 +107,75 @@ export interface LocalProjectSettings {
     syncDelayMinutes?: number;
     /** Cached display name from GitLab API, persisted locally so it survives offline/orphaned states */
     displayedProjectName?: string;
+    /**
+     * Per-machine version of the audio metadata schema this project's local
+     * .codex files have been migrated to. Bumped whenever a new one-shot audio
+     * migration ships; the migrator runs every step from `currentVersion + 1`
+     * through `CURRENT_AUDIO_SCHEMA_VERSION` and persists the new value here
+     * on success. Stored locally (this file is gitignored) so each machine
+     * processes its own .codex files regardless of CRDT sync ordering.
+     *
+     * Versions:
+     *   1 — backfill `selectedAudioId` + `selectionTimestamp` on legacy cells
+     *       (pre-Aug-18-2025) that have at least one valid audio attachment
+     *       (not deleted, not missing) and no explicit selection.
+     */
+    audioSchemaVersion?: number;
+    /**
+     * Rel-paths (within `.project/attachments/files`, e.g. "JUD/JUD_001_025.mp4")
+     * that the user explicitly chose to keep on this machine via "Save to project".
+     * These are protected from the stream-only pointer-replacement cleanup
+     * (`postSyncCleanup` / strategy switches) so they survive reloads. Stored
+     * locally (this file is gitignored) because the saved copy is a per-machine
+     * download — `attachments/files/**` is gitignored too. Video-only by design.
+     */
+    persistedMediaFiles?: string[];
     // Legacy keys (read and mirrored for backward compatibility)
     mediaFilesStrategy?: MediaFilesStrategy;
     lastModeRun?: MediaFilesStrategy;
 }
 
+/**
+ * Current target audio metadata schema version. Increment when adding a new
+ * one-shot audio migration step in `AudioAttachmentsMigrator.runAudioSchemaMigrations`.
+ */
+export const CURRENT_AUDIO_SCHEMA_VERSION = 1;
+
 const SETTINGS_FILE_NAME = "localProjectSettings.json";
+
+/**
+ * Serializes every write to localProjectSettings.json. Because writers do a
+ * read-modify-write (read existing JSON, merge, write), concurrent writers
+ * could otherwise clobber each other's changes — this is what intermittently
+ * dropped freshly-added `persistedMediaFiles` entries when a save raced an
+ * unrelated settings write. Each enqueued task reads the latest on-disk state
+ * inside the lock, so there's no stale-snapshot overwrite.
+ */
+// One serialization chain PER workspace (keyed by settings-file fsPath), not a
+// single global chain. Clobbering can only happen between writes to the SAME
+// settings file, so serializing per workspace is both sufficient and correct.
+// A global chain is also dangerous: a single task that never settles (e.g. an
+// fs operation stubbed to hang in a test, or a stalled disk) would deadlock
+// every future settings write across unrelated projects. Per-workspace chains
+// keep one project's stall from poisoning another's.
+const settingsWriteChains = new Map<string, Promise<unknown>>();
+function enqueueSettingsWrite<T>(key: string, task: () => Promise<T>): Promise<T> {
+    const previous = settingsWriteChains.get(key) ?? Promise.resolve();
+    const run = previous.then(task, task);
+    // Keep the chain alive even if a task rejects.
+    const tail = run.then(
+        () => undefined,
+        () => undefined
+    );
+    settingsWriteChains.set(key, tail);
+    // Drop the entry once it has drained so the map can't grow unbounded.
+    tail.finally(() => {
+        if (settingsWriteChains.get(key) === tail) {
+            settingsWriteChains.delete(key);
+        }
+    });
+    return run;
+}
 
 /**
  * Gets the path to the local project settings file
@@ -172,13 +255,45 @@ export async function writeLocalProjectSettings(
         return;
     }
 
-    // Create a promise for the write operation and register it
-    const writePromise = writeLocalProjectSettingsInternal(settings, workspaceFolderUri, settingsPath);
+    // Create a promise for the write operation and register it. Serialize through
+    // the settings write chain so concurrent read-modify-write cycles can't clobber
+    // each other (notably the persistedMediaFiles allowlist).
+    const writePromise = enqueueSettingsWrite(workspaceUri.fsPath, () =>
+        writeLocalProjectSettingsInternal(settings, workspaceFolderUri, settingsPath)
+    );
 
     // Register this write operation with MetadataManager's tracking system
     // This ensures waitForPendingWrites will wait for this operation
     MetadataManager.registerPendingWrite(workspaceUri.fsPath, writePromise);
 
+    return writePromise;
+}
+
+/**
+ * Atomically read-modify-write the settings file. The mutator runs inside the
+ * shared write lock against the LATEST on-disk state, so concurrent updates
+ * (e.g. setApplyState racing setMediaFilesStrategy) can't clobber each other's
+ * fields. Prefer this over readLocalProjectSettings + writeLocalProjectSettings
+ * for single-field setters.
+ */
+export function updateLocalProjectSettings(
+    mutator: (settings: LocalProjectSettings) => void,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const workspaceUri = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
+    const settingsPath = getSettingsFilePath(workspaceFolderUri);
+    if (!settingsPath || !workspaceUri) {
+        console.error("Cannot update local project settings: No workspace folder found");
+        return Promise.resolve();
+    }
+
+    const writePromise = enqueueSettingsWrite(workspaceUri.fsPath, async () => {
+        const latest = await readLocalProjectSettings(workspaceFolderUri);
+        mutator(latest);
+        await writeLocalProjectSettingsInternal(latest, workspaceFolderUri, settingsPath);
+    });
+
+    MetadataManager.registerPendingWrite(workspaceUri.fsPath, writePromise);
     return writePromise;
 }
 
@@ -211,8 +326,11 @@ async function writeLocalProjectSettingsInternal(
             mediaFileStrategyApplyState: settings.mediaFileStrategyApplyState ?? (settings as any).applyState ?? "applied",
             mediaFileStrategySwitchStarted: settings.mediaFileStrategySwitchStarted ?? false,
             keepFilesOnStreamAndSave: settings.keepFilesOnStreamAndSave,
+            keepVideoOnStreamAndSave: settings.keepVideoOnStreamAndSave,
+            keepAudioOnStreamAndSave: settings.keepAudioOnStreamAndSave,
+            streamOnlyVideoChoice: settings.streamOnlyVideoChoice,
+            streamAndSavePreserveVideos: settings.streamAndSavePreserveVideos,
             forceCloseAfterSuccessfulSwap: settings.forceCloseAfterSuccessfulSwap,
-            autoDownloadAudioOnOpen: settings.autoDownloadAudioOnOpen ?? false,
             detailedAIMetrics: settings.detailedAIMetrics,
             lfsSourceRemoteUrl: settings.lfsSourceRemoteUrl,
             updateState: settings.updateState,
@@ -222,6 +340,11 @@ async function writeLocalProjectSettingsInternal(
             autoSyncEnabled: settings.autoSyncEnabled ?? true,
             syncDelayMinutes: settings.syncDelayMinutes ?? 5,
             displayedProjectName: settings.displayedProjectName,
+            // NOTE: persistedMediaFiles is intentionally NOT written here. It is
+            // owned exclusively by addPersistedMediaFile/removePersistedMediaFile
+            // (which mutate it atomically under the same write lock). General
+            // writers preserve the on-disk value via the existingRaw spread below,
+            // so an unrelated settings write can never clobber the allowlist.
         };
         let existingRaw: Record<string, any> = {};
         try {
@@ -231,6 +354,8 @@ async function writeLocalProjectSettingsInternal(
             existingRaw = {};
         }
         const merged = { ...existingRaw, ...toWrite };
+        // Drop dead keys from superseded approaches so the file cleans itself up.
+        delete (merged as Record<string, unknown>).ephemeralStreamMedia;
         const content = JSON.stringify(merged, null, 2);
         await vscode.workspace.fs.writeFile(settingsPath, Buffer.from(content, "utf-8"));
         debug("Wrote local project settings:", merged);
@@ -255,20 +380,20 @@ export async function setMediaFilesStrategy(
     strategy: MediaFilesStrategy,
     workspaceFolderUri?: vscode.Uri
 ): Promise<void> {
-    const settings = await readLocalProjectSettings(workspaceFolderUri);
-    settings.mediaFilesStrategy = strategy; // legacy mirror
-    settings.currentMediaFilesStrategy = strategy;
-    await writeLocalProjectSettings(settings, workspaceFolderUri);
+    await updateLocalProjectSettings((settings) => {
+        settings.mediaFilesStrategy = strategy; // legacy mirror
+        settings.currentMediaFilesStrategy = strategy;
+    }, workspaceFolderUri);
 }
 
 export async function setLastModeRun(
     mode: MediaFilesStrategy,
     workspaceFolderUri?: vscode.Uri
 ): Promise<void> {
-    const settings = await readLocalProjectSettings(workspaceFolderUri);
-    settings.lastModeRun = mode; // legacy mirror
-    settings.lastMediaFileStrategyRun = mode;
-    await writeLocalProjectSettings(settings, workspaceFolderUri);
+    await updateLocalProjectSettings((settings) => {
+        settings.lastModeRun = mode; // legacy mirror
+        settings.lastMediaFileStrategyRun = mode;
+    }, workspaceFolderUri);
 }
 
 // Legacy wrapper (kept for compatibility). Prefer setApplyState.
@@ -289,23 +414,23 @@ export async function markPendingUpdateRequired(
     workspaceFolderUri?: vscode.Uri,
     reason?: string
 ): Promise<void> {
-    const settings = await readLocalProjectSettings(workspaceFolderUri);
-    settings.pendingUpdate = {
-        required: true,
-        reason,
-        detectedAt: Date.now(),
-    };
-    await writeLocalProjectSettings(settings, workspaceFolderUri);
+    await updateLocalProjectSettings((settings) => {
+        settings.pendingUpdate = {
+            required: true,
+            reason,
+            detectedAt: Date.now(),
+        };
+    }, workspaceFolderUri);
 }
 
 export async function clearPendingUpdate(
     workspaceFolderUri?: vscode.Uri
 ): Promise<void> {
-    const settings = await readLocalProjectSettings(workspaceFolderUri);
-    if (settings.pendingUpdate) {
-        settings.pendingUpdate = undefined;
-        await writeLocalProjectSettings(settings, workspaceFolderUri);
-    }
+    await updateLocalProjectSettings((settings) => {
+        if (settings.pendingUpdate) {
+            settings.pendingUpdate = undefined;
+        }
+    }, workspaceFolderUri);
 }
 
 // New explicit helpers (preferred over legacy boolean)
@@ -319,11 +444,11 @@ export async function setApplyState(
     workspaceFolderUri?: vscode.Uri,
     meta?: { error?: string; }
 ): Promise<void> {
-    const s = await readLocalProjectSettings(workspaceFolderUri);
-    s.mediaFileStrategyApplyState = state;
-    // Keep the state minimal; no timestamps or error strings persisted
-    s.changesApplied = state === "applied"; // keep mirror until full removal
-    await writeLocalProjectSettings(s, workspaceFolderUri);
+    await updateLocalProjectSettings((s) => {
+        s.mediaFileStrategyApplyState = state;
+        // Keep the state minimal; no timestamps or error strings persisted
+        s.changesApplied = state === "applied"; // keep mirror until full removal
+    }, workspaceFolderUri);
 }
 
 /**
@@ -332,6 +457,137 @@ export async function setApplyState(
 export async function getMediaFilesStrategyForPath(projectPath: string): Promise<MediaFilesStrategy | undefined> {
     const projectUri = vscode.Uri.file(projectPath);
     return getMediaFilesStrategy(projectUri);
+}
+
+/**
+ * Canonical key for the persisted-media allowlist: the path *within*
+ * `attachments/files` (equivalently `attachments/pointers`), e.g.
+ * "JUD/JUD_001_025.mp4". Normalized to forward slashes with no leading slash so
+ * comparisons are stable across OSes and against the OS-native `relPath`s used
+ * by the cleanup functions.
+ */
+export function normalizePersistedMediaRelPath(relPath: string): string {
+    return relPath.replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
+/**
+ * Returns the list of media rel-paths the user explicitly saved (allowlist).
+ * Always returns an array (empty when none/invalid).
+ */
+export async function getPersistedMediaFiles(workspaceFolderUri?: vscode.Uri): Promise<string[]> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    return Array.isArray(settings.persistedMediaFiles) ? settings.persistedMediaFiles : [];
+}
+
+/**
+ * Atomically mutate the persisted-media allowlist. Reads the LATEST on-disk
+ * value inside the shared settings write lock, applies `mutator`, and writes it
+ * back — so concurrent saves and unrelated settings writes can never drop an
+ * entry. This is the sole writer of `persistedMediaFiles` (general writes leave
+ * the key untouched). Other settings fields in the file are preserved.
+ */
+function updatePersistedMediaFiles(
+    workspaceFolderUri: vscode.Uri | undefined,
+    mutator: (current: string[]) => string[]
+): Promise<void> {
+    const settingsPath = getSettingsFilePath(workspaceFolderUri);
+    const workspaceUri = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (!settingsPath || !workspaceUri) {
+        return Promise.resolve();
+    }
+
+    const writePromise = enqueueSettingsWrite(workspaceUri.fsPath, async () => {
+        try {
+            await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(workspaceUri, ".project"));
+        } catch {
+            // Directory likely exists already.
+        }
+
+        let raw: Record<string, any> = {};
+        try {
+            const content = await vscode.workspace.fs.readFile(settingsPath);
+            raw = JSON.parse(Buffer.from(content).toString("utf-8")) ?? {};
+        } catch {
+            raw = {};
+        }
+
+        const current = Array.isArray(raw.persistedMediaFiles)
+            ? raw.persistedMediaFiles.map(normalizePersistedMediaRelPath)
+            : [];
+        const next = Array.from(
+            new Set(mutator(current).map(normalizePersistedMediaRelPath).filter(Boolean))
+        );
+
+        if (next.length > 0) {
+            raw.persistedMediaFiles = next;
+        } else {
+            delete raw.persistedMediaFiles;
+        }
+
+        await vscode.workspace.fs.writeFile(
+            settingsPath,
+            Buffer.from(JSON.stringify(raw, null, 2), "utf-8")
+        );
+    });
+
+    MetadataManager.registerPendingWrite(workspaceUri.fsPath, writePromise);
+    return writePromise;
+}
+
+/**
+ * Adds a rel-path to the persisted-media allowlist (no-op if already present).
+ */
+export async function addPersistedMediaFile(
+    relPath: string,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const normalized = normalizePersistedMediaRelPath(relPath);
+    if (!normalized) return;
+    await updatePersistedMediaFiles(workspaceFolderUri, (current) =>
+        current.includes(normalized) ? current : [...current, normalized]
+    );
+}
+
+/**
+ * Adds many rel-paths to the persisted-media allowlist in a single atomic write.
+ * Used when the user chooses to keep videos while switching to a stream mode.
+ */
+export async function addPersistedMediaFiles(
+    relPaths: string[],
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    if (!relPaths || relPaths.length === 0) return;
+    await updatePersistedMediaFiles(workspaceFolderUri, (current) => [...current, ...relPaths]);
+}
+
+/**
+ * Removes a rel-path from the persisted-media allowlist (no-op if absent).
+ * Call this when a saved video is replaced or deleted so the list doesn't
+ * protect a stale/empty slot.
+ */
+export async function removePersistedMediaFile(
+    relPath: string,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const normalized = normalizePersistedMediaRelPath(relPath);
+    if (!normalized) return;
+    await updatePersistedMediaFiles(workspaceFolderUri, (current) =>
+        current.filter((p) => p !== normalized)
+    );
+}
+
+/**
+ * Removes every allowlist entry whose file extension is in `extensions`
+ * (lower-case, dot-prefixed, e.g. ".mp4"). Used when an explicit "Free Space"
+ * choice deliberately frees previously-saved videos.
+ */
+export async function removePersistedMediaFilesByExtension(
+    extensions: Set<string>,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    await updatePersistedMediaFiles(workspaceFolderUri, (current) =>
+        current.filter((p) => !extensions.has(path.extname(p).toLowerCase()))
+    );
 }
 
 /**
@@ -360,7 +616,6 @@ export async function ensureLocalProjectSettingsExists(
         lastMediaFileStrategyRun: "auto-download",
         changesApplied: true,
         mediaFileStrategyApplyState: "applied",
-        autoDownloadAudioOnOpen: false,
         mediaFileStrategySwitchStarted: false,
         autoSyncEnabled: true,
         syncDelayMinutes: 5,
@@ -369,18 +624,31 @@ export async function ensureLocalProjectSettingsExists(
     await writeLocalProjectSettings(def, workspaceFolderUri);
 }
 
-export async function getAutoDownloadAudioOnOpen(workspaceFolderUri?: vscode.Uri): Promise<boolean> {
+/**
+ * Returns the audio metadata schema version this machine has already migrated
+ * this project to. Defaults to 0 when the key is absent (e.g., never migrated,
+ * or fresh clone on a new machine).
+ */
+export async function getAudioSchemaVersion(
+    workspaceFolderUri?: vscode.Uri
+): Promise<number> {
     const settings = await readLocalProjectSettings(workspaceFolderUri);
-    return !!settings.autoDownloadAudioOnOpen;
+    return typeof settings.audioSchemaVersion === "number" ? settings.audioSchemaVersion : 0;
 }
 
-export async function setAutoDownloadAudioOnOpen(
-    value: boolean,
+/**
+ * Persists the completed audio metadata schema version for this machine.
+ * Called by `AudioAttachmentsMigrator.runAudioSchemaMigrations` only after
+ * every chained migration step succeeds, so an interrupted run can resume
+ * on the next activation.
+ */
+export async function setAudioSchemaVersion(
+    version: number,
     workspaceFolderUri?: vscode.Uri
 ): Promise<void> {
-    const settings = await readLocalProjectSettings(workspaceFolderUri);
-    settings.autoDownloadAudioOnOpen = !!value;
-    await writeLocalProjectSettings(settings, workspaceFolderUri);
+    await updateLocalProjectSettings((settings) => {
+        settings.audioSchemaVersion = version;
+    }, workspaceFolderUri);
 }
 
 /**
@@ -398,9 +666,9 @@ export async function setSwitchStarted(
     value: boolean,
     workspaceFolderUri?: vscode.Uri
 ): Promise<void> {
-    const settings = await readLocalProjectSettings(workspaceFolderUri);
-    settings.mediaFileStrategySwitchStarted = !!value;
-    await writeLocalProjectSettings(settings, workspaceFolderUri);
+    await updateLocalProjectSettings((settings) => {
+        settings.mediaFileStrategySwitchStarted = !!value;
+    }, workspaceFolderUri);
 }
 
 /**
@@ -411,12 +679,12 @@ export async function markUpdateCompletedLocally(
     username: string,
     workspaceFolderUri?: vscode.Uri
 ): Promise<void> {
-    const settings = await readLocalProjectSettings(workspaceFolderUri);
-    settings.updateCompletedLocally = {
-        username,
-        completedAt: Date.now(),
-    };
-    await writeLocalProjectSettings(settings, workspaceFolderUri);
+    await updateLocalProjectSettings((settings) => {
+        settings.updateCompletedLocally = {
+            username,
+            completedAt: Date.now(),
+        };
+    }, workspaceFolderUri);
     debug("Marked update as completed locally for user:", username);
 }
 
@@ -426,12 +694,12 @@ export async function markUpdateCompletedLocally(
 export async function clearUpdateCompletedLocally(
     workspaceFolderUri?: vscode.Uri
 ): Promise<void> {
-    const settings = await readLocalProjectSettings(workspaceFolderUri);
-    if (settings.updateCompletedLocally) {
-        settings.updateCompletedLocally = undefined;
-        await writeLocalProjectSettings(settings, workspaceFolderUri);
-        debug("Cleared local update completion flag");
-    }
+    await updateLocalProjectSettings((settings) => {
+        if (settings.updateCompletedLocally) {
+            settings.updateCompletedLocally = undefined;
+            debug("Cleared local update completion flag");
+        }
+    }, workspaceFolderUri);
 }
 
 // =============================================================================
@@ -480,9 +748,10 @@ async function migrateSyncSettingsFromVSCodeConfig(
         syncDelayMinutes = SYNC_DELAY_MINIMUM;
     }
 
-    settings.autoSyncEnabled = autoSyncEnabled;
-    settings.syncDelayMinutes = syncDelayMinutes;
-    await writeLocalProjectSettings(settings, workspaceFolderUri);
+    await updateLocalProjectSettings((s) => {
+        s.autoSyncEnabled = autoSyncEnabled;
+        s.syncDelayMinutes = syncDelayMinutes;
+    }, workspaceFolderUri);
     debug("Migrated sync settings from VS Code config:", { autoSyncEnabled, syncDelayMinutes });
 
     if (!autoSyncEnabled) {
@@ -520,10 +789,10 @@ export async function setSyncSettings(
     syncDelayMinutes: number,
     workspaceFolderUri?: vscode.Uri
 ): Promise<void> {
-    const settings = await readLocalProjectSettings(workspaceFolderUri);
-    settings.autoSyncEnabled = autoSyncEnabled;
-    settings.syncDelayMinutes = Math.max(syncDelayMinutes, SYNC_DELAY_MINIMUM);
-    await writeLocalProjectSettings(settings, workspaceFolderUri);
+    await updateLocalProjectSettings((settings) => {
+        settings.autoSyncEnabled = autoSyncEnabled;
+        settings.syncDelayMinutes = Math.max(syncDelayMinutes, SYNC_DELAY_MINIMUM);
+    }, workspaceFolderUri);
 }
 
 // =============================================================================

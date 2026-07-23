@@ -291,6 +291,7 @@ const NewSourceUploader: React.FC = () => {
                     targetFiles: [],
                     translationPairs: [],
                 };
+                const sourceLanguageTag: string | undefined = message.sourceLanguageTag;
 
                 const initialIntent: ImportIntent | undefined = message.initialIntent;
 
@@ -300,6 +301,7 @@ const NewSourceUploader: React.FC = () => {
                     const base = {
                         ...prev,
                         projectInventory: inventory,
+                        sourceLanguageTag: sourceLanguageTag ?? prev.sourceLanguageTag,
                         isLoadingInventory: false,
                     };
 
@@ -628,6 +630,7 @@ const NewSourceUploader: React.FC = () => {
             selectedSource: wizardState.selectedSourceForTarget,
             selectedSourceDetails: wizardState.selectedSourceDetails,
             projectInventory: wizardState.projectInventory,
+            sourceLanguageTag: wizardState.sourceLanguageTag,
         };
 
         // For target imports, we need detailed source info and should use translation completion

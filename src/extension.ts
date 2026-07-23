@@ -15,8 +15,11 @@ import {
     migration_reorderMisplacedParatextCells,
     migration_addGlobalReferences,
     migration_verseRangeLabelsAndPositions,
+    migration_recoverMissingMergedChildren,
+    migration_repairVerseRangeDuplication,
     migration_cellIdsToUuid,
     migration_recoverTempFilesAndMergeDuplicates,
+    mergeDuplicateCellsAcrossWorkspace,
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
 import { StatusBarItem } from "vscode";
@@ -48,6 +51,12 @@ import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 import { openCodexMigrationTool } from "./codexMigrationTool/codexMigrationTool";
 import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/codexCellEditorProvider";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
+import { initializeStateStore } from "./stateStore";
+import {
+    initializeGlobalUserSettings,
+    migrateAudioSettingsFromLocalProject,
+} from "./utils/globalUserSettings";
+import { runOnce } from "./utils/oneTimeMigrations";
 import { fileExists } from "./utils/webviewUtils";
 import { checkIfProjectIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
@@ -345,6 +354,84 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     initToolPreferences(context);
+
+    // Clear the stream-only video session cache (stored outside the project) so
+    // "Loaded" videos re-stream after a reload, like the in-memory audio cache.
+    try {
+        const { clearVideoStreamCache } = await import("./utils/videoStreamCache");
+        await clearVideoStreamCache(context);
+    } catch (e) {
+        console.warn("[Extension] Could not clear video stream cache:", e);
+    }
+
+    // Per-user audio preferences (autoDownloadAudioOnOpen,
+    // autoRecordOnMicClick, recordingCountdownSeconds) live in globalState.
+    // Initialize before any provider reads them; the per-workspace migration
+    // runs lazily below.
+    initializeGlobalUserSettings(context);
+
+    // Construct the singleton cellId state store (file-backed under
+    // globalStorageUri). Must run before providers register so that any
+    // subsequent initializeStateStore() calls inside providers reuse the
+    // same instance.
+    try {
+        await initializeStateStore(context);
+    } catch (e) {
+        console.error("[Extension] Failed to initialize cellId state store:", e);
+    }
+
+    // Issue #984: copy legacy per-user audio prefs from the git-synced
+    // localProjectSettings.json into per-user globalState (first project
+    // wins per machine) and strip the keys so they stop syncing.
+    try {
+        const folders = vscode.workspace.workspaceFolders ?? [];
+        for (const folder of folders) {
+            await migrateAudioSettingsFromLocalProject(folder.uri);
+        }
+    } catch (e) {
+        console.warn(
+            "[Extension] Failed to migrate per-user audio settings from local project settings:",
+            e
+        );
+    }
+
+    // One-shot cleanup of orphaned rows inside the project-accelerate.shared-state-store
+    // extension's globalState. Historically codex-editor wrote `sourceCellMap` (full
+    // source-cell content keyed by reference) and `cellId` to that store; the writers
+    // were removed long ago (sourceCellMap in 0.6.1, cellId in the local-store
+    // migration), but the data has been sitting in state.vscdb ever since, triggering
+    // the mainThreadStorage >5 MB warning and bloating activation memory.
+    //
+    // The flag lives in globalStorageUri/migrations.json so the cleanup runs exactly
+    // once per machine (and retries on the next activation if it threw). The ID is
+    // bumped to V2 because V1 only wiped `cellId` (negligible) and missed the real
+    // offender, `sourceCellMap`.
+    try {
+        await runOnce(context, "sharedStateStoreOrphanCleanupV2", async () => {
+            const ext = vscode.extensions.getExtension("project-accelerate.shared-state-store");
+            if (!ext) return;
+            const api = await ext.activate();
+            if (!api || typeof api.updateStoreState !== "function") return;
+            // Setting value to undefined causes the underlying
+            // globalState.update(key, undefined) to delete the key from the row.
+            const orphanKeys = ["cellId", "sourceCellMap"] as const;
+            for (const key of orphanKeys) {
+                try {
+                    api.updateStoreState({ key, value: undefined });
+                } catch (innerErr) {
+                    console.warn(
+                        `[Extension] Failed to wipe '${key}' from shared-state-store:`,
+                        innerErr
+                    );
+                }
+            }
+        });
+    } catch (e) {
+        console.warn(
+            "[Extension] sharedStateStoreOrphanCleanupV2 cleanup failed; will retry on next activation.",
+            e
+        );
+    }
 
     // Save tab layout and close all editors before showing splash screen
     try {
@@ -899,6 +986,21 @@ export async function activate(context: vscode.ExtensionContext) {
             await migration_addGlobalReferences(context);
             await migration_cellIdsToUuid(context);
             await migration_recoverTempFilesAndMergeDuplicates(context);
+
+            // One-shot audio metadata schema migrations (currently: v1 backfills
+            // `selectedAudioId`/`selectionTimestamp` on legacy pre-Aug-18-2025
+            // cells). Gated by `audioSchemaVersion` in `localProjectSettings.json`
+            // (per-machine, gitignored), so this is a no-op on already-migrated
+            // machines.
+            try {
+                const wf = vscode.workspace.workspaceFolders?.[0];
+                if (wf) {
+                    const { runAudioSchemaMigrationsForWorkspace } = await import("./utils/audioAttachmentsMigrationUtils");
+                    await runAudioSchemaMigrationsForWorkspace(wf);
+                }
+            } catch (err) {
+                console.error("[extension] runAudioSchemaMigrationsForWorkspace failed:", err);
+            }
         }
 
         // Remove leftover files from features that have been removed
@@ -1041,6 +1143,73 @@ export async function activate(context: vscode.ExtensionContext) {
                     console.error("Verse range migration failed:", error);
                     await vscode.window.showErrorMessage(
                         `Verse range migration failed: ${msg}`
+                    );
+                }
+            }
+        )
+    );
+
+    // Command: Recover missing merged children (one-off recovery for the resolver
+    // tie-break bug; idempotent and prompts before writing).
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.recoverMissingMergedChildren",
+            async () => {
+                try {
+                    await migration_recoverMissingMergedChildren();
+                } catch (error) {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    console.error("Missing merged children recovery failed:", error);
+                    await vscode.window.showErrorMessage(
+                        `Missing merged children recovery failed: ${msg}`
+                    );
+                }
+            }
+        )
+    );
+
+    // Command: Merge duplicate cells (manual, on-demand). Normalizes legacy cell ids to
+    // their canonical UUID form and merges duplicate cells across all notebooks. Not gated
+    // by the run-once migration flag, so it can repair legacy/UUID paratext twins that have
+    // re-appeared via sync. Idempotent — safe to run any time.
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.mergeDuplicateCells",
+            async () => {
+                try {
+                    const { filesScanned, filesChanged } =
+                        await mergeDuplicateCellsAcrossWorkspace();
+                    if (filesChanged > 0) {
+                        await vscode.window.showInformationMessage(
+                            `Merged duplicate cells: updated ${filesChanged} of ${filesScanned} file(s). Reload the window if an editor still shows duplicates.`
+                        );
+                    } else {
+                        await vscode.window.showInformationMessage(
+                            `No duplicate cells found (${filesScanned} file(s) checked).`
+                        );
+                    }
+                } catch (error) {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    console.error("Merge duplicate cells failed:", error);
+                    await vscode.window.showErrorMessage(`Merge duplicate cells failed: ${msg}`);
+                }
+            }
+        )
+    );
+
+    // Command: Repair verse-range duplication (one-off recovery for issue #848 — verse-RANGE
+    // cells coexisting with SINGLE-verse cells; idempotent and prompts before writing).
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.repairVerseRangeDuplication",
+            async () => {
+                try {
+                    await migration_repairVerseRangeDuplication();
+                } catch (error) {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    console.error("Verse-range duplication repair failed:", error);
+                    await vscode.window.showErrorMessage(
+                        `Verse-range duplication repair failed: ${msg}`
                     );
                 }
             }
