@@ -10,6 +10,7 @@ import React, {
 import Quill, { Delta, Op } from "quill";
 import "quill/dist/quill.snow.css";
 import { installPreserveWhitespaceMatcher } from "./utils/preserveWhitespace";
+import { restoreTrailingBlankLine } from "./utils/preserveTrailingBlankLines";
 import { getCleanedHtml } from "./utils";
 import {
     isSuperscriptibleDigit,
@@ -536,6 +537,10 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             const clipboardModule = quill.getModule("clipboard") as {
                 addMatcher: (selector: number, matcher: typeof matchSuperscriptUnicodeDigits) => void;
                 convert: (args: { html?: string; text?: string }) => Delta;
+                // `convertHTML` is Quill's raw HTML→Delta conversion *before*
+                // the trailing-newline strip that `convert()` applies. Used to
+                // decide whether a trailing blank line was stripped (#1103).
+                convertHTML?: (html: string) => Delta;
                 matchers: Array<[number | string, (node: Node, delta: Delta, scroll: unknown) => Delta]>;
             };
 
@@ -881,10 +886,23 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             if (props.initialValue) {
                 // Parse through the clipboard pipeline so TEXT_NODE matchers apply
                 // (wraps ⁰⁴–⁹ for consistent sizing vs ¹²³). Raw innerHTML skips that.
-                const initialDelta = clipboardModule.convert({
+                const convertedDelta = clipboardModule.convert({
                     html: props.initialValue,
                     text: "",
                 });
+                // Quill's clipboard.convert() strips a trailing "\n" from the
+                // Delta, which silently eats a trailing blank line (paragraph
+                // break at end of cell) on open. Restore it — but only when
+                // convert() actually stripped it. We pass the raw (pre-strip)
+                // Delta so a *formatted* trailing empty block (which convert()
+                // leaves intact) doesn't get a phantom extra line added. See
+                // utils/preserveTrailingBlankLines and issue #1103.
+                const rawDelta = clipboardModule.convertHTML?.(props.initialValue);
+                const initialDelta = restoreTrailingBlankLine(
+                    props.initialValue,
+                    convertedDelta,
+                    rawDelta
+                );
                 quill.setContents(initialDelta, "silent");
 
                 // Position cursor at the end of the content for immediate editing
