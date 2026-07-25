@@ -20,11 +20,20 @@ export const BiblicaImporterForm: React.FC<ImporterComponentProps> = (props) => 
     const processFiles = useCallback(
         async (
             files: File[],
-            onProgress: (progress: ImportProgress) => void
+            onProgress: (progress: ImportProgress) => void,
+            signal?: AbortSignal
         ): Promise<NotebookPair[]> => {
             const file = files[0];
             if (!file) throw new Error("No file selected");
-            return [await createIdmlV2NotebookPair(file, "biblica", onProgress)];
+            return [
+                await createIdmlV2NotebookPair(
+                    file,
+                    "biblica",
+                    onProgress,
+                    undefined,
+                    signal
+                ),
+            ];
         },
         []
     );
@@ -32,7 +41,7 @@ export const BiblicaImporterForm: React.FC<ImporterComponentProps> = (props) => 
     return (
         <UnifiedImporterForm
             title="Biblica IDML Importer"
-            description="Import Biblica IDML through the shared v2 engine. All literal text locations are retained; profile-specific presentation never drops package content."
+            description="Experimental single-file Biblica IDML v2 import. All engine translation units are retained; deterministic two-file Bible-text replacement is not enabled yet."
             icon={BookOpen}
             accept=".idml"
             extensionBadges={[".idml", "IDML v2"]}

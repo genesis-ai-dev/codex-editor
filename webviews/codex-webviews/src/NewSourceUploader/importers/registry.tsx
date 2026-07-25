@@ -91,8 +91,9 @@ export const importerPlugins: ImporterPlugin[] = [
     {
         ...indesignImporterPlugin,
         name: "InDesign Files",
-        description: "Adobe InDesign IDML files with round-trip loss-free editing",
-        tags: ["Essential", "Documents", "Adobe", "Round-trip"],
+        description:
+            "Experimental IDML v2 protected-text round-trip; native fidelity awaits Adobe validation",
+        tags: ["Essential", "Documents", "Adobe", "Experimental"],
     },
     // {
     //     ...pdfImporterPlugin,

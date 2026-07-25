@@ -389,6 +389,7 @@ type EditorCellContent = {
     uri?: string;
     cellTimestamps?: Timestamps;
     cellAudioTimestamps?: Timestamps;
+    idmlHistoryAction?: "undo" | "redo";
     /**
      * Set when the save was triggered by a find/replace operation in the
      * FloatingSearchBar (issue #1103). Instructs the saveHtml handler to
@@ -763,6 +764,9 @@ type EditHistoryBase = {
     validatedBy?: ValidationEntry[];
     /** OpenRouter generation ID for LLM-generated edits */
     generationId?: string;
+    /** Exact IDML translated-slot intent at this edit, used by undo/redo. */
+    idmlTranslatedSlotIndexes?: number[];
+    idmlTranslationState?: "untranslated" | "translated";
 };
 
 export type EditHistory<TEditMap extends readonly string[] = readonly string[]> = EditHistoryBase & {
@@ -813,6 +817,7 @@ type CodexData = Timestamps & {
     verse?: string;
     merged?: boolean;
     deleted?: boolean;
+    originalContent?: string;
     originalText?: string;
     globalReferences?: string[]; // Array of cell IDs in original format (e.g., "GEN 1:1") used for header generation
     milestoneIndex?: number | null; // 0-based milestone index for O(1) lookup (null if no milestone)
@@ -838,6 +843,13 @@ type BaseCustomCellMetaData = {
     idmlLocator?: import("@aquilla/idml-roundtrip").IdmlLocator;
     /** Immutable canonical source HTML used to validate target anchor identity. */
     idmlSourceHtml?: string;
+    /**
+     * Distinguishes a newly imported empty target from an intentional
+     * translation that clears every editable slot.
+     */
+    idmlTranslationState?: "untranslated" | "translated";
+    /** Original IDML slot indexes that have received an explicit target edit. */
+    idmlTranslatedSlotIndexes?: number[];
 };
 
 export type BaseCustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
@@ -1075,6 +1087,8 @@ interface QuillCellContent {
         idml?: import("@aquilla/idml-roundtrip").IdmlFormatMetadataV2;
         idmlLocator?: import("@aquilla/idml-roundtrip").IdmlLocator;
         idmlSourceHtml?: string;
+        idmlTranslationState?: "untranslated" | "translated";
+        idmlTranslatedSlotIndexes?: number[];
         [key: string]: any;
     };
 }

@@ -54,7 +54,8 @@ export interface UnifiedImporterFormProps {
      */
     processFiles: (
         files: File[],
-        onProgress: (progress: ImportProgress) => void
+        onProgress: (progress: ImportProgress) => void,
+        signal?: AbortSignal
     ) => Promise<NotebookPair | NotebookPair[]>;
 
     importerProps: ImporterComponentProps;
@@ -124,6 +125,7 @@ export const UnifiedImporterForm: React.FC<UnifiedImporterFormProps> = ({
     const [alignedCells, setAlignedCells] = useState<AlignedCell[] | null>(null);
     const [importedContent, setImportedContent] = useState<any[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const importAbortControllerRef = useRef<AbortController | null>(null);
 
     const { wizardContext, onTranslationComplete, alignContent } = importerProps;
     const isTranslationImport =
@@ -151,7 +153,10 @@ export const UnifiedImporterForm: React.FC<UnifiedImporterFormProps> = ({
                 const first = fileArray[0];
                 const lower = first.name.toLowerCase();
                 const skipBinaryPreview =
-                    lower.endsWith(".zip") || lower.endsWith(".gz") || lower.endsWith(".br");
+                    lower.endsWith(".zip") ||
+                    lower.endsWith(".gz") ||
+                    lower.endsWith(".br") ||
+                    lower.endsWith(".idml");
                 if (skipBinaryPreview) {
                     setPreviewContent("");
                 } else {
@@ -222,6 +227,8 @@ export const UnifiedImporterForm: React.FC<UnifiedImporterFormProps> = ({
         setError(null);
         setProgress([]);
         setAlignedCells(null);
+        const abortController = new AbortController();
+        importAbortControllerRef.current = abortController;
 
         try {
             const onProgress = (p: ImportProgress) => {
@@ -231,7 +238,11 @@ export const UnifiedImporterForm: React.FC<UnifiedImporterFormProps> = ({
                 ]);
             };
 
-            const rawResult = await processFiles(files, onProgress);
+            const rawResult = await processFiles(
+                files,
+                onProgress,
+                abortController.signal
+            );
             const notebookResult = applyEnforceStructure(rawResult);
             setResult(notebookResult);
 
@@ -282,9 +293,18 @@ export const UnifiedImporterForm: React.FC<UnifiedImporterFormProps> = ({
                 }, 1500);
             }
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Unknown error occurred");
+            setError(
+                err instanceof DOMException && err.name === "AbortError"
+                    ? "Import cancelled."
+                    : err instanceof Error
+                      ? err.message
+                      : "Unknown error occurred"
+            );
             notifyImportEnded();
         } finally {
+            if (importAbortControllerRef.current === abortController) {
+                importAbortControllerRef.current = null;
+            }
             setIsProcessing(false);
         }
     }, [
@@ -298,6 +318,10 @@ export const UnifiedImporterForm: React.FC<UnifiedImporterFormProps> = ({
         onSourceImportComplete,
         applyEnforceStructure,
     ]);
+
+    const handleCancelImport = useCallback(() => {
+        importAbortControllerRef.current?.abort();
+    }, []);
 
     const handleConfirmAlignment = useCallback(() => {
         if (!alignedCells || !selectedSource || !onTranslationComplete) return;
@@ -561,17 +585,29 @@ export const UnifiedImporterForm: React.FC<UnifiedImporterFormProps> = ({
                 </Alert>
             )}
 
-            {/* Finish Import Button */}
-            <Button
-                onClick={handleImport}
-                disabled={!isReady}
-                className="w-full h-12 text-base"
-                variant={isReady ? "default" : "secondary"}
-            >
-                {isProcessing || isAligning
-                    ? "Processing..."
-                    : "Finish Import"}
-            </Button>
+            {/* Finish Import / cancellation controls */}
+            <div className="flex gap-2">
+                <Button
+                    onClick={handleImport}
+                    disabled={!isReady}
+                    className="h-12 flex-1 text-base"
+                    variant={isReady ? "default" : "secondary"}
+                >
+                    {isProcessing || isAligning
+                        ? "Processing..."
+                        : "Finish Import"}
+                </Button>
+                {isProcessing && (
+                    <Button
+                        type="button"
+                        variant="outline"
+                        className="h-12"
+                        onClick={handleCancelImport}
+                    >
+                        Cancel
+                    </Button>
+                )}
+            </div>
         </div>
     );
 };

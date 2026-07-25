@@ -1,6 +1,10 @@
-# InDesign Importer with Round-Trip Loss-Free Editing
+# Legacy Biblica IDML Prototype
 
-This importer provides comprehensive support for Adobe InDesign IDML files with guaranteed round-trip loss-free editing capabilities.
+> Legacy implementation note: the parser/exporter examples below describe the
+> retired prototype and are not the production import path. Biblica imports now
+> use `../idml-v2`, the same protected-anchor engine as generic IDML. Native
+> fidelity remains experimental until automated Adobe open/save validation
+> passes; Codex never claims a loss-free export from these legacy classes.
 
 ## Features
 

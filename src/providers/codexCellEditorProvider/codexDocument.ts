@@ -28,7 +28,10 @@ import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./ut
 import { formatJsonForNotebookFile, normalizeNotebookFileText } from "../../utils/notebookFileFormattingUtils";
 import { serializeNotebookWithCellCache } from "./utils/cachedNotebookSerializer";
 import { atomicWriteUriText, readExistingFileOrThrow } from "../../utils/notebookSafeSaveUtils";
-import { assertValidIdmlCellContent } from "../../idml/idmlCellGuard";
+import {
+    assertValidIdmlCellContent,
+    updatedIdmlTranslatedSlotIndexes,
+} from "../../idml/idmlCellGuard";
 
 // Define debug function locally
 const DEBUG_MODE = false;
@@ -325,7 +328,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
         shouldUpdateValue = true,
         retainValidations = false,
         skipAutoValidation = false,
-        generationId?: string
+        generationId?: string,
+        idmlHistoryAction?: "undo" | "redo"
     ) {
         debug("trace 124 updateCellContent", cellId, newContent, editType, shouldUpdateValue);
 
@@ -411,9 +415,33 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
         const previousValue = cellToUpdate.value;
         const currentTimestamp = Date.now();
+        const idmlIntentSnapshot =
+            cellToUpdate.metadata.idml !== undefined
+                ? {
+                      idmlTranslatedSlotIndexes: [
+                          ...(cellToUpdate.metadata.idmlTranslatedSlotIndexes ??
+                              []),
+                      ],
+                      idmlTranslationState:
+                          cellToUpdate.metadata.idmlTranslationState ??
+                          ("untranslated" as const),
+                  }
+                : undefined;
+        const hasIdmlSnapshotForPreviousValue =
+            idmlIntentSnapshot !== undefined &&
+            cellToUpdate.metadata.edits.some(
+                (edit) =>
+                    edit.value === previousValue &&
+                    Array.isArray(edit.idmlTranslatedSlotIndexes)
+            );
 
         // If editing a source file's value for the first time, ensure an INITIAL_IMPORT exists
-        if (cellToUpdate.metadata.edits.length === 0 && !!previousValue) {
+        if (
+            !!previousValue &&
+            (cellToUpdate.metadata.edits.length === 0 ||
+                (idmlIntentSnapshot !== undefined &&
+                    !hasIdmlSnapshotForPreviousValue))
+        ) {
 
             cellToUpdate.metadata.edits.push({
                 editMap: EditMapUtils.value(),
@@ -422,12 +450,40 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 type: EditType.INITIAL_IMPORT,
                 author: this._author,
                 validatedBy: [],
+                ...idmlIntentSnapshot,
             });
         }
 
         // Update cell content and metadata in memory
         if (shouldUpdateValue) {
+            const restoredSlotIndexes =
+                idmlHistoryAction === "undo"
+                    ? [...cellToUpdate.metadata.edits]
+                          .reverse()
+                          .find(
+                              (edit) =>
+                                  edit.value === newContent &&
+                                  Array.isArray(
+                                      edit.idmlTranslatedSlotIndexes
+                                  )
+                          )?.idmlTranslatedSlotIndexes
+                    : undefined;
+            const translatedSlotIndexes = updatedIdmlTranslatedSlotIndexes(
+                cellToUpdate.metadata,
+                previousValue,
+                newContent,
+                editType === EditType.LLM_GENERATION,
+                restoredSlotIndexes
+            );
             cellToUpdate.value = newContent;
+            if (cellToUpdate.metadata.idml !== undefined) {
+                cellToUpdate.metadata.idmlTranslatedSlotIndexes =
+                    translatedSlotIndexes ?? [];
+                cellToUpdate.metadata.idmlTranslationState =
+                    translatedSlotIndexes?.length === 0
+                        ? "untranslated"
+                        : "translated";
+            }
         }
 
         // Determine validations for the new edit
@@ -498,6 +554,16 @@ export class CodexCellDocument implements vscode.CustomDocument {
             author: this._author,
             validatedBy,
             ...(generationId ? { generationId } : {}),
+            ...(cellToUpdate.metadata.idml !== undefined
+                ? {
+                      idmlTranslatedSlotIndexes: [
+                          ...(cellToUpdate.metadata
+                              .idmlTranslatedSlotIndexes ?? []),
+                      ],
+                      idmlTranslationState:
+                          cellToUpdate.metadata.idmlTranslationState,
+                  }
+                : {}),
         });
 
         // Record the edit 

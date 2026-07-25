@@ -18,10 +18,20 @@ export const InDesignImporterForm: React.FC<ImporterComponentProps> = (props) =>
     }, []);
 
     const processFiles = useCallback(
-        async (files: File[], onProgress: (progress: ImportProgress) => void) => {
+        async (
+            files: File[],
+            onProgress: (progress: ImportProgress) => void,
+            signal?: AbortSignal
+        ) => {
             const file = files[0];
             if (!file) throw new Error("No file selected");
-            return createIdmlV2NotebookPair(file, "generic", onProgress);
+            return createIdmlV2NotebookPair(
+                file,
+                "generic",
+                onProgress,
+                undefined,
+                signal
+            );
         },
         []
     );

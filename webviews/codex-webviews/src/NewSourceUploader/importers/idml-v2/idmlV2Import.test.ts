@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { IdmlParseResult } from "@aquilla/idml-roundtrip";
-import { createIdmlV2Cells } from "./idmlV2Import";
+import {
+    createIdmlV2Cells,
+    createIdmlV2NotebookPair,
+} from "./idmlV2Import";
 
 const sourceHtml =
     '<p data-idml-version="2"><span data-idml-slot="0" data-idml-character-style="style" data-idml-protected="slot">Hello</span></p>';
@@ -60,11 +63,39 @@ describe("Codex IDML v2 producer contract", () => {
 
         expect(sourceCells).toHaveLength(1);
         expect(targetCells).toHaveLength(1);
-        expect(sourceCells[0]?.content).toBe(sourceHtml);
-        expect(targetCells[0]?.content).toContain('data-idml-slot="0"');
-        expect(targetCells[0]?.content).not.toContain(">Hello<");
-        expect(targetCells[0]?.metadata.idml).toEqual(metadata);
-        expect(targetCells[0]?.metadata.idmlLocator).toEqual(locator);
-        expect(targetCells[0]?.metadata.idmlSourceHtml).toBe(sourceHtml);
+        expect(sourceCells[0]!.content).toBe(sourceHtml);
+        expect(targetCells[0]!.content).toContain('data-idml-slot="0"');
+        expect(targetCells[0]!.content).not.toContain(">Hello<");
+        expect(targetCells[0]!.metadata!.idml).toEqual(metadata);
+        expect(targetCells[0]!.metadata!.idmlLocator).toEqual(locator);
+        expect(targetCells[0]!.metadata!.idmlSourceHtml).toBe(sourceHtml);
+        expect(targetCells[0]!.metadata!.idmlTranslationState).toBe(
+            "untranslated"
+        );
+        expect(targetCells[0]!.metadata!.idmlTranslatedSlotIndexes).toEqual([]);
     });
+
+    it("passes importer cancellation through to the worker boundary", async () => {
+        const controller = new AbortController();
+        const parse = async (
+            _bytes: ArrayBuffer,
+            _profile: "generic" | "biblica",
+            options?: { signal?: AbortSignal }
+        ) => {
+            expect(options?.signal).toBe(controller.signal);
+            return result;
+        };
+
+        await createIdmlV2NotebookPair(
+            {
+                name: "sample.idml",
+                arrayBuffer: async () => new Uint8Array([0x50, 0x4b]).buffer,
+            } as File,
+            "generic",
+            () => {},
+            parse as never,
+            controller.signal
+        );
+    });
+
 });

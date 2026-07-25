@@ -15,6 +15,55 @@ import type { CustomNotebookCellData } from "types";
 
 type ExportableCell = Pick<CustomNotebookCellData, "value" | "metadata">;
 
+const IDML_SLOT_PATTERN =
+    /(<span\b(?=[^>]*\bdata-idml-protected="slot")(?=[^>]*\bdata-idml-slot="(\d+)")[^>]*>)([\s\S]*?)(<\/span>)/g;
+
+function preserveUntranslatedSlots(
+    sourceHtml: string,
+    targetHtml: string,
+    translatedSlotIndexes: readonly number[],
+    metadata: IdmlFormatMetadataV2
+): string {
+    const editable = new Set(metadata.editableSlotIndexes);
+    const translated = new Set<number>();
+    for (const slotIndex of translatedSlotIndexes) {
+        if (!Number.isInteger(slotIndex) || !editable.has(slotIndex)) {
+            throw new Error(
+                `IDML translated slot ${String(slotIndex)} is not an editable source slot.`
+            );
+        }
+        translated.add(slotIndex);
+    }
+    const sourceSlots = new Map<number, string>();
+    for (const match of sourceHtml.matchAll(IDML_SLOT_PATTERN)) {
+        sourceSlots.set(Number(match[2]), match[3]);
+    }
+    if (sourceSlots.size !== metadata.slotCount) {
+        throw new Error(
+            `IDML source HTML contains ${sourceSlots.size} slots; expected ${metadata.slotCount}.`
+        );
+    }
+    let targetSlotCount = 0;
+    const composed = targetHtml.replace(
+        IDML_SLOT_PATTERN,
+        (match, opening: string, slot: string, content: string, closing: string) => {
+            targetSlotCount += 1;
+            const slotIndex = Number(slot);
+            const sourceContent = sourceSlots.get(slotIndex);
+            if (sourceContent === undefined) return match;
+            return `${opening}${
+                translated.has(slotIndex) ? content : sourceContent
+            }${closing}`;
+        }
+    );
+    if (targetSlotCount !== metadata.slotCount) {
+        throw new Error(
+            `IDML target HTML contains ${targetSlotCount} slots; expected ${metadata.slotCount}.`
+        );
+    }
+    return composed;
+}
+
 function cellTranslation(cell: ExportableCell): IdmlTranslation {
     const metadata = cell.metadata;
     const idml = metadata.idml;
@@ -29,9 +78,44 @@ function cellTranslation(cell: ExportableCell): IdmlTranslation {
     if (!idml || !metadata.idmlLocator || !metadata.idmlSourceHtml) {
         throw new Error(`IDML cell ${metadata.id} is missing its source locator or source HTML.`);
     }
-    const validation = validateIdmlTranslation(
+    if (
+        metadata.idmlTranslationState !== "untranslated" &&
+        metadata.idmlTranslationState !== "translated"
+    ) {
+        throw new Error(
+            `IDML cell ${metadata.id} has no translation state; repair/re-import it before exporting so an empty target cannot be mistaken for an intentional deletion.`
+        );
+    }
+    if (!Array.isArray(metadata.idmlTranslatedSlotIndexes)) {
+        throw new Error(
+            `IDML cell ${metadata.id} has no translated-slot state; repair/re-import it before exporting.`
+        );
+    }
+    if (
+        metadata.idmlTranslationState === "untranslated" &&
+        metadata.idmlTranslatedSlotIndexes.length > 0
+    ) {
+        throw new Error(
+            `IDML cell ${metadata.id} has contradictory untranslated and translated-slot metadata.`
+        );
+    }
+    if (
+        metadata.idmlTranslationState === "translated" &&
+        metadata.idmlTranslatedSlotIndexes.length === 0
+    ) {
+        throw new Error(
+            `IDML cell ${metadata.id} is marked translated but identifies no translated slots; export was blocked to prevent a silent skip.`
+        );
+    }
+    const targetHtml = preserveUntranslatedSlots(
         metadata.idmlSourceHtml,
         cell.value,
+        metadata.idmlTranslatedSlotIndexes,
+        idml as IdmlFormatMetadataV2
+    );
+    const validation = validateIdmlTranslation(
+        metadata.idmlSourceHtml,
+        targetHtml,
         idml
     );
     if (!validation.valid) {
@@ -46,7 +130,7 @@ function cellTranslation(cell: ExportableCell): IdmlTranslation {
         locator: metadata.idmlLocator as IdmlLocator,
         metadata: idml as IdmlFormatMetadataV2,
         sourceHtml: metadata.idmlSourceHtml,
-        targetHtml: cell.value,
+        targetHtml,
     };
 }
 

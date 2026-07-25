@@ -94,7 +94,10 @@ export function preserveWhitespaceMatchText(
         return delta;
     }
 
-    text = text.replace(/[^\S\u00a0]/g, " ");
+    // IDML uses editor-only text sentinels for empty protected inline
+    // anchors and line breaks. They must survive Quill's clipboard matcher
+    // unchanged and are removed/replaced during canonical serialization.
+    text = text.replace(/[^\S\u00a0\uFEFF\u2028]/g, " ");
     // NOTE: Quill's matchText collapses runs here with `text.replace(/ {2,}/g, ' ')`.
     // We intentionally do NOT collapse — that's the entire point of this file.
 

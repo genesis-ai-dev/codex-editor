@@ -278,7 +278,19 @@ async function exportCodexContentAsIdmlRoundtrip(
     const exportFolder = vscode.Uri.file(userSelectedPath);
     await vscode.workspace.fs.createDirectory(exportFolder);
 
-    // For each selected codex file, find its original attachment and create a translated copy in export folder
+    const totals = {
+        translated: 0,
+        unchanged: 0,
+        missing: 0,
+        rejected: 0,
+        unsupported: 0,
+        sizeDelta: 0,
+    };
+    const changedMemberPaths = new Set<string>();
+    const warnings = new Set<string>();
+    const recoveryMessages: string[] = [];
+
+    // For each selected codex file, find its original attachment and create a translated copy in export folder.
     let exportedCount = 0;
     for (const [index, filePath] of filesToExport.entries()) {
         reporter.report({
@@ -288,6 +300,9 @@ async function exportCodexContentAsIdmlRoundtrip(
             current: index + 1,
             total: filesToExport.length,
         });
+        let originalForRecovery:
+            | { bytes: Uint8Array; fileName: string }
+            | undefined;
         try {
             const file = vscode.Uri.file(filePath);
             const fileName = basename(file.fsPath);
@@ -304,12 +319,6 @@ async function exportCodexContentAsIdmlRoundtrip(
                 corpusMarker === "biblica-idml" ||
                 importerType === "biblica" ||
                 fileType === "biblica";
-            const manifest = codexNotebook.metadata?.idmlManifest;
-            if (codexNotebook.metadata?.idmlSchemaVersion !== 2 || !manifest) {
-                throw new Error(
-                    "This project does not have complete IDML v2 source metadata. Repair/re-import it before exporting; Codex will not emit a partial IDML package."
-                );
-            }
 
             console.log(
                 `[IDML Export] Processing ${fileName} (profile: ${String(
@@ -379,7 +388,14 @@ async function exportCodexContentAsIdmlRoundtrip(
                 );
             }
             console.log(`[IDML Export] Loaded original IDML: ${originalFileUri.fsPath} (${idmlData.length} bytes, valid ZIP signature)`);
+            originalForRecovery = { bytes: idmlData, fileName: originalFileName };
 
+            const manifest = codexNotebook.metadata?.idmlManifest;
+            if (codexNotebook.metadata?.idmlSchemaVersion !== 2 || !manifest) {
+                throw new Error(
+                    "This project does not have complete IDML v2 source metadata. Repair/re-import it before exporting; Codex will not emit a partial IDML package."
+                );
+            }
             const { bytes: updatedIdmlData, report } = await exportCodexIdmlV2(
                 idmlData,
                 codexNotebook.cells,
@@ -393,6 +409,17 @@ async function exportCodexContentAsIdmlRoundtrip(
             await vscode.workspace.fs.writeFile(injectedUri, updatedIdmlData);
             exportedCount += 1;
 
+            totals.translated += report.translated;
+            totals.unchanged += report.unchanged;
+            totals.missing += report.missing;
+            totals.rejected += report.rejected;
+            totals.unsupported += report.unsupported;
+            totals.sizeDelta += report.sizeDelta;
+            report.changedMemberPaths.forEach((memberPath) =>
+                changedMemberPaths.add(memberPath)
+            );
+            report.warnings.forEach((warning) => warnings.add(warning.message));
+
             console.log(
                 `[IDML Export] Exported ${injectedName}: ${report.translated} translated, ` +
                     `${report.unchanged} unchanged, ${report.changedMemberPaths.length} members changed`
@@ -404,9 +431,51 @@ async function exportCodexContentAsIdmlRoundtrip(
                 "error",
                 err instanceof Error ? err.message : String(err)
             );
+            const actions = originalForRecovery
+                ? ["Download Original Unchanged", "Repair / Re-import"]
+                : ["Repair / Re-import"];
+            const action = await vscode.window.showErrorMessage(
+                `Translated IDML export was blocked for ${basename(filePath)} because strict validation failed. No partial package was written.`,
+                ...actions
+            );
+            try {
+                if (action === "Download Original Unchanged" && originalForRecovery) {
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                    const fallbackName = originalForRecovery.fileName.replace(
+                        /\.idml$/i,
+                        `_${timestamp}_original_unchanged.idml`
+                    );
+                    await vscode.workspace.fs.writeFile(
+                        vscode.Uri.joinPath(exportFolder, fallbackName),
+                        originalForRecovery.bytes
+                    );
+                    recoveryMessages.push(
+                        `${fallbackName}: downloaded the original unchanged; it does not contain translations.`
+                    );
+                } else if (action === "Repair / Re-import") {
+                    await vscode.commands.executeCommand(
+                        "codex-project-manager.openSourceUpload",
+                        "repair-idml"
+                    );
+                    recoveryMessages.push(
+                        `${basename(filePath)}: opened the source importer for repair/re-import.`
+                    );
+                }
+            } catch (recoveryError) {
+                reporter.fileMissing(
+                    basename(filePath),
+                    "write-failed",
+                    `The translated export remained blocked, and the selected recovery action also failed: ${
+                        recoveryError instanceof Error
+                            ? recoveryError.message
+                            : String(recoveryError)
+                    }`
+                );
+            }
         }
     }
 
+    const sizeDelta = `${totals.sizeDelta >= 0 ? "+" : ""}${totals.sizeDelta} bytes`;
     reporter.complete({
         exportPath: userSelectedPath,
         filesExported: exportedCount,
@@ -414,6 +483,11 @@ async function exportCodexContentAsIdmlRoundtrip(
             exportedCount === filesToExport.length
                 ? "Strict IDML v2 round-trip export completed."
                 : `Exported ${exportedCount}/${filesToExport.length} IDML files; failed files were not written.`,
+            `IDML v2 report: ${totals.translated} translated, ${totals.unchanged} unchanged, ${totals.missing} missing, ${totals.rejected} rejected, ${totals.unsupported} unsupported; ${changedMemberPaths.size} package members changed; package size delta ${sizeDelta}.`,
+            ...(warnings.size > 0
+                ? [`IDML preflight warnings: ${[...warnings].join("; ")}`]
+                : []),
+            ...recoveryMessages,
         ],
     });
 }

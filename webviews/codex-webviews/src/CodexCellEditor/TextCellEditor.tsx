@@ -5038,7 +5038,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             key={`${cellIndex}-quill`}
                             initialValue={editorContent}
                             editHistory={editHistory}
-                            onChange={({ html }) => {
+                            onChange={({ html, idmlHistoryAction }) => {
                                 // Clean suggestion markup before processing
                                 const cleanedHtml = getCleanedHtml(html);
                                 setEditorContent(cleanedHtml);
@@ -5050,6 +5050,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     cellContent: cleanedHtml,
                                     cellChanged: true,
                                     cellLabel: editableLabel,
+                                    idmlHistoryAction,
                                 });
                             }}
                             onDirtyChange={(dirty) => {

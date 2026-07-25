@@ -1504,7 +1504,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     EditType.USER_EDIT,
                     true,
                     retainValidations,
-                    skipAutoValidation
+                    skipAutoValidation,
+                    undefined,
+                    typedEvent.content.idmlHistoryAction
                 );
                 // Wait for the index to be updated and verify it's available
                 await document.ensureCellIndexed(cellId, 3000);
@@ -1515,7 +1517,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     EditType.USER_EDIT,
                     true,
                     retainValidations,
-                    skipAutoValidation
+                    skipAutoValidation,
+                    undefined,
+                    typedEvent.content.idmlHistoryAction
                 );
             }
 
@@ -4117,6 +4121,19 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             if (!previousCell || !currentCell) {
                 console.error("Could not retrieve cell objects for merge operation");
                 vscode.window.showErrorMessage("Could not retrieve cell objects for merge operation");
+                return;
+            }
+
+            // One IDML cell represents exactly one original InDesign
+            // ParagraphStyleRange. Merging would destroy both locators before
+            // the normal content guard gets a chance to validate the result.
+            if (
+                previousCell.metadata?.idml !== undefined ||
+                currentCell.metadata?.idml !== undefined
+            ) {
+                vscode.window.showErrorMessage(
+                    "IDML paragraphs cannot be merged because their protected InDesign locators must remain one-to-one."
+                );
                 return;
             }
 

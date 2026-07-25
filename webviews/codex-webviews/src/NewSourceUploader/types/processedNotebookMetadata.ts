@@ -220,6 +220,7 @@ export interface BiblicaNotebookMetadata extends ProcessedNotebookMetadataBase {
     totalCells?: number;
     fileType?: "biblica" | string;
     contentType?: "notes";
+    corpusMarker?: "biblica-idml";
 }
 
 export interface MaculaNotebookMetadata extends ProcessedNotebookMetadataBase {

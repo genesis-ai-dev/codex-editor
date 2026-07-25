@@ -43,6 +43,7 @@ import { createCacheHelpers, createProgressCacheHelpers } from "./utils";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import { FloatingSearchBar, SearchMatch } from "./FloatingSearchBar";
 import { SimilarWordingDialog } from "./SimilarWordingDialog";
+import { unsupportedIdmlNotebookVersionMessage } from "./utils/idmlProtectedAnchors";
 
 const DEBUG_ENABLED = false; // todo: turn this on and clean up the functions that are getting called thousands of times, probably once per cell
 
@@ -3625,6 +3626,24 @@ const CodexCellEditor: React.FC = () => {
         },
         []
     );
+
+    const unsupportedIdmlVersion =
+        unsupportedIdmlNotebookVersionMessage(metadata);
+    if (unsupportedIdmlVersion) {
+        return (
+            <div
+                role="alert"
+                className="m-6 rounded border border-red-500 bg-red-50 p-4 text-red-900"
+            >
+                <h2 className="font-semibold">Unsupported IDML project version</h2>
+                <p>{unsupportedIdmlVersion}</p>
+                <p className="mt-2 text-sm">
+                    The file is locked to prevent protected anchors from being
+                    interpreted as generic HTML.
+                </p>
+            </div>
+        );
+    }
 
     if (duplicateCellsExist) {
         return (

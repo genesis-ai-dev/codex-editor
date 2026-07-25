@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
     IDML_EMPTY_ANCHOR_SENTINEL,
     prepareIdmlHtmlForQuill,
+    unsupportedIdmlNotebookVersionMessage,
     validateAndCanonicalizeIdmlHtml,
     validateCanonicalIdmlTranslation,
 } from "../utils/idmlProtectedAnchors";
@@ -56,5 +57,14 @@ describe("IDML protected Quill serialization", () => {
                 metadata: { ...metadata, version: 3 },
             })
         ).toThrow(/future IDML metadata version 3/);
+    });
+
+    it("blocks an unsupported future notebook version before generic editing", () => {
+        expect(
+            unsupportedIdmlNotebookVersionMessage({ idmlSchemaVersion: 3 })
+        ).toMatch(/version 3/);
+        expect(
+            unsupportedIdmlNotebookVersionMessage({ idmlSchemaVersion: 2 })
+        ).toBeNull();
     });
 });

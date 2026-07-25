@@ -1612,6 +1612,171 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.ok(hasMergedEdit, "Merged cell should log a merged edit entry");
     });
 
+    test("mergeCellWithPrevious blocks IDML before mutating either paragraph", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        const allIds = document.getAllCellIds();
+        const previousCellId = allIds[0];
+        const currentCellId = allIds[1];
+        assert.ok(previousCellId && currentCellId);
+        const previousCell = document.getCell(previousCellId);
+        const currentCell = document.getCell(currentCellId);
+        assert.ok(previousCell && currentCell);
+
+        previousCell.metadata.idml = {
+            version: 2,
+            slotCount: 1,
+            editableSlotIndexes: [0],
+            protectedTokenCount: 0,
+            anchorSequenceHash: "a".repeat(64),
+        };
+        const beforePrevious = previousCell.value;
+        const beforeCurrent = currentCell.value;
+        const errorMessage = sinon
+            .stub(vscode.window, "showErrorMessage")
+            .resolves(undefined as never);
+        const { panel } = createMockWebviewPanel();
+
+        await handleMessages(
+            {
+                command: "mergeCellWithPrevious",
+                content: {
+                    currentCellId,
+                    previousCellId,
+                    currentContent: currentCell.value,
+                    previousContent: previousCell.value,
+                },
+            } as any,
+            panel,
+            document,
+            () => {},
+            provider as any
+        );
+
+        assert.strictEqual(previousCell.value, beforePrevious);
+        assert.strictEqual(currentCell.value, beforeCurrent);
+        assert.strictEqual(!!currentCell.metadata.data?.merged, false);
+        assert.ok(
+            errorMessage.calledWithMatch(
+                sinon.match(/IDML paragraphs cannot be merged/)
+            )
+        );
+    });
+
+    test("IDML persistence tracks an edited slot after it is intentionally cleared", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        const cellId = document.getAllCellIds()[0];
+        assert.ok(cellId);
+        const cell = document.getCell(cellId);
+        assert.ok(cell);
+        const sourceHtml =
+            '<p data-idml-version="2"><span data-idml-slot="0" data-idml-character-style="style" data-idml-protected="slot">Hello</span></p>';
+        const emptyHtml =
+            '<p data-idml-version="2"><span data-idml-slot="0" data-idml-character-style="style" data-idml-protected="slot"></span></p>';
+        const translatedHtml =
+            '<p data-idml-version="2"><span data-idml-slot="0" data-idml-character-style="style" data-idml-protected="slot">Bonjour</span></p>';
+        cell.value = emptyHtml;
+        cell.metadata.idml = {
+            version: 2,
+            slotCount: 1,
+            editableSlotIndexes: [0],
+            protectedTokenCount: 0,
+            anchorSequenceHash:
+                "766aa2a87159f27180547d4dafd88d46cfb4a351e497cc942fb2688a37af76e9",
+        };
+        cell.metadata.idmlSourceHtml = sourceHtml;
+        cell.metadata.idmlTranslationState = "untranslated";
+        cell.metadata.idmlTranslatedSlotIndexes = [];
+
+        await document.updateCellContent(
+            cellId,
+            translatedHtml,
+            EditType.USER_EDIT
+        );
+        assert.deepStrictEqual(cell.metadata.idmlTranslatedSlotIndexes, [0]);
+
+        await document.updateCellContent(cellId, emptyHtml, EditType.USER_EDIT);
+        assert.strictEqual(cell.metadata.idmlTranslationState, "translated");
+        assert.deepStrictEqual(cell.metadata.idmlTranslatedSlotIndexes, [0]);
+
+        await document.updateCellContent(
+            cellId,
+            translatedHtml,
+            EditType.USER_EDIT
+        );
+        await document.updateCellContent(
+            cellId,
+            emptyHtml,
+            EditType.USER_EDIT,
+            true,
+            false,
+            false,
+            undefined,
+            "undo"
+        );
+        assert.strictEqual(cell.metadata.idmlTranslationState, "translated");
+        assert.deepStrictEqual(cell.metadata.idmlTranslatedSlotIndexes, [0]);
+    });
+
+    test("IDML undo back to the pristine empty target restores untranslated state", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        const cellId = document.getAllCellIds()[0];
+        assert.ok(cellId);
+        const cell = document.getCell(cellId);
+        assert.ok(cell);
+        const sourceHtml =
+            '<p data-idml-version="2"><span data-idml-slot="0" data-idml-character-style="style" data-idml-protected="slot">Hello</span></p>';
+        const emptyHtml =
+            '<p data-idml-version="2"><span data-idml-slot="0" data-idml-character-style="style" data-idml-protected="slot"></span></p>';
+        const translatedHtml =
+            '<p data-idml-version="2"><span data-idml-slot="0" data-idml-character-style="style" data-idml-protected="slot">Bonjour</span></p>';
+        cell.value = emptyHtml;
+        cell.metadata.idml = {
+            version: 2,
+            slotCount: 1,
+            editableSlotIndexes: [0],
+            protectedTokenCount: 0,
+            anchorSequenceHash:
+                "766aa2a87159f27180547d4dafd88d46cfb4a351e497cc942fb2688a37af76e9",
+        };
+        cell.metadata.idmlSourceHtml = sourceHtml;
+        cell.metadata.idmlTranslationState = "untranslated";
+        cell.metadata.idmlTranslatedSlotIndexes = [];
+
+        await document.updateCellContent(
+            cellId,
+            translatedHtml,
+            EditType.USER_EDIT
+        );
+        await document.updateCellContent(
+            cellId,
+            emptyHtml,
+            EditType.USER_EDIT,
+            true,
+            false,
+            false,
+            undefined,
+            "undo"
+        );
+
+        assert.strictEqual(cell.metadata.idmlTranslationState, "untranslated");
+        assert.deepStrictEqual(cell.metadata.idmlTranslatedSlotIndexes, []);
+    });
+
     test("mergeCellWithPrevious merges audio files when both cells have audio", async function () {
         this.timeout(10000); // Increase timeout for FFmpeg operations
 

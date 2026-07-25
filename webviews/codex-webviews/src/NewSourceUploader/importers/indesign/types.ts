@@ -1,6 +1,7 @@
 /**
  * TypeScript interfaces for InDesign IDML file structure and round-trip testing
- * Based on Adobe IDML specification for loss-free round-trip editing
+ * Legacy parser types retained for compatibility. Production imports use the
+ * shared IDML v2 engine; native fidelity remains experimental pending Adobe validation.
  */
 
 // Core IDML document structure

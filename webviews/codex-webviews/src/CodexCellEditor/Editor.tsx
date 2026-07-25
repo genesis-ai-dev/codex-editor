@@ -30,10 +30,13 @@ import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { processHtmlContent, updateFootnoteNumbering } from "./footnoteUtils";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import {
+    IDML_SOFT_BREAK_SENTINEL,
+    insertIdmlClipboardText,
     prepareIdmlHtmlForQuill,
     validateAndCanonicalizeIdmlHtml,
     validateCanonicalIdmlTranslation,
 } from "./utils/idmlProtectedAnchors";
+import { registerIdmlQuillFormats } from "./utils/idmlQuillFormats";
 import type { IdmlFormatMetadataV2 } from "@aquilla/idml-roundtrip";
 
 const icons: any = Quill.import("ui/icons");
@@ -43,6 +46,7 @@ const vscode: any = (window as any).vscodeApi;
 // Define the shape of content change callback
 export interface EditorContentChanged {
     html: string;
+    idmlHistoryAction?: "undo" | "redo";
 }
 
 // Use Quill's native header dropdown instead of custom cycle buttons
@@ -73,54 +77,12 @@ export interface EditorProps {
 
 // Fix the imports with correct typing
 const Inline = Quill.import("blots/inline") as any;
-const Embed = Quill.import("blots/embed") as any;
 
 // Update class definitions
 class AutocompleteFormat extends Inline {
     static blotName = "autocomplete";
     static tagName = "span";
 }
-
-class IdmlAnchorFormat extends Inline {
-    static blotName = "idmlAnchor";
-    static tagName = "span";
-    static className = "idml-anchor";
-
-    static create(value: Record<string, string>): HTMLElement {
-        const node = super.create() as HTMLElement;
-        for (const [name, attributeValue] of Object.entries(value ?? {})) {
-            if (
-                name.startsWith("data-idml-") ||
-                name === "contenteditable"
-            ) {
-                node.setAttribute(name, attributeValue);
-            }
-        }
-        return node;
-    }
-
-    static formats(node: HTMLElement): Record<string, string> {
-        return Array.from(node.attributes).reduce<Record<string, string>>(
-            (attributes, attribute) => {
-                if (
-                    attribute.name.startsWith("data-idml-") ||
-                    attribute.name === "contenteditable"
-                ) {
-                    attributes[attribute.name] = attribute.value;
-                }
-                return attributes;
-            },
-            {}
-        );
-    }
-}
-
-class IdmlSoftBreakFormat extends Embed {
-    static blotName = "idmlSoftBreak";
-    static tagName = "br";
-    static className = "idml-soft-break";
-}
-
 
 // Define Footnote Format
 class FootnoteFormat extends Inline {
@@ -164,9 +126,8 @@ Quill.register({
     "formats/autocomplete": AutocompleteFormat,
     "formats/footnote": FootnoteFormat,
     "formats/csdigit": CodexSdigitFormat,
-    "formats/idmlAnchor": IdmlAnchorFormat,
-    "formats/idmlSoftBreak": IdmlSoftBreakFormat,
 });
+registerIdmlQuillFormats();
 
 // Clipboard text matcher: split pasted plain-text ops so ⁰⁴–⁹ get `csdigit`
 // (and CSS size bump). Without this, pasted Unicode is “bare” in the font
@@ -414,6 +375,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const { setIsEditingFootnoteInline, isEditingFootnoteInline } = props;
     const [isToolbarExpanded, setIsToolbarExpanded] = useState(false);
     const [isToolbarVisible, setIsToolbarVisible] = useState(false);
+    const [showIdmlBoundaries, setShowIdmlBoundaries] = useState(false);
     const [isEditorEmpty, setIsEditorEmpty] = useState(true);
     const [editHistory, setEditHistory] = useState<EditHistoryEntry[]>([]);
     const initialContentRef = useRef<string>("");
@@ -425,6 +387,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const preserveParagraphsRef = useRef(props.preserveParagraphStructure ?? false);
     const lastValidIdmlDeltaRef = useRef<Delta | null>(null);
     const restoringIdmlRef = useRef(false);
+    const idmlHistoryActionRef = useRef<"undo" | "redo" | null>(null);
 
     const [currentAuthor, setCurrentAuthor] = useState<string>(
         (window as any).initialData?.userInfo?.username || "anonymous"
@@ -552,6 +515,13 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         preserveParagraphsRef.current = props.preserveParagraphStructure ?? false;
     }, [props.preserveParagraphStructure]);
 
+    useEffect(() => {
+        quillRef.current?.root.classList.toggle(
+            "idml-show-boundaries",
+            !!props.idml && showIdmlBoundaries
+        );
+    }, [props.idml, showIdmlBoundaries]);
+
     const serializeQuillHtml = (html: string): string =>
         props.idml
             ? validateAndCanonicalizeIdmlHtml(html, props.idml)
@@ -611,18 +581,11 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                             "user"
                                         );
                                     }
-                                    quillInstance.insertEmbed(
+                                    quillInstance.insertText(
                                         range.index,
-                                        "idmlSoftBreak",
-                                        true,
+                                        IDML_SOFT_BREAK_SENTINEL,
+                                        { idmlAnchor: formats.idmlAnchor },
                                         "user"
-                                    );
-                                    quillInstance.formatText(
-                                        range.index,
-                                        1,
-                                        "idmlAnchor",
-                                        formats.idmlAnchor,
-                                        "silent"
                                     );
                                     quillInstance.setSelection(
                                         range.index + 1,
@@ -645,6 +608,30 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 convertHTML?: (html: string) => Delta;
                 matchers: Array<[number | string, (node: Node, delta: Delta, scroll: unknown) => Delta]>;
             };
+            if (props.idml) {
+                const historyModule = quill.getModule("history") as {
+                    undo: () => void;
+                    redo: () => void;
+                };
+                const originalUndo = historyModule.undo.bind(historyModule);
+                const originalRedo = historyModule.redo.bind(historyModule);
+                historyModule.undo = () => {
+                    idmlHistoryActionRef.current = "undo";
+                    try {
+                        originalUndo();
+                    } finally {
+                        idmlHistoryActionRef.current = null;
+                    }
+                };
+                historyModule.redo = () => {
+                    idmlHistoryActionRef.current = "redo";
+                    try {
+                        originalRedo();
+                    } finally {
+                        idmlHistoryActionRef.current = null;
+                    }
+                };
+            }
 
             // Replace Quill's built-in whitespace-collapsing text matcher with
             // a non-destructive variant so runs of consecutive spaces survive
@@ -731,7 +718,8 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     prePasteLength = quillRef.current.getLength();
                 }
 
-                if (!pasteAsPlainTextRef.current) return;
+                const isIdmlPaste = !!props.idml;
+                if (!isIdmlPaste && !pasteAsPlainTextRef.current) return;
 
                 event.preventDefault();
                 event.stopPropagation();
@@ -740,6 +728,37 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 if (!text) return;
 
                 const sel = quillRef.current.getSelection(true);
+                if (isIdmlPaste) {
+                    const selection = sel ?? {
+                        index: Math.max(0, quillRef.current.getLength() - 1),
+                        length: 0,
+                    };
+                    const idmlAnchor = quillRef.current.getFormat(
+                        selection.index,
+                        selection.length
+                    ).idmlAnchor;
+                    if (
+                        !idmlAnchor ||
+                        typeof idmlAnchor !== "object" ||
+                        Array.isArray(idmlAnchor)
+                    ) {
+                        console.error(
+                            "[IDML] Paste rejected because the selection is outside one protected text slot."
+                        );
+                        return;
+                    }
+                    insertIdmlClipboardText(
+                        quillRef.current,
+                        text,
+                        selection,
+                        idmlAnchor as Record<string, string>
+                    );
+                    prePasteFormats = null;
+                    prePasteLength = null;
+                    triggerPostPasteProcessing();
+                    return;
+                }
+
                 const insertPlainWithSdigit = (index: number) => {
                     let pos = index;
                     for (const ch of Array.from(text)) {
@@ -748,7 +767,11 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         quillRef.current!.insertText(pos, ch, fmt, "user");
                         pos += 1;
                     }
-                    quillRef.current!.setSelection(index + text.length, 0, "silent");
+                    quillRef.current!.setSelection(
+                        index + text.length,
+                        0,
+                        "silent"
+                    );
                 };
                 if (sel) {
                     if (sel.length > 0) {
@@ -1174,6 +1197,8 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
                         props.onChange({
                             html: finalContent,
+                            idmlHistoryAction:
+                                idmlHistoryActionRef.current ?? undefined,
                         });
                     }
                     // Header selection handled by native dropdown
@@ -1874,6 +1899,23 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             }`}
                         ></i>
                     </VSCodeButton>
+                </div>
+            )}
+            {props.idml && !isEditingFootnoteInline && (
+                <div className="mb-1 flex justify-end">
+                    <button
+                        type="button"
+                        className="idml-boundary-toggle"
+                        aria-pressed={showIdmlBoundaries}
+                        onClick={() =>
+                            setShowIdmlBoundaries((visible) => !visible)
+                        }
+                        title="Show original InDesign character-style boundaries"
+                    >
+                        {showIdmlBoundaries
+                            ? "Hide style boundaries"
+                            : "Show style boundaries"}
+                    </button>
                 </div>
             )}
             <div

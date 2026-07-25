@@ -70,6 +70,8 @@ export function createIdmlV2Cells(result: IdmlParseResult): {
             images: [],
             metadata: {
                 ...metadata,
+                idmlTranslationState: "untranslated",
+                idmlTranslatedSlotIndexes: [],
                 data: metadata.data ? { ...metadata.data } : undefined,
             },
         });
@@ -87,7 +89,8 @@ export async function createIdmlV2NotebookPair(
     file: File,
     profile: CodexIdmlProfile,
     onProgress: (progress: ImportProgress) => void,
-    parse: typeof parseIdmlInWorker = parseIdmlInWorker
+    parse: typeof parseIdmlInWorker = parseIdmlInWorker,
+    signal?: AbortSignal
 ): Promise<NotebookPair> {
     if (!file.name.toLowerCase().endsWith(".idml")) {
         throw new Error("Please select a valid IDML file (.idml extension)");
@@ -96,6 +99,7 @@ export async function createIdmlV2NotebookPair(
     onProgress({ stage: "Read", message: "Reading IDML package…", progress: 5 });
     const originalFileData = await file.arrayBuffer();
     const result = await parse(originalFileData, profile, {
+        signal,
         onProgress: (update) => {
             onProgress({
                 stage: update.phase,
@@ -114,15 +118,12 @@ export async function createIdmlV2NotebookPair(
     const originalHash = result.manifest.sourceSha256;
     const baseName = sanitizeFileName(file.name);
     const createdAt = new Date().toISOString();
-    const importerType: "biblica" | "indesign" =
-        profile === "biblica" ? "biblica" : "indesign";
-    const commonMetadata = {
+    const baseMetadata = {
         originalFileName: file.name,
         sourceFile: file.name,
-        importerType,
         createdAt,
         importContext: {
-            importerType,
+            importerType: profile === "biblica" ? "biblica" : "indesign",
             fileName: file.name,
             originalFileName: file.name,
             originalHash,
@@ -131,16 +132,27 @@ export async function createIdmlV2NotebookPair(
         },
         originalHash,
         totalCells: sourceCells.length,
-        fileType: importerType,
+        fileType: profile === "biblica" ? "biblica" : "indesign",
         enforceHtmlStructure: true,
         idmlSchemaVersion: IDML_SCHEMA_VERSION,
         idmlManifest: result.manifest,
         idmlFidelity: "content-only" as const,
-        ...(profile === "biblica" ? { contentType: "notes" as const } : {}),
     };
+    const commonMetadata =
+        profile === "biblica"
+            ? {
+                  ...baseMetadata,
+                  importerType: "biblica" as const,
+                  contentType: "notes" as const,
+                  corpusMarker: "biblica-idml" as const,
+              }
+            : {
+                  ...baseMetadata,
+                  importerType: "indesign" as const,
+              };
 
     onProgress({ stage: "Complete", message: "IDML v2 import ready", progress: 100 });
-    return {
+    const notebookPair: NotebookPair = {
         source: {
             name: baseName,
             cells: sourceCells,
@@ -160,4 +172,5 @@ export async function createIdmlV2NotebookPair(
             },
         },
     };
+    return notebookPair;
 }
