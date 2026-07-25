@@ -28,6 +28,7 @@ import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./ut
 import { formatJsonForNotebookFile, normalizeNotebookFileText } from "../../utils/notebookFileFormattingUtils";
 import { serializeNotebookWithCellCache } from "./utils/cachedNotebookSerializer";
 import { atomicWriteUriText, readExistingFileOrThrow } from "../../utils/notebookSafeSaveUtils";
+import { assertValidIdmlCellContent } from "../../idml/idmlCellGuard";
 
 // Define debug function locally
 const DEBUG_MODE = false;
@@ -338,6 +339,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+
+        // IDML v2 is fail-closed at the canonical persistence boundary. This
+        // covers editor saves, AI/TM previews and commits, A/B selection,
+        // search/replace, and direct provider updates.
+        assertValidIdmlCellContent(cellToUpdate.metadata, newContent);
 
         // Update milestone value in cache if updating a milestone cell value
         // Only invalidate cache if structure actually changed (e.g., milestone deleted/added)
@@ -1041,6 +1047,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             attachments: cell.metadata.attachments || {},
             metadata: {
                 isLocked: cell.metadata.isLocked,
+                idml: cell.metadata.idml,
+                idmlLocator: cell.metadata.idmlLocator,
+                idmlSourceHtml: cell.metadata.idmlSourceHtml,
             },
         };
     }

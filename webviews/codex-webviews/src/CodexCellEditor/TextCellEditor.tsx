@@ -5063,6 +5063,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             pasteAsPlainText={pasteAsPlainText}
                             onCharacterCountChange={setCharacterCount}
                             preserveParagraphStructure={metadata?.enforceHtmlStructure ?? false}
+                            idml={
+                                cell.metadata?.idml && cell.metadata?.idmlSourceHtml
+                                    ? {
+                                          metadata: cell.metadata.idml,
+                                          sourceHtml: cell.metadata.idmlSourceHtml,
+                                      }
+                                    : undefined
+                            }
                         />
                     </div>
                 </div>

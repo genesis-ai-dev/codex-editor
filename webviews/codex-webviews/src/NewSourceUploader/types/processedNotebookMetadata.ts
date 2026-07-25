@@ -1,4 +1,5 @@
 import type { FileImporterType, NotebookImportContext, NotebookImportMetadataCore } from "types";
+import type { IdmlSourceManifest } from "@aquilla/idml-roundtrip";
 
 export type ImporterType = FileImporterType;
 export type ImportContext = NotebookImportContext;
@@ -29,6 +30,10 @@ export type ProcessedNotebookMetadataBase = NotebookImportMetadataCore & {
 
     /** When true, translated cells are validated against the source HTML structure during editing and export. */
     enforceHtmlStructure?: boolean;
+    /** Canonical IDML source-package contract for strict round-trip export. */
+    idmlSchemaVersion?: 2;
+    idmlManifest?: IdmlSourceManifest;
+    idmlFidelity?: "content-only" | "native";
 };
 
 export type MarkdownFeatures = {
@@ -263,4 +268,3 @@ export type ProcessedNotebookMetadataByImporter = {
     biblica: BiblicaNotebookMetadata;
     macula: MaculaNotebookMetadata;
 };
-

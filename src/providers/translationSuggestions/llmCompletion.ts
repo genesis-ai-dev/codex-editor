@@ -8,6 +8,7 @@ import { getAutoCompleteStatusBarItem } from "../../extension";
 import { tokenizeText } from "../../utils/nlpUtils";
 import { buildFewShotExamplesText, buildMessages, fetchFewShotExamples, getPrecedingTranslationPairs, parseFinalAnswer } from "./shared";
 import { abTestingRegistry } from "../../utils/abTestingRegistry";
+import { assertValidIdmlCellContent } from "../../idml/idmlCellGuard";
 
 // Helper function to build A/B test context object
 function buildABTestContext(
@@ -117,6 +118,15 @@ export async function llmCompletion(
         // Get the source content for the current cell(s)
         const currentCellIndex = await currentNotebookReader.getCellIndex({ id: currentCellId });
         const currentCellIds = await currentNotebookReader.getCellIds(currentCellIndex);
+        const targetCells = await currentNotebookReader.getCells();
+        const targetMetadata = targetCells[currentCellIndex]?.metadata as
+            | { id?: string; idml?: unknown; idmlSourceHtml?: string }
+            | undefined;
+        const isIdmlV2 = targetMetadata?.idml !== undefined;
+        if (isIdmlV2) {
+            // Reject unsupported future versions before any model call.
+            assertValidIdmlCellContent(targetMetadata, targetMetadata.idmlSourceHtml ?? "");
+        }
 
         const sourceCells = await Promise.all(
             currentCellIds.map(async (id) => {
@@ -160,20 +170,24 @@ export async function llmCompletion(
                 .trim();
         };
 
-        const sourceContent = validSourceCells
-            .map((cell) => sanitizeHtmlContent(cell!.content || ""))
-            .join(" ");
+        const sourceContent = isIdmlV2
+            ? targetMetadata!.idmlSourceHtml!
+            : validSourceCells
+                  .map((cell) => sanitizeHtmlContent(cell!.content || ""))
+                  .join(" ");
 
         // Get few-shot examples (existing behavior encapsulated)
         if (completionConfig.debugMode) {
             console.debug(`[llmCompletion] Fetching few-shot examples with query: "${sourceContent}", cellId: ${currentCellId}, count: ${numberOfFewShotExamples}, onlyValidated: ${completionConfig.useOnlyValidatedExamples}`);
         }
-        const finalExamples = await fetchFewShotExamples(
-            sourceContent,
-            currentCellId,
-            numberOfFewShotExamples,
-            completionConfig.useOnlyValidatedExamples
-        );
+        const finalExamples = isIdmlV2
+            ? []
+            : await fetchFewShotExamples(
+                  sourceContent,
+                  currentCellId,
+                  numberOfFewShotExamples,
+                  completionConfig.useOnlyValidatedExamples
+              );
         if (completionConfig.debugMode) {
             console.debug(`[llmCompletion] Retrieved ${finalExamples.length} few-shot examples:`, finalExamples.map(ex => ({ cellId: ex.cellId, source: ex.sourceCell?.content?.substring(0, 50) + '...', target: ex.targetCell?.content?.substring(0, 50) + '...' })));
         }
@@ -191,13 +205,15 @@ export async function llmCompletion(
                 cell.metadata?.type === CodexCellTypes.TEXT && cell.metadata?.id !== currentCellId
         );
 
-        const precedingTranslationPairs = await getPrecedingTranslationPairs(
-            currentNotebookReader,
-            currentCellId,
-            currentCellIndex,
-            contextSize,
-            Boolean(completionConfig.allowHtmlPredictions)
-        );
+        const precedingTranslationPairs = isIdmlV2
+            ? []
+            : await getPrecedingTranslationPairs(
+                  currentNotebookReader,
+                  currentCellId,
+                  currentCellIndex,
+                  contextSize,
+                  Boolean(completionConfig.allowHtmlPredictions)
+              );
 
         // Get the source and target languages
         const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
@@ -219,13 +235,16 @@ export async function llmCompletion(
             // Build messages — buildMessages is the single source of truth for
             // system message construction. Pass the raw chatSystemMessage and let
             // buildMessages append instructions exactly once.
+            const effectiveSystemMessage = isIdmlV2
+                ? `${chatSystemMessage}\n\nIDML PROTECTED CONTENT: Translate only text inside data-idml-slot elements. Return the complete HTML paragraph exactly once. Preserve every data-idml-version, data-idml-slot, data-idml-character-style, data-idml-token, data-idml-token-kind, data-idml-protected, and contenteditable attribute exactly, including identity, order, and uniqueness. Never add, remove, redistribute, or renumber anchors. A requested line break inside a slot is a bare <br>. Return only the protected HTML.`
+                : chatSystemMessage;
             const messages = buildMessages(
                 targetLanguage,
-                chatSystemMessage,
+                effectiveSystemMessage,
                 fewShotExamples,
                 precedingTranslationPairs,
                 currentCellSourceContent,
-                Boolean(completionConfig.allowHtmlPredictions),
+                isIdmlV2 || Boolean(completionConfig.allowHtmlPredictions),
                 fewShotExampleFormat || "source-and-target",
                 sourceLanguage
             );
@@ -238,7 +257,7 @@ export async function llmCompletion(
             const abProbabilityRaw = extConfig.get<number>("abTestingProbability");
             const abProbability = Math.max(0, Math.min(1, typeof abProbabilityRaw === "number" ? abProbabilityRaw : 0.01));
             const randomValue = Math.random();
-            const triggerAB = abEnabled && randomValue < abProbability;
+            const triggerAB = !isIdmlV2 && abEnabled && randomValue < abProbability;
 
             if (completionConfig.debugMode) {
                 console.debug(`[llmCompletion] A/B testing: enabled=${abEnabled}, isBatchOperation=${isBatchOperation}, probability=${abProbability}, random=${randomValue.toFixed(3)}, trigger=${triggerAB}`);
@@ -306,12 +325,17 @@ export async function llmCompletion(
             // Extract translation from <final_answer> tags, fallback to full response
             const parsed = parseFinalAnswer(completion || "");
             const lines = parsed.split(/\r?\n/);
-            const processed = lines
-                .map((line) => line.trimEnd())
-                .join(allowHtml || returnHTML ? "<br/>" : "\n");
+            const processed = isIdmlV2
+                ? parsed.trim()
+                : lines
+                      .map((line) => line.trimEnd())
+                      .join(allowHtml || returnHTML ? "<br/>" : "\n");
 
             // Note: no <span> wrapper here (see postProcessABTestResult).
             const singleVariant = processed;
+            if (isIdmlV2) {
+                assertValidIdmlCellContent(targetMetadata!, singleVariant);
+            }
             const variants = [singleVariant, singleVariant];
 
             if (debugMode) {

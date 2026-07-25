@@ -6,6 +6,7 @@ import {
 } from "../../../../sharedUtils/htmlStructureUtils";
 import type { CompletionConfig } from "../../../utils/llmUtils";
 import type { CodexCellDocument } from "../codexDocument";
+import { assertValidIdmlCellContent } from "../../../idml/idmlCellGuard";
 
 export const stripMarkdownCodeFences = (content: string): string => {
     let resolved = content.trim();
@@ -196,6 +197,14 @@ export const maybeAutoResolveHtmlStructure = async (
     document: CodexCellDocument,
     options?: AutoResolveHtmlStructureOptions,
 ): Promise<string> => {
+    const targetCell = document.getCellContent(cellId);
+    if (targetCell?.metadata?.idml !== undefined) {
+        // IDML anchors are an identity/order contract, not generic tag
+        // structure. They must never be guessed or repaired by an LLM.
+        assertValidIdmlCellContent(targetCell.metadata, translatedHtml);
+        return translatedHtml;
+    }
+
     const metadata = document.getNotebookMetadata();
     if (!metadata.enforceHtmlStructure) {
         return translatedHtml;

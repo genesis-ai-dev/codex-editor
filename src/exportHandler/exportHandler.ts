@@ -32,6 +32,7 @@ import { exportCodexContentAsPlaintext } from "./plaintextExporter";
 import { exportCodexContentAsXliff } from "./xliffExporter";
 import { exportCodexContentAsUsfm } from "./usfmExporter";
 import { exportCodexContentAsHtml } from "./htmlExporter";
+import { exportCodexIdmlV2 } from "../idml/idmlV2NodeAdapter";
 import {
     createNoopReporter,
     type ExportProgressReporter,
@@ -261,7 +262,7 @@ export interface ExportOptions {
     selectedMilestonesByFile?: Record<string, number[]>;
 }
 
-// IDML Round-trip export: Uses idmlExporter or biblicaExporter based on filename
+// IDML round-trip export: one strict shared v2 engine for every semantic profile.
 async function exportCodexContentAsIdmlRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
@@ -277,11 +278,8 @@ async function exportCodexContentAsIdmlRoundtrip(
     const exportFolder = vscode.Uri.file(userSelectedPath);
     await vscode.workspace.fs.createDirectory(exportFolder);
 
-    // Import exporters
-    const { exportIdmlRoundtrip } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/indesign/idmlExporter");
-    const { exportIdmlRoundtrip: exportBiblicaIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/biblica/biblicaExporter");
-
     // For each selected codex file, find its original attachment and create a translated copy in export folder
+    let exportedCount = 0;
     for (const [index, filePath] of filesToExport.entries()) {
         reporter.report({
             stage: "writing",
@@ -298,19 +296,26 @@ async function exportCodexContentAsIdmlRoundtrip(
             // Read codex notebook
             const codexNotebook = await readCodexNotebookFromUri(file);
 
-            const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker || '';
-            const importerType = (codexNotebook.metadata as any)?.importerType || '';
-            const fileType = (codexNotebook.metadata as any)?.fileType || '';
+            const corpusMarker = codexNotebook.metadata?.corpusMarker || "";
+            const importerType = codexNotebook.metadata?.importerType || "";
+            const fileType = (codexNotebook.metadata as { fileType?: string })?.fileType || "";
             const isBiblicaFile =
-                corpusMarker === 'biblica' ||
-                corpusMarker === 'biblica-idml' ||
-                importerType === 'biblica' ||
-                fileType === 'biblica' ||
-                importerType === 'biblica-experimental' ||
-                fileType === 'biblica-experimental';
-            const exporterType = isBiblicaFile ? 'Biblica' : 'Standard';
+                corpusMarker === "biblica" ||
+                corpusMarker === "biblica-idml" ||
+                importerType === "biblica" ||
+                fileType === "biblica";
+            const manifest = codexNotebook.metadata?.idmlManifest;
+            if (codexNotebook.metadata?.idmlSchemaVersion !== 2 || !manifest) {
+                throw new Error(
+                    "This project does not have complete IDML v2 source metadata. Repair/re-import it before exporting; Codex will not emit a partial IDML package."
+                );
+            }
 
-            console.log(`[IDML Export] Processing ${fileName} (corpusMarker: ${corpusMarker}) using ${exporterType} exporter`);
+            console.log(
+                `[IDML Export] Processing ${fileName} (profile: ${String(
+                    importerType || corpusMarker || "generic"
+                )}) with shared v2 engine`
+            );
 
             // Lookup original attachment by originalFileName or originalName metadata on the notebook (fallback to {bookCode}.idml)
             // Note: originalFileName points to the deduplicated file in attachments/files/originals (or legacy attachments/originals)
@@ -375,20 +380,23 @@ async function exportCodexContentAsIdmlRoundtrip(
             }
             console.log(`[IDML Export] Loaded original IDML: ${originalFileUri.fsPath} (${idmlData.length} bytes, valid ZIP signature)`);
 
-            let updatedIdmlData: Uint8Array;
-            if (isBiblicaFile) {
-                updatedIdmlData = await exportBiblicaIdml(idmlData, codexNotebook.cells);
-            } else {
-                updatedIdmlData = await exportIdmlRoundtrip(idmlData, codexNotebook.cells);
-            }
+            const { bytes: updatedIdmlData, report } = await exportCodexIdmlV2(
+                idmlData,
+                codexNotebook.cells,
+                manifest
+            );
 
             const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-            const suffix = isBiblicaFile ? '_biblica_translated' : '_translated';
+            const suffix = isBiblicaFile ? "_biblica_translated" : "_translated";
             const injectedName = originalFileName.replace(/\.idml$/i, `_${timestamp}${suffix}.idml`);
             const injectedUri = vscode.Uri.joinPath(exportFolder, injectedName);
             await vscode.workspace.fs.writeFile(injectedUri, updatedIdmlData);
+            exportedCount += 1;
 
-            console.log(`[IDML Export] ${exporterType} export completed: ${injectedName}`);
+            console.log(
+                `[IDML Export] Exported ${injectedName}: ${report.translated} translated, ` +
+                    `${report.unchanged} unchanged, ${report.changedMemberPaths.length} members changed`
+            );
         } catch (err) {
             console.error("IDML round-trip export failed:", err);
             reporter.fileMissing(
@@ -401,8 +409,12 @@ async function exportCodexContentAsIdmlRoundtrip(
 
     reporter.complete({
         exportPath: userSelectedPath,
-        filesExported: filesToExport.length,
-        extraMessages: [`IDML round-trip export completed.`],
+        filesExported: exportedCount,
+        extraMessages: [
+            exportedCount === filesToExport.length
+                ? "Strict IDML v2 round-trip export completed."
+                : `Exported ${exportedCount}/${filesToExport.length} IDML files; failed files were not written.`,
+        ],
     });
 }
 

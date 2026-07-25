@@ -8,6 +8,10 @@ const path = require("path");
 const webpack = require("webpack");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 
+const idmlRoundtripEntry = path.resolve(
+    __dirname,
+    "node_modules/@aquilla/idml-roundtrip/dist/index.js"
+);
 
 //@ts-check
 /** @typedef {import('webpack').Configuration} WebpackConfig **/
@@ -40,6 +44,7 @@ const extensionConfig = {
         // support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader
         extensions: [".ts", ".js", ".mjs"],
         alias: {
+            "@aquilla/idml-roundtrip": idmlRoundtripEntry,
             "@": path.resolve(__dirname, "src"),
             "@types": path.resolve(__dirname, "types"),
             // Allow webview code to import project types via `types/...` in extension/test bundles
@@ -182,6 +187,7 @@ const testConfig = {
     resolve: {
         extensions: [".ts", ".js"],
         alias: {
+            "@aquilla/idml-roundtrip": idmlRoundtripEntry,
             "@": path.resolve(__dirname, "src"),
             "@startupFlowTypes": path.resolve(
                 __dirname,
@@ -297,6 +303,7 @@ const testRunnerConfig = {
     resolve: {
         extensions: [".ts", ".js"],
         alias: {
+            "@aquilla/idml-roundtrip": idmlRoundtripEntry,
             "@": path.resolve(__dirname, "src"),
         },
     },

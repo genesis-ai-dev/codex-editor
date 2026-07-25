@@ -818,6 +818,8 @@ type CodexData = Timestamps & {
     milestoneIndex?: number | null; // 0-based milestone index for O(1) lookup (null if no milestone)
     audioStartTime?: number;
     audioEndTime?: number;
+    /** Legacy Codex IDML metadata. V2 imports use the top-level canonical fields below. */
+    idmlStructure?: Record<string, unknown>;
 };
 
 type BaseCustomCellMetaData = {
@@ -830,6 +832,12 @@ type BaseCustomCellMetaData = {
      * Markdown / OBS round-trip: UTF-16 start (inclusive) and end (exclusive) offsets into the canonical source string.
      */
     sourceSpan?: { start: number; end: number };
+    /** Canonical IDML v2 protected-anchor contract. */
+    idml?: import("@aquilla/idml-roundtrip").IdmlFormatMetadataV2;
+    /** Exact source-package locator for this IDML translation unit. */
+    idmlLocator?: import("@aquilla/idml-roundtrip").IdmlLocator;
+    /** Immutable canonical source HTML used to validate target anchor identity. */
+    idmlSourceHtml?: string;
 };
 
 export type BaseCustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
@@ -932,6 +940,12 @@ export interface CustomNotebookMetadata {
      * Mismatches are flagged in the editor and warned about during round-trip export.
      */
     enforceHtmlStructure?: boolean;
+    /** IDML engine schema emitted by new imports. Unsupported future majors fail closed. */
+    idmlSchemaVersion?: 2;
+    /** Immutable manifest for strict source-package validation and export. */
+    idmlManifest?: import("@aquilla/idml-roundtrip").IdmlSourceManifest;
+    /** Native fidelity remains unavailable until the Adobe validation gate passes. */
+    idmlFidelity?: "content-only" | "native";
     /**
      * Markdown round-trip: `originalFileData` / attachments store UTF-8 of post-footnote processed text; cell `sourceSpan` indices refer to that string.
      */
@@ -1058,6 +1072,9 @@ interface QuillCellContent {
         selectedAudioId?: string;
         selectionTimestamp?: number;
         isLocked?: boolean;
+        idml?: import("@aquilla/idml-roundtrip").IdmlFormatMetadataV2;
+        idmlLocator?: import("@aquilla/idml-roundtrip").IdmlLocator;
+        idmlSourceHtml?: string;
         [key: string]: any;
     };
 }

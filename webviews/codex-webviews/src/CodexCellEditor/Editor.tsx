@@ -29,6 +29,12 @@ import { diffWords } from "diff";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { processHtmlContent, updateFootnoteNumbering } from "./footnoteUtils";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import {
+    prepareIdmlHtmlForQuill,
+    validateAndCanonicalizeIdmlHtml,
+    validateCanonicalIdmlTranslation,
+} from "./utils/idmlProtectedAnchors";
+import type { IdmlFormatMetadataV2 } from "@aquilla/idml-roundtrip";
 
 const icons: any = Quill.import("ui/icons");
 // Assuming you have access to the VSCode API here
@@ -59,15 +65,60 @@ export interface EditorProps {
      * cell's HTML skeleton stays aligned with the source cell.
      */
     preserveParagraphStructure?: boolean;
+    idml?: {
+        metadata: IdmlFormatMetadataV2;
+        sourceHtml: string;
+    };
 }
 
 // Fix the imports with correct typing
 const Inline = Quill.import("blots/inline") as any;
+const Embed = Quill.import("blots/embed") as any;
 
 // Update class definitions
 class AutocompleteFormat extends Inline {
     static blotName = "autocomplete";
     static tagName = "span";
+}
+
+class IdmlAnchorFormat extends Inline {
+    static blotName = "idmlAnchor";
+    static tagName = "span";
+    static className = "idml-anchor";
+
+    static create(value: Record<string, string>): HTMLElement {
+        const node = super.create() as HTMLElement;
+        for (const [name, attributeValue] of Object.entries(value ?? {})) {
+            if (
+                name.startsWith("data-idml-") ||
+                name === "contenteditable"
+            ) {
+                node.setAttribute(name, attributeValue);
+            }
+        }
+        return node;
+    }
+
+    static formats(node: HTMLElement): Record<string, string> {
+        return Array.from(node.attributes).reduce<Record<string, string>>(
+            (attributes, attribute) => {
+                if (
+                    attribute.name.startsWith("data-idml-") ||
+                    attribute.name === "contenteditable"
+                ) {
+                    attributes[attribute.name] = attribute.value;
+                }
+                return attributes;
+            },
+            {}
+        );
+    }
+}
+
+class IdmlSoftBreakFormat extends Embed {
+    static blotName = "idmlSoftBreak";
+    static tagName = "br";
+    static className = "idml-soft-break";
 }
 
 
@@ -113,6 +164,8 @@ Quill.register({
     "formats/autocomplete": AutocompleteFormat,
     "formats/footnote": FootnoteFormat,
     "formats/csdigit": CodexSdigitFormat,
+    "formats/idmlAnchor": IdmlAnchorFormat,
+    "formats/idmlSoftBreak": IdmlSoftBreakFormat,
 });
 
 // Clipboard text matcher: split pasted plain-text ops so ⁰⁴–⁹ get `csdigit`
@@ -370,6 +423,8 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const editorRef = useRef<HTMLDivElement>(null);
     const pasteAsPlainTextRef = useRef(props.pasteAsPlainText ?? false);
     const preserveParagraphsRef = useRef(props.preserveParagraphStructure ?? false);
+    const lastValidIdmlDeltaRef = useRef<Delta | null>(null);
+    const restoringIdmlRef = useRef(false);
 
     const [currentAuthor, setCurrentAuthor] = useState<string>(
         (window as any).initialData?.userInfo?.username || "anonymous"
@@ -497,6 +552,14 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         preserveParagraphsRef.current = props.preserveParagraphStructure ?? false;
     }, [props.preserveParagraphStructure]);
 
+    const serializeQuillHtml = (html: string): string =>
+        props.idml
+            ? validateAndCanonicalizeIdmlHtml(html, props.idml)
+            : processQuillContentForSaving(
+                  getCleanedHtml(html),
+                  preserveParagraphsRef.current
+              );
+
     // Initialize Quill editor
     useEffect(() => {
         if (editorRef.current && !quillRef.current) {
@@ -527,6 +590,45 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                 shortKey: true,
                                 handler: () => {
                                     handleSuperscriptToggle();
+                                    return false;
+                                },
+                            },
+                            idmlSoftBreak: {
+                                key: "Enter",
+                                handler: (range: { index: number; length: number }) => {
+                                    if (!props.idml || !quillRef.current) {
+                                        return true;
+                                    }
+                                    const quillInstance = quillRef.current;
+                                    const formats = quillInstance.getFormat(range.index);
+                                    if (!formats.idmlAnchor) {
+                                        return false;
+                                    }
+                                    if (range.length > 0) {
+                                        quillInstance.deleteText(
+                                            range.index,
+                                            range.length,
+                                            "user"
+                                        );
+                                    }
+                                    quillInstance.insertEmbed(
+                                        range.index,
+                                        "idmlSoftBreak",
+                                        true,
+                                        "user"
+                                    );
+                                    quillInstance.formatText(
+                                        range.index,
+                                        1,
+                                        "idmlAnchor",
+                                        formats.idmlAnchor,
+                                        "silent"
+                                    );
+                                    quillInstance.setSelection(
+                                        range.index + 1,
+                                        0,
+                                        "silent"
+                                    );
                                     return false;
                                 },
                             },
@@ -595,9 +697,9 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
                         // Process the content using the improved processing function
                         const contentIsEmpty = isQuillEmpty(quillRef.current);
-                        const finalContent = contentIsEmpty
+                        const finalContent = contentIsEmpty && !props.idml
                             ? ""
-                            : processQuillContentForSaving(getCleanedHtml(content), preserveParagraphsRef.current);
+                            : serializeQuillHtml(content);
 
                         debug("Paste finalContent", { finalContent, contentIsEmpty });
 
@@ -884,10 +986,13 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             quillRef.current = quill;
 
             if (props.initialValue) {
+                const initialHtml = props.idml
+                    ? prepareIdmlHtmlForQuill(props.initialValue)
+                    : props.initialValue;
                 // Parse through the clipboard pipeline so TEXT_NODE matchers apply
                 // (wraps ⁰⁴–⁹ for consistent sizing vs ¹²³). Raw innerHTML skips that.
                 const convertedDelta = clipboardModule.convert({
-                    html: props.initialValue,
+                    html: initialHtml,
                     text: "",
                 });
                 // Quill's clipboard.convert() strips a trailing "\n" from the
@@ -897,13 +1002,15 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 // Delta so a *formatted* trailing empty block (which convert()
                 // leaves intact) doesn't get a phantom extra line added. See
                 // utils/preserveTrailingBlankLines and issue #1103.
-                const rawDelta = clipboardModule.convertHTML?.(props.initialValue);
-                const initialDelta = restoreTrailingBlankLine(
-                    props.initialValue,
-                    convertedDelta,
-                    rawDelta
-                );
+                const rawDelta = clipboardModule.convertHTML?.(initialHtml);
+                const initialDelta = props.idml
+                    ? convertedDelta
+                    : restoreTrailingBlankLine(initialHtml, convertedDelta, rawDelta);
                 quill.setContents(initialDelta, "silent");
+                if (props.idml) {
+                    validateAndCanonicalizeIdmlHtml(quill.root.innerHTML, props.idml);
+                    lastValidIdmlDeltaRef.current = quill.getContents();
+                }
 
                 // Position cursor at the end of the content for immediate editing
                 setTimeout(() => {
@@ -966,6 +1073,28 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 }
 
                 const content = quill.root.innerHTML;
+                let serializedIdmlContent: string | null = null;
+                if (props.idml && !restoringIdmlRef.current) {
+                    try {
+                        serializedIdmlContent = validateAndCanonicalizeIdmlHtml(
+                            content,
+                            props.idml
+                        );
+                        lastValidIdmlDeltaRef.current = quill.getContents();
+                    } catch (error) {
+                        restoringIdmlRef.current = true;
+                        quill.setContents(
+                            lastValidIdmlDeltaRef.current ?? oldDelta,
+                            "silent"
+                        );
+                        restoringIdmlRef.current = false;
+                        console.error(
+                            "[IDML] Edit rejected because it changed protected anchors:",
+                            error
+                        );
+                        return;
+                    }
+                }
 
                 // Update character count
                 const textContent = quill.getText();
@@ -984,9 +1113,9 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     // Still call onChange for programmatic changes
                     if (props.onChange) {
                         const contentIsEmpty = isQuillEmpty(quill);
-                        const finalContent = contentIsEmpty
+                        const finalContent = contentIsEmpty && !props.idml
                             ? ""
-                            : processQuillContentForSaving(getCleanedHtml(content), preserveParagraphsRef.current);
+                            : serializedIdmlContent ?? serializeQuillHtml(content);
                         props.onChange({
                             html: finalContent,
                         });
@@ -1037,9 +1166,9 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     setUnsavedChanges(true);
                     if (props.onChange) {
                         const contentIsEmpty = isQuillEmpty(quill);
-                        const finalContent = contentIsEmpty
+                        const finalContent = contentIsEmpty && !props.idml
                             ? ""
-                            : processQuillContentForSaving(getCleanedHtml(content), preserveParagraphsRef.current);
+                            : serializedIdmlContent ?? serializeQuillHtml(content);
 
                         debug("finalContent", { finalContent, contentIsEmpty });
 
@@ -1086,11 +1215,12 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     // Revert content if necessary
     const revertedValue = useMemo(() => {
         if (!props.initialValue) return "";
+        if (props.idml) return prepareIdmlHtmlForQuill(props.initialValue);
         return props.initialValue
             ?.replace(/^<span>/, "<p>")
             .replace(/<\/span>/, "</p>")
             .replace(/\n$/, "");
-    }, [props.initialValue]);
+    }, [props.initialValue, props.idml]);
 
     // Apply reverted value if editor is empty
     useEffect(() => {
@@ -1134,8 +1264,27 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
                     // Validate that the completion is for the current cell
                     if (completionCellId === props.currentLineId) {
+                        if (props.idml) {
+                            try {
+                                validateCanonicalIdmlTranslation(
+                                    completionText,
+                                    props.idml
+                                );
+                            } catch (error) {
+                                console.error(
+                                    "[IDML] AI output rejected because it changed protected anchors:",
+                                    error
+                                );
+                                return;
+                            }
+                        }
                         // Use Quill's API to set content with "api" source (not "user")
-                        quill.clipboard.dangerouslyPasteHTML(completionText, "api");
+                        quill.clipboard.dangerouslyPasteHTML(
+                            props.idml
+                                ? prepareIdmlHtmlForQuill(completionText)
+                                : completionText,
+                            "api"
+                        );
 
                         // Update baseline for dirty checking - LLM content is the new "initial" state
                         quillInitialContentRef.current = quill.root.innerHTML;
@@ -1150,9 +1299,9 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
                         // Call onChange with processed content
                         const contentIsEmpty = isQuillEmpty(quill);
-                        const finalContent = contentIsEmpty
+                        const finalContent = contentIsEmpty && !props.idml
                             ? ""
-                            : processQuillContentForSaving(getCleanedHtml(quill.root.innerHTML), preserveParagraphsRef.current);
+                            : serializeQuillHtml(quill.root.innerHTML);
                         props.onChange?.({ html: finalContent });
 
                         // Mark as dirty to ensure save button appears
@@ -1531,7 +1680,13 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         },
         updateContent: (content: string) => {
             if (quillRef.current) {
-                quillRef.current.root.innerHTML = content;
+                if (props.idml) {
+                    validateCanonicalIdmlTranslation(content, props.idml);
+                }
+                quillRef.current.clipboard.dangerouslyPasteHTML(
+                    props.idml ? prepareIdmlHtmlForQuill(content) : content,
+                    "api"
+                );
                 setUnsavedChanges(true);
 
                 // Update character count when content is updated externally
@@ -1703,7 +1858,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     />
                 </div>
             )}
-            {!isEditingFootnoteInline && (
+            {!props.idml && !isEditingFootnoteInline && (
                 <div className="flex justify-end">
                     <VSCodeButton
                         appearance="icon"
@@ -1968,8 +2123,20 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                                             onClick={() => {
                                                                 if (quillRef.current) {
                                                                     // When selecting a version, use the original HTML
-                                                                    quillRef.current.root.innerHTML =
-                                                                        entry.value as string; // TypeScript now knows this is string
+                                                                    if (props.idml) {
+                                                                        validateCanonicalIdmlTranslation(
+                                                                            entry.value as string,
+                                                                            props.idml
+                                                                        );
+                                                                    }
+                                                                    quillRef.current.clipboard.dangerouslyPasteHTML(
+                                                                        props.idml
+                                                                            ? prepareIdmlHtmlForQuill(
+                                                                                  entry.value as string
+                                                                              )
+                                                                            : (entry.value as string),
+                                                                        "api"
+                                                                    );
                                                                     setShowHistoryModal(false);
                                                                     // Trigger the text-change event to update state
                                                                     quillRef.current.update();
