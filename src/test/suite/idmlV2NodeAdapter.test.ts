@@ -19,7 +19,7 @@ const STORY_XML =
     '<Story Self="u1">' +
     '<ParagraphStyleRange Self="p1">' +
     '<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/Bold">' +
-    "<Content>One</Content><Content>Two</Content>" +
+    "<Content><?ACE 3?>One</Content><Content>Two</Content>" +
     "</CharacterStyleRange>" +
     "</ParagraphStyleRange>" +
     '<ParagraphStyleRange Self="p2">' +
@@ -114,6 +114,15 @@ suite("IDML v2 Codex export adapter", () => {
         units = parsed.units;
         manifest = parsed.manifest;
         assert.strictEqual(units.length, 2);
+        assert.strictEqual(units[0].slots[0].editable, true);
+        assert.ok(
+            units[0].protectedTokens.some(
+                (token) =>
+                    token.kind === "unknown" &&
+                    token.xmlName === "?ACE" &&
+                    token.position === 0
+            )
+        );
     });
 
     test("untouched empty targets export the original package byte-for-byte", async () => {
@@ -211,7 +220,7 @@ suite("IDML v2 Codex export adapter", () => {
         );
         const xml = await storyXml(result.bytes);
 
-        assert.ok(xml.includes("<Content>Uno</Content>"));
+        assert.ok(xml.includes("<Content><?ACE 3?>Uno</Content>"));
         assert.ok(xml.includes("<Content>Two</Content>"));
         assert.ok(xml.includes("<Content>Three</Content>"));
         assert.strictEqual(result.report.translated, 1);
@@ -237,7 +246,11 @@ suite("IDML v2 Codex export adapter", () => {
         );
         const xml = await storyXml(result.bytes);
 
-        assert.ok(xml.includes("<Content></Content><Content>Two</Content>"));
+        assert.ok(
+            xml.includes(
+                "<Content><?ACE 3?></Content><Content>Two</Content>"
+            )
+        );
         assert.ok(xml.includes("<Content>Three</Content>"));
     });
 });

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { IdmlParseResult } from "@aquilla/idml-roundtrip";
+import JSZip from "jszip";
+import {
+    parseIdml,
+    type IdmlParseResult,
+} from "@aquilla/idml-roundtrip";
 import {
     createIdmlV2Cells,
     createIdmlV2NotebookPair,
@@ -95,6 +99,69 @@ describe("Codex IDML v2 producer contract", () => {
             () => {},
             parse as never,
             controller.signal
+        );
+    });
+
+    it("carries real processing-instruction anchors through import and keeps their text editable", async () => {
+        const zip = new JSZip();
+        const date = new Date("2024-01-01T00:00:00.000Z");
+        zip.file(
+            "mimetype",
+            "application/vnd.adobe.indesign-idml-package",
+            { compression: "STORE", createFolders: false, date }
+        );
+        zip.file(
+            "designmap.xml",
+            '<?xml version="1.0" encoding="UTF-8"?>' +
+                '<idPkg:DesignMap xmlns:idPkg="urn:test">' +
+                '<idPkg:Story src="Stories/Story_u1.xml"/>' +
+                "</idPkg:DesignMap>",
+            { compression: "DEFLATE", createFolders: false, date }
+        );
+        zip.file(
+            "Stories/Story_u1.xml",
+            '<?xml version="1.0" encoding="UTF-8"?>' +
+                '<idPkg:Story xmlns:idPkg="urn:test"><Story Self="u1">' +
+                '<ParagraphStyleRange Self="p1"><CharacterStyleRange>' +
+                "<Content><?ACE 3?>Literal text</Content>" +
+                "</CharacterStyleRange></ParagraphStyleRange>" +
+                "</Story></idPkg:Story>",
+            { compression: "DEFLATE", createFolders: false, date }
+        );
+        const bytes = await zip.generateAsync({
+            type: "uint8array",
+            compression: "DEFLATE",
+            platform: "UNIX",
+            streamFiles: false,
+        });
+        const pair = await createIdmlV2NotebookPair(
+            {
+                name: "processing-instruction.idml",
+                arrayBuffer: async () =>
+                    bytes.buffer.slice(
+                        bytes.byteOffset,
+                        bytes.byteOffset + bytes.byteLength
+                    ),
+            } as File,
+            "generic",
+            () => {},
+            async (input, profile, options) =>
+                parseIdml(input, profile, options)
+        );
+
+        expect(pair.source.cells).toHaveLength(1);
+        expect(pair.codex.cells).toHaveLength(1);
+        expect(pair.source.cells[0]!.content).toContain(">Literal text</span>");
+        expect(pair.source.cells[0]!.content).toContain(
+            'data-idml-token-kind="unknown"'
+        );
+        expect(pair.source.cells[0]!.metadata!.idml).toMatchObject({
+            editableSlotIndexes: [0],
+            protectedTokenCount: 1,
+        });
+        expect(pair.codex.cells[0]!.content).not.toContain("Literal text");
+        expect(pair.source.metadata.originalFileData).toBeInstanceOf(
+            ArrayBuffer
         );
     });
 
