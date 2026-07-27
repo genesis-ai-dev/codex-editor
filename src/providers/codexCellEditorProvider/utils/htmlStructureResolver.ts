@@ -197,7 +197,12 @@ export const maybeAutoResolveHtmlStructure = async (
     document: CodexCellDocument,
     options?: AutoResolveHtmlStructureOptions,
 ): Promise<string> => {
-    const targetCell = document.getCellContent(cellId);
+    // Some generic HTML repair adapters intentionally expose only notebook
+    // metadata. IDML uses strict cell metadata when lookup is available;
+    // otherwise the existing generic structure-repair flow remains unchanged.
+    const targetCell = typeof (document as any).getCellContent === "function"
+        ? document.getCellContent(cellId)
+        : undefined;
     if (targetCell?.metadata?.idml !== undefined) {
         // IDML anchors are an identity/order contract, not generic tag
         // structure. They must never be guessed or repaired by an LLM.
