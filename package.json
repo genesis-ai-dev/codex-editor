@@ -1148,7 +1148,7 @@
         "webpack-cli": "^6.0.1"
     },
     "dependencies": {
-        "@aquilla/idml-roundtrip": "file:vendor/aquilla-idml-roundtrip-2.0.0.tgz",
+        "@aquilla/idml-roundtrip": "file:vendor/aquilla-idml-roundtrip-2.0.1.tgz",
         "@types/csv-parse": "^1.2.5",
         "@types/xml2js": "^0.4.14",
         "@vscode/codicons": "^0.0.36",
