@@ -4,6 +4,11 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
+/** Windows CI can briefly lock temp files; retry instead of failing the suite on teardown. */
+const removeTempDir = (dir: string): void => {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+};
+
 /**
  * Locks in the video media-strategy switch rules:
  *  - Switching to a more restrictive strategy (stream-only) erases SYNCED video
@@ -18,11 +23,6 @@ suite("Media strategy: video preserve/erase rules", () => {
 
     const makePointer = (size: number): string =>
         `version https://git-lfs.github.com/spec/v1\noid sha256:${OID}\nsize ${size}\n`;
-
-    /** Windows CI can briefly lock temp files; retry instead of failing the suite on teardown. */
-    const removeTempDir = (dir: string): void => {
-        fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    };
 
     const setup = (): { tempDir: string; filesPath: (name: string) => string; pointersPath: (name: string) => string; } => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-video-strategy-"));
