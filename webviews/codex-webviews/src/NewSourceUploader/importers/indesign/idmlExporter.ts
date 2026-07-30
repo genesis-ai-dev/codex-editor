@@ -18,6 +18,10 @@ import {
     IDMLExportError,
     IDMLExportConfig
 } from './types';
+import {
+    applySegmentTranslationToParagraphBlock,
+    findParagraphBlockInStoryXml,
+} from '../common/contentSegmentUtils';
 
 // Import JSZip for Node.js environment
 import JSZip from 'jszip';
@@ -521,6 +525,9 @@ export interface ParagraphUpdate {
     paragraphId?: string;
     paragraphOrder?: number;
     translated: string;
+    translatedHtml?: string;
+    contentSegments?: string[];
+    contentSegmentCount?: number;
     dataAfter?: string[];
 }
 
@@ -598,9 +605,42 @@ export async function exportIdmlRoundtrip(
         return "";
     };
 
-    // Helper to remove HTML tags
+    // Helper to remove HTML tags (for plain text fallback)
     const removeHtmlTags = (html: string): string => {
         return html.replace(/<[^>]*>/g, '').trim();
+    };
+
+    const applyParagraphUpdate = (storyXml: string, update: ParagraphUpdate): string => {
+        const located = findParagraphBlockInStoryXml(storyXml, {
+            paragraphId: update.paragraphId,
+            paragraphOrder: update.paragraphOrder,
+        });
+
+        if (!located) {
+            return storyXml;
+        }
+
+        const translatedHtml = update.translatedHtml || update.translated;
+        if (!translatedHtml?.trim()) {
+            return storyXml;
+        }
+
+        const updatedBlock = applySegmentTranslationToParagraphBlock(
+            located.block,
+            translatedHtml,
+            update.contentSegments,
+            xmlEscape
+        );
+
+        if (updatedBlock === located.block) {
+            return storyXml;
+        }
+
+        return (
+            storyXml.slice(0, located.start) +
+            updatedBlock +
+            storyXml.slice(located.end)
+        );
     };
 
     // Track story order counters for fallback
@@ -612,7 +652,8 @@ export async function exportIdmlRoundtrip(
         const isText = cell.kind === 2 && meta?.type === "text";
         if (!isText) continue;
 
-        const translated = removeHtmlTags(getTranslatedHtml(cell)).trim();
+        const translatedHtml = getTranslatedHtml(cell);
+        const translated = removeHtmlTags(translatedHtml).trim();
         if (!translated) continue;
 
         const structure = meta?.data?.idmlStructure;
@@ -633,6 +674,11 @@ export async function exportIdmlRoundtrip(
 
         const paragraphId: string | undefined = structure?.paragraphId || meta?.paragraphId;
         const dataAfterRuns: string[] | undefined = structure?.paragraphStyleRange?.dataAfter;
+        const contentSegments: string[] | undefined = structure?.contentSegments;
+        const contentSegmentCount: number | undefined =
+            typeof structure?.contentSegmentCount === "number"
+                ? structure.contentSegmentCount
+                : contentSegments?.length;
 
         let paragraphOrder: number | undefined = typeof relationships?.paragraphOrder === 'number'
             ? relationships.paragraphOrder
@@ -648,52 +694,33 @@ export async function exportIdmlRoundtrip(
         // Add to appropriate map
         if (storyId) {
             const updates = storyIdToUpdates.get(storyId) || [];
-            updates.push({ paragraphId, paragraphOrder, translated, dataAfter: dataAfterRuns });
+            updates.push({
+                paragraphId,
+                paragraphOrder,
+                translated,
+                translatedHtml,
+                contentSegments,
+                contentSegmentCount,
+                dataAfter: dataAfterRuns,
+            });
             storyIdToUpdates.set(storyId, updates);
         } else if (storyOrder !== undefined) {
             const updates = storyIndexToUpdates.get(storyOrder) || [];
-            updates.push({ paragraphOrder, translated, dataAfter: dataAfterRuns });
+            updates.push({
+                paragraphOrder,
+                translated,
+                translatedHtml,
+                contentSegments,
+                contentSegmentCount,
+                dataAfter: dataAfterRuns,
+            });
             storyIndexToUpdates.set(storyOrder, updates);
         }
     }
 
-    // Helper to build replacement content
-    const buildReplacementInner = (newText: string, dataAfter?: string[]): string => {
-        const hasBreakInDataAfter = Array.isArray(dataAfter) && dataAfter.some(s => /<Br\b/i.test(s));
-        const br = hasBreakInDataAfter ? '' : '<Br/>';
-        const after = Array.isArray(dataAfter) ? dataAfter.join('') : '';
-        return `<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]"><Content>${xmlEscape(newText)}</Content>${br}</CharacterStyleRange>${after}`;
-    };
-
-    // Helper to replace paragraph by ID
-    const replaceParagraphById = (xml: string, pid: string, newText: string, dataAfter?: string[]): string => {
-        const escapedPid = escapeRegExp(pid);
-        const blockRe = new RegExp(`(<ParagraphStyleRange[^>]*\\bid=["']${escapedPid}["'][^>]*>)([\\s\\S]*?)(<\\/ParagraphStyleRange>)`, 'i');
-        const replacementInner = buildReplacementInner(newText, dataAfter);
-        return xml.replace(blockRe, (_m, openTag, _inner, closeTag) => `${openTag}${replacementInner}${closeTag}`);
-    };
-
-    // Helper to replace paragraph by order index
-    const replaceNthParagraph = (xml: string, index: number, newText: string, dataAfter?: string[]): string => {
-        const reBlock = /<ParagraphStyleRange\b[^>]*>[\s\S]*?<\/ParagraphStyleRange>/gi;
-        const blocks: { start: number; end: number; }[] = [];
-        let match: RegExpExecArray | null;
-        while ((match = reBlock.exec(xml)) !== null) {
-            blocks.push({ start: match.index, end: reBlock.lastIndex });
-        }
-        if (index < 0 || index >= blocks.length) return xml;
-
-        const target = blocks[index];
-        const before = xml.slice(0, target.start);
-        const block = xml.slice(target.start, target.end);
-        const after = xml.slice(target.end);
-
-        const updatedBlock = block.replace(/^(<ParagraphStyleRange\b[^>]*>)[\s\S]*?(<\/ParagraphStyleRange>)$/i, (_m, openTag, closeTag) => {
-            const replacementInner = buildReplacementInner(newText, dataAfter);
-            return `${openTag}${replacementInner}${closeTag}`;
-        });
-
-        return before + updatedBlock + after;
+    // Helper to replace one paragraph — only inner <Content> text changes
+    const applyParagraphUpdateToStory = (xml: string, update: ParagraphUpdate): string => {
+        return applyParagraphUpdate(xml, update);
     };
 
     // Apply updates per story
@@ -713,13 +740,9 @@ export async function exportIdmlRoundtrip(
         const xmlText = await zip.file(storyKey)!.async("string");
         let updated = xmlText;
 
-        // Prefer id-based replacement, otherwise fallback to order
+        // Prefer Self/id match, then fall back to paragraph order index
         for (const u of updates) {
-            if (u.paragraphId) {
-                updated = replaceParagraphById(updated, u.paragraphId, u.translated, u.dataAfter);
-            } else if (typeof u.paragraphOrder === 'number') {
-                updated = replaceNthParagraph(updated, u.paragraphOrder, u.translated, u.dataAfter);
-            }
+            updated = applyParagraphUpdateToStory(updated, u);
         }
 
         if (updated !== xmlText) {
@@ -753,9 +776,7 @@ export async function exportIdmlRoundtrip(
                     let updated = xmlText;
 
                     for (const u of updates) {
-                        if (typeof u.paragraphOrder === 'number') {
-                            updated = replaceNthParagraph(updated, u.paragraphOrder, u.translated, u.dataAfter);
-                        }
+                        updated = applyParagraphUpdateToStory(updated, u);
                     }
 
                     if (updated !== xmlText) {

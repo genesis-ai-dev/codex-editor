@@ -9,6 +9,8 @@ import React, {
 } from "react";
 import Quill, { Delta, Op } from "quill";
 import "quill/dist/quill.snow.css";
+import { installPreserveWhitespaceMatcher } from "./utils/preserveWhitespace";
+import { restoreTrailingBlankLine } from "./utils/preserveTrailingBlankLines";
 import { getCleanedHtml } from "./utils";
 import {
     isSuperscriptibleDigit,
@@ -506,7 +508,24 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             const clipboardModule = quill.getModule("clipboard") as {
                 addMatcher: (selector: number, matcher: typeof matchSuperscriptUnicodeDigits) => void;
                 convert: (args: { html?: string; text?: string }) => Delta;
+                // `convertHTML` is Quill's raw HTML→Delta conversion *before*
+                // the trailing-newline strip that `convert()` applies. Used to
+                // decide whether a trailing blank line was stripped (#1103).
+                convertHTML?: (html: string) => Delta;
+                matchers: Array<[number | string, (node: Node, delta: Delta, scroll: unknown) => Delta]>;
             };
+
+            // Replace Quill's built-in whitespace-collapsing text matcher with
+            // a non-destructive variant so runs of consecutive spaces survive
+            // the HTML → Delta conversion on cell open. See issue #1010 and
+            // utils/preserveWhitespace.ts.
+            const swapped = installPreserveWhitespaceMatcher(clipboardModule);
+            if (!swapped && DEBUG_ENABLED) {
+                console.warn(
+                    "[Editor] Could not locate Quill's built-in matchText to replace; double spaces may collapse on cell open (issue #1010)."
+                );
+            }
+
             clipboardModule.addMatcher(Node.TEXT_NODE, matchSuperscriptUnicodeDigits);
 
             // Apply minimal direct styles; rely on CSS file for look-and-feel
@@ -838,10 +857,23 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             if (props.initialValue) {
                 // Parse through the clipboard pipeline so TEXT_NODE matchers apply
                 // (wraps ⁰⁴–⁹ for consistent sizing vs ¹²³). Raw innerHTML skips that.
-                const initialDelta = clipboardModule.convert({
+                const convertedDelta = clipboardModule.convert({
                     html: props.initialValue,
                     text: "",
                 });
+                // Quill's clipboard.convert() strips a trailing "\n" from the
+                // Delta, which silently eats a trailing blank line (paragraph
+                // break at end of cell) on open. Restore it — but only when
+                // convert() actually stripped it. We pass the raw (pre-strip)
+                // Delta so a *formatted* trailing empty block (which convert()
+                // leaves intact) doesn't get a phantom extra line added. See
+                // utils/preserveTrailingBlankLines and issue #1103.
+                const rawDelta = clipboardModule.convertHTML?.(props.initialValue);
+                const initialDelta = restoreTrailingBlankLine(
+                    props.initialValue,
+                    convertedDelta,
+                    rawDelta
+                );
                 quill.setContents(initialDelta, "silent");
 
                 // Position cursor at the end of the content for immediate editing
@@ -849,7 +881,16 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     // Set cursor to the end of the text
                     const textLength = quill.getLength();
                     quill.setSelection(textLength - 1, 0); // -1 because Quill includes a trailing newline
-                    quill.focus(); // Ensure editor has focus
+                    // Focus without triggering the browser's "scroll focused element into view"
+                    // behavior. Quill's own `quill.focus()` calls .focus() with no options, which
+                    // causes the browser to recenter the contenteditable in its scroll container
+                    // ~100ms after mount — making the page "jump" when a cell that was already
+                    // visible is opened. preventScroll keeps the scroll position stable.
+                    if (quill.root && typeof (quill.root as HTMLElement).focus === "function") {
+                        (quill.root as HTMLElement).focus({ preventScroll: true });
+                    } else {
+                        quill.focus();
+                    }
 
                     // Renumber footnotes to ensure proper chronological order on load
                     renumberFootnotes();
@@ -1509,7 +1550,16 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     display: block;
                 }
                 .ql-editor {
-                    white-space: normal !important;
+                    /*
+                     * Keep Quill's default rendering posture (pre-wrap) so that
+                     * runs of consecutive spaces stay visible and editable while
+                     * a cell is open. The previous "normal" override collapsed
+                     * them at paint time, which (combined with Quill's clipboard
+                     * matcher dropping them at convert time — fixed separately
+                     * via preserveWhitespaceMatchText) made double spaces in
+                     * source text impossible to correct in place. See #1010.
+                     */
+                    white-space: pre-wrap !important;
                     background-color: var(--vscode-editor-background) !important;
                     color: var(--vscode-editor-foreground) !important;
                 }

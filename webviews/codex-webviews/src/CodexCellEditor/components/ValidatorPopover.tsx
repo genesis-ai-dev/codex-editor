@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import ReactDOM from "react-dom";
 import type { ValidationEntry } from "../../../../../types";
-import { formatTimestamp, audioPopoverTracker } from "../validationUtils";
+import { formatTimestamp, audioPopoverTracker, readOnlyTooltipTracker } from "../validationUtils";
 
 interface ValidatorPopoverProps {
     anchorRef: React.RefObject<HTMLElement>;
@@ -10,6 +11,10 @@ interface ValidatorPopoverProps {
     currentUsername: string | null;
     uniqueId: string;
     onRemoveSelf?: () => void;
+    // When set (and onRemoveSelf is not provided), the trash icon is shown in a
+    // disabled state and the supplied reason is rendered in a ShadCN tooltip on hover.
+    // Lets us convey *why* the user can't unvalidate (e.g. audio not downloaded).
+    removeSelfDisabledReason?: string;
     onRequestClose?: () => void;
     cancelCloseTimer?: () => void;
     scheduleCloseTimer?: (cb: () => void, delay?: number) => void;
@@ -20,6 +25,133 @@ interface ValidatorPopoverProps {
     };
 }
 
+const TrashSvg: React.FC = () => (
+    <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+    >
+        <path d="M3 6H5H21" stroke="#ff5252" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z" stroke="#ff5252" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M10 11V17" stroke="#ff5252" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M14 11V17" stroke="#ff5252" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+);
+
+interface TrashActionProps {
+    onRemoveSelf?: () => void;
+    removeSelfDisabledReason?: string;
+    setShow: (show: boolean) => void;
+    uniqueId: string;
+    popoverTracker: {
+        getActivePopover: () => string | null;
+        setActivePopover: (id: string | null) => void;
+    };
+}
+
+const TrashAction: React.FC<TrashActionProps> = ({
+    onRemoveSelf,
+    removeSelfDisabledReason,
+    setShow,
+    uniqueId,
+    popoverTracker,
+}) => {
+    const isDisabled = !onRemoveSelf;
+    const [showDisabledTip, setShowDisabledTip] = useState(false);
+    const tipTimerRef = useRef<number | null>(null);
+    const trashRef = useRef<HTMLSpanElement>(null);
+
+    const dismissTip = useCallback(() => {
+        setShowDisabledTip(false);
+        if (tipTimerRef.current != null) {
+            clearTimeout(tipTimerRef.current);
+            tipTimerRef.current = null;
+        }
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            if (tipTimerRef.current != null) clearTimeout(tipTimerRef.current);
+            readOnlyTooltipTracker.clear(dismissTip);
+        };
+    }, [dismissTip]);
+
+    const flashTip = () => {
+        if (tipTimerRef.current != null) clearTimeout(tipTimerRef.current);
+        readOnlyTooltipTracker.show(dismissTip);
+        setShowDisabledTip(true);
+        tipTimerRef.current = window.setTimeout(() => {
+            setShowDisabledTip(false);
+            readOnlyTooltipTracker.clear(dismissTip);
+            tipTimerRef.current = null;
+        }, 2500);
+    };
+
+    const tipPosition = (() => {
+        if (!showDisabledTip || !trashRef.current) return null;
+        const rect = trashRef.current.getBoundingClientRect();
+        return { top: rect.bottom + 4, left: rect.right };
+    })();
+
+    return (
+        <>
+            <span
+                ref={trashRef}
+                tabIndex={isDisabled ? -1 : 0}
+                aria-disabled={isDisabled}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    if (isDisabled) {
+                        if (removeSelfDisabledReason) flashTip();
+                        return;
+                    }
+                    onRemoveSelf!();
+                    setShow(false);
+                    if (popoverTracker.getActivePopover() === uniqueId) {
+                        popoverTracker.setActivePopover(null);
+                    }
+                }}
+                onKeyDown={(e) => {
+                    if (isDisabled) return;
+                    if (e.key === "Enter") {
+                        e.preventDefault();
+                        onRemoveSelf!();
+                        setShow(false);
+                    }
+                }}
+                title={isDisabled ? undefined : "Remove your audio validation"}
+                className="audio-validation-trash-icon flex items-start justify-center h-8"
+                style={{
+                    transition: "background-color 0.2s",
+                    cursor: "pointer",
+                    opacity: isDisabled ? 0.55 : 1,
+                }}
+            >
+                <TrashSvg />
+            </span>
+            {showDisabledTip &&
+                removeSelfDisabledReason &&
+                tipPosition &&
+                ReactDOM.createPortal(
+                    <div
+                        role="tooltip"
+                        className="bg-primary text-primary-foreground fixed z-[100001] rounded-md px-3 py-1.5 text-xs whitespace-nowrap pointer-events-none shadow-md animate-in fade-in-0 zoom-in-95"
+                        style={{
+                            top: tipPosition.top,
+                            left: tipPosition.left,
+                            transform: "translateX(-100%)",
+                        }}
+                    >
+                        {removeSelfDisabledReason}
+                    </div>,
+                    document.body
+                )}
+        </>
+    );
+};
+
 export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
     anchorRef,
     show,
@@ -28,6 +160,7 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
     currentUsername,
     uniqueId,
     onRemoveSelf,
+    removeSelfDisabledReason,
     onRequestClose,
     cancelCloseTimer,
     scheduleCloseTimer,
@@ -39,6 +172,12 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
     useEffect(() => {
         if (!show || !popoverRef.current || !anchorRef.current) return;
 
+        // Position the popover in viewport coordinates (it is portaled to
+        // document.body with `position: fixed`). Using fixed + portal lets the
+        // popover escape any stacking context introduced by ancestor rows —
+        // notably the audio history's deleted rows, which use `opacity: 0.9`
+        // and would otherwise paint over a `position: absolute` popover sitting
+        // inside an earlier row.
         const positionPopover = () => {
             if (!popoverRef.current || !anchorRef.current) return;
 
@@ -47,51 +186,55 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
             const viewportHeight = window.innerHeight;
             const viewportWidth = window.innerWidth;
 
-            // Vertical positioning
+            // Vertical: prefer below the anchor, fall back to above, then center.
             const spaceAbove = buttonRect.top;
-            const spaceBelow = viewportHeight - (buttonRect.top + buttonRect.height);
-            let top = 0;
+            const spaceBelow = viewportHeight - buttonRect.bottom;
+            let top: number;
             if (spaceBelow >= popoverRect.height + 10) {
-                top = buttonRect.height + 5; // place below the badge
+                top = buttonRect.bottom + 5;
             } else if (spaceAbove >= popoverRect.height + 10) {
-                top = -popoverRect.height - 5; // place above the badge
+                top = buttonRect.top - popoverRect.height - 5;
             } else {
-                top = -(popoverRect.height / 2) + buttonRect.height / 2; // center align
+                top = buttonRect.top + buttonRect.height / 2 - popoverRect.height / 2;
             }
 
-            // Horizontal positioning (dynamic left/right with clamping to viewport)
-            const spaceRight = viewportWidth - (buttonRect.left + buttonRect.width);
-            const spaceLeft = buttonRect.left;
-            let left = 0;
+            // Horizontal: prefer aligning anchor's left edge, fall back to anchor's right,
+            // else center on the anchor. Always clamp to a small viewport margin.
+            const spaceRight = viewportWidth - buttonRect.left;
+            const spaceLeft = buttonRect.right;
+            let left: number;
             if (spaceRight >= popoverRect.width + 10) {
-                // Enough room on the right → align left edges
-                left = 0;
+                left = buttonRect.left;
             } else if (spaceLeft >= popoverRect.width + 10) {
-                // Open to the left so the popover fits within the card/viewport
-                left = -popoverRect.width + buttonRect.width;
+                left = buttonRect.right - popoverRect.width;
             } else {
-                // Center relative to the badge
-                left = -(popoverRect.width / 2 - buttonRect.width / 2);
-                // Clamp to viewport so it never overflows
-                const minLeft = 8 - buttonRect.left; // keep 8px from left edge
-                const maxLeft = viewportWidth - popoverRect.width - 8 - buttonRect.left; // 8px from right edge
-                left = Math.min(Math.max(left, minLeft), maxLeft);
+                left = buttonRect.left + buttonRect.width / 2 - popoverRect.width / 2;
             }
+
+            // Final clamp so the popover never escapes the viewport.
+            const minLeft = 8;
+            const maxLeft = viewportWidth - popoverRect.width - 8;
+            left = Math.min(Math.max(left, minLeft), maxLeft);
+            const minTop = 8;
+            const maxTop = viewportHeight - popoverRect.height - 8;
+            top = Math.min(Math.max(top, minTop), maxTop);
 
             const style = popoverRef.current.style;
             style.top = `${top}px`;
             style.left = `${left}px`;
             style.right = "auto";
-            style.position = "absolute";
+            style.position = "fixed";
             style.opacity = "1";
             style.pointerEvents = "auto";
-            style.zIndex = "100000";
+            // Above the audio history modal overlay (z-index 1000) and any
+            // ancestor stacking context created by row-level styles.
+            style.zIndex = "100001";
         };
 
-        // Initial position
         positionPopover();
 
-        // Reposition on resize/scroll to keep within bounds
+        // Reposition on resize and on any scroll (capture phase to catch
+        // scrolls inside the modal's overflow container too).
         window.addEventListener("resize", positionPopover);
         window.addEventListener("scroll", positionPopover, true);
         return () => {
@@ -153,18 +296,21 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
 
     if (!show || validators.length === 0) return null;
 
-    return (
+    // Portaled to document.body so the popover renders outside any ancestor
+    // stacking context. Without this, row-level styles like `opacity: 0.9`
+    // on deleted audio-history entries create competing stacking contexts
+    // that can paint over the popover even though it has a large z-index.
+    return ReactDOM.createPortal(
         <div
             ref={popoverRef}
-            className="audio-validation-popover absolute flex flex-col gap-y-2 rounded-md shadow-md p-2"
+            className="audio-validation-popover fixed flex flex-col gap-y-2 rounded-md shadow-md p-2"
             style={{
-                zIndex: 100000,
+                zIndex: 100001,
                 opacity: show ? "1" : "0",
                 transition: "opacity 0.2s ease-in-out",
                 pointerEvents: show ? "auto" : "none",
                 backgroundColor: "var(--vscode-editor-background)",
                 border: "1px solid var(--vscode-editorWidget-border)",
-                // Ensure the popover fully covers underlying waveform/time text
                 mixBlendMode: "normal",
                 width: "max-content",
                 minWidth: "12rem",
@@ -225,74 +371,23 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
                                     </span>
                                 </div>
 
-                                {isCurrentUser && onRemoveSelf && (
-                                    <span
-                                        tabIndex={0}
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onRemoveSelf();
-                                            setShow(false);
-                                            if (popoverTracker.getActivePopover() === uniqueId) {
-                                                popoverTracker.setActivePopover(null);
-                                            }
-                                        }}
-                                        onKeyDown={(e) => {
-                                            if (e.key === "Enter") {
-                                                e.preventDefault();
-                                                onRemoveSelf();
-                                                setShow(false);
-                                            }
-                                        }}
-                                        title="Remove your audio validation"
-                                        className="audio-validation-trash-icon flex items-start justify-center cursor-pointer h-8"
-                                        style={{
-                                            transition: "background-color 0.2s",
-                                        }}
-                                    >
-                                        <svg
-                                            width="16"
-                                            height="16"
-                                            viewBox="0 0 24 24"
-                                            fill="none"
-                                            xmlns="http://www.w3.org/2000/svg"
-                                        >
-                                            <path
-                                                d="M3 6H5H21"
-                                                stroke="#ff5252"
-                                                strokeWidth="2"
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                            />
-                                            <path
-                                                d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z"
-                                                stroke="#ff5252"
-                                                strokeWidth="2"
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                            />
-                                            <path
-                                                d="M10 11V17"
-                                                stroke="#ff5252"
-                                                strokeWidth="2"
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                            />
-                                            <path
-                                                d="M14 11V17"
-                                                stroke="#ff5252"
-                                                strokeWidth="2"
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                            />
-                                        </svg>
-                                    </span>
-                                )}
+                                {isCurrentUser &&
+                                    (onRemoveSelf || removeSelfDisabledReason) && (
+                                        <TrashAction
+                                            onRemoveSelf={onRemoveSelf}
+                                            removeSelfDisabledReason={removeSelfDisabledReason}
+                                            setShow={setShow}
+                                            uniqueId={uniqueId}
+                                            popoverTracker={popoverTracker}
+                                        />
+                                    )}
                             </div>
                         </div>
                     );
                 })}
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 

@@ -289,6 +289,42 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
     });
 
+    test("updateCellAudioTimestamps invalidates the per-cell serializer cache", async () => {
+        // Regression test for a sync-drop bug where audio-slider edits never
+        // reached disk because `updateCellAudioTimestamps` mutated the cell in
+        // memory but forgot to invalidate the per-cell serialization cache.
+        // The cache is only populated by a prior `serializeForDisk()` call, so
+        // we must prime it before calling `updateCellAudioTimestamps` to
+        // exercise the bug path.
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+
+        // Prime the per-cell cache by serializing once.
+        await document.getText();
+
+        const audioTimestamps: Timestamps = { startTime: 1.234, endTime: 5.678 };
+        document.updateCellAudioTimestamps(cellId, audioTimestamps);
+
+        const updatedContent = await document.getText();
+        const cell = JSON.parse(updatedContent).cells.find(
+            (c: any) => c.metadata.id === cellId
+        );
+        assert.strictEqual(
+            cell.metadata.data.audioStartTime,
+            audioTimestamps.startTime,
+            "Audio start time should appear in serialized output"
+        );
+        assert.strictEqual(
+            cell.metadata.data.audioEndTime,
+            audioTimestamps.endTime,
+            "Audio end time should appear in serialized output"
+        );
+    });
+
     test("deleteCell performs a soft delete (cell retained with deleted flag)", async () => {
         const document = await provider.openCustomDocument(
             tempUri,

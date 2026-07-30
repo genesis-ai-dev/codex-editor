@@ -100,59 +100,82 @@ export async function exportDocxWithTranslations(
 }
 
 /**
- * Collect translations from Codex cells
+ * Collect translations from Codex cells.
+ *
+ * Handles three cell shapes:
+ *  1. Table cells  – one Codex cell maps to multiple DOCX paragraphs (paragraphIndices[]).
+ *  2. Split cells  – one DOCX paragraph was split into N Codex cells (segmentIndex present).
+ *     The per-segment translations are joined in order before writing to the <w:p>.
+ *  3. Normal cells – one Codex cell ↔ one DOCX paragraph (paragraphIndex only).
  */
 function collectTranslations(
     codexCells: Array<{ kind: number; value: string; metadata: any; }>
 ): Map<number, string> {
-    const translations = new Map<number, string>();
-
     console.log(`[Exporter] Processing ${codexCells.length} cells for translations`);
 
-    for (let i = 0; i < codexCells.length; i++) {
-        const cell = codexCells[i];
+    // Accumulate per-paragraph segments: paragraphIndex → sorted list of {segmentIndex, text}
+    const segmentsByParagraph = new Map<number, Array<{ segmentIndex: number; text: string }>>();
+    // Table cells bypass the segment system entirely
+    const tableTranslations = new Map<number, string>();
+
+    for (const cell of codexCells) {
         const meta = cell.metadata;
 
-        // Only DOCX cells have paragraphIndex/paragraphId; everything else is skipped naturally.
-        // (Don't rely on kind/type here; it varies by host and we only need the mapping fields.)
-
-        // Get translated content (strip HTML tags)
         const translated = removeHtmlTags(cell.value).trim();
-        if (!translated) {
-            continue;
-        }
+        if (!translated) continue;
 
-        // Get paragraph identifier
         const paragraphId = meta?.paragraphId;
         const paragraphIndex = meta?.paragraphIndex;
         const paragraphIndices = meta?.paragraphIndices;
+        const segmentIndex: number | undefined = meta?.segmentIndex;
 
         if (Array.isArray(paragraphIndices) && paragraphIndices.length > 0) {
-            // Table-cell case: a single Codex cell maps to multiple DOCX paragraphs.
-            // We map lines of the translation to each paragraph index (preserves paragraph count).
+            // Table-cell case: map lines of translation to each paragraph index.
             const parts = translated.split(/\r?\n/);
             for (let j = 0; j < paragraphIndices.length; j++) {
                 const idx = paragraphIndices[j];
-                if (typeof idx !== "number") continue;
-                translations.set(idx, parts[j] ?? '');
+                if (typeof idx !== 'number') continue;
+                tableTranslations.set(idx, parts[j] ?? '');
             }
-        } else if (typeof paragraphIndex === 'number') {
-            translations.set(paragraphIndex, translated);
-            // Keep logs light; large documents can have thousands of cells.
+            continue;
+        }
+
+        // Resolve the paragraph index (numeric or from paragraphId string)
+        let paraIdx: number | undefined;
+        if (typeof paragraphIndex === 'number') {
+            paraIdx = paragraphIndex;
         } else if (typeof paragraphId === 'string') {
             const m = paragraphId.match(/^p-(\d+)$/);
             if (m) {
-                const idx = Number(m[1]);
-                translations.set(idx, translated);
+                paraIdx = Number(m[1]);
             } else {
                 console.warn(`[Exporter] ⚠ Unrecognized paragraphId format: ${paragraphId}`);
+                continue;
             }
+        } else {
+            continue;
         }
+
+        if (!segmentsByParagraph.has(paraIdx)) {
+            segmentsByParagraph.set(paraIdx, []);
+        }
+        segmentsByParagraph.get(paraIdx)!.push({
+            // Unsplit paragraphs have no segmentIndex; treat them as the sole segment (index 0).
+            segmentIndex: segmentIndex ?? 0,
+            text: translated,
+        });
+    }
+
+    // Build the final map: for split paragraphs, join segments in order.
+    const translations = new Map<number, string>(tableTranslations);
+
+    for (const [paraIdx, segments] of segmentsByParagraph) {
+        segments.sort((a, b) => a.segmentIndex - b.segmentIndex);
+        const combined = segments.map(s => s.text).join(' ');
+        translations.set(paraIdx, combined);
     }
 
     console.log(`[Exporter] Collected ${translations.size} translations total`);
-    // Avoid dumping thousands of IDs in logs.
-
     return translations;
 }
 

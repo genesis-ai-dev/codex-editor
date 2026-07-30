@@ -86,6 +86,8 @@ export class SearchManager {
             onlyValidated: options.onlyValidated || false,
             returnRawContent: options.returnRawContent || false,
             minScore: options.minScore,
+            searchScope: options.searchScope ?? "source",
+            excludeCellIds: options.excludeCellIds,
             context: options.context
         };
     }

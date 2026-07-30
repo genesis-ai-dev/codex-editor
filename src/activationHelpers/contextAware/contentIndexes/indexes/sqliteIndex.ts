@@ -3849,9 +3849,12 @@ export class SQLiteIndexManager {
         query: string,
         limit: number = 30,
         returnRawContent: boolean = false,
-        searchSourceOnly: boolean = true  // true for few-shot examples, false for UI search
+        searchSourceOnly: boolean = true,  // true for few-shot examples, false for UI search
+        searchScope?: "source" | "target" | "both"
     ): Promise<any[]> {
         this.ensureOpen();
+        const effectiveScope: "source" | "target" | "both" =
+            searchScope ?? (searchSourceOnly ? "source" : "both");
 
         // Handle empty query by returning recent complete pairs
         if (!query || query.trim() === '') {
@@ -3948,11 +3951,24 @@ export class SQLiteIndexManager {
         const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
         const likePattern = `%${escapedQuery}%`;
 
-        const ftsContentTypeFilter = searchSourceOnly ? "cells_fts.content_type = 'source'" : "(cells_fts.content_type = 'source' OR cells_fts.content_type = 'target')";
+        const ftsContentTypeFilter =
+            effectiveScope === "source" ? "cells_fts.content_type = 'source'"
+                : effectiveScope === "target" ? "cells_fts.content_type = 'target'"
+                    : "(cells_fts.content_type = 'source' OR cells_fts.content_type = 'target')";
 
-        const likeConditions = searchSourceOnly
-            ? "(c.s_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\')"
-            : "(c.s_content LIKE ? ESCAPE '\\' OR c.t_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\' OR c.t_raw_content LIKE ? ESCAPE '\\')";
+        const likeConditions =
+            effectiveScope === "source" ? "(c.s_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\')"
+                : effectiveScope === "target" ? "(c.t_content LIKE ? ESCAPE '\\' OR c.t_raw_content LIKE ? ESCAPE '\\')"
+                    : "(c.s_content LIKE ? ESCAPE '\\' OR c.t_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\' OR c.t_raw_content LIKE ? ESCAPE '\\')";
+
+        const lineExpression =
+            effectiveScope === "target" ? "c.t_line_number"
+                : effectiveScope === "source" ? "c.s_line_number"
+                    : "COALESCE(c.s_line_number, c.t_line_number)";
+        const uriExpression =
+            effectiveScope === "target" ? "t_file.file_path"
+                : effectiveScope === "source" ? "s_file.file_path"
+                    : "COALESCE(s_file.file_path, t_file.file_path)";
 
         const sql = `
             SELECT DISTINCT
@@ -3976,8 +3992,8 @@ export class SQLiteIndexManager {
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
                     c.t_raw_content as raw_target_content,
-                    c.s_line_number as line,
-                    COALESCE(s_file.file_path, t_file.file_path) as uri,
+                    ${lineExpression} as line,
+                    ${uriExpression} as uri,
                     bm25(cells_fts) as score
                 FROM cells_fts
                 JOIN cells c ON cells_fts.cell_id = c.cell_id
@@ -4004,8 +4020,8 @@ export class SQLiteIndexManager {
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
                     c.t_raw_content as raw_target_content,
-                    c.s_line_number as line,
-                    COALESCE(s_file.file_path, t_file.file_path) as uri,
+                    ${lineExpression} as line,
+                    ${uriExpression} as uri,
                     0.0 as score
                 FROM cells c
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
@@ -4039,10 +4055,10 @@ export class SQLiteIndexManager {
                 score: number;
             };
             let rows: SearchRow[];
-            if (searchSourceOnly) {
-                rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, limit]);
-            } else {
+            if (effectiveScope === "both") {
                 rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, likePattern, likePattern, limit]);
+            } else {
+                rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, limit]);
             }
 
             for (const row of rows) {
@@ -4086,11 +4102,15 @@ export class SQLiteIndexManager {
         limit: number = 30,
         returnRawContent: boolean = false,
         onlyValidated: boolean = false,
-        searchSourceOnly: boolean = true  // true for few-shot examples, false for UI search when searchScope === "both"
+        searchSourceOnly: boolean = true,  // true for few-shot examples, false for UI search when searchScope === "both"
+        searchScope?: "source" | "target" | "both"
     ): Promise<any[]> {
+        const effectiveScope: "source" | "target" | "both" =
+            searchScope ?? (searchSourceOnly ? "source" : "both");
+
         // If validation filtering is not required, use the existing method
         if (!onlyValidated) {
-            return this.searchCompleteTranslationPairs(query, limit, returnRawContent, searchSourceOnly);
+            return this.searchCompleteTranslationPairs(query, limit, returnRawContent, searchSourceOnly, effectiveScope);
         }
 
         this.ensureOpen();
@@ -4191,12 +4211,24 @@ export class SQLiteIndexManager {
         const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
         const likePattern = `%${escapedQuery}%`;
 
-        const ftsContentTypeFilter = searchSourceOnly ? "cells_fts.content_type = 'source'" : "(cells_fts.content_type = 'source' OR cells_fts.content_type = 'target')";
+        const ftsContentTypeFilter =
+            effectiveScope === "source" ? "cells_fts.content_type = 'source'"
+                : effectiveScope === "target" ? "cells_fts.content_type = 'target'"
+                    : "(cells_fts.content_type = 'source' OR cells_fts.content_type = 'target')";
 
-        // Build LIKE conditions - search source always, target only if searchSourceOnly is false
-        const likeConditions = searchSourceOnly
-            ? "(c.s_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\')"
-            : "(c.s_content LIKE ? ESCAPE '\\' OR c.t_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\' OR c.t_raw_content LIKE ? ESCAPE '\\')";
+        const likeConditions =
+            effectiveScope === "source" ? "(c.s_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\')"
+                : effectiveScope === "target" ? "(c.t_content LIKE ? ESCAPE '\\' OR c.t_raw_content LIKE ? ESCAPE '\\')"
+                    : "(c.s_content LIKE ? ESCAPE '\\' OR c.t_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\' OR c.t_raw_content LIKE ? ESCAPE '\\')";
+
+        const lineExpression =
+            effectiveScope === "target" ? "c.t_line_number"
+                : effectiveScope === "source" ? "c.s_line_number"
+                    : "COALESCE(c.s_line_number, c.t_line_number)";
+        const uriExpression =
+            effectiveScope === "target" ? "t_file.file_path"
+                : effectiveScope === "source" ? "s_file.file_path"
+                    : "COALESCE(s_file.file_path, t_file.file_path)";
 
         // FTS5 query with validation filtering
         // Use UNION to combine FTS5 MATCH results with LIKE substring matching
@@ -4226,8 +4258,8 @@ export class SQLiteIndexManager {
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
                     c.t_raw_content as raw_target_content,
-                    c.s_line_number as line,
-                    COALESCE(s_file.file_path, t_file.file_path) as uri,
+                    ${lineExpression} as line,
+                    ${uriExpression} as uri,
                     bm25(cells_fts) as score
                 FROM cells_fts
                 JOIN cells c ON cells_fts.cell_id = c.cell_id
@@ -4254,8 +4286,8 @@ export class SQLiteIndexManager {
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
                     c.t_raw_content as raw_target_content,
-                    c.s_line_number as line,
-                    COALESCE(s_file.file_path, t_file.file_path) as uri,
+                    ${lineExpression} as line,
+                    ${uriExpression} as uri,
                     0.0 as score
                 FROM cells c
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
@@ -4289,10 +4321,10 @@ export class SQLiteIndexManager {
                 score: number;
             };
             let rows: SearchRow[];
-            if (searchSourceOnly) {
-                rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, limit]);
-            } else {
+            if (effectiveScope === "both") {
                 rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, likePattern, likePattern, limit]);
+            } else {
+                rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, limit]);
             }
 
             for (const row of rows) {

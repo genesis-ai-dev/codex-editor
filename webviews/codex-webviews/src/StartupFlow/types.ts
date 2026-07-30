@@ -186,8 +186,20 @@ export interface FrontierAPI {
     downloadLFSFile: (
         projectPath: string,
         oid: string,
-        size: number
+        size: number,
+        signal?: AbortSignal
     ) => Promise<Buffer>;
+
+    /**
+     * Resolve a (typically presigned) download URL for a single LFS object
+     * without downloading the bytes — used to stream media directly from the
+     * object store. Optional: older auth-extension builds may not provide it.
+     */
+    getLFSDownloadUrl?: (
+        projectPath: string,
+        oid: string,
+        size: number
+    ) => Promise<{ href: string; header: Record<string, string>; expiresInMs?: number; }>;
 
     getGitBinaryPath?: () => { localGitDir: string; execPath: string; } | undefined;
     isGitBinaryAvailable?: () => boolean;

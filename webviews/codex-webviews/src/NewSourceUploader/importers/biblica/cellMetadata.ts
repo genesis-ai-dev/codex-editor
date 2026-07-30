@@ -1,15 +1,20 @@
 /**
  * Cell Metadata Builder for Biblica Importer
- * 
+ *
  * This file centralizes all cell metadata structure creation for Biblica imports.
  * Makes it easy to find and modify metadata fields in one place.
- * 
+ *
  * Note: Verse cells are not created - verses are detected and tracked for globalReferences
  * assignment to notes, but only note cells are actually created.
  */
 
 import { CodexCellTypes } from 'types/enums';
 import { v4 as uuidv4 } from 'uuid';
+import { IDMLParagraph, IDMLStory } from './types';
+import {
+    extractContentSegmentStructureFromParagraph,
+    joinContentSegments,
+} from '../common/contentSegmentUtils';
 
 /**
  * Parameters for creating note/paragraph cell metadata
@@ -19,17 +24,21 @@ export interface NoteCellMetadataParams {
     storyId?: string;
     paragraphId?: string;
     appliedParagraphStyle: string;
-    originalText: string;
+    paragraph: IDMLParagraph;
     globalReferences: string[];
     sourceFileName: string;
     originalHash: string;
-    paragraphDataAfter?: string[];
-    storyOrder: number;
+    stories: IDMLStory[];
     paragraphOrder: number;
-    segmentIndex: number;
-    totalSegments: number;
-    isLastSegment: boolean;
-    chapterNumber?: string; // Chapter number for milestone detection
+    chapterNumber?: string;
+    /** When a paragraph is split at line breaks, which slice this cell represents. */
+    segmentIndex?: number;
+    totalSegments?: number;
+    isLastSegment?: boolean;
+    /** Plain text for this cell slice (joined segment group). */
+    cellOriginalContent?: string;
+    /** Indexes of structural apostrophe <Content> slots (omitted from editor HTML). */
+    structuralApostropheSegmentIndexes?: number[];
 }
 
 /**
@@ -37,8 +46,13 @@ export interface NoteCellMetadataParams {
  * Generates a UUID for the cell ID
  */
 export function createNoteCellMetadata(params: NoteCellMetadataParams): { metadata: any; cellId: string; } {
-    // Generate UUID for cell ID
     const cellId = uuidv4();
+    const contentSegments = extractContentSegmentStructureFromParagraph(params.paragraph).segments;
+    const { breakBefore: contentSegmentBreakBefore } =
+        extractContentSegmentStructureFromParagraph(params.paragraph);
+    const storyId = params.storyId ?? "";
+    const cellOriginalContent =
+        params.cellOriginalContent ?? joinContentSegments(contentSegments);
 
     return {
         cellId,
@@ -46,33 +60,48 @@ export function createNoteCellMetadata(params: NoteCellMetadataParams): { metada
             id: cellId,
             type: CodexCellTypes.TEXT,
             edits: [],
-            cellLabel: params.cellLabel, // Use sequential number as label
+            cellLabel: params.cellLabel,
             storyId: params.storyId,
             paragraphId: params.paragraphId,
             appliedParagraphStyle: params.appliedParagraphStyle,
-            chapterNumber: params.chapterNumber, // Chapter number for milestone detection
+            chapterNumber: params.chapterNumber,
             data: {
-                originalText: params.originalText,
+                originalContent: cellOriginalContent,
+                originalText: cellOriginalContent,
                 globalReferences: params.globalReferences,
-                // Minimal structure needed for export
                 idmlStructure: {
                     storyId: params.storyId,
                     paragraphId: params.paragraphId,
+                    contentSegments,
+                    contentSegmentCount: contentSegments.length,
+                    contentSegmentBreakBefore,
+                    ...(params.structuralApostropheSegmentIndexes?.length
+                        ? {
+                              structuralApostropheSegmentIndexes:
+                                  params.structuralApostropheSegmentIndexes,
+                          }
+                        : {}),
                     paragraphStyleRange: {
                         appliedParagraphStyle: params.appliedParagraphStyle,
-                        // Only keep dataAfter if present and this is the last segment
-                        dataAfter: (params.isLastSegment ? params.paragraphDataAfter : undefined)
-                    }
+                        ...((params.isLastSegment !== false &&
+                            (params.paragraph.paragraphStyleRange as { dataAfter?: string[] }).dataAfter)
+                            ? { dataAfter: (params.paragraph.paragraphStyleRange as { dataAfter?: string[] }).dataAfter }
+                            : {}),
+                    },
+                    characterStyleRanges: params.paragraph.characterStyleRanges,
                 },
-                // Minimal relationships needed for export
                 relationships: {
                     parentStory: params.storyId,
-                    storyOrder: params.storyOrder,
+                    storyOrder: params.stories.findIndex((s) => s.id === storyId),
                     paragraphOrder: params.paragraphOrder,
-                    segmentIndex: params.segmentIndex, // Track which segment this is within the paragraph
-                    totalSegments: params.totalSegments, // Track total segments for this paragraph
+                    ...(typeof params.segmentIndex === "number"
+                        ? { segmentIndex: params.segmentIndex }
+                        : {}),
+                    ...(typeof params.totalSegments === "number"
+                        ? { totalSegments: params.totalSegments }
+                        : {}),
                 },
-            }
-        }
+            },
+        },
     };
 }

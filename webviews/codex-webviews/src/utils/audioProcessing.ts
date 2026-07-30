@@ -215,6 +215,51 @@ const writeString = (view: DataView, offset: number, str: string): void => {
 };
 
 /**
+ * Trim a short tail off a freshly recorded audio Blob to remove the mechanical
+ * "click" sound generated when the user presses the stop button (mouse switch
+ * or trackpad). Decodes the input, drops `tailMs` of audio off the end, and
+ * re-encodes the result as a 44.1 kHz mono 16-bit WAV.
+ *
+ * The output is WAV rather than the original WebM/Opus because in-browser Opus
+ * re-encoding is not generally available; WAV is universally supported by the
+ * rest of the audio pipeline (import, export, transcription).
+ *
+ * Falls back to returning the original blob unchanged when:
+ *   - the blob is empty,
+ *   - decoding fails (unsupported codec, corrupt data, etc.), or
+ *   - the recording is too short for the trim to be safe.
+ */
+export const trimRecordingTail = async (
+    blob: Blob,
+    tailMs: number = 200,
+): Promise<Blob> => {
+    try {
+        if (!blob || blob.size === 0) return blob;
+        const arrayBuf = await blob.arrayBuffer();
+        const audioBuffer = await decodeAudio(arrayBuf.slice(0));
+        const totalDuration = audioBuffer.duration;
+        const trimSec = Math.max(0, tailMs / 1000);
+        const targetDuration = totalDuration - trimSec;
+
+        // Refuse to trim if the recording is too short — better to keep the
+        // click than to ship a near-empty clip. 200 ms minimum preserved
+        // duration keeps very short utterances ("yes", "no") intact.
+        const MIN_KEPT_DURATION_SEC = 0.2;
+        if (
+            !Number.isFinite(targetDuration) ||
+            targetDuration < MIN_KEPT_DURATION_SEC
+        ) {
+            return blob;
+        }
+
+        const wavBytes = encodeWavSegment(audioBuffer, 0, targetDuration);
+        return new Blob([wavBytes], { type: "audio/wav" });
+    } catch {
+        return blob;
+    }
+};
+
+/**
  * Full processing pipeline: decode -> peaks + silence -> segments.
  * Convenience wrapper used by the AudioImporter webview.
  */

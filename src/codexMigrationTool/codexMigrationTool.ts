@@ -5,6 +5,7 @@ import { safePostMessageToPanel } from "../utils/webviewUtils";
 import { matchMigrationCells } from "./matcher";
 import { applyMigrationToTargetFile } from "./updater";
 import { getSQLiteIndexManager } from "../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
+import { FileSyncManager } from "../activationHelpers/contextAware/contentIndexes/fileSyncManager";
 import type { FileData } from "../activationHelpers/contextAware/contentIndexes/indexes/fileReaders";
 import type { MigrationMatchResult, MigrationRunConfig, SourceFileUIData } from "./types";
 
@@ -192,7 +193,23 @@ export async function openCodexMigrationTool(context: vscode.ExtensionContext) {
                         toFileUri: toTargetFile.uri,
                         matches,
                         forceOverride: data.forceOverride,
+                        // Default ON: an older webview that omits the field still keeps validations.
+                        keepValidations: data.keepValidations ?? true,
                     });
+
+                    // Re-index the just-written target file so validation counts / indicators
+                    // refresh in-session. Content-hash gated (only the changed file re-indexes)
+                    // and writes solely to the local SQLite index — no git/remote sync.
+                    if (updated > 0 && sqliteManager) {
+                        try {
+                            await new FileSyncManager(sqliteManager).syncFiles({});
+                        } catch (reindexError) {
+                            console.warn(
+                                "[CodexMigrationTool] post-migration reindex failed:",
+                                reindexError
+                            );
+                        }
+                    }
 
                     safePostMessageToPanel(panel, {
                         command: "migrationResults",

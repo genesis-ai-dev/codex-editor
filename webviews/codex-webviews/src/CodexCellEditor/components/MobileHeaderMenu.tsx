@@ -19,10 +19,13 @@ interface MobileHeaderMenuProps {
     // Translation controls
     isAutocompletingChapter: boolean;
     isTranslatingCell: boolean;
+    isResolvingStructureBatch?: boolean;
     onAutocompleteClick: () => void;
+    onResolveAllClick?: () => void;
     onStopTranslation: () => void;
     unsavedChanges: boolean;
     isSourceText: boolean;
+    showResolveAllButton?: boolean;
 
     // Settings
     textDirection: "ltr" | "rtl";
@@ -56,15 +59,22 @@ interface MobileHeaderMenuProps {
     vscode: any;
     autoDownloadAudioOnOpen?: boolean;
     onToggleAutoDownloadAudio?: (value: boolean) => void;
+    autoRecordOnMicClick?: boolean;
+    onToggleAutoRecordOnMicClick?: (value: boolean) => void;
+    recordingCountdownSeconds?: number;
+    onCycleRecordingCountdown?: () => void;
 }
 
 export function MobileHeaderMenu({
     isAutocompletingChapter,
     isTranslatingCell,
+    isResolvingStructureBatch = false,
     onAutocompleteClick,
+    onResolveAllClick,
     onStopTranslation,
     unsavedChanges,
     isSourceText,
+    showResolveAllButton = false,
     textDirection,
     onSetTextDirection,
     fontSize,
@@ -83,8 +93,13 @@ export function MobileHeaderMenu({
     vscode,
     autoDownloadAudioOnOpen,
     onToggleAutoDownloadAudio,
+    autoRecordOnMicClick,
+    onToggleAutoRecordOnMicClick,
+    recordingCountdownSeconds = 3,
+    onCycleRecordingCountdown,
 }: MobileHeaderMenuProps) {
     const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
+    const isAnyBatchOperationInProgress = isAnyTranslationInProgress || isResolvingStructureBatch;
 
     return (
         <DropdownMenu>
@@ -138,27 +153,41 @@ export function MobileHeaderMenu({
                 {/* Translation Controls */}
                 {!isSourceText && (
                     <>
-                        {isAnyTranslationInProgress ? (
+                        {isAnyBatchOperationInProgress ? (
                             <DropdownMenuItem
                                 onClick={onStopTranslation}
                                 className="cursor-pointer"
                             >
                                 <i className="codicon codicon-circle-slash mr-2 h-4 w-4" />
                                 <span>
-                                    {isAutocompletingChapter
+                                    {isResolvingStructureBatch
+                                        ? "Stop Resolve"
+                                        : isAutocompletingChapter
                                         ? "Stop Autocomplete"
                                         : "Stop Translation"}
                                 </span>
                             </DropdownMenuItem>
                         ) : (
-                            <DropdownMenuItem
-                                onClick={onAutocompleteClick}
-                                disabled={unsavedChanges}
-                                className="cursor-pointer"
-                            >
-                                <i className="codicon codicon-sparkle mr-2 h-4 w-4" />
-                                <span>Autocomplete Chapter</span>
-                            </DropdownMenuItem>
+                            <>
+                                <DropdownMenuItem
+                                    onClick={onAutocompleteClick}
+                                    disabled={unsavedChanges}
+                                    className="cursor-pointer"
+                                >
+                                    <i className="codicon codicon-sparkle mr-2 h-4 w-4" />
+                                    <span>Autocomplete Chapter</span>
+                                </DropdownMenuItem>
+                                {showResolveAllButton && onResolveAllClick && (
+                                    <DropdownMenuItem
+                                        onClick={onResolveAllClick}
+                                        disabled={unsavedChanges}
+                                        className="cursor-pointer"
+                                    >
+                                        <i className="codicon codicon-warning mr-2 h-4 w-4" />
+                                        <span>Resolve All</span>
+                                    </DropdownMenuItem>
+                                )}
+                            </>
                         )}
                         <DropdownMenuSeparator />
                     </>
@@ -259,6 +288,58 @@ export function MobileHeaderMenu({
                         }}
                     >
                         {autoDownloadAudioOnOpen ? "On" : "Off"}
+                    </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    onClick={() =>
+                        onToggleAutoRecordOnMicClick &&
+                        onToggleAutoRecordOnMicClick(!autoRecordOnMicClick)
+                    }
+                    className="cursor-pointer"
+                >
+                    <i className="codicon codicon-record mr-2 h-4 w-4" />
+                    <span className="flex-1">Auto-record on mic click</span>
+                    <span
+                        className="text-xs px-2 py-0.5 rounded-full"
+                        style={{
+                            backgroundColor: autoRecordOnMicClick
+                                ? "var(--vscode-charts-blue)"
+                                : "var(--vscode-editorHoverWidget-border)",
+                            color: autoRecordOnMicClick
+                                ? "var(--vscode-editor-background)"
+                                : "var(--vscode-foreground)",
+                        }}
+                    >
+                        {autoRecordOnMicClick ? "On" : "Off"}
+                    </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    onSelect={(e) => {
+                        // Keep the menu open so the user can step through
+                        // values without re-opening.
+                        e.preventDefault();
+                        onCycleRecordingCountdown?.();
+                    }}
+                    className="cursor-pointer"
+                >
+                    <i className="codicon codicon-clock mr-2 h-4 w-4" />
+                    <span className="flex-1">Recording countdown</span>
+                    <span
+                        className="text-xs px-2 py-0.5 rounded-full"
+                        style={{
+                            backgroundColor:
+                                recordingCountdownSeconds > 0
+                                    ? "var(--vscode-charts-blue)"
+                                    : "var(--vscode-editorHoverWidget-border)",
+                            color:
+                                recordingCountdownSeconds > 0
+                                    ? "var(--vscode-editor-background)"
+                                    : "var(--vscode-foreground)",
+                        }}
+                    >
+                        {recordingCountdownSeconds === 0
+                            ? "Off"
+                            : `${recordingCountdownSeconds}s`}
                     </span>
                 </DropdownMenuItem>
 

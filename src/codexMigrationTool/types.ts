@@ -30,6 +30,8 @@ export interface MigrationRunConfig {
     toFilePath: string;
     matchMode: CodexMigrationMatchMode;
     forceOverride: boolean;
+    /** When true, carry text + audio validation status over to migrated cells. */
+    keepValidations: boolean;
     /** 1-based starting line in the source file (lineNumber mode only). */
     fromStartLine?: number;
     /** 1-based starting line in the target file (lineNumber mode only). */

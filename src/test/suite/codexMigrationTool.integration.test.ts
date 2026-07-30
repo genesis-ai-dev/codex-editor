@@ -86,6 +86,104 @@ const buildFileDataWithTypes = (params: {
     })),
 });
 
+// ── Validation-retention test helpers (issue #1005) ────────────────────────────
+const mkValidation = (username: string, timestamp: number, isDeleted = false) => ({
+    username,
+    creationTimestamp: timestamp,
+    updatedTimestamp: timestamp,
+    isDeleted,
+});
+
+const valueEditsOf = (cell: any): any[] =>
+    (cell.metadata?.edits ?? []).filter((e: any) => e.editMap && EditMapUtils.isValue(e.editMap));
+
+const lastValueEdit = (cell: any): any => {
+    const ve = valueEditsOf(cell);
+    return ve[ve.length - 1];
+};
+
+/** Attach text validations to a cell's last value edit (mutates + returns the cell). */
+const withTextValidations = (
+    cell: CustomNotebookCellData,
+    validators: Array<{ username: string; timestamp: number; isDeleted?: boolean; }>
+): CustomNotebookCellData => {
+    lastValueEdit(cell).validatedBy = validators.map((v) =>
+        mkValidation(v.username, v.timestamp, v.isDeleted)
+    );
+    return cell;
+};
+
+/** Attach a selected, validated audio attachment to a cell (mutates + returns the cell). */
+const withAudioValidation = (
+    cell: CustomNotebookCellData,
+    attachmentId: string,
+    validators: Array<{ username: string; timestamp: number; isDeleted?: boolean; }>,
+    timestamp: number
+): CustomNotebookCellData => {
+    (cell.metadata as any).attachments = {
+        [attachmentId]: {
+            type: "audio",
+            url: `attachments/${attachmentId}.wav`,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            isDeleted: false,
+            validatedBy: validators.map((v) => mkValidation(v.username, v.timestamp, v.isDeleted)),
+        },
+    };
+    (cell.metadata as any).selectedAudioId = attachmentId;
+    (cell.metadata as any).selectionTimestamp = timestamp;
+    return cell;
+};
+
+/** Active (non-deleted) text validator usernames on the cell's live edit — mirrors the indexer. */
+const activeTextValidators = (cell: any): string[] =>
+    ((lastValueEdit(cell)?.validatedBy ?? []) as any[])
+        .filter((v) => v && typeof v === "object" && v.isDeleted === false)
+        .map((v) => v.username)
+        .sort();
+
+const activeAudioValidators = (cell: any, attachmentId: string): string[] =>
+    ((cell.metadata?.attachments?.[attachmentId]?.validatedBy ?? []) as any[])
+        .filter((v) => v && typeof v === "object" && v.isDeleted === false)
+        .map((v) => v.username)
+        .sort();
+
+const readNotebook = async (uri: vscode.Uri) => {
+    const serializer = new CodexContentSerializer();
+    const bytes = await vscode.workspace.fs.readFile(uri);
+    return serializer.deserializeNotebook(bytes, new vscode.CancellationTokenSource().token);
+};
+
+/** Create temp from/to files, run a single-cell migration, return the migrated target cell. */
+const migrateSingleCell = async (
+    baseName: string,
+    fromCell: CustomNotebookCellData,
+    toCell: CustomNotebookCellData,
+    opts: { forceOverride: boolean; keepValidations: boolean; }
+): Promise<CustomNotebookCellData> => {
+    const fromUri = await createTempCodexFile(
+        `${baseName}-from.codex`,
+        buildNotebook([fromCell], `${baseName}-from`, `${baseName}-from.codex`)
+    );
+    const toUri = await createTempCodexFile(
+        `${baseName}-to.codex`,
+        buildNotebook([toCell], `${baseName}-to`, `${baseName}-to.codex`)
+    );
+    try {
+        await applyMigrationToTargetFile({
+            fromFileUri: fromUri,
+            toFileUri: toUri,
+            matches: [{ fromCellId: fromCell.metadata!.id, toCellId: toCell.metadata!.id }],
+            forceOverride: opts.forceOverride,
+            keepValidations: opts.keepValidations,
+        });
+        return (await readNotebook(toUri)).cells[0];
+    } finally {
+        await deleteIfExists(fromUri);
+        await deleteIfExists(toUri);
+    }
+};
+
 suite("Codex migration tool integration", function () {
     this.timeout(30_000);
 
@@ -247,6 +345,113 @@ suite("Codex migration tool integration", function () {
             await deleteIfExists(fromUri);
             await deleteIfExists(toUri);
         }
+    });
+
+    // ── Validation retention (issue #1005) ─────────────────────────────────────
+    test("keepValidations ON: preserves source text validation + identity (force override)", async () => {
+        const migrated = await migrateSingleCell(
+            "mig-val-keep-force",
+            withTextValidations(
+                buildCell({ id: "cell-1", value: "from value", edits: [{ value: "from value", timestamp: 1000 }] }),
+                [{ username: "alice", timestamp: 500 }]
+            ),
+            buildCell({ id: "cell-1", value: "to value", edits: [{ value: "to value", timestamp: 2000 }] }),
+            { forceOverride: true, keepValidations: true }
+        );
+        assert.strictEqual(migrated.value, "from value", "migrated content should win");
+        assert.deepStrictEqual(activeTextValidators(migrated), ["alice"], "alice validation should carry over");
+        const alice = (lastValueEdit(migrated).validatedBy as any[]).find((v) => v.username === "alice");
+        assert.strictEqual(alice.creationTimestamp, 500, "original creation timestamp preserved");
+    });
+
+    test("keepValidations OFF: source text validation not transferred; target's own survives", async () => {
+        const migrated = await migrateSingleCell(
+            "mig-val-discard",
+            withTextValidations(
+                buildCell({ id: "cell-1", value: "X", edits: [{ value: "X", timestamp: 1000 }] }),
+                [{ username: "alice", timestamp: 500 }]
+            ),
+            withTextValidations(
+                buildCell({ id: "cell-1", value: "X", edits: [{ value: "X", timestamp: 2000 }] }),
+                [{ username: "bob", timestamp: 1500 }]
+            ),
+            { forceOverride: false, keepValidations: false }
+        );
+        assert.deepStrictEqual(activeTextValidators(migrated), ["bob"], "only the target's own validation should remain");
+    });
+
+    test("keepValidations ON: unions source + target validators on identical content (no duplicates)", async () => {
+        const migrated = await migrateSingleCell(
+            "mig-val-union",
+            withTextValidations(
+                buildCell({ id: "cell-1", value: "X", edits: [{ value: "X", timestamp: 1000 }] }),
+                [{ username: "alice", timestamp: 500 }]
+            ),
+            withTextValidations(
+                buildCell({ id: "cell-1", value: "X", edits: [{ value: "X", timestamp: 2000 }] }),
+                [{ username: "bob", timestamp: 1500 }]
+            ),
+            { forceOverride: false, keepValidations: true }
+        );
+        assert.deepStrictEqual(activeTextValidators(migrated), ["alice", "bob"], "both validators preserved, deduped");
+    });
+
+    test("keepValidations ON: does not stamp validation onto unseen surviving content (force off)", async () => {
+        const migrated = await migrateSingleCell(
+            "mig-val-nograft",
+            withTextValidations(
+                buildCell({ id: "cell-1", value: "S", edits: [{ value: "S", timestamp: 1000 }] }),
+                [{ username: "alice", timestamp: 500 }]
+            ),
+            buildCell({ id: "cell-1", value: "T", edits: [{ value: "T", timestamp: 2000 }] }),
+            { forceOverride: false, keepValidations: true }
+        );
+        assert.strictEqual(lastValueEdit(migrated).value, "T", "target content should survive");
+        assert.deepStrictEqual(activeTextValidators(migrated), [], "source validation must not apply to unseen text");
+    });
+
+    test("keepValidations ON: preserves source audio validation", async () => {
+        const migrated = await migrateSingleCell(
+            "mig-val-audio-keep",
+            withAudioValidation(
+                buildCell({ id: "cell-1", value: "X", edits: [{ value: "X", timestamp: 1000 }] }),
+                "att-1", [{ username: "alice", timestamp: 500 }], 600
+            ),
+            buildCell({ id: "cell-1", value: "X", edits: [{ value: "X", timestamp: 1000 }] }),
+            { forceOverride: false, keepValidations: true }
+        );
+        assert.deepStrictEqual(activeAudioValidators(migrated, "att-1"), ["alice"], "audio validation should carry over");
+    });
+
+    test("keepValidations OFF: source audio validation not transferred", async () => {
+        const migrated = await migrateSingleCell(
+            "mig-val-audio-discard",
+            withAudioValidation(
+                buildCell({ id: "cell-1", value: "X", edits: [{ value: "X", timestamp: 1000 }] }),
+                "att-1", [{ username: "alice", timestamp: 500 }], 600
+            ),
+            buildCell({ id: "cell-1", value: "X", edits: [{ value: "X", timestamp: 1000 }] }),
+            { forceOverride: false, keepValidations: false }
+        );
+        assert.deepStrictEqual(activeAudioValidators(migrated, "att-1"), [], "audio validation must not transfer when discarding");
+    });
+
+    test("keepValidations ON: original validator can remove their migrated validation", async () => {
+        const migrated = await migrateSingleCell(
+            "mig-val-remove",
+            withTextValidations(
+                buildCell({ id: "cell-1", value: "from value", edits: [{ value: "from value", timestamp: 1000 }] }),
+                [{ username: "alice", timestamp: 500 }]
+            ),
+            buildCell({ id: "cell-1", value: "to value", edits: [{ value: "to value", timestamp: 2000 }] }),
+            { forceOverride: true, keepValidations: true }
+        );
+        // The grafted entry retains alice's identity, so removal-by-username (as the editor does) works.
+        const alice = (lastValueEdit(migrated).validatedBy as any[]).find((v) => v.username === "alice");
+        assert.ok(alice, "alice entry present after migration");
+        alice.isDeleted = true;
+        alice.updatedTimestamp = 9999;
+        assert.deepStrictEqual(activeTextValidators(migrated), [], "validation removable by the original validator");
     });
 
     test("sequential match + applyMigrationToTargetFile migrates content", async () => {

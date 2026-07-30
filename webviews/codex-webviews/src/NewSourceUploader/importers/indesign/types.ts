@@ -27,6 +27,10 @@ export interface IDMLParagraph {
     id?: string;
     paragraphStyleRange: IDMLParagraphStyleRange;
     characterStyleRanges: IDMLCharacterStyleRange[];
+    /** One entry per <Content> node in document order (round-trip text slots). */
+    contentSegments?: string[];
+    /** When true, segment i starts after an IDML line break (<Br />). */
+    contentSegmentBreakBefore?: boolean[];
     metadata?: Record<string, any>;
 }
 

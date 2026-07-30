@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { QuillCellContent } from "../../../../../types";
-import { removeHtmlTags } from "@sharedUtils";
+import { removeHtmlTags, formatTimecode } from "@sharedUtils";
 
 export const useSubtitleData = (translationUnits: QuillCellContent[]) => {
     const subtitleData = useMemo(() => {
@@ -11,6 +11,12 @@ export const useSubtitleData = (translationUnits: QuillCellContent[]) => {
         [subtitleData]
     );
     const subtitleUrl = useMemo(() => URL.createObjectURL(subtitleBlob), [subtitleBlob]);
+
+    // A new object URL is minted on every edit (each keystroke changes the cue text). Revoke
+    // the previous one when it changes and on unmount so editing sessions don't leak blobs.
+    useEffect(() => {
+        return () => URL.revokeObjectURL(subtitleUrl);
+    }, [subtitleUrl]);
 
     return { subtitleUrl, subtitleData };
 };
@@ -28,11 +34,6 @@ export const generateVttData = (
 ): string => {
     if (!translationUnits.length) return "";
 
-    const formatTime = (seconds: number): string => {
-        const date = new Date(seconds * 1000);
-        return date.toISOString().substr(11, 12);
-    };
-
     const cues = translationUnits
         .filter((unit) => !!unit.timestamps)
         .map((unit, index) => {
@@ -44,7 +45,7 @@ export const generateVttData = (
                 ? `<v ${escapeVoiceName(rawLabel)}>${body}</v>`
                 : body;
             return `${unit.cellMarkers[0]}
-${formatTime(Number(startTime))} --> ${formatTime(Number(endTime))}
+${formatTimecode(Number(startTime))} --> ${formatTimecode(Number(endTime))}
 ${payload}
 
 `;

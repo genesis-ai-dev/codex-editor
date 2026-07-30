@@ -22,6 +22,7 @@ import {
     buildCellPositionContextMap,
     insertUniqueCellsPreservingRelativePositions,
 } from "./utils/positionPreservationUtils";
+import { reorderVerseRangeCells } from "./utils/verseRangeReorder";
 
 const DEBUG_MODE = false;
 function debugLog(...args: any[]): void {
@@ -1243,6 +1244,87 @@ export async function resolveCodexCustomMerge(
         }
     });
 
+    // A wholesale re-import regenerates every cell id, so an id-only merge would
+    // union the old and new copies of the same document — each cue duplicated, an
+    // extra milestone, the whole episode repeated (issue #1079). Before treating
+    // "their-only" cells as new, align them to our cells by content identity:
+    //   - a timed cell (subtitle cue) with the exact same (startTime, endTime) and
+    //     cell type IS the same cue, re-imported under a fresh id;
+    //   - a milestone with the same chapter number IS the same section marker.
+    // Aligned pairs merge into the our-side cell (our id is canonical; edit
+    // histories union; the newest edit wins per field).
+    //
+    // Alignment applies ONLY when BOTH cells are live. Cells with the same content
+    // key but different ids are different physical cells: a tombstone on one of
+    // them means "this duplicate copy was removed", not "this cue must die", so
+    // folding across the live/deleted boundary would inject a foreign (and often
+    // newer) delete edit and silently kill live content. Deletion semantics travel
+    // exclusively through same-id merges. Tombstoned cells on either side simply
+    // fall through to the existing insert path, as before this alignment existed.
+    // Anything ambiguous (several live our-cells share a key — e.g. an already-
+    // damaged file) is also left to the insert path.
+    if (theirCellsMap.size > 0) {
+        const contentKeyForCell = (cell: CustomNotebookCellData): string | null => {
+            const md: any = cell.metadata || {};
+            if (md.type === CodexCellTypes.MILESTONE) {
+                const label = (cell.value || "").trim();
+                if (!label) return null;
+                // Milestone values come in two app-generated formats for the same
+                // chapter: the importer's bare "1" and the milestone migration's
+                // "<docName> 1". Key on the chapter number (the last number in the
+                // value — same rule as extractChapterNumberFromMilestoneValue in the
+                // webview) so a re-imported "1" aligns with an existing "<docName> 1"
+                // instead of inserting a duplicate section. Files with several
+                // same-numbered milestones fall into the ambiguity skip.
+                const chapterMatch = label.match(/(\d+)(?!.*\d)/);
+                return chapterMatch ? `milestone:${chapterMatch[1]}` : `milestone:${label}`;
+            }
+            const data = md.data || {};
+            if (data.startTime != null && data.endTime != null) {
+                return `timed:${md.type}:${data.startTime}:${data.endTime}`;
+            }
+            return null;
+        };
+
+        const isTombstoned = (cell: CustomNotebookCellData): boolean =>
+            !!((cell.metadata as any)?.data?.deleted);
+
+        // Index LIVE our-cells only. A repaired file legitimately keeps tombstoned
+        // duplicates sharing a timing key with the live cell — they are neither
+        // alignment targets nor grounds for ambiguity.
+        const liveIndexByKey = new Map<string, number>();
+        const ambiguousLiveKeys = new Set<string>();
+        resultCells.forEach((cell, index) => {
+            if (isTombstoned(cell)) return;
+            const key = contentKeyForCell(cell);
+            if (!key) return;
+            if (liveIndexByKey.has(key)) {
+                ambiguousLiveKeys.add(key);
+            } else {
+                liveIndexByKey.set(key, index);
+            }
+        });
+
+        for (const [theirId, theirCell] of Array.from(theirCellsMap.entries())) {
+            if (isTombstoned(theirCell)) continue; // deleted copies insert as-is
+            const key = contentKeyForCell(theirCell);
+            if (!key || ambiguousLiveKeys.has(key)) continue;
+            const ourIndex = liveIndexByKey.get(key);
+            if (ourIndex === undefined) continue;
+
+            const ourCell = resultCells[ourIndex];
+            const mergedCell = mergeDuplicateCellsUsingResolverLogic([ourCell, theirCell]);
+            if (mergedCell.metadata && ourCell.metadata?.id) {
+                mergedCell.metadata.id = ourCell.metadata.id;
+            }
+            resultCells[ourIndex] = mergedCell;
+            theirCellsMap.delete(theirId);
+            debugLog(
+                `Aligned re-imported cell ${theirId} to existing cell ${ourCell.metadata?.id} via ${key}`
+            );
+        }
+    }
+
     // Add any new cells from their version, preserving their relative positions
     // These are cells that only exist in "their" version (e.g., paratextual cells they added)
     if (theirCellsMap.size > 0) {
@@ -1282,12 +1364,32 @@ export async function resolveCodexCustomMerge(
         }
     }
 
+    // Re-apply verse-range reordering (and idempotent cellLabel/chapterNumber autofill) so
+    // that the migrated cell ordering survives git syncs regardless of which side is "ours".
+    // The helper:
+    //   - no-ops for known non-Bible importer types (documents, subtitles, spreadsheets, …);
+    //   - bails out as a no-op on files with no milestones and no verse-range cells;
+    //   - bails out when no content cell has a parseable verse ref (book-only globalReferences,
+    //     e.g. IDML imports) or when no milestone can be matched to any content chapter;
+    //   - keeps cells it cannot place (headings, markers, style cells) anchored next to their
+    //     original neighbors instead of moving them to the end of the file;
+    //   - never adds edit-history entries;
+    //   - never soft-deletes cells (orphan paratext handling stays in the migration);
+    //   - skips cellLabel autofill on cells the user has hand-labeled.
+    const reordered = reorderVerseRangeCells(resultCells, {
+        importerType:
+            mergedMetadata?.importerType ??
+            ourMetadata?.importerType ??
+            theirMetadata?.importerType,
+    });
+    const finalCells = reordered.cells;
+
     // Return the full notebook structure with merged cells and metadata
     // (formatted consistently for `.codex`/`.source` file writes)
     return formatJsonForNotebookFile(
         {
             ...ourNotebook,
-            cells: resultCells,
+            cells: finalCells,
             metadata: mergedMetadata,
         }
     );
@@ -1697,90 +1799,70 @@ export function mergeAttachments(
 }
 
 /**
- * Resolves audio selection conflicts using selection timestamps
+ * Resolves audio selection conflicts purely by `selectionTimestamp`.
+ *
+ * `selectedAudioId` is treated as user-intent data that is never auto-mutated by
+ * the merge path. Every code path that writes `selectedAudioId` also writes a
+ * fresh `selectionTimestamp`, so "newer timestamp wins" exactly equals "last
+ * user intent wins".
+ *
+ * Rules:
+ *   - Both sides absent (key not set) → return `{}` (no keys written).
+ *   - One side absent → the other side's value wins verbatim.
+ *   - Both sides have a value (including `""` or a dangling id) → the side with
+ *     the newer `selectionTimestamp` wins; ties prefer ours. The winner's value
+ *     is kept verbatim — even if it doesn't resolve to a present attachment.
+ *
+ * Dangling ids (pointing to a nonexistent / deleted / non-audio attachment) can
+ * therefore persist through merges. The UI (`deriveAudioAvailability` in the
+ * webview, `resolveSelectedAttachmentState` on the provider) renders dangling
+ * ids as "nothing selected", so there is no user-visible corruption — only a
+ * preserved record of the user's last explicit intent.
+ *
  * @param ourMetadata Our cell metadata
  * @param theirMetadata Their cell metadata
- * @param mergedAttachments The merged attachments object
+ * @param _mergedAttachments Kept for signature stability; no longer consulted.
  * @returns Resolved selection state
  */
 function resolveAudioSelection(
     ourMetadata?: any,
     theirMetadata?: any,
-    mergedAttachments?: { [key: string]: any; }
+    _mergedAttachments?: { [key: string]: any; }
 ): { selectedAudioId?: string; selectionTimestamp?: number; } {
-    const ourSelection = ourMetadata?.selectedAudioId;
-    const ourTimestamp = ourMetadata?.selectionTimestamp;
-    const theirSelection = theirMetadata?.selectedAudioId;
-    const theirTimestamp = theirMetadata?.selectionTimestamp;
+    const ourSel: string | undefined = ourMetadata?.selectedAudioId;
+    const ourTs: number | undefined = ourMetadata?.selectionTimestamp;
+    const theirSel: string | undefined = theirMetadata?.selectedAudioId;
+    const theirTs: number | undefined = theirMetadata?.selectionTimestamp;
 
-    // If neither has a selection, return undefined
-    if (!ourSelection && !theirSelection) {
+    const ourMissing = ourSel === undefined || ourSel === null;
+    const theirMissing = theirSel === undefined || theirSel === null;
+
+    if (ourMissing && theirMissing) {
         return {};
     }
 
-    // If only one has a selection, use that one (if valid)
-    if (ourSelection && !theirSelection) {
-        if (isValidSelection(ourSelection, mergedAttachments)) {
-            return { selectedAudioId: ourSelection, selectionTimestamp: ourTimestamp };
-        }
-        return {};
+    if (ourMissing) {
+        debugLog(`Using their audio selection ${theirSel} (ours absent)`);
+        return { selectedAudioId: theirSel, selectionTimestamp: theirTs };
     }
 
-    if (theirSelection && !ourSelection) {
-        if (isValidSelection(theirSelection, mergedAttachments)) {
-            return { selectedAudioId: theirSelection, selectionTimestamp: theirTimestamp };
-        }
-        return {};
+    if (theirMissing) {
+        debugLog(`Keeping our audio selection ${ourSel} (theirs absent)`);
+        return { selectedAudioId: ourSel, selectionTimestamp: ourTs };
     }
 
-    // Both have selections - use the more recent one
-    if (ourSelection && theirSelection) {
-        const ourTime = ourTimestamp || 0;
-        const theirTime = theirTimestamp || 0;
+    const ourTime = ourTs ?? 0;
+    const theirTime = theirTs ?? 0;
+    const winnerIsOurs = theirTime > ourTime ? false : true;
 
-        if (theirTime > ourTime) {
-            // Their selection is more recent
-            if (isValidSelection(theirSelection, mergedAttachments)) {
-                debugLog(`Using their audio selection ${theirSelection} (newer timestamp)`);
-                return { selectedAudioId: theirSelection, selectionTimestamp: theirTimestamp };
-            }
-        } else {
-            // Our selection is more recent or same time (prefer ours)
-            if (isValidSelection(ourSelection, mergedAttachments)) {
-                debugLog(`Keeping our audio selection ${ourSelection} (newer or equal timestamp)`);
-                return { selectedAudioId: ourSelection, selectionTimestamp: ourTimestamp };
-            }
-        }
+    debugLog(
+        `Using ${winnerIsOurs ? "our" : "their"} audio selection ${winnerIsOurs ? ourSel : theirSel
+        } (newer or equal timestamp)`
+    );
 
-        // If the preferred selection is invalid, try the other one
-        const fallbackSelection = theirTime > ourTime ? ourSelection : theirSelection;
-        const fallbackTimestamp = theirTime > ourTime ? ourTimestamp : theirTimestamp;
-
-        if (isValidSelection(fallbackSelection, mergedAttachments)) {
-            return { selectedAudioId: fallbackSelection, selectionTimestamp: fallbackTimestamp };
-        }
-    }
-
-    // No valid selection found
-    return {};
-}
-
-/**
- * Checks if a selection is valid (attachment exists and isn't deleted)
- * @param selectedId The selected attachment ID
- * @param attachments The attachments object
- * @returns True if selection is valid
- */
-function isValidSelection(selectedId: string, attachments?: { [key: string]: any; }): boolean {
-    if (!attachments || !selectedId) {
-        return false;
-    }
-
-    const attachment = attachments[selectedId];
-    return attachment &&
-        attachment.type === "audio" &&
-        !attachment.isDeleted &&
-        !attachment.isMissing;
+    return winnerIsOurs
+        ? { selectedAudioId: ourSel, selectionTimestamp: ourTs }
+        : { selectedAudioId: theirSel, selectionTimestamp: theirTs };
 }
 
 /**

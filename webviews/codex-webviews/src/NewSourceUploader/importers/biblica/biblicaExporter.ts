@@ -20,6 +20,11 @@ import {
     IDMLExportError,
     IDMLExportConfig
 } from './types';
+import {
+    applySegmentTranslationToParagraphBlock,
+    findParagraphBlockInStoryXml,
+    mergeSplitCellTranslations,
+} from '../common/contentSegmentUtils';
 
 // Import JSZip for Node.js environment
 import JSZip from 'jszip';
@@ -527,9 +532,17 @@ export interface ParagraphUpdate {
     paragraphOrder?: number;
     appliedParagraphStyle?: string;
     translated: string;
+    translatedHtml?: string;
+    contentSegments?: string[];
+    contentSegmentCount?: number;
+    contentSegmentBreakBefore?: boolean[];
     dataAfter?: string[];
-    segmentIndex?: number; // Index of this segment within the paragraph (0-based)
-    totalSegments?: number; // Total number of segments for this paragraph
+    /** Legacy multi-cell imports: index of segment within paragraph */
+    segmentIndex?: number;
+    /** Legacy multi-cell imports: total segments for paragraph */
+    totalSegments?: number;
+    /** Indexes of structural apostrophe slots to clear on export */
+    structuralApostropheSegmentIndexes?: number[];
 }
 
 /**
@@ -617,13 +630,100 @@ export async function exportIdmlRoundtrip(
         return "";
     };
 
-    // Helper to remove HTML tags while preserving line breaks
+    // Helper to remove HTML tags while preserving line breaks (legacy fallback)
     const removeHtmlTags = (html: string): string => {
-        // First convert <br>, <br/>, <br /> tags to newlines
         let text = html.replace(/<br\s*\/?>/gi, '\n');
-        // Then remove all other HTML tags
         text = text.replace(/<[^>]*>/g, '');
         return text.trim();
+    };
+
+    const applySegmentParagraphUpdate = (storyXml: string, update: ParagraphUpdate): string => {
+        const located = findParagraphBlockInStoryXml(storyXml, {
+            paragraphId: update.paragraphId,
+            paragraphOrder: update.paragraphOrder,
+        });
+
+        if (!located) {
+            return storyXml;
+        }
+
+        const translatedHtml = update.translatedHtml || update.translated;
+        if (!translatedHtml?.trim()) {
+            return storyXml;
+        }
+
+        const updatedBlock = applySegmentTranslationToParagraphBlock(
+            located.block,
+            translatedHtml,
+            update.contentSegments,
+            xmlEscape,
+            update.structuralApostropheSegmentIndexes
+        );
+
+        if (updatedBlock === located.block) {
+            return storyXml;
+        }
+
+        return (
+            storyXml.slice(0, located.start) +
+            updatedBlock +
+            storyXml.slice(located.end)
+        );
+    };
+
+    const coalesceSplitSurgicalUpdates = (updates: ParagraphUpdate[]): ParagraphUpdate[] => {
+        const byParagraph = new Map<string, ParagraphUpdate[]>();
+        const standalone: ParagraphUpdate[] = [];
+
+        for (const update of updates) {
+            if (!Array.isArray(update.contentSegments) || update.contentSegments.length === 0) {
+                standalone.push(update);
+                continue;
+            }
+
+            const key =
+                update.paragraphId ??
+                (typeof update.paragraphOrder === "number"
+                    ? `order:${update.paragraphOrder}`
+                    : `unknown:${byParagraph.size}`);
+
+            const group = byParagraph.get(key) ?? [];
+            group.push(update);
+            byParagraph.set(key, group);
+        }
+
+        const coalesced: ParagraphUpdate[] = [...standalone];
+
+        for (const group of byParagraph.values()) {
+            if (group.length === 1) {
+                coalesced.push(group[0]);
+                continue;
+            }
+
+            const hasSplitCells = group.some((item) => typeof item.segmentIndex === "number");
+            if (!hasSplitCells) {
+                coalesced.push(...group);
+                continue;
+            }
+
+            const sorted = [...group].sort(
+                (a, b) => (a.segmentIndex ?? 0) - (b.segmentIndex ?? 0)
+            );
+            const base = sorted[0];
+            const mergedHtml = mergeSplitCellTranslations(
+                sorted.map((item) => item.translatedHtml ?? item.translated),
+                base.contentSegments ?? [],
+                base.contentSegmentBreakBefore
+            );
+
+            coalesced.push({
+                ...base,
+                translatedHtml: mergedHtml,
+                translated: removeHtmlTags(mergedHtml),
+            });
+        }
+
+        return coalesced;
     };
 
     // Track story order counters for fallback
@@ -635,7 +735,8 @@ export async function exportIdmlRoundtrip(
         const isText = cell.kind === 2 && meta?.type === "text";
         if (!isText) continue;
 
-        const translated = removeHtmlTags(getTranslatedHtml(cell)).trim();
+        const translatedHtml = getTranslatedHtml(cell);
+        const translated = removeHtmlTags(translatedHtml).trim();
         if (!translated) continue;
 
         // Check if this is a Biblica verse-based cell
@@ -709,6 +810,15 @@ export async function exportIdmlRoundtrip(
 
         const paragraphId: string | undefined = structure?.paragraphId || meta?.paragraphId;
         const dataAfterRuns: string[] | undefined = structure?.paragraphStyleRange?.dataAfter;
+        const contentSegments: string[] | undefined = structure?.contentSegments;
+        const contentSegmentCount: number | undefined =
+            typeof structure?.contentSegmentCount === "number"
+                ? structure.contentSegmentCount
+                : contentSegments?.length;
+        const contentSegmentBreakBefore: boolean[] | undefined =
+            structure?.contentSegmentBreakBefore;
+        const structuralApostropheSegmentIndexes: number[] | undefined =
+            structure?.structuralApostropheSegmentIndexes;
         const appliedParagraphStyle: string | undefined =
             structure?.paragraphStyleRange?.appliedParagraphStyle ||
             meta?.appliedParagraphStyle;
@@ -740,9 +850,14 @@ export async function exportIdmlRoundtrip(
                 paragraphOrder,
                 appliedParagraphStyle,
                 translated,
+                translatedHtml,
+                contentSegments,
+                contentSegmentCount,
+                contentSegmentBreakBefore,
                 dataAfter: dataAfterRuns,
                 segmentIndex,
-                totalSegments
+                totalSegments,
+                structuralApostropheSegmentIndexes,
             });
             storyIdToUpdates.set(storyId, updates);
         } else if (storyOrder !== undefined) {
@@ -751,9 +866,14 @@ export async function exportIdmlRoundtrip(
                 paragraphOrder,
                 appliedParagraphStyle,
                 translated,
+                translatedHtml,
+                contentSegments,
+                contentSegmentCount,
+                contentSegmentBreakBefore,
                 dataAfter: dataAfterRuns,
                 segmentIndex,
-                totalSegments
+                totalSegments,
+                structuralApostropheSegmentIndexes,
             });
             storyIndexToUpdates.set(storyOrder, updates);
         }
@@ -1189,78 +1309,67 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
         const xmlText = await zip.file(storyKey)!.async("string");
         let updated = xmlText;
 
-        // Group updates by paragraphOrder to merge segmented paragraphs
-        const updatesByParagraph = new Map<number, ParagraphUpdate[]>();
-        const standaloneUpdates: ParagraphUpdate[] = [];
+        const surgicalUpdates: ParagraphUpdate[] = [];
+        const legacyUpdates: ParagraphUpdate[] = [];
 
         for (const u of updates) {
+            if (Array.isArray(u.contentSegments) && u.contentSegments.length > 0) {
+                surgicalUpdates.push(u);
+            } else {
+                legacyUpdates.push(u);
+            }
+        }
+
+        for (const u of coalesceSplitSurgicalUpdates(surgicalUpdates)) {
+            updated = applySegmentParagraphUpdate(updated, u);
+        }
+
+        // Legacy fallback for pre-migration multi-cell imports (no contentSegments metadata)
+        const updatesByParagraph = new Map<number, ParagraphUpdate[]>();
+        const standaloneLegacyUpdates: ParagraphUpdate[] = [];
+
+        for (const u of legacyUpdates) {
             if (typeof u.paragraphOrder === 'number' && typeof u.segmentIndex === 'number') {
-                // This is a segmented paragraph - group by paragraphOrder
                 const group = updatesByParagraph.get(u.paragraphOrder) || [];
                 group.push(u);
                 updatesByParagraph.set(u.paragraphOrder, group);
             } else {
-                // Standalone update (not segmented)
-                standaloneUpdates.push(u);
+                standaloneLegacyUpdates.push(u);
             }
         }
 
-        // Merge segmented paragraphs: combine segments with \n between them
-        const mergedUpdates: ParagraphUpdate[] = [];
-        for (const [paragraphOrder, segments] of updatesByParagraph.entries()) {
-            // Sort segments by segmentIndex
-            segments.sort((a, b) => {
-                const aIdx = a.segmentIndex ?? 0;
-                const bIdx = b.segmentIndex ?? 0;
-                return aIdx - bIdx;
-            });
-
-            // Merge segments with \n between them
-            const mergedText = segments.map(s => s.translated).join('\n');
-
-            // Use dataAfter from the last segment only
+        const mergedLegacyUpdates: ParagraphUpdate[] = [];
+        for (const [, segments] of updatesByParagraph.entries()) {
+            segments.sort((a, b) => (a.segmentIndex ?? 0) - (b.segmentIndex ?? 0));
+            const mergedText = segments.map((s) => s.translated).join('\n');
             const lastSegment = segments[segments.length - 1];
-            const dataAfter = lastSegment?.dataAfter;
-
-            // Use other properties from first segment
             const firstSegment = segments[0];
-            mergedUpdates.push({
+            mergedLegacyUpdates.push({
                 paragraphId: firstSegment.paragraphId,
                 paragraphOrder: firstSegment.paragraphOrder,
                 appliedParagraphStyle: firstSegment.appliedParagraphStyle,
                 translated: mergedText,
-                dataAfter
+                dataAfter: lastSegment?.dataAfter,
             });
         }
 
-        // Combine merged updates with standalone updates
-        const allUpdates = [...mergedUpdates, ...standaloneUpdates];
-
-        // Sort updates by paragraphOrder (descending) to process from end to start
-        // This avoids index shifting issues when replacing paragraphs
-        const sortedUpdates = allUpdates.sort((a, b) => {
-            // If both have paragraphOrder, sort by that (descending)
+        const allLegacyUpdates = [...mergedLegacyUpdates, ...standaloneLegacyUpdates];
+        const sortedLegacyUpdates = allLegacyUpdates.sort((a, b) => {
             if (typeof a.paragraphOrder === 'number' && typeof b.paragraphOrder === 'number') {
                 return b.paragraphOrder - a.paragraphOrder;
             }
-            // If only one has paragraphOrder, prioritize it
             if (typeof a.paragraphOrder === 'number') return -1;
             if (typeof b.paragraphOrder === 'number') return 1;
-            // If both have paragraphId, keep original order
             if (a.paragraphId && b.paragraphId) return 0;
-            // ParagraphId-based updates come first (processed after order-based)
             if (a.paragraphId) return 1;
             if (b.paragraphId) return -1;
             return 0;
         });
 
-        // Process updates from end to start (highest paragraphOrder first)
-        // Prefer id-based replacement, but fallback to order if ID doesn't exist in XML
-        for (const u of sortedUpdates) {
+        for (const u of sortedLegacyUpdates) {
             if (u.paragraphId) {
                 const beforeIdReplace = updated;
                 updated = replaceParagraphById(updated, u.paragraphId, u.translated, u.dataAfter);
-                // If ID-based replacement didn't change anything, fallback to order-based
                 if (updated === beforeIdReplace && typeof u.paragraphOrder === 'number') {
                     console.log(`[Export] Paragraph ID ${u.paragraphId} not found, falling back to order-based replacement at index ${u.paragraphOrder}${u.appliedParagraphStyle ? ` (style: ${u.appliedParagraphStyle})` : ''}`);
                     updated = replaceNthParagraph(updated, u.paragraphOrder, u.translated, u.dataAfter, u.appliedParagraphStyle);
@@ -1309,17 +1418,25 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
                     const xmlText = await storyFile.async("string");
                     let updated = xmlText;
 
-                    // Sort updates by paragraphOrder (descending) to process from end to start
-                    // This avoids index shifting issues when replacing paragraphs
-                    const sortedUpdates = [...updates].sort((a, b) => {
+                    const surgicalUpdates = updates.filter(
+                        (u) => Array.isArray(u.contentSegments) && u.contentSegments.length > 0
+                    );
+                    const legacyUpdates = updates.filter(
+                        (u) => !Array.isArray(u.contentSegments) || u.contentSegments.length === 0
+                    );
+
+                    for (const u of coalesceSplitSurgicalUpdates(surgicalUpdates)) {
+                        updated = applySegmentParagraphUpdate(updated, u);
+                    }
+
+                    const sortedLegacyUpdates = [...legacyUpdates].sort((a, b) => {
                         if (typeof a.paragraphOrder === 'number' && typeof b.paragraphOrder === 'number') {
                             return b.paragraphOrder - a.paragraphOrder;
                         }
                         return 0;
                     });
 
-                    // Process updates from end to start (highest paragraphOrder first)
-                    for (const u of sortedUpdates) {
+                    for (const u of sortedLegacyUpdates) {
                         if (typeof u.paragraphOrder === 'number') {
                             console.log(`[Export] Replacing paragraph at index ${u.paragraphOrder}${u.appliedParagraphStyle ? ` (style: ${u.appliedParagraphStyle})` : ''}`);
                             updated = replaceNthParagraph(updated, u.paragraphOrder, u.translated, u.dataAfter, u.appliedParagraphStyle);

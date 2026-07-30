@@ -17,6 +17,8 @@ export interface SearchResult {
     score: number;
 }
 
+export type SearchScope = "source" | "target" | "both";
+
 export interface SearchOptions {
     /** Number of results to return */
     limit: number;
@@ -26,6 +28,13 @@ export interface SearchOptions {
     returnRawContent: boolean;
     /** Minimum similarity score threshold */
     minScore?: number;
+    /**
+     * Which side of the translation pair the query should match.
+     * Defaults to source so existing few-shot retrieval behavior stays unchanged.
+     */
+    searchScope?: SearchScope;
+    /** Cell IDs to exclude from results, such as the cell currently being inspected */
+    excludeCellIds?: string[];
     /** Additional context for search refinement */
     context?: {
         precedingCells?: string[];
@@ -118,6 +127,8 @@ export abstract class BaseSearchAlgorithm {
             onlyValidated: options.onlyValidated || false,
             returnRawContent: options.returnRawContent || false,
             minScore: options.minScore,
+            searchScope: options.searchScope ?? "source",
+            excludeCellIds: options.excludeCellIds,
             context: options.context
         };
     }
@@ -128,7 +139,7 @@ export abstract class BaseSearchAlgorithm {
     protected cleanQuery(query: string): string {
         return query
             .replace(/<[^>]*?>/g, '') // Remove HTML tags
-            .replace(/[^\w\s]/g, ' ') // Replace punctuation with spaces
+            .replace(/[^\p{L}\p{N}\p{M}\s]/gu, ' ') // Replace punctuation with spaces
             .replace(/\s+/g, ' ') // Normalize whitespace
             .trim();
     }

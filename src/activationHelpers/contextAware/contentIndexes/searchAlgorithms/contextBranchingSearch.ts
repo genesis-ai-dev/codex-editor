@@ -5,10 +5,20 @@
  * (by FTS score with a coverage boost), removes the longest covered
  * contiguous substring from the query branch, and continues until enough
  * results are found or branches are exhausted.
+ *
+ * By default this matches source text, which is the few-shot example path.
+ * `searchScope: "target"` keeps the same branching mechanics but searches
+ * over existing translations for inspection UI.
  */
 
 import { TranslationPair } from "../../../../../types";
 import { BaseSearchAlgorithm, SearchOptions } from "./base";
+
+export interface SBSBranchMatch {
+	coveredText: string;
+	pair: TranslationPair;
+	score: number;
+}
 
 export class ContextBranchingSearchAlgorithm extends BaseSearchAlgorithm {
 
@@ -21,18 +31,29 @@ export class ContextBranchingSearchAlgorithm extends BaseSearchAlgorithm {
 	}
 
 	async search(query: string, options: Partial<SearchOptions> = {}): Promise<TranslationPair[]> {
+		const { results } = await this.searchWithBranchMatches(query, options);
+		return results.map((result) => result.pair);
+	}
+
+	async searchWithBranchMatches(
+		query: string,
+		options: Partial<SearchOptions> = {}
+	): Promise<{ results: SBSBranchMatch[]; }> {
 		const searchOptions = this.validateOptions(options);
 		const originalQuery = this.cleanQuery(query);
-		if (!originalQuery) return [];
+		if (!originalQuery) return { results: [] };
 
 		const limit = Math.max(1, searchOptions.limit || 5);
 		const coverageWeight = 0.5;
 		const candidatesPerBranch = Math.max(limit * 30, 150);
 		const maxRestarts = 2;
 		const maxBranches = 12;
+		const searchScope = searchOptions.searchScope ?? "source";
+		const excludedCellIds = new Set(searchOptions.excludeCellIds ?? []);
+		const initialBranches = this.createInitialBranches(originalQuery, maxBranches);
 
-		const results: TranslationPair[] = [];
-		let queryBranches: string[] = [originalQuery];
+		const results: SBSBranchMatch[] = [];
+		let queryBranches: string[] = [...initialBranches];
 		const usedCellIds = new Set<string>();
 		let restartCount = 0;
 
@@ -40,7 +61,7 @@ export class ContextBranchingSearchAlgorithm extends BaseSearchAlgorithm {
 			if (queryBranches.length === 0) {
 				restartCount += 1;
 				if (restartCount > maxRestarts) break;
-				queryBranches = [originalQuery];
+				queryBranches = [...initialBranches];
 				continue;
 			}
 
@@ -48,7 +69,7 @@ export class ContextBranchingSearchAlgorithm extends BaseSearchAlgorithm {
 			let bestPair: TranslationPair | null = null;
 			let bestBranchIndex = -1;
 			let bestBranchQuery = "";
-			let bestSourceText = "";
+			let bestMatchText = "";
 
 			for (let branchIdx = 0; branchIdx < queryBranches.length; branchIdx++) {
 				const branchQuery = queryBranches[branchIdx];
@@ -59,7 +80,9 @@ export class ContextBranchingSearchAlgorithm extends BaseSearchAlgorithm {
 					branchQuery,
 					candidatesPerBranch,
 					/* returnRawContent */ false,
-					searchOptions.onlyValidated
+					searchOptions.onlyValidated,
+					/* searchSourceOnly */ searchScope === "source",
+					searchScope
 				);
 
 				const branchQueryTokens = this.tokenizeText(branchQuery);
@@ -67,23 +90,25 @@ export class ContextBranchingSearchAlgorithm extends BaseSearchAlgorithm {
 
 				for (const r of sqliteResults) {
 					const cellId: string = r.cell_id || r.cellId;
-					if (!cellId || usedCellIds.has(cellId)) continue;
+					if (!cellId || usedCellIds.has(cellId) || excludedCellIds.has(cellId)) continue;
 
 					const sourceContent: string = r.source_content || r.sourceContent || "";
 					const targetContent: string = r.target_content || r.targetContent || "";
 					if (!sourceContent?.trim() || !targetContent?.trim()) continue;
 
-					const coverage = this.computeCoverage(branchQueryTokenSet, sourceContent);
+					const matchText = searchScope === "target" ? targetContent : sourceContent;
+					const coverage = this.computeCoverage(branchQueryTokenSet, matchText);
 					const baseScore = typeof r.score === "number" ? r.score : 0;
-					const score = baseScore * (1 + coverageWeight * coverage);
+					const score = this.scoreCandidate(baseScore, coverage, coverageWeight);
 
 					if (score > bestScore) {
 						bestScore = score;
 						bestBranchIndex = branchIdx;
 						bestBranchQuery = branchQuery;
-						bestSourceText = sourceContent;
+						bestMatchText = matchText;
 						bestPair = {
 							cellId,
+							cellLabel: r.cellLabel || r.cell_label || undefined,
 							sourceCell: { cellId, content: sourceContent, uri: r.uri || "", line: r.line || 0 },
 							targetCell: { cellId, content: targetContent, uri: r.uri || "", line: r.line || 0 },
 						};
@@ -93,11 +118,11 @@ export class ContextBranchingSearchAlgorithm extends BaseSearchAlgorithm {
 
 			if (!bestPair) break;
 
-			results.push(bestPair);
+			const covered = this.findLongestCoveredSubstring(bestBranchQuery, bestMatchText);
+			results.push({ coveredText: covered, pair: bestPair, score: bestScore });
 			usedCellIds.add(bestPair.cellId);
 
 			// Update branches: remove the longest covered substring from the chosen branch
-			const covered = this.findLongestCoveredSubstring(bestBranchQuery, bestSourceText);
 			if (bestBranchIndex >= 0) {
 				queryBranches.splice(bestBranchIndex, 1);
 			}
@@ -110,7 +135,34 @@ export class ContextBranchingSearchAlgorithm extends BaseSearchAlgorithm {
 			}
 		}
 
-		return results.slice(0, limit);
+		return { results: results.slice(0, limit) };
+	}
+
+	private createInitialBranches(queryText: string, maxBranches: number): string[] {
+		const queryWords = this.tokenizeText(queryText);
+		if (queryWords.length <= 18) return [queryText];
+
+		const branches: string[] = [queryText];
+		const seen = new Set<string>([queryText.toLowerCase()]);
+		const windowSize = 14;
+		const stride = 8;
+
+		for (let start = 0; start < queryWords.length && branches.length < maxBranches; start += stride) {
+			const branch = queryWords.slice(start, start + windowSize).join(" ");
+			if (!branch || seen.has(branch)) continue;
+			branches.push(branch);
+			seen.add(branch);
+		}
+
+		return branches;
+	}
+
+	private scoreCandidate(baseScore: number, coverage: number, coverageWeight: number): number {
+		// SQLite FTS5 bm25 scores are lower-is-better and commonly negative.
+		// SBS compares candidates as higher-is-better, so normalize before adding coverage.
+		const bm25Relevance =
+			baseScore < 0 ? Math.abs(baseScore) : baseScore > 0 ? 1 / (1 + baseScore) : 0;
+		return bm25Relevance + coverageWeight * coverage;
 	}
 
 	private computeCoverage(queryTokenSet: Set<string>, verseText: string): number {
@@ -152,10 +204,8 @@ export class ContextBranchingSearchAlgorithm extends BaseSearchAlgorithm {
 		return (text || "")
 			.toLowerCase()
 			.replace(/<[^>]*?>/g, " ")
-			.replace(/[^\w\s]/g, " ")
+			.replace(/[^\p{L}\p{N}\p{M}\s]/gu, " ")
 			.split(/\s+/)
 			.filter(Boolean);
 	}
 }
-
-

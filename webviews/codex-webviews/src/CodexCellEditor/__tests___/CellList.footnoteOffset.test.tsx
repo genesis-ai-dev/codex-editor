@@ -21,7 +21,8 @@ Object.defineProperty(window, "vscodeApi", {
 global.acquireVsCodeApi = vi.fn().mockReturnValue(mockVscode);
 
 // Mock @sharedUtils
-vi.mock("@sharedUtils", () => ({
+vi.mock("@sharedUtils", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("@sharedUtils")>()),
     shouldDisableValidation: vi.fn().mockReturnValue(false),
 }));
 

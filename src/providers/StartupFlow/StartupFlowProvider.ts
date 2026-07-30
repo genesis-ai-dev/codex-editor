@@ -3025,6 +3025,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     return;
                 }
 
+                // Mark deletion as in progress so the webview can disable the
+                // project's actions immediately — this covers the confirmation
+                // dialog window, preventing repeated Delete clicks from stacking
+                // multiple delete requests/dialogs. "verifying" reflects the
+                // pre-confirmation work (existence + sync-status checks + dialog).
+                this.safeSendMessage({
+                    command: "project.deletingInProgress",
+                    projectPath,
+                    deleting: true,
+                    stage: "verifying",
+                });
+
                 // Ensure the path exists
                 try {
                     const projectUri = vscode.Uri.file(projectPath);
@@ -3075,10 +3087,23 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     );
 
                     if (confirmResult === actionButtonText) {
+                        // Confirmed — transition the webview label from
+                        // "Verifying..." to "Deleting..." for the actual removal.
+                        this.safeSendMessage({
+                            command: "project.deletingInProgress",
+                            projectPath,
+                            deleting: true,
+                            stage: "deleting",
+                        });
                         // Perform deletion
                         await this.performProjectDeletion(projectPath, projectName);
                     } else {
                         // User cancelled deletion
+                        this.safeSendMessage({
+                            command: "project.deletingInProgress",
+                            projectPath,
+                            deleting: false,
+                        });
                         this.safeSendMessage({
                             command: "project.deleteResponse",
                             success: false,
@@ -3088,6 +3113,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 } catch (error) {
                     console.error("Project not found:", error);
                     vscode.window.showErrorMessage("The specified project could not be found.");
+
+                    this.safeSendMessage({
+                        command: "project.deletingInProgress",
+                        projectPath,
+                        deleting: false,
+                    });
 
                     // Send error response to webview
                     this.safeSendMessage({
@@ -3264,17 +3295,29 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     if (flags?.lastModeRun === mediaStrategy && !switchStarted) {
                         debugLog(`Switching back to last applied strategy "${mediaStrategy}" - auto-applying without dialog`);
 
-                        // Clear keepFilesOnStreamAndSave if switching away from stream-and-save
-                        if (mediaStrategy !== "stream-and-save") {
-                            try {
-                                const { readLocalProjectSettings, writeLocalProjectSettings } = await import("../../utils/localProjectSettings");
-                                const settings = await readLocalProjectSettings(projectUri);
-                                if (settings.keepFilesOnStreamAndSave !== undefined) {
-                                    settings.keepFilesOnStreamAndSave = undefined;
-                                    await writeLocalProjectSettings(settings, projectUri);
-                                }
-                            } catch (e) { /* ignore */ }
-                        }
+                        // Clear stale switch-choice flags; switching back to the last
+                        // applied strategy touches no files, so no choice should linger.
+                        try {
+                            const { readLocalProjectSettings, writeLocalProjectSettings } = await import("../../utils/localProjectSettings");
+                            const settings = await readLocalProjectSettings(projectUri);
+                            const keepFlag = mediaStrategy === "stream-and-save" ? settings.keepFilesOnStreamAndSave : undefined;
+                            const keepVideoFlag = mediaStrategy === "stream-and-save" ? settings.keepVideoOnStreamAndSave : undefined;
+                            const keepAudioFlag = mediaStrategy === "stream-and-save" ? settings.keepAudioOnStreamAndSave : undefined;
+                            if (
+                                settings.keepFilesOnStreamAndSave !== keepFlag ||
+                                settings.keepVideoOnStreamAndSave !== keepVideoFlag ||
+                                settings.keepAudioOnStreamAndSave !== keepAudioFlag ||
+                                settings.streamOnlyVideoChoice !== undefined ||
+                                settings.streamAndSavePreserveVideos !== undefined
+                            ) {
+                                settings.keepFilesOnStreamAndSave = keepFlag;
+                                settings.keepVideoOnStreamAndSave = keepVideoFlag;
+                                settings.keepAudioOnStreamAndSave = keepAudioFlag;
+                                settings.streamOnlyVideoChoice = undefined;
+                                settings.streamAndSavePreserveVideos = undefined;
+                                await writeLocalProjectSettings(settings, projectUri);
+                            }
+                        } catch (e) { /* ignore */ }
 
                         // Just update the stored strategy without touching files
                         await setMediaFilesStrategy(mediaStrategy, projectUri);
@@ -3339,55 +3382,214 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     if (selection === switchButton) {
                         // Switch but do not open; mark changesApplied=false and only update strategy
 
-                        // Only ask about keeping files when: auto-download → stream-and-save
-                        // For stream-only: always convert to pointers (no prompt)
-                        // From stream-only: nothing to keep (no prompt)
-                        if (currentStrategy === "auto-download" && mediaStrategy === "stream-and-save") {
-                            const { countDownloadedMediaFiles } = await import("../../utils/mediaStrategyManager");
-                            const downloadedCount = await countDownloadedMediaFiles(projectPath);
+                        // Decide how media is handled for this transition. Cancelling
+                        // any prompt reverts the selection. Choices are persisted and
+                        // applied by applyMediaStrategy when the project opens.
+                        //   - auto-download -> stream-and-save: Keep Files / Free Space
+                        //   - stream-only   -> stream-and-save: Preserve Videos? (only if local videos)
+                        //   - * -> stream-only: Keep Video / Free Space (if local videos);
+                        //     also reports synced audio that will be freed (confirm if no videos)
+                        //   - * -> auto-download / stream-only->auto-download: preserve all (no prompt)
+                        //
+                        // IMPORTANT: branch on the last *applied* strategy (lastModeRun),
+                        // NOT currentMediaFilesStrategy. A switch-only selection overwrites
+                        // currentMediaFilesStrategy without touching files, so if the user
+                        // selects a strategy and then picks a different one before opening,
+                        // the on-disk files still reflect lastModeRun. Using it means an
+                        // abandoned selection is forgotten and the new prompt matches what's
+                        // actually on disk (e.g. auto-download -> [stream-only, not applied]
+                        // -> stream-and-save prompts as auto-download -> stream-and-save).
+                        const appliedStrategy = flags?.lastModeRun ?? currentStrategy;
 
+                        // Counting downloaded/video/audio files walks the entire
+                        // attachments/files tree and reads each file to test
+                        // pointer-ness, which can take seconds on large projects.
+                        // Signal the webview so the dropdown shows a disabled
+                        // "Calculating..." state until the next prompt appears.
+                        const setCalculating = (calculating: boolean) => {
+                            try {
+                                this.safeSendMessage({
+                                    command: "project.mediaStrategyCalculating",
+                                    projectPath,
+                                    calculating,
+                                } as any);
+                            } catch {
+                                /* non-fatal UI hint */
+                            }
+                        };
+                        setCalculating(true);
+
+                        const { countDownloadedMediaFiles, countLocalVideoFiles, countSyncedDeletableAudioFiles } = await import("../../utils/mediaStrategyManager");
+                        const { readLocalProjectSettings, writeLocalProjectSettings } = await import("../../utils/localProjectSettings");
+
+                        let keepFilesChoice: boolean | undefined;
+                        let keepVideoChoice: boolean | undefined;
+                        let keepAudioChoice: boolean | undefined;
+                        let streamOnlyVideoChoice: "keep-video" | "free-all" | undefined;
+                        let streamAndSavePreserveVideos: boolean | undefined;
+
+                        const cancelSwitch = () => {
+                            setCalculating(false);
+                            this.safeSendMessage({
+                                command: "project.setMediaStrategyResult",
+                                success: false,
+                                projectPath,
+                                mediaStrategy,
+                            } as any);
+                        };
+
+                        if (mediaStrategy === "stream-and-save" && appliedStrategy === "auto-download") {
+                            const downloadedCount = await countDownloadedMediaFiles(projectPath);
                             if (downloadedCount > 0) {
-                                const keepOrFreeChoice = await vscode.window.showInformationMessage(
-                                    `${downloadedCount} media file(s) stored locally. Keep or free up space?`,
+                                const videoCount = await countLocalVideoFiles(projectPath);
+                                const audioCount = Math.max(downloadedCount - videoCount, 0);
+                                if (videoCount > 0 && audioCount > 0) {
+                                    // Video present alongside audio: let the user decide
+                                    // about each independently in a single modal.
+                                    const KEEP_BOTH = "Keep Both";
+                                    const VIDEO_ONLY = "Keep Video Only";
+                                    const AUDIO_ONLY = "Keep Audio Only";
+                                    const FREE_ALL = "Free All";
+                                    const choice = await vscode.window.showInformationMessage(
+                                        `${videoCount} video(s) and ${audioCount} audio file(s) stored locally. What should be kept?`,
+                                        {
+                                            modal: true,
+                                            detail: "Keep Video Only frees audio. Keep Audio Only frees video. Free All streams everything on demand.",
+                                        },
+                                        KEEP_BOTH,
+                                        VIDEO_ONLY,
+                                        AUDIO_ONLY,
+                                        FREE_ALL
+                                    );
+                                    if (!choice) {
+                                        debugLog("User cancelled keep/free choice (auto-download -> stream-and-save, video+audio)");
+                                        cancelSwitch();
+                                        return;
+                                    }
+                                    keepVideoChoice = choice === KEEP_BOTH || choice === VIDEO_ONLY;
+                                    keepAudioChoice = choice === KEEP_BOTH || choice === AUDIO_ONLY;
+                                } else if (videoCount > 0) {
+                                    // Video present but no local audio: video-only keep/free.
+                                    const choice = await vscode.window.showInformationMessage(
+                                        `${videoCount} video(s) stored locally. Keep or free up space?`,
+                                        { modal: true },
+                                        "Keep Video",
+                                        "Free Space"
+                                    );
+                                    if (!choice) {
+                                        debugLog("User cancelled keep/free choice (auto-download -> stream-and-save, video-only)");
+                                        cancelSwitch();
+                                        return;
+                                    }
+                                    keepVideoChoice = choice === "Keep Video";
+                                } else {
+                                    // No video: combined media prompt (preserves audio only).
+                                    const choice = await vscode.window.showInformationMessage(
+                                        `${downloadedCount} media file(s) stored locally. Keep or free up space?`,
+                                        { modal: true },
+                                        "Keep Files",
+                                        "Free Space"
+                                    );
+                                    if (!choice) {
+                                        debugLog("User cancelled keep/free choice (auto-download -> stream-and-save)");
+                                        cancelSwitch();
+                                        return;
+                                    }
+                                    keepFilesChoice = choice === "Keep Files";
+                                }
+                            }
+                        } else if (mediaStrategy === "stream-and-save" && appliedStrategy === "stream-only") {
+                            const videoCount = await countLocalVideoFiles(projectPath);
+                            if (videoCount > 0) {
+                                const choice = await vscode.window.showInformationMessage(
+                                    `${videoCount} video(s) stored locally. Preserve them or free up space?`,
                                     { modal: true },
-                                    "Keep Files",
+                                    "Preserve Videos",
                                     "Free Space"
                                 );
-
-                                if (!keepOrFreeChoice) {
-                                    // User cancelled - revert selection
-                                    debugLog("User cancelled keep/free choice for media strategy change");
-                                    this.safeSendMessage({
-                                        command: "project.setMediaStrategyResult",
-                                        success: false,
-                                        projectPath,
-                                        mediaStrategy,
-                                    } as any);
+                                if (!choice) {
+                                    debugLog("User cancelled preserve-videos choice (stream-only -> stream-and-save)");
+                                    cancelSwitch();
                                     return;
                                 }
+                                streamAndSavePreserveVideos = choice === "Preserve Videos";
+                            }
+                        } else if (mediaStrategy === "stream-only") {
+                            const videoCount = await countLocalVideoFiles(projectPath);
+                            // Stream-only always frees synced audio (audio is never kept
+                            // locally in this mode); surface how much will be removed.
+                            const audioCount = await countSyncedDeletableAudioFiles(projectPath);
+                            const audioNote =
+                                audioCount > 0
+                                    ? ` ${audioCount} synced audio file(s) will be removed to free space (they will stream on demand).`
+                                    : "";
+                            if (videoCount > 0) {
+                                const choice = await vscode.window.showInformationMessage(
+                                    `${videoCount} video(s) stored locally. Keep them or free up space?`,
+                                    {
+                                        modal: true,
+                                        detail: `Stream-only keeps media as references and streams it on demand.${audioNote}`,
+                                    },
+                                    "Keep Video",
+                                    "Free Space"
+                                );
+                                if (!choice) {
+                                    debugLog("User cancelled keep-video choice (-> stream-only)");
+                                    cancelSwitch();
+                                    return;
+                                }
+                                streamOnlyVideoChoice = choice === "Keep Video" ? "keep-video" : "free-all";
+                            } else if (audioCount > 0) {
+                                // No local videos, but synced audio will be removed —
+                                // confirm so the deletion isn't silent.
+                                const PROCEED = "Switch to Stream-only";
+                                const choice = await vscode.window.showInformationMessage(
+                                    `${audioCount} synced audio file(s) will be removed to free space.`,
+                                    {
+                                        modal: true,
+                                        detail: "They will stream on demand. Locally recorded audio that hasn't synced yet is kept.",
+                                    },
+                                    PROCEED
+                                );
+                                if (choice !== PROCEED) {
+                                    debugLog("User cancelled stream-only switch (audio removal)");
+                                    cancelSwitch();
+                                    return;
+                                }
+                            }
+                        }
 
-                                // Store choice to apply when project opens
-                                const { readLocalProjectSettings, writeLocalProjectSettings } = await import("../../utils/localProjectSettings");
-                                const settings = await readLocalProjectSettings(projectUri);
-                                settings.keepFilesOnStreamAndSave = (keepOrFreeChoice === "Keep Files");
-                                await writeLocalProjectSettings(settings, projectUri);
+                        // Counting + prompts are done; stop the "Calculating..."
+                        // hint before persisting (the result message also clears it).
+                        setCalculating(false);
 
+                        // Persist the choices for this transition and clear any choice
+                        // flags that don't apply, so a stale choice from an earlier
+                        // (unapplied) switch can't leak into this one.
+                        try {
+                            const settings = await readLocalProjectSettings(projectUri);
+                            settings.keepFilesOnStreamAndSave =
+                                mediaStrategy === "stream-and-save" ? keepFilesChoice : undefined;
+                            settings.keepVideoOnStreamAndSave =
+                                mediaStrategy === "stream-and-save" ? keepVideoChoice : undefined;
+                            settings.keepAudioOnStreamAndSave =
+                                mediaStrategy === "stream-and-save" ? keepAudioChoice : undefined;
+                            settings.streamAndSavePreserveVideos =
+                                mediaStrategy === "stream-and-save" ? streamAndSavePreserveVideos : undefined;
+                            settings.streamOnlyVideoChoice =
+                                mediaStrategy === "stream-only" ? streamOnlyVideoChoice : undefined;
+                            await writeLocalProjectSettings(settings, projectUri);
+                            if (
+                                keepFilesChoice !== undefined ||
+                                keepVideoChoice !== undefined ||
+                                keepAudioChoice !== undefined ||
+                                streamOnlyVideoChoice !== undefined ||
+                                streamAndSavePreserveVideos !== undefined
+                            ) {
                                 vscode.window.showInformationMessage("Changes apply when project opens.");
                             }
-                        } else if (mediaStrategy !== "stream-and-save") {
-                            // Clear keepFilesOnStreamAndSave if switching away from stream-and-save
-                            // (e.g., user switched to stream-and-save, then back to auto-download)
-                            try {
-                                const { readLocalProjectSettings, writeLocalProjectSettings } = await import("../../utils/localProjectSettings");
-                                const settings = await readLocalProjectSettings(projectUri);
-                                if (settings.keepFilesOnStreamAndSave !== undefined) {
-                                    settings.keepFilesOnStreamAndSave = undefined;
-                                    await writeLocalProjectSettings(settings, projectUri);
-                                    debugLog("Cleared keepFilesOnStreamAndSave as strategy changed away from stream-and-save");
-                                }
-                            } catch (clearErr) {
-                                debugLog("Failed to clear keepFilesOnStreamAndSave", clearErr);
-                            }
+                        } catch (persistErr) {
+                            debugLog("Failed to persist media strategy switch choices", persistErr);
                         }
 
                         // Initialize switchStarted flag if missing (one-time initialization on strategy change)
@@ -3581,7 +3783,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 // 1) Replace downloaded media bytes in files/ with pointers (only for LFS-tracked media)
                                 try {
                                     const { replaceFilesWithPointers } = await import("../../utils/mediaStrategyManager");
-                                    await replaceFilesWithPointers(projectPath);
+                                    // Explicit user-initiated "Clean media files" reclaims space for
+                                    // everything, including videos the user had saved via "Save to project".
+                                    await replaceFilesWithPointers(projectPath, { ignorePersisted: true });
                                 } catch (e) {
                                     debugLog("Error replacing files with pointers during cleanup:", e);
                                 }
@@ -4463,6 +4667,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 error: error instanceof Error ? error.message : String(error),
             });
         } finally {
+            // Clear the deleting flag for any card still mounted (e.g. on failure;
+            // on success the card unmounts when the refreshed list arrives).
+            this.safeSendMessage({
+                command: "project.deletingInProgress",
+                projectPath,
+                deleting: false,
+            });
             // Always refresh the projects list
             await this.sendList(this.webviewPanel!);
         }
@@ -6182,7 +6393,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             currentMediaFilesStrategy: mediaStrategy,
                             lastMediaFileStrategyRun: mediaStrategy,
                             mediaFileStrategyApplyState: "applied",
-                            autoDownloadAudioOnOpen: false,
                         });
                         debugLog(`Wrote localProjectSettings.json with strategy: ${mediaStrategy} BEFORE cloning`);
                     }

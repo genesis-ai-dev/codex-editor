@@ -7,7 +7,6 @@ export const EXPORT_OPTIONS_BY_FILE_TYPE: Record<string, string[]> = {
         "docx",
         "indesign",
         "biblica",
-        "reach4life",
         "pdf",
         "obs",
         "markdown",

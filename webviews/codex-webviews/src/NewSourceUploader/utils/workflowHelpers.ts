@@ -8,6 +8,9 @@ import type { CustomNotebookCellData } from 'types';
 import { CodexCellTypes } from 'types/enums';
 import { v4 as uuidv4 } from 'uuid';
 import bibleData from '../../assets/bible-books-lookup.json';
+// Relative path (not @sharedUtils alias) because this file is also bundled by the extension's
+// webpack build, which doesn't define that alias.
+import { isBibleTypeImporter as isBibleTypeImporterShared } from '../../../../../sharedUtils/importerTypeUtils';
 
 /**
  * Creates a progress update object
@@ -443,28 +446,9 @@ function createMilestoneCell(cell: ProcessedCell, milestoneIndex: number, uuid?:
  * Determines if an importer type is Bible-type based on importerType metadata
  */
 function isBibleTypeImporter(importerType: string | undefined): boolean {
-    if (!importerType) {
-        return false;
-    }
-
-    // All entries must be lowercase since we normalize the input
-    const bibleTypeImporters = [
-        'usfm',
-        'usfm-experimental',
-        'paratext',
-        'ebiblecorpus',
-        'ebible',
-        'ebible-download',
-        'maculabible',
-        'macula',
-        'biblica',
-        'obs',
-        'pdf', // PDF can contain Bible content
-        'indesign', // InDesign can contain Bible content
-    ];
-
-    const normalizedType = importerType.toLowerCase().trim();
-    return bibleTypeImporters.includes(normalizedType);
+    // Delegates to the shared list so milestone insertion (here) and the extension host's
+    // verse-range reorder always agree on which notebooks are scripture-shaped.
+    return isBibleTypeImporterShared(importerType);
 }
 
 /**

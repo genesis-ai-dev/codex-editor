@@ -1,7 +1,17 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import { toPosixPath, normalizeAttachmentUrl } from './pathUtils';
-import { setMissingFlagOnAttachmentObject } from './audioMissingUtils';
+import {
+    setMissingFlagOnAttachmentObject,
+    attachmentPointerExists,
+    ensurePointerFromFiles,
+} from './audioMissingUtils';
+import { isLfsPointerContent } from './lfsHelpers';
+import {
+    CURRENT_AUDIO_SCHEMA_VERSION,
+    getAudioSchemaVersion,
+    setAudioSchemaVersion,
+} from './localProjectSettings';
 
 const DEBUG_MODE = false;
 const debug = (message: string) => {
@@ -66,6 +76,17 @@ export class AudioAttachmentsMigrator {
                 await this.updateMissingFlagsForCodexDocuments();
             } catch (error) {
                 console.error('[AudioAttachmentsMigration] Error updating missing flags on attachments:', error);
+            }
+
+            // With `isMissing` flags now reflecting filesystem reality, run any
+            // one-shot audio schema migrations (e.g. backfilling legacy
+            // `selectedAudioId` selections). Gated by a per-machine version
+            // flag in `localProjectSettings.json`, so this is a no-op on
+            // already-migrated machines.
+            try {
+                await this.runAudioSchemaMigrations();
+            } catch (error) {
+                console.error('[AudioAttachmentsMigration] Error running audio schema migrations:', error);
             }
         } catch (error) {
             console.error('[AudioAttachmentsMigration] Error during migration:', error);
@@ -342,16 +363,50 @@ export class AudioAttachmentsMigrator {
     }
 
     /**
-     * Restore any missing pointer files by mirroring the structure of files/ into pointers/.
-     * For every file present in files/, ensure a byte-for-byte copy exists at the same relative path in pointers/.
-     * This is non-destructive and idempotent.
+     * Restore any missing pointer files by mirroring or stubbing them from the
+     * parallel `files/<X>` entry. Non-destructive and idempotent.
+     *
+     * See `ensurePointerFromFiles` (audioMissingUtils.ts) for the full
+     * rationale and the per-strategy breakdown of what `files/<X>` legitimately
+     * contains. Summary:
+     *
+     *   • If `files/<X>` contains LFS pointer text → copy verbatim.
+     *     - stream-only: always this case (populateFilesWithPointers at clone,
+     *       replaceFileWithPointer on every stream, postSyncCleanup after sync).
+     *     - stream-and-save before first play: also this case.
+     *   • If `files/<X>` contains raw media bytes → write a ZERO-BYTE
+     *     placeholder. The next sync push (`addAllWithLFS` in
+     *     frontier-authentication) detects empty pointers, recovers bytes from
+     *     `files/<X>`, uploads to LFS, and rewrites `pointers/<X>` with the
+     *     canonical pointer text. Real cases covered:
+     *       1. Auto-download or played stream-and-save attachments whose
+     *          `pointers/<X>` was lost (project copied between machines
+     *          without the pointers tree, partial fetch, etc.). Without the
+     *          placeholder, the next sync's `removeMany` would stage the
+     *          missing pointer for DELETION and orphan the LFS object for
+     *          every teammate. The placeholder lets sync re-upload (idempotent
+     *          on matching OID) and re-establish the canonical pointer.
+     *       2. Local-unsynced recordings whose pointer got lost between
+     *          record and first sync. Without the placeholder, git can't
+     *          enumerate something it doesn't track + doesn't have — sync
+     *          drops it silently.
+     *
+     * Note: stream-only never holds streamed bytes in `files/` — those live in
+     * the in-memory `lfsCache` and are lost on restart. So case 1 above doesn't
+     * happen in stream-only steady state; the pointer-text branch covers it.
+     *
+     * We deliberately do NOT mirror raw bytes into `pointers/` directly: LFS
+     * smudge/clean filters are disabled in this project, so a binary blob in
+     * `pointers/` would be committed literally if the user manually staged
+     * before the next sync flow runs.
      */
     private async restoreMissingPointers(filesDir: vscode.Uri, pointersDir: vscode.Uri): Promise<void> {
         // Ensure root dirs exist (no-op if already present)
         try { await vscode.workspace.fs.createDirectory(filesDir); } catch { /* ignore */ }
         try { await vscode.workspace.fs.createDirectory(pointersDir); } catch { /* ignore */ }
 
-        let restoredCount = 0;
+        let mirroredCount = 0;
+        let placeholderCount = 0;
 
         const walk = async (currentFilesDir: vscode.Uri, currentPointersDir: vscode.Uri) => {
             let entries: [string, vscode.FileType][] = [];
@@ -386,9 +441,20 @@ export class AudioAttachmentsMigrator {
                     if (!pointerExists) {
                         try {
                             const bytes = await vscode.workspace.fs.readFile(src);
-                            await vscode.workspace.fs.writeFile(dst, bytes);
-                            restoredCount++;
-                            debug(`Restored missing pointer: ${dst.fsPath}`);
+
+                            if (isLfsPointerContent(bytes)) {
+                                // Stream-mode path: mirror the pointer stub verbatim.
+                                await vscode.workspace.fs.writeFile(dst, bytes);
+                                mirroredCount++;
+                                debug(`Mirrored pointer stub: ${dst.fsPath}`);
+                            } else {
+                                // Raw-media path: write zero-byte placeholder so sync
+                                // recovers bytes from files/ and writes the canonical
+                                // pointer itself (see addAllWithLFS in GitService.ts).
+                                await vscode.workspace.fs.writeFile(dst, new Uint8Array(0));
+                                placeholderCount++;
+                                debug(`Wrote zero-byte recovery placeholder: ${dst.fsPath}`);
+                            }
                         } catch (err) {
                             console.error(`[AudioAttachmentsMigration] Failed to restore pointer for ${src.fsPath}:`, err);
                         }
@@ -399,9 +465,16 @@ export class AudioAttachmentsMigrator {
 
         await walk(filesDir, pointersDir);
 
-        if (restoredCount > 0) {
-            debug(`Restored ${restoredCount} missing pointer file(s)`);
-        } else {
+        if (mirroredCount > 0) {
+            debug(`Mirrored ${mirroredCount} pointer stub(s) from files/ into pointers/`);
+        }
+        if (placeholderCount > 0) {
+            debug(
+                `Wrote ${placeholderCount} zero-byte recovery placeholder(s); next sync ` +
+                `will recover bytes from files/ and write canonical pointer text.`
+            );
+        }
+        if (mirroredCount === 0 && placeholderCount === 0) {
             debug('No missing pointer files to restore');
         }
     }
@@ -426,7 +499,7 @@ export class AudioAttachmentsMigrator {
      * Scans all .codex documents and sets/unsets attachment.isMissing based on pointer existence.
      * If a referenced file is not present in pointers/, sets isMissing=true. If present, sets isMissing=false.
      */
-    private async updateMissingFlagsForCodexDocuments(): Promise<void> {
+    public async updateMissingFlagsForCodexDocuments(): Promise<void> {
         try {
             // Find all codex documents
             const codexPattern = new vscode.RelativePattern(
@@ -457,22 +530,20 @@ export class AudioAttachmentsMigrator {
                             const url: string | undefined = attVal.url;
                             if (!url || typeof url !== 'string') continue;
 
-                            // Normalize URL to files/ path then derive pointers/ path
-                            const normalizedUrl = normalizeAttachmentUrl(url) || url;
-                            const posixUrl = toPosixPath(normalizedUrl);
-                            const pointerPosix = posixUrl.includes('/attachments/files/')
-                                ? posixUrl.replace('/attachments/files/', '/attachments/pointers/')
-                                : posixUrl;
-
-                            const pointerSegments = pointerPosix.split('/').filter(Boolean);
-                            const pointerUri = vscode.Uri.joinPath(this.workspaceFolder.uri, ...pointerSegments);
-
-                            let existsInPointers = false;
-                            try {
-                                await vscode.workspace.fs.stat(pointerUri);
-                                existsInPointers = true;
-                            } catch {
-                                existsInPointers = false;
+                            // Use the same pointer-existence + self-heal probe as the
+                            // runtime revalidator (`revalidateCellMissingFlags` in
+                            // `audioMissingUtils.ts`). This keeps the migration's
+                            // verdict in sync with what the runtime would conclude on
+                            // cell focus — eliminating the historical flicker where
+                            // a cell's `isMissing` would oscillate between true (from
+                            // this bulk scan) and false (from runtime self-heal).
+                            //
+                            // `ensurePointerFromFiles` is now safe across all media
+                            // strategies: it only mirrors when `files/<X>` contains
+                            // an LFS pointer text, never raw bytes.
+                            let existsInPointers = await attachmentPointerExists(this.workspaceFolder, url);
+                            if (!existsInPointers) {
+                                existsInPointers = await ensurePointerFromFiles(this.workspaceFolder, url);
                             }
 
                             const desiredMissing = !existsInPointers;
@@ -698,6 +769,210 @@ export class AudioAttachmentsMigrator {
             // Directory might already exist
         }
     }
+
+    /**
+     * Runs every one-shot audio schema migration needed to bring this machine
+     * up to `CURRENT_AUDIO_SCHEMA_VERSION`. Each step is idempotent. The
+     * version is bumped on disk only after the full chain succeeds so an
+     * interrupted activation resumes from the last unfinished step.
+     *
+     * The version flag lives in `.project/localProjectSettings.json`, which is
+     * gitignored, so every machine processes its own local cells regardless of
+     * CRDT sync ordering.
+     */
+    public async runAudioSchemaMigrations(): Promise<void> {
+        try {
+            const current = await getAudioSchemaVersion(this.workspaceFolder.uri);
+            if (current >= CURRENT_AUDIO_SCHEMA_VERSION) {
+                debug(`Audio schema already at version ${current} — skipping`);
+                return;
+            }
+
+            debug(`Audio schema at v${current}; upgrading to v${CURRENT_AUDIO_SCHEMA_VERSION}`);
+
+            // Track whether any step had per-document failures so we can decide
+            // whether to persist the new schema version. We only bump on a fully
+            // clean pass — that way failed docs get another shot on the next
+            // activation instead of being silently left in legacy state.
+            let allStepsClean = true;
+
+            if (current < 1) {
+                const { hadFailures } = await this.backfillLegacyAudioSelections();
+                if (hadFailures) allStepsClean = false;
+            }
+
+            if (allStepsClean) {
+                await setAudioSchemaVersion(CURRENT_AUDIO_SCHEMA_VERSION, this.workspaceFolder.uri);
+                debug(`Audio schema migration complete; persisted v${CURRENT_AUDIO_SCHEMA_VERSION}`);
+            } else {
+                debug(
+                    `Audio schema migration completed with per-document failures; ` +
+                    `leaving version at v${current} so the next activation retries.`
+                );
+            }
+        } catch (error) {
+            console.error('[AudioAttachmentsMigration] runAudioSchemaMigrations failed:', error);
+        }
+    }
+
+    /**
+     * v1 migration — backfill `selectedAudioId` + `selectionTimestamp` on legacy
+     * cells (pre-Aug-18-2025, before the field existed). For each cell where
+     * `selectedAudioId` is undefined and at least one valid (not deleted, not
+     * missing) audio attachment exists, pick the latest-by-`createdAt`
+     * attachment (lexicographic tie-break on the attachment id for determinism
+     * across users) and write both fields.
+     *
+     * `selectionTimestamp` is set to the chosen attachment's `createdAt`, which
+     * is always less than any future real user click (Date.now()), so genuine
+     * selections always win the CRDT merge.
+     *
+     * Idempotent: cells where `selectedAudioId !== undefined` are skipped, so
+     * partial completions resume cleanly on the next pass.
+     */
+    private async backfillLegacyAudioSelections(): Promise<{ hadFailures: boolean; }> {
+        debug('Starting legacy audio selection backfill (v1)...');
+
+        const codexPattern = new vscode.RelativePattern(
+            this.workspaceFolder.uri,
+            "files/target/**/*.codex"
+        );
+        const codexUris = await vscode.workspace.findFiles(codexPattern);
+
+        if (codexUris.length === 0) {
+            debug('No codex documents found — backfill is a no-op');
+            return { hadFailures: false };
+        }
+
+        let mutatedDocs = 0;
+        let mutatedCells = 0;
+        let hadFailures = false;
+        for (const documentUri of codexUris) {
+            try {
+                const result = await this.backfillLegacyAudioSelectionsForDocument(documentUri);
+                if (result.changed) {
+                    mutatedDocs++;
+                    mutatedCells += result.cellsBackfilled;
+                }
+            } catch (error) {
+                console.error(
+                    `[AudioAttachmentsMigration] Backfill failed for ${documentUri.fsPath}:`,
+                    error
+                );
+                hadFailures = true;
+                // Continue — partial progress is fine. The caller will skip
+                // bumping the schema version so the next activation retries
+                // any docs that failed.
+            }
+        }
+
+        if (mutatedCells > 0) {
+            debug(`Backfilled selectedAudioId on ${mutatedCells} cells across ${mutatedDocs} documents`);
+        } else {
+            debug('No legacy cells required backfill');
+        }
+
+        return { hadFailures };
+    }
+
+    /**
+     * Backfill `selectedAudioId` + `selectionTimestamp` for a single .codex
+     * document. Mutates only cells where `selectedAudioId === undefined` AND
+     * at least one valid audio attachment exists.
+     */
+    private async backfillLegacyAudioSelectionsForDocument(
+        documentUri: vscode.Uri
+    ): Promise<{ changed: boolean; cellsBackfilled: number; }> {
+        const documentContent = await vscode.workspace.fs.readFile(documentUri);
+        const documentText = new TextDecoder('utf-8').decode(documentContent);
+
+        if (!documentText.trim().length) {
+            return { changed: false, cellsBackfilled: 0 };
+        }
+
+        let documentData: any;
+        try {
+            documentData = JSON.parse(documentText);
+        } catch {
+            debug(`Skipping non-JSON document ${documentUri.fsPath}`);
+            return { changed: false, cellsBackfilled: 0 };
+        }
+
+        const cells = Array.isArray(documentData?.cells) ? documentData.cells : [];
+        if (cells.length === 0) {
+            return { changed: false, cellsBackfilled: 0 };
+        }
+
+        let cellsBackfilled = 0;
+
+        for (const cell of cells) {
+            const metadata = cell?.metadata;
+            if (!metadata || typeof metadata !== 'object') continue;
+
+            // Only touch true legacy cells. `undefined` means "key never written";
+            // `""` is the explicit deselection sentinel and must be preserved.
+            if (metadata.selectedAudioId !== undefined) continue;
+
+            const attachments = metadata.attachments;
+            if (!attachments || typeof attachments !== 'object') continue;
+
+            // Pick the latest-by-createdAt audio attachment. We deliberately
+            // mirror the runtime fallback in `getCurrentAttachment` Step 2
+            // (codexDocument.ts) exactly — same filter, same sort key — so the
+            // value we persist into `selectedAudioId` is identical to what the
+            // user has been seeing as "current" via the implicit fallback all
+            // along. Specifically that means:
+            //
+            //   • only `isDeleted` and audio-type are exclusions
+            //   • `isMissing` is NOT filtered — it's a stale hint from the last
+            //     migration scan, and the LFS resolver retries at access time
+            //   • `url` is NOT required to be non-empty — same rationale; if
+            //     the runtime tolerates it, the backfill must too
+            //
+            // Ties on `createdAt` are broken by lexicographic attachmentId so
+            // two users running this migration on synced clones arrive at the
+            // same choice regardless of JSON key iteration order (the runtime
+            // doesn't need this because it never persists its fallback pick;
+            // we do because CRDT merge of our writes needs to converge).
+            let bestId: string | null = null;
+            let bestCreatedAt = -Infinity;
+
+            for (const [attId, attRaw] of Object.entries(attachments)) {
+                const att = attRaw as any;
+                if (!att || typeof att !== 'object') continue;
+                if (att.type !== 'audio') continue;
+                if (att.isDeleted) continue;
+
+                const created = typeof att.createdAt === 'number' ? att.createdAt : 0;
+                if (
+                    created > bestCreatedAt ||
+                    (created === bestCreatedAt && (bestId === null || attId < bestId))
+                ) {
+                    bestCreatedAt = created;
+                    bestId = attId;
+                }
+            }
+
+            if (bestId !== null) {
+                metadata.selectedAudioId = bestId;
+                metadata.selectionTimestamp = bestCreatedAt;
+                cellsBackfilled++;
+            }
+        }
+
+        if (cellsBackfilled === 0) {
+            return { changed: false, cellsBackfilled: 0 };
+        }
+
+        const updatedContent = JSON.stringify(documentData, null, 2);
+        await vscode.workspace.fs.writeFile(
+            documentUri,
+            new TextEncoder().encode(updatedContent)
+        );
+        debug(`Backfilled ${cellsBackfilled} cells in ${documentUri.fsPath}`);
+
+        return { changed: true, cellsBackfilled };
+    }
 }
 
 /**
@@ -749,4 +1024,18 @@ export async function ensureAudioAttachmentsFolderStructure(workspaceFolder: vsc
 export async function migrateAudioAttachments(workspaceFolder: vscode.WorkspaceFolder): Promise<void> {
     const migrator = new AudioAttachmentsMigrator(workspaceFolder);
     await migrator.migrate();
+}
+
+/**
+ * Public function to run the (chained) one-shot audio metadata schema
+ * migrations for a workspace, gated by the per-machine `audioSchemaVersion`
+ * flag in `localProjectSettings.json`. Intended to be called from extension
+ * activation; safe to call on every activation (no-op once the flag matches
+ * `CURRENT_AUDIO_SCHEMA_VERSION`).
+ */
+export async function runAudioSchemaMigrationsForWorkspace(
+    workspaceFolder: vscode.WorkspaceFolder
+): Promise<void> {
+    const migrator = new AudioAttachmentsMigrator(workspaceFolder);
+    await migrator.runAudioSchemaMigrations();
 }

@@ -182,6 +182,175 @@ suite("Milestone-Based Pagination Test Suite", () => {
         assert.strictEqual(milestoneIndex.totalCells, 1, "Total cells should exclude paratext");
     });
 
+    test("buildMilestoneIndex excludes child cells from count (root-based pagination)", async () => {
+        const cells = [
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "1",
+                metadata: {
+                    type: CodexCellTypes.MILESTONE,
+                    id: "milestone-1",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Root 1",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "GEN 1:1",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Child via metadata.parentId",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "GEN 1:1:child-1",
+                    parentId: "GEN 1:1",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Child via data.parentId",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "GEN 1:1:child-2",
+                    data: {
+                        parentId: "GEN 1:1",
+                    },
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Root 2",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "GEN 1:2",
+                },
+            },
+        ];
+
+        const document = await createDocumentWithCells(cells);
+        const milestoneIndex = document.buildMilestoneIndex(50);
+
+        assert.strictEqual(milestoneIndex.milestones.length, 1, "Should have 1 milestone");
+        assert.strictEqual(
+            milestoneIndex.milestones[0].cellCount,
+            2,
+            "cellCount should count root cells only (children display on parent's page)"
+        );
+        assert.strictEqual(milestoneIndex.totalCells, 2, "totalCells should exclude child cells");
+    });
+
+    test("buildMilestoneIndex page count matches getCellsForMilestone pagination when cells are split", async () => {
+        // Regression test for phantom dropdown pages: cellCount included child cells while
+        // getCellsForMilestone paginates by roots only, advertising pages that don't exist.
+        const cellsPerPage = 5;
+        const cells: any[] = [
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "1",
+                metadata: {
+                    type: CodexCellTypes.MILESTONE,
+                    id: "milestone-1",
+                },
+            },
+        ];
+
+        // 6 roots, each with 2 children => 18 content cells but only 6 roots => 2 pages
+        for (let i = 1; i <= 6; i++) {
+            cells.push({
+                kind: 2,
+                languageId: "scripture",
+                value: `Root ${i}`,
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: `root-${i}`,
+                },
+            });
+            for (let j = 1; j <= 2; j++) {
+                cells.push({
+                    kind: 2,
+                    languageId: "scripture",
+                    value: `Child ${i}.${j}`,
+                    metadata: {
+                        type: CodexCellTypes.TEXT,
+                        id: `root-${i}:child-${j}`,
+                        parentId: `root-${i}`,
+                    },
+                });
+            }
+        }
+
+        const document = await createDocumentWithCells(cells);
+        const milestoneIndex = document.buildMilestoneIndex(cellsPerPage);
+
+        const pagesFromCellCount = Math.ceil(
+            milestoneIndex.milestones[0].cellCount / cellsPerPage
+        );
+        const actualPages = document.getSubsectionCountForMilestone(0, cellsPerPage);
+        assert.strictEqual(
+            pagesFromCellCount,
+            actualPages,
+            "Dropdown page count derived from cellCount should match actual pagination"
+        );
+        assert.strictEqual(actualPages, 2, "6 roots with cellsPerPage=5 should be 2 pages");
+
+        // Page 2 should hold root-6 and its children
+        const page2 = document.getCellsForMilestone(0, 1, cellsPerPage);
+        const page2Ids = page2.map((c) => c.cellMarkers[0]);
+        assert.ok(page2Ids.includes("root-6"), "Last page should contain the 6th root");
+        assert.ok(page2Ids.includes("root-6:child-1"), "Children should follow their root's page");
+    });
+
+    test("buildMilestoneIndex excludes deleted child cells from count", async () => {
+        const cells = [
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "1",
+                metadata: {
+                    type: CodexCellTypes.MILESTONE,
+                    id: "milestone-1",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Root 1",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "GEN 1:1",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "GEN 1:1:child-1",
+                    parentId: "GEN 1:1",
+                    data: {
+                        deleted: true,
+                    },
+                },
+            },
+        ];
+
+        const document = await createDocumentWithCells(cells);
+        const milestoneIndex = document.buildMilestoneIndex(50);
+
+        assert.strictEqual(milestoneIndex.milestones[0].cellCount, 1, "Deleted child should not count");
+        assert.strictEqual(milestoneIndex.totalCells, 1, "totalCells should exclude deleted children");
+    });
+
     test("getCellsForMilestone returns correct cells for first milestone", async () => {
         const cells = [
             {
@@ -495,6 +664,159 @@ suite("Milestone-Based Pagination Test Suite", () => {
         assert.ok(cellIds.includes("GEN 1:1"), "Should include root 1");
         assert.ok(cellIds.includes("GEN 1:1:child-cue-1"), "Should include child of root 1");
         assert.ok(cellIds.includes("GEN 1:2"), "Should include root 2");
+    });
+
+    test("findMilestoneAndSubsectionForCell navigates to child and paratext cells on later pages", async () => {
+        const cellsPerPage = 5;
+        const cells: any[] = [
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "1",
+                metadata: {
+                    type: CodexCellTypes.MILESTONE,
+                    id: "milestone-1",
+                },
+            },
+        ];
+
+        // 6 roots, each root followed by a child cell => root-6 lands on page 2 (index 1)
+        for (let i = 1; i <= 6; i++) {
+            cells.push({
+                kind: 2,
+                languageId: "scripture",
+                value: `Root ${i}`,
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: `root-${i}`,
+                },
+            });
+            cells.push({
+                kind: 2,
+                languageId: "scripture",
+                value: `Child ${i}`,
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: `root-${i}:child-1`,
+                    parentId: `root-${i}`,
+                },
+            });
+        }
+        // Paratext attached to the last root
+        cells.push({
+            kind: 2,
+            languageId: "scripture",
+            value: "Footnote for root 6",
+            metadata: {
+                type: CodexCellTypes.PARATEXT,
+                id: "root-6:paratext-1",
+                parentId: "root-6",
+            },
+        });
+
+        const document = await createDocumentWithCells(cells);
+
+        // Child of root-2 is on page 1 (index 0)
+        const childOnPage1 = document.findMilestoneAndSubsectionForCell("root-2:child-1", cellsPerPage);
+        assert.deepStrictEqual(
+            childOnPage1,
+            { milestoneIndex: 0, subsectionIndex: 0 },
+            "Child of root-2 should resolve to first page"
+        );
+
+        // Child of root-6 is on page 2 (index 1) — root-based, not raw-position-based
+        const childOnPage2 = document.findMilestoneAndSubsectionForCell("root-6:child-1", cellsPerPage);
+        assert.deepStrictEqual(
+            childOnPage2,
+            { milestoneIndex: 0, subsectionIndex: 1 },
+            "Child of root-6 should resolve to second page"
+        );
+
+        // Paratext of root-6 follows its parent to page 2
+        const paratextOnPage2 = document.findMilestoneAndSubsectionForCell("root-6:paratext-1", cellsPerPage);
+        assert.deepStrictEqual(
+            paratextOnPage2,
+            { milestoneIndex: 0, subsectionIndex: 1 },
+            "Paratext of root-6 should resolve to second page"
+        );
+
+        // The resolved page must exist in the dropdown page list derived from cellCount
+        const milestoneIndex = document.buildMilestoneIndex(cellsPerPage);
+        const dropdownPages = Math.ceil(milestoneIndex.milestones[0].cellCount / cellsPerPage);
+        assert.ok(
+            childOnPage2!.subsectionIndex < dropdownPages,
+            "Navigation target page must be reachable from the dropdown"
+        );
+
+        // And that page actually contains the cells
+        const page2 = document.getCellsForMilestone(0, childOnPage2!.subsectionIndex, cellsPerPage);
+        const page2Ids = page2.map((c) => c.cellMarkers[0]);
+        assert.ok(page2Ids.includes("root-6:child-1"), "Page should contain the child cell");
+        assert.ok(page2Ids.includes("root-6:paratext-1"), "Page should contain the paratext cell");
+    });
+
+    test("calculateSubsectionProgress subsection count matches dropdown pages and ignores child cells", async () => {
+        const cellsPerPage = 5;
+        const cells: any[] = [
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "1",
+                metadata: {
+                    type: CodexCellTypes.MILESTONE,
+                    id: "milestone-1",
+                },
+            },
+        ];
+
+        // 6 roots: roots 1-3 have content, roots 4-6 are empty.
+        // Every root has a child WITH content — children must not affect progress.
+        for (let i = 1; i <= 6; i++) {
+            cells.push({
+                kind: 2,
+                languageId: "scripture",
+                value: i <= 3 ? `<span>Root ${i} translated</span>` : "",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: `root-${i}`,
+                },
+            });
+            cells.push({
+                kind: 2,
+                languageId: "scripture",
+                value: `<span>Child ${i} content</span>`,
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: `root-${i}:child-1`,
+                    parentId: `root-${i}`,
+                },
+            });
+        }
+
+        const document = await createDocumentWithCells(cells);
+        const subsectionProgress = document.calculateSubsectionProgress(0, cellsPerPage, 1, 1);
+
+        const milestoneIndex = document.buildMilestoneIndex(cellsPerPage);
+        const dropdownPages = Math.ceil(milestoneIndex.milestones[0].cellCount / cellsPerPage);
+        assert.strictEqual(
+            Object.keys(subsectionProgress).length,
+            dropdownPages,
+            "Progress entries should exist for exactly the dropdown's pages"
+        );
+        assert.strictEqual(dropdownPages, 2, "6 roots with cellsPerPage=5 should be 2 pages");
+
+        // Page 1: roots 1-5, of which 1-3 have content => 60%
+        assert.strictEqual(
+            subsectionProgress[0].percentTranslationsCompleted,
+            60,
+            "Page 1 should be 60% (3 of 5 roots translated; children ignored)"
+        );
+        // Page 2: root 6 only, empty => 0%
+        assert.strictEqual(
+            subsectionProgress[1].percentTranslationsCompleted,
+            0,
+            "Page 2 should be 0% (root 6 untranslated; its child's content ignored)"
+        );
     });
 
     test("getCellsForMilestone returns empty array for invalid milestone index", async () => {

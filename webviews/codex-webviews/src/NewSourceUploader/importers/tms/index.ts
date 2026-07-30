@@ -153,7 +153,7 @@ const parseTranslationContent = (text: string): TranslationUnit[] => {
 const processTranslationUnit = (unit: any, units: TranslationUnit[]): void => {
     if (!unit || typeof unit !== 'object') return;
 
-    const id = unit['@_tuid'] || unit['@_id'] || `unit-${units.length + 1}`;
+    const id = String(unit['@_tuid'] ?? unit['@_id'] ?? `unit-${units.length + 1}`);
 
     let source = '';
     let target = '';

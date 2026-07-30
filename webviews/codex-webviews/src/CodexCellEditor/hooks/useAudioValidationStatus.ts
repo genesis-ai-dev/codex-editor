@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import type { QuillCellContent, ValidationEntry } from "../../../../../types";
-import { getCellValueData } from "@sharedUtils";
 import { getActiveAudioValidations } from "../validationUtils";
 import type { ValidationStatusIconProps } from "../AudioValidationStatusIcon";
 
@@ -51,22 +50,36 @@ export function useAudioValidationStatus(
 
     const { validators, currentValidations, isValidatedByCurrentUser } = useMemo(() => {
         try {
-            const effectiveSelectedAudioId = cell.metadata?.selectedAudioId ?? "";
-            const cellValueData = getCellValueData({
-                ...cell,
-                metadata: {
-                    ...(cell.metadata || {}),
-                    selectedAudioId: effectiveSelectedAudioId,
-                },
-            } as any);
+            // Per-attachment-selected rule: validators belong to the audio attachment
+            // that `selectedAudioId` points at. If there is no explicit selection, or
+            // the id no longer resolves to a non-deleted audio attachment, the cell
+            // currently has no "selected validators" — return empty. This matches
+            // the audio availability rule in `resolveSelectedAttachmentState` and
+            // keeps the cell-list badge consistent with the audio button.
+            const explicitId = cell.metadata?.selectedAudioId;
+            const atts = (cell.attachments || {}) as Record<string, any>;
+            const selectedAtt = explicitId ? atts[explicitId] : undefined;
+            const selectionResolves =
+                !!selectedAtt &&
+                selectedAtt.type === "audio" &&
+                !selectedAtt.isDeleted;
 
-            const active = getActiveAudioValidations(cellValueData.audioValidatedBy as any);
+            if (!selectionResolves) {
+                return {
+                    validators: [],
+                    currentValidations: 0,
+                    isValidatedByCurrentUser: false,
+                };
+            }
+
+            const active = getActiveAudioValidations(
+                selectedAtt.validatedBy as ValidationEntry[] | undefined
+            );
             const deduped = dedupeByLatestPerUser(active);
-            const isValidated = username
-                ? deduped.some(
-                    (v) => (v.username || "").toLowerCase() === (username || "").toLowerCase()
-                )
-                : false;
+            const lowerUser = (username || "").toLowerCase();
+            const isValidated = !!lowerUser && deduped.some(
+                (v) => (v.username || "").toLowerCase() === lowerUser
+            );
             return {
                 validators: deduped,
                 currentValidations: deduped.length,

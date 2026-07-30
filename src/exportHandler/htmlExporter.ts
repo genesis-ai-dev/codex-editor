@@ -3,6 +3,7 @@ import { basename } from "path";
 import { CodexCellTypes } from "../../types/enums";
 import { readCodexNotebookFromUri, getActiveCells, isContentCellType } from "./exportHandlerUtils";
 import type { ExportOptions } from "./exportHandler";
+import type { ExportProgressReporter } from "./exportProgress";
 
 /** Verse ref regex: "1TH 1:1", "GEN 1:1", etc. */
 const VERSE_REF_REGEX = /\b[A-Z0-9]{2,4}\s+\d+:\d+\b/;
@@ -140,13 +141,15 @@ const cssStyles = `
 export async function exportCodexContentAsHtml(
     userSelectedPath: string,
     filesToExport: string[],
-    options?: ExportOptions
+    reporter: ExportProgressReporter,
+    options?: ExportOptions,
+    token?: vscode.CancellationToken
 ) {
     try {
         debug("Starting exportCodexContentAsHtml function");
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+            reporter.error("No project folder found. Please open a project first.");
             return;
         }
 
@@ -159,33 +162,27 @@ export async function exportCodexContentAsHtml(
         const selectedFiles = filesToExport.map((fp) => vscode.Uri.file(fp));
         debug(`Selected files for export: ${selectedFiles.length}`);
         if (selectedFiles.length === 0) {
-            vscode.window.showInformationMessage(
-                "No files selected for export."
-            );
+            reporter.error("No files selected for export.");
             return;
         }
 
-        return vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: "Exporting Codex Content as HTML",
-                cancellable: false,
-            },
-            async (progress) => {
-                let totalCells = 0;
-                let totalVerses = 0;
-                const increment = 100 / selectedFiles.length;
+        let totalCells = 0;
+        let totalVerses = 0;
 
-                const baseExportFolder = vscode.Uri.file(userSelectedPath);
-                await vscode.workspace.fs.createDirectory(baseExportFolder);
+        const baseExportFolder = vscode.Uri.file(userSelectedPath);
+        await vscode.workspace.fs.createDirectory(baseExportFolder);
 
-                for (const [index, file] of selectedFiles.entries()) {
-                    progress.report({
-                        message: `Processing file ${index + 1}/${selectedFiles.length}`,
-                        increment,
-                    });
+        for (const [index, file] of selectedFiles.entries()) {
+            if (token?.isCancellationRequested) return;
+            reporter.report({
+                stage: "writing",
+                message: `Processing file ${index + 1}/${selectedFiles.length}`,
+                file: basename(file.fsPath),
+                current: index + 1,
+                total: selectedFiles.length,
+            });
 
-                    debug(`Processing file: ${file.fsPath}`);
+            debug(`Processing file: ${file.fsPath}`);
 
                     const bookCode =
                         basename(file.fsPath).split(".")[0] || "export";
@@ -385,24 +382,26 @@ export async function exportCodexContentAsHtml(
                     </body>
                     </html>`;
 
-                    const indexFile = vscode.Uri.joinPath(
-                        exportFolder,
-                        `${bookCode}_index.html`
-                    );
-                    await vscode.workspace.fs.writeFile(
-                        indexFile,
-                        Buffer.from(indexHtml)
-                    );
-                    debug(`Index file created: ${indexFile.fsPath}`);
-                }
+            const indexFile = vscode.Uri.joinPath(
+                exportFolder,
+                `${bookCode}_index.html`
+            );
+            await vscode.workspace.fs.writeFile(
+                indexFile,
+                Buffer.from(indexHtml)
+            );
+            debug(`Index file created: ${indexFile.fsPath}`);
+        }
 
-                vscode.window.showInformationMessage(
-                    `HTML Export completed: ${totalVerses} verses from ${selectedFiles.length} files exported to ${userSelectedPath}`
-                );
-            }
-        );
+        reporter.complete({
+            exportPath: userSelectedPath,
+            filesExported: selectedFiles.length,
+            extraMessages: [
+                `${totalVerses} verses from ${selectedFiles.length} file(s) exported.`,
+            ],
+        });
     } catch (error) {
         console.error("HTML Export failed:", error);
-        vscode.window.showErrorMessage(`HTML Export failed: ${error}`);
+        reporter.error(`HTML Export failed: ${error}`);
     }
 }
