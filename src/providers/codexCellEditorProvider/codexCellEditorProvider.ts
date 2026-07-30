@@ -3028,49 +3028,80 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
         this.refreshInFlight.add(docKey);
 
-        webviewPanel.webview.html = this.getHtmlForWebview(
-            webviewPanel.webview,
-            document,
-            this.getTextDirection(document),
-            isSourceText
-        );
+        try {
+            webviewPanel.webview.html = this.getHtmlForWebview(
+                webviewPanel.webview,
+                document,
+                this.getTextDirection(document),
+                isSourceText
+            );
 
-        // Get bundled metadata to avoid separate requests
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const validationCount = config.get("validationCount", 1);
-        const validationCountAudio = config.get("validationCountAudio", 1);
-        const authApi = await this.getAuthApi();
-        const userInfo = await authApi?.getUserInfo();
-        const username = userInfo?.username || "anonymous";
+            // Get bundled metadata to avoid separate requests
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const validationCount = config.get("validationCount", 1);
+            const validationCountAudio = config.get("validationCountAudio", 1);
+            let username = "anonymous";
+            try {
+                const authApi = await this.getAuthApi();
+                if (authApi && typeof authApi.getUserInfo === "function") {
+                    const userInfo = await authApi.getUserInfo();
+                    username = userInfo?.username || "anonymous";
+                }
+            } catch (error) {
+                debug("refreshWebview: failed to resolve username from authApi", error);
+            }
 
-        // Build milestone index for paginated loading
-        const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
+            // Build milestone index for paginated loading
+            const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
 
-        // Update database with milestone indices (fire-and-forget, don't block webview update)
-        document.updateCellMilestoneIndices().catch((error) => {
-            console.warn("[CodexCellEditorProvider] Failed to update milestone indices in database:", error);
-        });
+            // Update database with milestone indices (fire-and-forget, don't block webview update)
+            document.updateCellMilestoneIndices().catch((error) => {
+                console.warn("[CodexCellEditorProvider] Failed to update milestone indices in database:", error);
+            });
 
-        // Calculate progress for all milestones
-        const milestoneProgress = document.calculateMilestoneProgress(validationCount, validationCountAudio);
-        milestoneIndex.milestoneProgress = milestoneProgress;
+            // Calculate progress for all milestones
+            const milestoneProgress = document.calculateMilestoneProgress(validationCount, validationCountAudio);
+            milestoneIndex.milestoneProgress = milestoneProgress;
 
-        // Check currentMilestoneSubsectionMap first to preserve position after edits
-        const docUri = document.uri.toString();
-        const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
-        let initialMilestoneIndex = 0;
-        let initialSubsectionIndex = 0;
+            // Check currentMilestoneSubsectionMap first to preserve position after edits
+            const docUri = document.uri.toString();
+            const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
+            let initialMilestoneIndex = 0;
+            let initialSubsectionIndex = 0;
 
-        if (currentPosition && milestoneIndex.milestones.length > 0) {
-            // Use milestone index from map if it's valid
-            if (currentPosition.milestoneIndex >= 0 && currentPosition.milestoneIndex < milestoneIndex.milestones.length) {
-                initialMilestoneIndex = currentPosition.milestoneIndex;
-                initialSubsectionIndex = currentPosition.subsectionIndex;
+            if (currentPosition && milestoneIndex.milestones.length > 0) {
+                // Use milestone index from map if it's valid
+                if (currentPosition.milestoneIndex >= 0 && currentPosition.milestoneIndex < milestoneIndex.milestones.length) {
+                    initialMilestoneIndex = currentPosition.milestoneIndex;
+                    initialSubsectionIndex = currentPosition.subsectionIndex;
+                } else {
+                    // Invalid milestone index in map, fall back to cached chapter logic
+                    const cachedChapter = this.getCachedChapter(docUri);
+                    initialSubsectionIndex = this.getCachedSubsection(docUri);
+
+                    if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
+                        // Find milestone that matches the cached chapter number
+                        const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                            const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                            return chapterNum !== null && chapterNum === cachedChapter;
+                        });
+                        if (milestoneIdx !== -1) {
+                            initialMilestoneIndex = milestoneIdx;
+                        } else {
+                            // Fallback: try using chapter number as index (1-indexed to 0-indexed)
+                            const fallbackIdx = cachedChapter - 1;
+                            if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
+                                initialMilestoneIndex = fallbackIdx;
+                            }
+                        }
+                    }
+                }
             } else {
-                // Invalid milestone index in map, fall back to cached chapter logic
+                // No entry in map, fall back to cached chapter logic
                 const cachedChapter = this.getCachedChapter(docUri);
                 initialSubsectionIndex = this.getCachedSubsection(docUri);
 
+                // If we have milestones and a cached chapter, try to find the matching milestone
                 if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
                     // Find milestone that matches the cached chapter number
                     const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
@@ -3088,90 +3119,70 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     }
                 }
             }
-        } else {
-            // No entry in map, fall back to cached chapter logic
-            const cachedChapter = this.getCachedChapter(docUri);
-            initialSubsectionIndex = this.getCachedSubsection(docUri);
 
-            // If we have milestones and a cached chapter, try to find the matching milestone
-            if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
-                // Find milestone that matches the cached chapter number
-                const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
-                    const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
-                    return chapterNum !== null && chapterNum === cachedChapter;
-                });
-                if (milestoneIdx !== -1) {
-                    initialMilestoneIndex = milestoneIdx;
-                } else {
-                    // Fallback: try using chapter number as index (1-indexed to 0-indexed)
-                    const fallbackIdx = cachedChapter - 1;
-                    if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
-                        initialMilestoneIndex = fallbackIdx;
-                    }
+            // Get first page of cells for the initial milestone
+            const initialCells = document.getCellsForMilestone(initialMilestoneIndex, initialSubsectionIndex, this.CELLS_PER_PAGE);
+            const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
+
+            // Build source cell map for the initial cells only
+            const initialSourceCellMap: Record<string, SourceCellMapEntry> = {};
+            for (const cell of initialCells) {
+                const cellId = cell.cellMarkers?.[0];
+                if (cellId && document._sourceCellMap[cellId]) {
+                    initialSourceCellMap[cellId] = document._sourceCellMap[cellId];
                 }
             }
-        }
+            const enrichedInitialSourceCellMap = await enrichSourceCellMapWithTimestamps(
+                document,
+                initialSourceCellMap
+            );
 
-        // Get first page of cells for the initial milestone
-        const initialCells = document.getCellsForMilestone(initialMilestoneIndex, initialSubsectionIndex, this.CELLS_PER_PAGE);
-        const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
-
-        // Build source cell map for the initial cells only
-        const initialSourceCellMap: Record<string, SourceCellMapEntry> = {};
-        for (const cell of initialCells) {
-            const cellId = cell.cellMarkers?.[0];
-            if (cellId && document._sourceCellMap[cellId]) {
-                initialSourceCellMap[cellId] = document._sourceCellMap[cellId];
-            }
-        }
-        const enrichedInitialSourceCellMap = await enrichSourceCellMapWithTimestamps(
-            document,
-            initialSourceCellMap
-        );
-
-        // Schedule updates to wait for webview ready signal
-        this.scheduleWebviewUpdate(document.uri.toString(), () => {
-            // Send paginated initial content with milestone index
-            this.postMessageToWebview(webviewPanel, {
-                type: "providerSendsInitialContentPaginated",
-                milestoneIndex: milestoneIndex,
-                cells: processedInitialCells,
-                currentMilestoneIndex: initialMilestoneIndex,
-                currentSubsectionIndex: initialSubsectionIndex,
-                isSourceText: isSourceText,
-                sourceCellMap: enrichedInitialSourceCellMap,
-                username: username,
-                validationCount: validationCount,
-                validationCountAudio: validationCountAudio,
-            });
-
-            this.postMessageToWebview(webviewPanel, {
-                type: "providerUpdatesNotebookMetadataForWebview",
-                content: notebookData.metadata,
-            });
-
-            // Audio attachment availability is derived in the webview from QuillCellContent.attachments
-
-            if (videoUrl) {
+            // Schedule updates to wait for webview ready signal
+            this.scheduleWebviewUpdate(document.uri.toString(), () => {
+                // Send paginated initial content with milestone index
                 this.postMessageToWebview(webviewPanel, {
-                    type: "updateVideoUrlInWebview",
-                    content: videoUrl,
+                    type: "providerSendsInitialContentPaginated",
+                    milestoneIndex: milestoneIndex,
+                    cells: processedInitialCells,
+                    currentMilestoneIndex: initialMilestoneIndex,
+                    currentSubsectionIndex: initialSubsectionIndex,
+                    isSourceText: isSourceText,
+                    sourceCellMap: enrichedInitialSourceCellMap,
+                    username: username,
+                    validationCount: validationCount,
+                    validationCountAudio: validationCountAudio,
                 });
-            }
-        });
 
-        debug("Webview refresh scheduled with paginated content");
+                this.postMessageToWebview(webviewPanel, {
+                    type: "providerUpdatesNotebookMetadataForWebview",
+                    content: notebookData.metadata,
+                });
 
-        // Release in-flight lock after a tick and run any queued refresh once
-        setTimeout(() => {
-            this.refreshInFlight.delete(docKey);
-            if (this.pendingRefresh.has(docKey)) {
-                this.pendingRefresh.delete(docKey);
-                debug("Running queued refresh after previous in-flight completed");
-                // Fire and forget; next call will set in-flight again
-                this.refreshWebview(webviewPanel, document);
-            }
-        }, 0);
+                // Audio attachment availability is derived in the webview from QuillCellContent.attachments
+
+                if (videoUrl) {
+                    this.postMessageToWebview(webviewPanel, {
+                        type: "updateVideoUrlInWebview",
+                        content: videoUrl,
+                    });
+                }
+            });
+
+            debug("Webview refresh scheduled with paginated content");
+        } finally {
+            // Release in-flight lock after a tick and run any queued refresh once
+            setTimeout(() => {
+                this.refreshInFlight.delete(docKey);
+                if (this.pendingRefresh.has(docKey)) {
+                    this.pendingRefresh.delete(docKey);
+                    debug("Running queued refresh after previous in-flight completed");
+                    // Fire and forget; next call will set in-flight again
+                    this.refreshWebview(webviewPanel, document).catch((error) => {
+                        console.warn("[CodexCellEditorProvider] Queued refreshWebview failed:", error);
+                    });
+                }
+            }, 0);
+        }
     }
 
     // Removed: sendAudioAttachmentsStatus; audio availability is computed client-side from content

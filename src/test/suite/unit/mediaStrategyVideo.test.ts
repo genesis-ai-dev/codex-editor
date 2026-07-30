@@ -19,6 +19,11 @@ suite("Media strategy: video preserve/erase rules", () => {
     const makePointer = (size: number): string =>
         `version https://git-lfs.github.com/spec/v1\noid sha256:${OID}\nsize ${size}\n`;
 
+    /** Windows CI can briefly lock temp files; retry instead of failing the suite on teardown. */
+    const removeTempDir = (dir: string): void => {
+        fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    };
+
     const setup = (): { tempDir: string; filesPath: (name: string) => string; pointersPath: (name: string) => string; } => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-video-strategy-"));
         const filesDir = path.join(tempDir, ".project", "attachments", "files", BOOK);
@@ -53,7 +58,7 @@ suite("Media strategy: video preserve/erase rules", () => {
                 "synced video in files/ should be reverted to a pointer"
             );
         } finally {
-            fs.rmSync(tempDir, { recursive: true, force: true });
+            removeTempDir(tempDir);
         }
     });
 
@@ -82,7 +87,7 @@ suite("Media strategy: video preserve/erase rules", () => {
                 "unsynced video bytes must be untouched"
             );
         } finally {
-            fs.rmSync(tempDir, { recursive: true, force: true });
+            removeTempDir(tempDir);
         }
     });
 
@@ -114,7 +119,7 @@ suite("Media strategy: video preserve/erase rules", () => {
                 "audio must be left untouched when restrictToVideos is set"
             );
         } finally {
-            fs.rmSync(tempDir, { recursive: true, force: true });
+            removeTempDir(tempDir);
         }
     });
 
@@ -146,7 +151,7 @@ suite("Media strategy: video preserve/erase rules", () => {
                 "video must be left untouched when restrictToAudio is set"
             );
         } finally {
-            fs.rmSync(tempDir, { recursive: true, force: true });
+            removeTempDir(tempDir);
         }
     });
 
@@ -180,7 +185,7 @@ suite("Media strategy: video preserve/erase rules", () => {
                 "ignorePersisted must free even saved videos"
             );
         } finally {
-            fs.rmSync(tempDir, { recursive: true, force: true });
+            removeTempDir(tempDir);
         }
     });
 
@@ -207,7 +212,7 @@ suite("Media strategy: video preserve/erase rules", () => {
             const rels = await collectLocalVideoRelPaths(tempDir);
             assert.deepStrictEqual(rels, [`${BOOK}/real.mp4`], "should list the real video rel-path");
         } finally {
-            fs.rmSync(tempDir, { recursive: true, force: true });
+            removeTempDir(tempDir);
         }
     });
 
@@ -251,7 +256,7 @@ suite("Media strategy: video preserve/erase rules", () => {
                 "only the .webm referenced via videoUrl should be listed"
             );
         } finally {
-            fs.rmSync(tempDir, { recursive: true, force: true });
+            removeTempDir(tempDir);
         }
     });
 
@@ -288,7 +293,7 @@ suite("Media strategy: video preserve/erase rules", () => {
                 "preserved video bytes must be untouched"
             );
         } finally {
-            fs.rmSync(tempDir, { recursive: true, force: true });
+            removeTempDir(tempDir);
         }
     });
 });
@@ -344,7 +349,7 @@ suite("Persisted media allowlist: concurrency safety", () => {
             );
             assert.strictEqual(raw.currentMediaFilesStrategy, "stream-only");
         } finally {
-            fs.rmSync(tempDir, { recursive: true, force: true });
+            removeTempDir(tempDir);
         }
     });
 
@@ -365,7 +370,7 @@ suite("Persisted media allowlist: concurrency safety", () => {
             const entries = await getPersistedMediaFiles(uri);
             assert.deepStrictEqual(entries, ["JUD/song.wav"], "only non-video entries should remain");
         } finally {
-            fs.rmSync(tempDir, { recursive: true, force: true });
+            removeTempDir(tempDir);
         }
     });
 });
