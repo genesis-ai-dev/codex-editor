@@ -1,0 +1,65 @@
+﻿
+ RUN  v2.1.9 C:/Users/marti/Desktop/FrontierRnD/Codex/codex-editor/webviews/codex-webviews
+
+node.exe : [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline 
+data, please update: `npm i baseline-browser-mapping@latest -D`
+At C:\Users\marti\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([baseline-brows...ping@latest -D`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/russian-sng11-structure.debug.test.ts > Russian SNG 1:1 structure > locates missing middle content
+SNG11 text ðøÐâÐçÐêð░ÐÅ ð©ðÀ ð┐ðÁÐüðÁð¢ ðíð¥ð╗ð¥┬¡ð╝ð¥ð¢ð░. ðªðÁð╗Ðâð╣ ð╝ðÁð¢ÐÅ, ÐåðÁð╗Ðâð╣ ÐâÐüÐéð░ð╝ð© Ðüð▓ð¥ð©ð╝ð©, ð▓ðÁð┤Ðî ð╗ÐÄð▒ð¥ð▓Ðî Ðéð▓ð¥ÐÅ ð¥ÐéÐÇð░ð┤ð¢ðÁð╣ ð▓ð©ð¢ð░,
+SNG11 sig text:p_dc1|text:q1|text:q2
+chunks [
+  'ParagraphStyle/text%3ap_dc1 :: ðøÐâÐçÐêð░ÐÅ ð©ðÀ┬áð┐ðÁÐüðÁð¢ ðíð¥ð╗ð¥┬¡ð╝ð¥ð¢ð░.',
+  'ParagraphStyle/text%3aq1 :: \t\tðªðÁð╗Ðâð╣ ð╝ðÁð¢ÐÅ, ÐåðÁð╗Ðâð╣ ÐâÐüÐéð░ð╝ð© Ðüð▓ð¥ð©ð╝ð©,',
+  'ParagraphStyle/text%3aq2 :: \t\tð▓ðÁð┤Ðî ð╗ÐÄð▒ð¥ð▓Ðî Ðéð▓ð¥ÐÅ ð¥ÐéÐÇð░ð┤ð¢ðÁð╣ ð▓ð©ð¢ð░,'
+]
+needle ð¥ÐéÐÇð░ð┤ð¢ðÁð╣ pos 7990677
+  styles [
+  'ParagraphStyle/head%3asp_h',
+  'ParagraphStyle/text%3aq1',
+  'ParagraphStyle/text%3aq2'
+]
+needle ðªðÁð╗Ðâð╣ ð╝ðÁð¢ÐÅ pos 7990378
+  styles [
+  'ParagraphStyle/head%3ams1',
+  'ParagraphStyle/head%3asp_h',
+  'ParagraphStyle/text%3aq1'
+]
+needle ðƒðÁÐÇð▓ð░ÐÅ ð▓ÐüÐéÐÇðÁÐçð░ pos 7985577
+  styles [ 'ParagraphStyle/intro%3aiot', 'ParagraphStyle/intro%3aio1' ]
+needle ð×ð¢ð░ pos 3515
+  styles [ 'ParagraphStyle/intro%3aimt', 'ParagraphStyle/intro%3aip' ]
+{
+  blockHasOtradney: true,
+  blockHasLuchshaya: true,
+  blockHasTseluyMenya: false,
+  blockHasPervayaVstrecha: false,
+  blockHasOna: true
+}
+slice contents [
+  '1:',
+  'ðøÐâÐçÐêð░ÐÅ ð©ðÀ┬áð┐ðÁÐüðÁð¢ ðíð¥ð╗ð¥┬¡ð╝ð¥ð¢ð░.',
+  '\t\tð▓ðÁð┤Ðî ð╗ÐÄð▒ð¥ð▓Ðî Ðéð▓ð¥ÐÅ ð¥ÐéÐÇð░ð┤ð¢ðÁð╣ ð▓ð©ð¢ð░,'
+]
+verseSpan styles [
+  'ParagraphStyle/text%3ap_dc1',
+  'ParagraphStyle/b_head',
+  'ParagraphStyle/head%3ams1',
+  'ParagraphStyle/head%3asp_h',
+  'ParagraphStyle/text%3aq1'
+]
+verseSpan has ðªðÁð╗Ðâð╣ ð╝ðÁð¢ÐÅ true
+verseSpan has ðƒðÁÐÇð▓ð░ÐÅ true
+
+ Ô£ô src/NewSourceUploader/importers/biblica/bible-swap/scripts/russian-sng11-structure.debug.test.ts (1 test) 985ms
+   Ô£ô Russian SNG 1:1 structure > locates missing middle content 983ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  12:56:13
+   Duration  3.72s (transform 181ms, setup 36ms, collect 289ms, tests 985ms, environment 1.23s, prepare 232ms)
+

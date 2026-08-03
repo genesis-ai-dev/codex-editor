@@ -1,0 +1,63 @@
+﻿
+ RUN  v2.1.9 C:/Users/marti/Desktop/FrontierRnD/Codex/codex-editor/webviews/codex-webviews
+
+node.exe : [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline 
+data, please update: `npm i baseline-browser-mapping@latest -D`
+At C:\Users\marti\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([baseline-brows...ping@latest -D`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(node:26400) [DEP0056] DeprecationWarning: The `util.isString` API is deprecated.  Please use `typeof arg === 
+"string"` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/validatorHarness.test.ts > validator harness fidelity > matches the DOM implementation verse-for-verse
+JHN_11:16 {
+  fast: '"Ent├úo, Tom├®, cha┬¡mado D├¡dimo, disse aos outros disc├¡┬¡pulos:ÔÇò Vamos tamb├®m para mor┬¡rer com ele."',
+  dom: '"Ent├úo, Tom├®, cha┬¡mado D├¡dimo, disse aos outros disc├¡┬¡pulos:\\tÔÇò Vamos tamb├®m para mor┬¡rer com ele."'
+}
+RAW "racterStyleRange AppliedCharacterStyle=\"CharacterStyle/cv%3av_sp\">\n\t\t\t\t<Content>ÔÇë</Content>\n\t\t\t</CharacterStyleRange>\n\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/meta%3av\">\n\t\t\t\t<Content>16</Content>\n\t\t\t</CharacterStyleRange>\n\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/$ID/[No character style]\">\n\t\t\t\t<Content>Ent├úo, Tom├®, cha┬¡mado D├¡dimo,</Content>\n\t\t\t</CharacterStyleRange>\n\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/notes%3af_sp\">\n\t\t\t\t<Content>ÔÇë</Content>\n\t\t\t</CharacterStyleRange>\n\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/notes%3af_call\">\n\t\t\t\t<Footnote>\n\t\t\t\t\t<ParagraphStyleRange AppliedParagraphStyle=\"ParagraphStyle/notes%3af\">\n\t\t\t\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/$ID/[No character style]\">\n\t\t\t\t\t\t\t<Content><?ACE 4?>\t</Content>\n\t\t\t\t\t\t</CharacterStyleRange>\n\t\t\t\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/notes%3af_c\">\n\t\t\t\t\t\t\t<Content>11.</Content>\n\t\t\t\t\t\t</CharacterStyleRange>\n\t\t\t\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/notes%3af_v\">\n\t\t\t\t\t\t\t<Content>16</Content>\n\t\t\t\t\t\t</CharacterStyleRange>\n\t\t\t\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/notes%3afr_sp\">\n\t\t\t\t\t\t\t<Content>ÔÇÇ</Content>\n\t\t\t\t\t\t</CharacterStyleRange>\n\t\t\t\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/notes%3aft\">\n\t\t\t\t\t\t\t<Content>Tanto </Content>\n\t\t\t\t\t\t</CharacterStyleRange>\n\t\t\t\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/notes%3afq\">\n\t\t\t\t\t\t\t<Content>Tom├® </Content>\n\t\t\t\t\t\t</CharacterStyleRange>\n\t\t\t\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/notes%3aft\">\n\t\t\t\t\t\t\t<Content>(ara┬¡maico) como </Content>\n\t\t\t\t\t\t</CharacterStyleRange>\n\t\t\t\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/notes%3afq\">\n\t\t\t\t\t\t\t<Content>D├¡dimo </Content>\n\t\t\t\t\t\t</CharacterStyleRange>\n\t\t\t\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/notes%3aft\">\n\t\t\t\t\t\t\t<Content>(grego) signi┬¡ficam </Content>\n\t\t\t\t\t\t</CharacterStyleRange>\n\t\t\t\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/notes%3afqa\">\n\t\t\t\t\t\t\t<Content>g├¬meo.</Content>\n\t\t\t\t\t\t</CharacterStyleRange>\n\t\t\t\t\t</ParagraphStyleRange>\n\t\t\t\t</Footnote>\n\t\t\t</CharacterStyleRange>\n\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/$ID/[No character style]\">\n\t\t\t\t<Content> disse aos outros disc├¡┬¡pulos:</Content>\n\t\t\t\t<Br />\n\t\t\t</CharacterStyleRange>\n\t\t</ParagraphStyleRange>\n\t\t<ParagraphStyleRange AppliedParagraphStyle=\"ParagraphStyle/text%3ap_sd\">\n\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/$ID/[No character style]\">\n\t\t\t\t<Content>ÔÇò Vamos tamb├®m para mor┬¡rer com ele.</Content>\n\t\t\t</CharacterStyleRange>\n\t\t\t<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/meta%3av\">\n\t\t\t\t<Content>16</Content>\n\t\t\t</CharacterStyleRange>\n\t\t\t<"
+
+ ÔØ» src/NewSourceUploader/importers/biblica/bible-swap/scripts/validatorHarness.test.ts (1 test | 1 failed) 2785ms
+   ├ù validator harness fidelity > matches the DOM implementation verse-for-verse 2784ms
+     ÔåÆ expected [ 'JHN_11:16', 'JHN_11:21', ÔÇª(8) ] to deeply equal []
+
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ» Failed Tests 1 ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»
+
+ FAIL  src/NewSourceUploader/importers/biblica/bible-swap/scripts/validatorHarness.test.ts > validator harness 
+fidelity > matches the DOM implementation verse-for-verse
+AssertionError: expected [ 'JHN_11:16', 'JHN_11:21', ÔÇª(8) ] to deeply equal []
+
+- Expected
++ Received
+
+- Array []
++ Array [
++   "JHN_11:16",
++   "JHN_11:21",
++   "JHN_12:13",
++   "JHN_12:7",
++   "JHN_13:21",
++   "JHN_14:22",
++   "JHN_18:11",
++   "JHN_18:29",
++   "JHN_19:15",
++   "JHN_19:24",
++ ]
+
+ ÔØ» src/NewSourceUploader/importers/biblica/bible-swap/scripts/validatorHarness.test.ts:181:41
+    179|             console.log("RAW", JSON.stringify(xml.slice(anchor - 2600,ÔÇª
+    180|         }
+    181|         expect(mismatches.slice(0, 10)).toEqual([]);
+       |                                         ^
+    182|     }, 600000);
+    183| });
+
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[1/1]ÔÄ»
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  16:57:04
+   Duration  5.33s (transform 93ms, setup 45ms, collect 176ms, tests 2.79s, environment 1.20s, prepare 213ms)
+

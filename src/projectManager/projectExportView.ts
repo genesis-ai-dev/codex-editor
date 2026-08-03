@@ -1,6 +1,7 @@
 import { CodexExportFormat, exportCodexContent, checkSubtitleOverlapsAndConfirm } from "../exportHandler/exportHandler";
 import { createWebviewReporter, type ExportProgressReporter } from "../exportHandler/exportProgress";
 import * as fs from "fs";
+import * as path from "path";
 import * as vscode from "vscode";
 import { safePostMessageToPanel } from "../utils/webviewUtils";
 import { EXPORT_OPTIONS_BY_FILE_TYPE } from "../../sharedUtils/exportOptionsEligibility";
@@ -11,6 +12,8 @@ import { getMediaFilesStrategy } from "../utils/localProjectSettings";
 import { AudioAttachmentsMigrator } from "../utils/audioAttachmentsMigrationUtils";
 import { openCodexDocumentWithSourcePair } from "../utils/openCodexDocumentWithSourcePair";
 import { jumpToCellInNotebook } from "../utils";
+import { analyzeBibleSwapCompatibility } from "./utils/bibleSwapCompatibility";
+import { BIBLE_SWAP_LANGUAGES } from "../../webviews/codex-webviews/src/NewSourceUploader/importers/biblica/bible-swap/language-mappings";
 
 const LAST_EXPORT_FOLDER_KEY = "projectExport.lastFolder";
 
@@ -568,6 +571,76 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                     { command: "subtitleOverlapResult", proceed },
                     "ProjectExport"
                 );
+                break;
+            }
+            case "selectBibleIdmlFile": {
+                const picked = await vscode.window.showOpenDialog({
+                    canSelectFiles: true,
+                    canSelectFolders: false,
+                    canSelectMany: false,
+                    title: "Select Bible IDML",
+                    openLabel: "Select Bible IDML",
+                    filters: { "Bible IDML": ["idml"] },
+                });
+                if (!picked || !picked[0]) {
+                    break;
+                }
+                const fileUri = picked[0];
+                const fileName = path.basename(fileUri.fsPath);
+                let fileSize = 0;
+                try {
+                    const stat = await vscode.workspace.fs.stat(fileUri);
+                    fileSize = Number(stat.size) || 0;
+                } catch {
+                    // ignore - size is purely cosmetic
+                }
+                safePostMessageToPanel(
+                    panel,
+                    {
+                        command: "bibleSwapFileSelected",
+                        path: fileUri.fsPath,
+                        name: fileName,
+                        size: fileSize,
+                    },
+                    "ProjectExport"
+                );
+
+                // Run compatibility analysis in the background and post the result.
+                const filesToAnalyze = Array.isArray(message.filesToExport)
+                    ? (message.filesToExport as string[])
+                    : [];
+                try {
+                    const report = await analyzeBibleSwapCompatibility(
+                        fileUri.fsPath,
+                        filesToAnalyze,
+                        (progress) => {
+                            safePostMessageToPanel(
+                                panel,
+                                {
+                                    command: "bibleSwapCompatibilityProgress",
+                                    progress,
+                                },
+                                "ProjectExport"
+                            );
+                        }
+                    );
+                    safePostMessageToPanel(
+                        panel,
+                        { command: "bibleSwapCompatibility", report },
+                        "ProjectExport"
+                    );
+                } catch (err) {
+                    const messageText =
+                        err instanceof Error ? err.message : String(err);
+                    safePostMessageToPanel(
+                        panel,
+                        {
+                            command: "bibleSwapCompatibility",
+                            error: `Failed to analyze Bible IDML: ${messageText}`,
+                        },
+                        "ProjectExport"
+                    );
+                }
                 break;
             }
             case "cancel":
@@ -1494,6 +1567,521 @@ function getWebviewContent(
                     color: var(--vscode-foreground);
                 }
 
+                /* Bible Swap panel (Biblica round-trip) */
+                .biblica-swap-content {
+                    display: flex !important;
+                    flex-direction: column;
+                    gap: 16px;
+                    grid-template-columns: unset;
+                }
+                .bible-swap-intro {
+                    margin: 0;
+                    color: var(--vscode-descriptionForeground);
+                    line-height: 1.5;
+                    font-size: 0.92em;
+                }
+                .bible-swap-intro strong { color: var(--vscode-foreground); }
+                .bible-swap-section-label {
+                    margin: 0 0 8px 0;
+                    font-size: 0.8em;
+                    font-weight: 600;
+                    letter-spacing: 0.04em;
+                    text-transform: uppercase;
+                    color: var(--vscode-descriptionForeground);
+                }
+                .bible-swap-mode-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                    gap: 10px;
+                }
+                .bible-swap-lang-row {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 8px;
+                }
+                .bible-swap-lang-pill {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    padding: 5px 12px;
+                    font-size: 0.85em;
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 14px;
+                    background: var(--vscode-input-background);
+                    cursor: pointer;
+                    user-select: none;
+                    transition: border-color 120ms ease, background-color 120ms ease;
+                }
+                .bible-swap-lang-pill:hover {
+                    border-color: var(--vscode-focusBorder);
+                }
+                .bible-swap-lang-pill.selected {
+                    border-color: var(--vscode-focusBorder);
+                    background: var(--vscode-list-activeSelectionBackground);
+                    color: var(--vscode-list-activeSelectionForeground);
+                }
+                .bible-swap-lang-pill .codicon-check {
+                    display: none;
+                    font-size: 12px;
+                }
+                .bible-swap-lang-pill.selected .codicon-check {
+                    display: inline-block;
+                }
+                .bible-swap-lang-hint {
+                    margin: 6px 0 0 0;
+                    font-size: 0.8em;
+                    color: var(--vscode-descriptionForeground);
+                }
+                .bible-swap-mode-card {
+                    position: relative;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    padding: 14px 14px 12px 14px;
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 6px;
+                    background: var(--vscode-input-background);
+                    cursor: pointer;
+                    transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+                }
+                .bible-swap-mode-card:hover {
+                    background: var(--vscode-list-hoverBackground);
+                    border-color: var(--vscode-focusBorder);
+                }
+                .bible-swap-mode-card.selected {
+                    border-color: var(--vscode-focusBorder);
+                    background: var(--vscode-list-activeSelectionBackground);
+                    box-shadow: 0 0 0 1px var(--vscode-focusBorder);
+                }
+                .bible-swap-mode-card-header {
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 10px;
+                }
+                .bible-swap-mode-icon {
+                    width: 32px;
+                    height: 32px;
+                    border-radius: 6px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    flex-shrink: 0;
+                    background: var(--vscode-editor-background);
+                    border: 1px solid var(--vscode-input-border);
+                    color: var(--vscode-focusBorder);
+                }
+                .bible-swap-mode-icon .codicon { font-size: 16px; }
+                .bible-swap-mode-card.selected .bible-swap-mode-icon {
+                    background: rgba(59, 130, 246, 0.12);
+                    border-color: rgba(59, 130, 246, 0.35);
+                }
+                .bible-swap-mode-title {
+                    margin: 0;
+                    font-size: 0.95em;
+                    font-weight: 600;
+                    line-height: 1.3;
+                }
+                .bible-swap-mode-desc {
+                    margin: 0;
+                    font-size: 0.85em;
+                    color: var(--vscode-descriptionForeground);
+                    line-height: 1.45;
+                }
+                .bible-swap-mode-tags {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 6px;
+                    margin-top: 2px;
+                }
+                .bible-swap-mode-tag {
+                    display: inline-block;
+                    padding: 2px 7px;
+                    font-size: 0.75em;
+                    border-radius: 10px;
+                    background: var(--vscode-badge-background);
+                    color: var(--vscode-badge-foreground);
+                    opacity: 0.9;
+                }
+                .bible-swap-mode-tag.tag-match {
+                    background-color: rgba(34, 197, 94, 0.15);
+                    color: var(--vscode-charts-green, #16a34a);
+                    border: 1px solid rgba(34, 197, 94, 0.35);
+                    opacity: 1;
+                }
+                .bible-swap-mode-tag.tag-layout {
+                    background-color: rgba(202, 138, 4, 0.12);
+                    color: var(--vscode-charts-yellow, #ca8a04);
+                    border: 1px solid rgba(202, 138, 4, 0.35);
+                    opacity: 1;
+                }
+                .bible-swap-mode-check {
+                    position: absolute;
+                    top: 10px;
+                    right: 10px;
+                    color: var(--vscode-focusBorder);
+                    opacity: 0;
+                    transition: opacity 120ms ease;
+                }
+                .bible-swap-mode-card.selected .bible-swap-mode-check { opacity: 1; }
+                .bible-swap-file-panel {
+                    border: 1px dashed var(--vscode-input-border);
+                    border-radius: 6px;
+                    padding: 14px;
+                    background: var(--vscode-input-background);
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                }
+                .bible-swap-file-panel.has-file {
+                    border-style: solid;
+                    background: var(--vscode-editor-background);
+                }
+                .bible-swap-file-panel-header {
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 10px;
+                }
+                .bible-swap-file-panel-header .codicon {
+                    margin-top: 2px;
+                    color: var(--vscode-descriptionForeground);
+                }
+                .bible-swap-file-panel-title {
+                    margin: 0;
+                    font-size: 0.92em;
+                    font-weight: 600;
+                }
+                .bible-swap-file-panel-hint {
+                    margin: 2px 0 0 0;
+                    font-size: 0.82em;
+                    color: var(--vscode-descriptionForeground);
+                    line-height: 1.4;
+                }
+                .bible-swap-file-empty {
+                    display: flex;
+                    align-items: center;
+                    padding-top: 2px;
+                }
+                .bible-swap-select-btn {
+                    padding: 8px 14px;
+                    background-color: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                    border: 1px solid var(--vscode-button-border, var(--vscode-focusBorder));
+                    border-radius: 4px;
+                    cursor: pointer;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-size: 0.9em;
+                    font-weight: 500;
+                    line-height: 1.2;
+                    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+                    transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+                }
+                .bible-swap-select-btn:hover {
+                    background-color: var(--vscode-button-hoverBackground);
+                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+                }
+                .bible-swap-select-btn:focus-visible {
+                    outline: 1px solid var(--vscode-focusBorder);
+                    outline-offset: 2px;
+                }
+                .bible-swap-select-btn .codicon {
+                    font-size: 1em;
+                    opacity: 0.95;
+                }
+                .bible-swap-file-card {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    padding: 10px 12px;
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 6px;
+                    background: var(--vscode-editor-inactiveSelectionBackground);
+                }
+                .bible-swap-file-card-icon {
+                    width: 36px;
+                    height: 36px;
+                    border-radius: 6px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    flex-shrink: 0;
+                    background: var(--vscode-badge-background);
+                    color: var(--vscode-badge-foreground);
+                }
+                .bible-swap-file-card-meta {
+                    flex: 1;
+                    min-width: 0;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 2px;
+                }
+                .bible-swap-file-card-name {
+                    font-size: 0.9em;
+                    font-weight: 600;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .bible-swap-file-card-size {
+                    font-size: 0.8em;
+                    color: var(--vscode-descriptionForeground);
+                }
+                .bible-swap-file-remove {
+                    background: none;
+                    border: none;
+                    color: var(--vscode-descriptionForeground);
+                    cursor: pointer;
+                    padding: 6px;
+                    border-radius: 4px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .bible-swap-file-remove:hover {
+                    background: var(--vscode-toolbar-hoverBackground);
+                    color: var(--vscode-foreground);
+                }
+                .bible-swap-details {
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 6px;
+                    overflow: hidden;
+                    font-size: 0.88em;
+                    color: var(--vscode-descriptionForeground);
+                }
+                .bible-swap-details summary {
+                    cursor: pointer;
+                    user-select: none;
+                    padding: 10px 12px;
+                    background: var(--vscode-input-background);
+                    list-style: none;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+                .bible-swap-details summary::-webkit-details-marker { display: none; }
+                .bible-swap-details summary::before {
+                    content: "";
+                    width: 0;
+                    height: 0;
+                    border-left: 5px solid var(--vscode-descriptionForeground);
+                    border-top: 4px solid transparent;
+                    border-bottom: 4px solid transparent;
+                    transition: transform 120ms ease;
+                    flex-shrink: 0;
+                }
+                .bible-swap-details[open] summary::before { transform: rotate(90deg); }
+                .bible-swap-details-body {
+                    padding: 12px 14px 14px 14px;
+                    line-height: 1.55;
+                    border-top: 1px solid var(--vscode-input-border);
+                    background: var(--vscode-editor-background);
+                }
+                .bible-swap-details-body ul {
+                    margin: 8px 0 0 0;
+                    padding-left: 18px;
+                }
+                .bible-swap-details-body li { margin: 4px 0; }
+                .bible-swap-status {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    color: var(--vscode-descriptionForeground);
+                    font-size: 0.88em;
+                    padding: 8px 0;
+                }
+                .bible-swap-status.analyzing {
+                    color: var(--vscode-charts-blue, #3b82f6);
+                    background: rgba(59, 130, 246, 0.1);
+                    border: 1px solid rgba(59, 130, 246, 0.35);
+                    border-radius: 6px;
+                    padding: 10px 12px;
+                    font-weight: 500;
+                }
+                .bible-swap-status.analyzing .codicon {
+                    color: var(--vscode-charts-blue, #3b82f6);
+                }
+                .bible-swap-progress-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    width: 100%;
+                    gap: 12px;
+                    margin-bottom: 8px;
+                }
+                .bible-swap-progress-label {
+                    flex: 1;
+                    min-width: 0;
+                }
+                .bible-swap-progress-pct {
+                    font-variant-numeric: tabular-nums;
+                    font-weight: 600;
+                    flex-shrink: 0;
+                }
+                .bible-swap-progress-track {
+                    width: 100%;
+                    height: 6px;
+                    border-radius: 999px;
+                    background: rgba(59, 130, 246, 0.18);
+                    overflow: hidden;
+                }
+                .bible-swap-progress-fill {
+                    height: 100%;
+                    width: 0%;
+                    border-radius: 999px;
+                    background: var(--vscode-charts-blue, #3b82f6);
+                    transition: width 0.2s ease;
+                }
+                .bible-swap-changes {
+                    border-top: 1px solid var(--vscode-input-border);
+                }
+                .bible-swap-changes summary {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 10px 12px;
+                    cursor: pointer;
+                    font-weight: 600;
+                    font-size: 0.9em;
+                    list-style: none;
+                    user-select: none;
+                }
+                .bible-swap-changes summary::-webkit-details-marker { display: none; }
+                .bible-swap-changes summary::before {
+                    content: '';
+                    display: inline-block;
+                    width: 0;
+                    height: 0;
+                    border-top: 4px solid transparent;
+                    border-bottom: 4px solid transparent;
+                    border-left: 6px solid var(--vscode-foreground);
+                    opacity: 0.7;
+                    transition: transform 0.15s ease;
+                }
+                .bible-swap-changes[open] summary::before { transform: rotate(90deg); }
+                .bible-swap-changes-body {
+                    padding: 0 12px 12px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                }
+                .bible-swap-change-group {
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 6px;
+                    overflow: hidden;
+                    background: var(--vscode-input-background);
+                }
+                .bible-swap-change-group summary {
+                    padding: 8px 10px;
+                    font-size: 0.86em;
+                    font-weight: 600;
+                }
+                .bible-swap-change-list {
+                    max-height: 220px;
+                    overflow-y: auto;
+                    border-top: 1px solid var(--vscode-input-border);
+                }
+                .bible-swap-change-item {
+                    padding: 8px 10px;
+                    border-bottom: 1px solid var(--vscode-input-border);
+                    font-size: 0.82em;
+                    line-height: 1.45;
+                }
+                .bible-swap-change-item:last-child { border-bottom: none; }
+                .bible-swap-change-ref {
+                    font-weight: 600;
+                    color: var(--vscode-foreground);
+                    margin-bottom: 2px;
+                }
+                .bible-swap-change-preview {
+                    color: var(--vscode-descriptionForeground);
+                }
+                .bible-swap-change-structure {
+                    margin-top: 4px;
+                    font-size: 0.78em;
+                    color: var(--vscode-charts-blue, #3b82f6);
+                    font-family: var(--vscode-editor-font-family, monospace);
+                }
+                .bible-swap-changes-truncated {
+                    font-size: 0.8em;
+                    color: var(--vscode-descriptionForeground);
+                    padding: 6px 10px;
+                    font-style: italic;
+                }
+                .bible-swap-report-card {
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 6px;
+                    overflow: hidden;
+                    background: var(--vscode-editor-background);
+                }
+                .bible-swap-report-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 10px 12px;
+                    background: var(--vscode-input-background);
+                    border-bottom: 1px solid var(--vscode-input-border);
+                }
+                .bible-swap-report-header strong { font-size: 0.92em; }
+                .bible-swap-stats-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                    gap: 1px;
+                    background: var(--vscode-input-border);
+                }
+                .bible-swap-stat-tile {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                    padding: 12px 14px;
+                    background: var(--vscode-editor-background);
+                }
+                .bible-swap-stat-label {
+                    font-size: 0.78em;
+                    color: var(--vscode-descriptionForeground);
+                    text-transform: uppercase;
+                    letter-spacing: 0.03em;
+                }
+                .bible-swap-stat-value {
+                    font-size: 1.25em;
+                    font-weight: 700;
+                    line-height: 1.2;
+                }
+                .bible-swap-stat-sub {
+                    font-size: 0.8em;
+                    color: var(--vscode-descriptionForeground);
+                }
+                .bible-swap-callout {
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 8px;
+                    padding: 10px 12px;
+                    font-size: 0.88em;
+                    line-height: 1.45;
+                    border-top: 1px solid var(--vscode-input-border);
+                }
+                .bible-swap-callout .codicon { margin-top: 2px; flex-shrink: 0; }
+                .bible-swap-callout.info {
+                    color: var(--vscode-charts-blue, #3b82f6);
+                    background: rgba(59, 130, 246, 0.08);
+                }
+                .bible-swap-callout.error {
+                    color: var(--vscode-errorForeground);
+                    background: rgba(239, 68, 68, 0.1);
+                    border: 1px solid rgba(239, 68, 68, 0.3);
+                    border-radius: 6px;
+                }
+                .bible-swap-mismatch-list {
+                    margin-top: 4px;
+                    font-size: 0.85em;
+                    color: var(--vscode-descriptionForeground);
+                }
+                .bible-swap-mismatch-list div {
+                    padding: 3px 0;
+                    border-bottom: 1px solid var(--vscode-input-border);
+                }
+                .bible-swap-mismatch-list div:last-child { border-bottom: none; }
+
                 /*
                  * Cell list popover. Hand-crafted in plain HTML/CSS so it can
                  * live inside this non-React webview, but the visual
@@ -1788,6 +2376,144 @@ function getWebviewContent(
                                     <i class="codicon codicon-warning"></i>
                                     <span>Round-trip export is unavailable in "Stream Only" mode. Source files are not stored locally, so the original format cannot be reconstructed. Switch to "Auto Download" or "Stream and Save" to enable this option.</span>
                                 </div>` : ""}
+                            </div>
+
+                            <!-- Bible Swap (Biblica only): optional second-step that replaces verse content with a translated Bible IDML -->
+                            <div id="biblicaSwapPanel" class="format-section hidden">
+                                <div class="format-section-header">
+                                    <i class="codicon codicon-replace-all"></i>
+                                    <h4>Bible Swap (optional)</h4>
+                                </div>
+                                <div class="format-section-content biblica-swap-content">
+                                    <p class="bible-swap-intro">
+                                        Round-trip exports your translated study notes into the original Study Bible IDML.
+                                        Optionally add a translated Bible file to <strong>also replace English verse text</strong>
+                                        with matching scripture, so notes and Bible text ship in one file.
+                                        Leave the Bible file empty to export notes only.
+                                    </p>
+
+                                    <div>
+                                        <p class="bible-swap-section-label">Replacement mode</p>
+                                        <div class="bible-swap-mode-grid">
+                                            <div id="bibleSwapModeSurgical" class="bible-swap-mode-card" role="button" tabindex="0" onclick="setBibleSwapMode('surgical')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();setBibleSwapMode('surgical');}">
+                                                <i class="codicon codicon-check bible-swap-mode-check"></i>
+                                                <div class="bible-swap-mode-card-header">
+                                                    <div class="bible-swap-mode-icon"><i class="codicon codicon-edit"></i></div>
+                                                    <div>
+                                                        <p class="bible-swap-mode-title">Surgical</p>
+                                                        <p class="bible-swap-mode-desc">Use when compatibility analysis is very high (nearly 100%). Replaces verse text only and keeps the Study Bible's paragraph styles, character styles, and layout.</p>
+                                                    </div>
+                                                </div>
+                                                <div class="bible-swap-mode-tags">
+                                                    <span class="bible-swap-mode-tag tag-match">Best at ~100% verse match</span>
+                                                    <span class="bible-swap-mode-tag tag-layout">Study layout preserved</span>
+                                                </div>
+                                            </div>
+                                            <div id="bibleSwapModeStructure" class="bible-swap-mode-card" role="button" tabindex="0" onclick="setBibleSwapMode('structure')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();setBibleSwapMode('structure');}">
+                                                <i class="codicon codicon-check bible-swap-mode-check"></i>
+                                                <div class="bible-swap-mode-card-header">
+                                                    <div class="bible-swap-mode-icon"><i class="codicon codicon-symbol-structure"></i></div>
+                                                    <div>
+                                                        <p class="bible-swap-mode-title">Structure</p>
+                                                        <p class="bible-swap-mode-desc">Use when compatibility analysis is lower. Replaces chapter text blocks with the Bible file's paragraph XML so poetry tabs, indents, and line breaks follow the target language.</p>
+                                                    </div>
+                                                </div>
+                                                <div class="bible-swap-mode-tags">
+                                                    <span class="bible-swap-mode-tag tag-match">Lower verse match</span>
+                                                    <span class="bible-swap-mode-tag tag-layout">Bible specific language layout</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <p class="bible-swap-section-label">Bible language</p>
+                                        <div class="bible-swap-lang-row">
+                                            ${BIBLE_SWAP_LANGUAGES.map((lang) => `
+                                            <div id="bibleSwapLang_${lang.id}" class="bible-swap-lang-pill${lang.id === "any" ? " selected" : ""}" role="button" tabindex="0" title="${lang.description.replace(/"/g, "&quot;")}" onclick="setBibleSwapLanguage('${lang.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();setBibleSwapLanguage('${lang.id}');}">
+                                                <i class="codicon codicon-check"></i>
+                                                <span>${lang.label}</span>
+                                            </div>`).join("")}
+                                        </div>
+                                        <p id="bibleSwapLangHint" class="bible-swap-lang-hint">
+                                            ${BIBLE_SWAP_LANGUAGES.find((l) => l.id === "any")?.description ?? ""}
+                                        </p>
+                                    </div>
+
+                                    <div>
+                                        <p class="bible-swap-section-label">Translated Bible file</p>
+                                        <div id="bibleSwapFilePanel" class="bible-swap-file-panel">
+                                            <div class="bible-swap-file-panel-header">
+                                                <i class="codicon codicon-book"></i>
+                                                <div>
+                                                    <p class="bible-swap-file-panel-title">Bible-only IDML</p>
+                                                    <p class="bible-swap-file-panel-hint">Select a Bible-only IDML file that matches the Study Bible you are exporting.</p>
+                                                </div>
+                                            </div>
+                                            <div id="bibleSwapFileEmpty" class="bible-swap-file-empty">
+                                                <button type="button" class="bible-swap-select-btn" onclick="selectBibleIdmlFile()">
+                                                    <i class="codicon codicon-folder-opened"></i>
+                                                    Select Bible IDML...
+                                                </button>
+                                            </div>
+                                            <div id="bibleSwapFilePill" class="bible-swap-file-card hidden">
+                                                <div class="bible-swap-file-card-icon"><i class="codicon codicon-file-zip"></i></div>
+                                                <div class="bible-swap-file-card-meta">
+                                                    <span id="bibleSwapFileName" class="bible-swap-file-card-name"></span>
+                                                    <span id="bibleSwapFileSize" class="bible-swap-file-card-size"></span>
+                                                </div>
+                                                <button type="button" class="bible-swap-file-remove" title="Remove Bible file" onclick="clearBibleSwapFile()">
+                                                    <i class="codicon codicon-close"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <details class="bible-swap-details">
+                                        <summary><i class="codicon codicon-question"></i> What gets swapped?</summary>
+                                        <div class="bible-swap-details-body">
+                                            <ul>
+                                                <li><strong>Swapped:</strong> numbered Bible verse text inside each chapter.</li>
+                                                <li><strong>Not swapped:</strong> book introductions, study notes, footnotes, section headings, chapter labels, and the table of contents.</li>
+                                                <li><strong>Choosing a mode:</strong> use <strong>Surgical</strong> when verse match is very high (nearly 100%) to keep Study Bible styles and layout; use <strong>Structure</strong> when match is lower or versification differs more.</li>
+                                                <li><strong>Psalms:</strong> English superscriptions (<em>head:d_h</em>) are kept; verse text is swapped from verse 1. Surgical mode can insert extra verses when the Bible has a subheader offset (e.g. French).</li>
+                                                <li><strong>Structure mode:</strong> handles chapters split by study notes (e.g. Job) by swapping each verse span separately.</li>
+                                            </ul>
+                                        </div>
+                                    </details>
+
+                                    <div id="bibleSwapAnalyzing" class="bible-swap-status analyzing hidden">
+                                        <div style="width:100%;">
+                                            <div class="bible-swap-progress-header">
+                                                <span id="bibleSwapProgressLabel" class="bible-swap-progress-label">Analyzing Bible file compatibility…</span>
+                                                <span id="bibleSwapProgressPct" class="bible-swap-progress-pct">0%</span>
+                                            </div>
+                                            <div class="bible-swap-progress-track">
+                                                <div id="bibleSwapProgressFill" class="bible-swap-progress-fill"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div id="bibleSwapReportCard" class="bible-swap-report-card hidden">
+                                        <div class="bible-swap-report-header">
+                                            <i class="codicon codicon-pie-chart"></i>
+                                            <strong>Compatibility</strong>
+                                        </div>
+                                        <div id="bibleSwapStats" class="bible-swap-stats-grid"></div>
+                                        <div id="bibleSwapPsaWarning" class="bible-swap-callout info hidden">
+                                            <i class="codicon codicon-info"></i>
+                                            <span>This project includes Psalms. English superscriptions are preserved; verse text is swapped with subheader-offset handling for French/Russian Bibles.</span>
+                                        </div>
+                                        <div id="bibleSwapMismatches" class="bible-swap-callout hidden" style="flex-direction: column; align-items: stretch; background: var(--vscode-editor-background);"></div>
+                                        <details id="bibleSwapChanges" class="bible-swap-changes hidden">
+                                            <summary><i class="codicon codicon-list-unordered"></i> Planned verse changes</summary>
+                                            <div id="bibleSwapChangesBody" class="bible-swap-changes-body"></div>
+                                        </details>
+                                    </div>
+                                    <div id="bibleSwapError" class="bible-swap-callout error hidden">
+                                        <i class="codicon codicon-error"></i>
+                                        <span id="bibleSwapErrorText"></span>
+                                    </div>
+                                </div>
                             </div>
                             <!-- Data Export: all, always open -->
                             <div class="format-section" data-option="dataExport">
@@ -2248,6 +2974,16 @@ function getWebviewContent(
                     }
                     return Object.keys(payload).length > 0 ? payload : undefined;
                 }
+                // Bible Swap state (Biblica round-trip only)
+                let bibleSwapPath = null;
+                let bibleSwapFileName = null;
+                let bibleSwapFileSize = 0;
+                let bibleSwapMode = null;
+                let bibleSwapLanguage = 'any';
+                const bibleSwapLanguageIds = ${JSON.stringify(BIBLE_SWAP_LANGUAGES.map((l) => l.id))};
+                const bibleSwapLanguageHints = ${JSON.stringify(
+                    Object.fromEntries(BIBLE_SWAP_LANGUAGES.map((l) => [l.id, l.description]))
+                )};
 
                 // Build a path→file lookup so Step 2 can check audio-only status
                 const fileLookup = {};
@@ -2821,17 +3557,25 @@ function getWebviewContent(
                         const groupDisabled = enabledCount === 0;
                         const hasTextFiles = group.files.some(f => f.hasTranslations);
                         const hasAudioFiles = group.files.some(f => f.hasAudio);
+                        // Biblica files are exported one segment at a time
+                        // (each Bible IDML targets a single GEN-DEU/JOB-SNG/...
+                        // range), so the bulk "All text"/"All audio" filters
+                        // don't apply.
+                        const isBiblicaGroup = group.groupKey === 'biblica';
                         const filesHtml = group.files.map((f, fIdx) => renderFileItem(group, f, gIdx, fIdx)).join('');
+                        const filterButtonsHtml = isBiblicaGroup
+                            ? '<span class="group-filter-cb filter-disabled" title="Biblica round-trip exports run one segment at a time" style="font-size: 0.85em;"><i class=\"codicon codicon-info\"></i> One file at a time</span>'
+                            : \`<label class="group-filter-cb \${hasTextFiles ? '' : 'filter-disabled'}" onclick="event.stopPropagation()">
+                                <input type="checkbox" data-group-key="\${group.groupKey}" data-filter="text" \${hasTextFiles ? '' : 'disabled'} onchange="onFilterCheckboxChange('\${group.groupKey}', 'text')"> All text
+                            </label>
+                            <label class="group-filter-cb \${hasAudioFiles ? '' : 'filter-disabled'}" onclick="event.stopPropagation()">
+                                <input type="checkbox" data-group-key="\${group.groupKey}" data-filter="audio" \${hasAudioFiles ? '' : 'disabled'} onchange="onFilterCheckboxChange('\${group.groupKey}', 'audio')"> All audio
+                            </label>\`;
                         return \`
                             <div class="file-group" id="\${groupId}" data-group-key="\${group.groupKey}">
                                 <div class="file-group-header">
                                     <h4><i class="codicon codicon-folder"></i> \${group.displayName}</h4>
-                                    <label class="group-filter-cb \${hasTextFiles ? '' : 'filter-disabled'}" onclick="event.stopPropagation()">
-                                        <input type="checkbox" data-group-key="\${group.groupKey}" data-filter="text" \${hasTextFiles ? '' : 'disabled'} onchange="onFilterCheckboxChange('\${group.groupKey}', 'text')"> All text
-                                    </label>
-                                    <label class="group-filter-cb \${hasAudioFiles ? '' : 'filter-disabled'}" onclick="event.stopPropagation()">
-                                        <input type="checkbox" data-group-key="\${group.groupKey}" data-filter="audio" \${hasAudioFiles ? '' : 'disabled'} onchange="onFilterCheckboxChange('\${group.groupKey}', 'audio')"> All audio
-                                    </label>
+                                    \${filterButtonsHtml}
                                 </div>
                                 <div class="file-group-content">\${filesHtml}</div>
                             </div>
@@ -2989,6 +3733,39 @@ function getWebviewContent(
                         group.classList.toggle('disabled', selectedGroupKey !== null && selectedGroupKey !== key);
                     });
                     updateContentTypeCompatibility();
+                    enforceBiblicaSingleFile();
+                }
+
+                // Biblica round-trip exports run one segment at a time
+                // (each Bible IDML covers a single book range, so a one-to-one
+                // pairing is required). When the user selects a Biblica file,
+                // grey out every OTHER Biblica file in the same group so they
+                // can't accidentally batch-select. Non-biblica groups are
+                // unaffected.
+                function enforceBiblicaSingleFile() {
+                    const biblicaGroup = document.querySelector('.file-group[data-group-key="biblica"]');
+                    if (!biblicaGroup) return;
+                    const restrict = selectedGroupKey === 'biblica' && selectedFiles.size > 0;
+                    biblicaGroup
+                        .querySelectorAll('.file-group-content input[type="checkbox"]')
+                        .forEach(cb => {
+                            const item = cb.closest('.file-item');
+                            // Files that have no content stay permanently
+                            // disabled regardless of this rule.
+                            if (item && item.classList.contains('file-item-disabled')) return;
+                            if (!restrict) {
+                                cb.disabled = false;
+                                if (item) item.classList.remove('file-item-incompatible');
+                                return;
+                            }
+                            if (cb.checked) {
+                                cb.disabled = false;
+                                if (item) item.classList.remove('file-item-incompatible');
+                            } else {
+                                cb.disabled = true;
+                                if (item) item.classList.add('file-item-incompatible');
+                            }
+                        });
                 }
 
                 function updateStep1Button() {
@@ -3002,6 +3779,10 @@ function getWebviewContent(
                     const hasAudio = selectionHasAudio();
                     const noAudio = !hasAudio;
                     const show = (option) => {
+                        // Biblica notebooks: only Round-trip Export is supported.
+                        // Hide every other format option regardless of the
+                        // generic EXPORT_OPTIONS_BY_FILE_TYPE rules below.
+                        if (key === 'biblica' && option !== 'roundTrip') return false;
                         const allowed = exportOptionsConfig[option];
                         if (!allowed) return true;
                         return allowed.includes(key);
@@ -3011,6 +3792,16 @@ function getWebviewContent(
                         const visible = show(opt);
                         el.classList.toggle('hidden', !visible);
                     });
+
+                    // Toggle Biblica-specific UI (Bible Swap section) only
+                    // when the selected file group is biblica.
+                    const isBiblica = key === 'biblica';
+                    const biblicaPanel = document.getElementById('biblicaSwapPanel');
+                    if (biblicaPanel) biblicaPanel.classList.toggle('hidden', !isBiblica);
+
+                    // Biblica only supports round-trip — hide the empty markup section shell.
+                    const textExportSection = document.getElementById('text-export-section');
+                    if (textExportSection) textExportSection.classList.toggle('hidden', isBiblica);
 
                     // When all selected files are audio-only, hide every non-audio section
                     const formatContainer = document.getElementById('formatOptionsContainer');
@@ -3024,9 +3815,10 @@ function getWebviewContent(
                     if (audioSection) audioSection.classList.toggle('hidden', noAudio);
                     if (audioHeading) audioHeading.classList.toggle('hidden', noAudio);
 
-                    // Show/hide the info banner (audio-only or no-audio)
+                    // Show/hide the info banner (audio-only or no-audio).
+                    // Biblica study Bibles are text-only by design — skip the banner.
                     let banner = document.getElementById('exportEligibilityBanner');
-                    const bannerNeeded = audioOnly || noAudio;
+                    const bannerNeeded = !isBiblica && (audioOnly || noAudio);
                     if (bannerNeeded) {
                         const bannerText = audioOnly
                             ? 'Selected files contain only audio — only audio export is available.'
@@ -3077,6 +3869,35 @@ function getWebviewContent(
                         });
                     }
                     try { updateCharacterAudioControls(); } catch (e) {}
+
+                    // Biblica: reset optional Bible Swap mode when entering step 2 fresh.
+                    if (isBiblica && resetFormatSelection) {
+                        resetBibleSwapModeSelection();
+                        clearBibleSwapFile();
+                    }
+
+                    // Biblica only supports round-trip — pre-select it on step 2.
+                    if (isBiblica && (resetFormatSelection || !selectedFormat)) {
+                        const roundtrip = document.querySelector(
+                            '#step2 .format-option[data-format="rebuild-export"]'
+                        );
+                        if (roundtrip && !roundtrip.classList.contains('disabled-stream-only')) {
+                            document.querySelectorAll('#step2 .format-option:not(.audio-option)').forEach(opt => {
+                                opt.classList.remove('selected');
+                                opt.style.backgroundColor = '';
+                                opt.style.borderColor = '';
+                            });
+                            roundtrip.classList.add('selected');
+                            selectedFormat = 'rebuild-export';
+                            if (selectedFiles.size > 0) {
+                                vscode.postMessage({
+                                    command: 'checkHtmlStructure',
+                                    filesToExport: Array.from(selectedFiles),
+                                });
+                            }
+                        }
+                    }
+
                     updateStep2Button();
                 }
 
@@ -3200,8 +4021,12 @@ function getWebviewContent(
 
                 function updateStep2Button() {
                     const btn = document.getElementById('nextStep2');
-                    // Allow moving forward if a format is selected OR audio-only is selected
-                    if (btn) btn.disabled = !(selectedFormat || selectedAudioMode);
+                    let canProceed = !!(selectedFormat || selectedAudioMode);
+                    // Bible Swap mode selected without a Bible file — block Next (notes-only needs no mode).
+                    if (canProceed && selectedGroupKey === 'biblica' && bibleSwapMode && !bibleSwapPath) {
+                        canProceed = false;
+                    }
+                    if (btn) btn.disabled = !canProceed;
                 }
 
                 function updateExportButton() {
@@ -3946,6 +4771,31 @@ function getWebviewContent(
                     }
                     if (message.command === 'characterAudioPreviewResult') {
                         renderCharacterPreview(message.preview, message.error);
+                        return;
+                    }
+                    if (message.command === 'bibleSwapFileSelected') {
+                        bibleSwapPath = message.path;
+                        bibleSwapFileName = message.name;
+                        bibleSwapFileSize = message.size || 0;
+                        renderBibleSwapPill();
+                        showBibleSwapAnalyzing(true);
+                        hideBibleSwapReport();
+                        hideBibleSwapError();
+                        updateStep2Button();
+                        return;
+                    }
+                    if (message.command === 'bibleSwapCompatibilityProgress') {
+                        updateBibleSwapProgress(message.progress);
+                        return;
+                    }
+                    if (message.command === 'bibleSwapCompatibility') {
+                        showBibleSwapAnalyzing(false);
+                        if (message.error) {
+                            showBibleSwapError(message.error);
+                            return;
+                        }
+                        renderBibleSwapReport(message.report);
+                        return;
                     }
                 });
 
@@ -4086,6 +4936,278 @@ function getWebviewContent(
                     for (const f of preview.files) {
                         body.appendChild(makeFileBlock(f));
                     }
+                }
+
+                function selectBibleIdmlFile() {
+                    vscode.postMessage({
+                        command: 'selectBibleIdmlFile',
+                        filesToExport: Array.from(selectedFiles),
+                    });
+                }
+
+                function resetBibleSwapModeSelection() {
+                    bibleSwapMode = null;
+                    const surgical = document.getElementById('bibleSwapModeSurgical');
+                    const structure = document.getElementById('bibleSwapModeStructure');
+                    if (surgical) surgical.classList.remove('selected');
+                    if (structure) structure.classList.remove('selected');
+                }
+
+                function setBibleSwapMode(mode) {
+                    const target = mode === 'structure' ? 'structure' : 'surgical';
+                    bibleSwapMode = bibleSwapMode === target ? null : target;
+                    const surgical = document.getElementById('bibleSwapModeSurgical');
+                    const structure = document.getElementById('bibleSwapModeStructure');
+                    if (surgical) surgical.classList.toggle('selected', bibleSwapMode === 'surgical');
+                    if (structure) structure.classList.toggle('selected', bibleSwapMode === 'structure');
+                    updateStep2Button();
+                }
+
+                function setBibleSwapLanguage(langId) {
+                    bibleSwapLanguage = bibleSwapLanguageIds.includes(langId) ? langId : 'any';
+                    for (const id of bibleSwapLanguageIds) {
+                        const pill = document.getElementById('bibleSwapLang_' + id);
+                        if (pill) pill.classList.toggle('selected', id === bibleSwapLanguage);
+                    }
+                    const hint = document.getElementById('bibleSwapLangHint');
+                    if (hint) {
+                        hint.textContent = bibleSwapLanguageHints[bibleSwapLanguage] || '';
+                    }
+                }
+
+                function clearBibleSwapFile() {
+                    bibleSwapPath = null;
+                    bibleSwapFileName = null;
+                    bibleSwapFileSize = 0;
+                    renderBibleSwapPill();
+                    hideBibleSwapReport();
+                    hideBibleSwapError();
+                    showBibleSwapAnalyzing(false);
+                    updateStep2Button();
+                }
+
+                function renderBibleSwapPill() {
+                    const pill = document.getElementById('bibleSwapFilePill');
+                    const empty = document.getElementById('bibleSwapFileEmpty');
+                    const panel = document.getElementById('bibleSwapFilePanel');
+                    if (!pill) return;
+                    if (!bibleSwapPath) {
+                        pill.classList.add('hidden');
+                        if (empty) empty.classList.remove('hidden');
+                        if (panel) panel.classList.remove('has-file');
+                        return;
+                    }
+                    pill.classList.remove('hidden');
+                    if (empty) empty.classList.add('hidden');
+                    if (panel) panel.classList.add('has-file');
+                    const nameEl = document.getElementById('bibleSwapFileName');
+                    const sizeEl = document.getElementById('bibleSwapFileSize');
+                    if (nameEl) nameEl.textContent = bibleSwapFileName || 'Bible.idml';
+                    if (sizeEl) sizeEl.textContent = bibleSwapFileSize ? formatFileSize(bibleSwapFileSize) : '';
+                }
+
+                function formatFileSize(bytes) {
+                    if (!bytes) return '';
+                    if (bytes < 1024) return bytes + ' B';
+                    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+                    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+                }
+
+                function showBibleSwapAnalyzing(on) {
+                    const el = document.getElementById('bibleSwapAnalyzing');
+                    if (el) el.classList.toggle('hidden', !on);
+                    if (on) updateBibleSwapProgress({ percent: 0, message: 'Starting analysis…', stage: 'loading' });
+                }
+
+                function updateBibleSwapProgress(progress) {
+                    const label = document.getElementById('bibleSwapProgressLabel');
+                    const pctEl = document.getElementById('bibleSwapProgressPct');
+                    const fill = document.getElementById('bibleSwapProgressFill');
+                    const percent = Math.max(0, Math.min(100, progress?.percent ?? 0));
+                    if (label) label.textContent = progress?.message || 'Analyzing…';
+                    if (pctEl) pctEl.textContent = percent + '%';
+                    if (fill) fill.style.width = percent + '%';
+                }
+
+                function escapeHtml(text) {
+                    return String(text ?? '')
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;');
+                }
+
+                function renderChangeGroup(title, count, itemsHtml) {
+                    if (!count) return '';
+                    return '<details class="bible-swap-change-group" open>' +
+                        '<summary>' + escapeHtml(title) + ' (' + count.toLocaleString() + ')</summary>' +
+                        '<div class="bible-swap-change-list">' + itemsHtml + '</div>' +
+                        '</details>';
+                }
+
+                function renderVerseChangeItem(ref, preview, structure) {
+                    let html = '<div class="bible-swap-change-item">' +
+                        '<div class="bible-swap-change-ref">' + escapeHtml(ref) + '</div>' +
+                        '<div class="bible-swap-change-preview">' + escapeHtml(preview || '(no text)') + '</div>';
+                    if (structure) {
+                        html += '<div class="bible-swap-change-structure">Structure: ' + escapeHtml(structure) + '</div>';
+                    }
+                    return html + '</div>';
+                }
+
+                function renderBibleSwapChanges(changes) {
+                    const wrapper = document.getElementById('bibleSwapChanges');
+                    const body = document.getElementById('bibleSwapChangesBody');
+                    if (!wrapper || !body) return;
+
+                    if (!changes || (
+                        !changes.totalRemoved &&
+                        !changes.totalInserted &&
+                        !changes.totalRedirected &&
+                        !changes.totalStructureInserts
+                    )) {
+                        wrapper.classList.add('hidden');
+                        body.innerHTML = '';
+                        return;
+                    }
+
+                    wrapper.classList.remove('hidden');
+
+                    const removedHtml = (changes.removed || []).map((v) =>
+                        renderVerseChangeItem(v.book + ' ' + v.chapter + ':' + v.verse, v.textPreview)
+                    ).join('');
+
+                    const insertedHtml = (changes.inserted || []).map((v) =>
+                        renderVerseChangeItem(
+                            v.book + ' ' + v.chapter + ':' + v.verse,
+                            v.textPreview,
+                            v.structure
+                        )
+                    ).join('');
+
+                    const redirectedHtml = (changes.redirected || []).map((v) =>
+                        '<div class="bible-swap-change-item">' +
+                            '<div class="bible-swap-change-ref">' +
+                                escapeHtml(v.studyBook + ' ' + v.studyChapter + ':' + v.studyVerse) +
+                                ' → ' +
+                                escapeHtml(v.bibleBook + ' ' + v.bibleChapter + ':' + v.bibleVerse) +
+                            '</div>' +
+                            '<div class="bible-swap-change-preview">Study: ' + escapeHtml(v.studyTextPreview || '') + '</div>' +
+                            '<div class="bible-swap-change-preview">Bible: ' + escapeHtml(v.bibleTextPreview || '') + '</div>' +
+                            (v.bibleStructure
+                                ? '<div class="bible-swap-change-structure">Structure: ' + escapeHtml(v.bibleStructure) + '</div>'
+                                : '') +
+                        '</div>'
+                    ).join('');
+
+                    const structureHtml = (changes.structureInserts || []).map((s) =>
+                        '<div class="bible-swap-change-item">' +
+                            '<div class="bible-swap-change-ref">' +
+                                escapeHtml('Study ' + s.studyBook + ' ch ' + s.studyChapter + ' ← Bible ' + s.bibleBook + ' ' + s.bibleChapter + ':' + s.verseStart + (s.verseEnd !== s.verseStart ? '-' + s.verseEnd : '')) +
+                            '</div>' +
+                            '<div class="bible-swap-change-preview">' + escapeHtml(s.textPreview || '') + ' (' + s.verseCount + ' verses)</div>' +
+                            (s.structure
+                                ? '<div class="bible-swap-change-structure">Structure: ' + escapeHtml(s.structure) + '</div>'
+                                : '') +
+                        '</div>'
+                    ).join('');
+
+                    body.innerHTML =
+                        renderChangeGroup('English verses removed (study slots cleared)', changes.totalRemoved, removedHtml) +
+                        renderChangeGroup('Translated verses inserted', changes.totalInserted, insertedHtml) +
+                        renderChangeGroup('Verses redirected (Psalm / versification shifts)', changes.totalRedirected, redirectedHtml) +
+                        renderChangeGroup('Structure-only chapter inserts', changes.totalStructureInserts, structureHtml) +
+                        (changes.truncated
+                            ? '<div class="bible-swap-changes-truncated">Showing the first entries of each category. The export applies the full plan.</div>'
+                            : '');
+                }
+
+                function hideBibleSwapReport() {
+                    const el = document.getElementById('bibleSwapReportCard');
+                    if (el) el.classList.add('hidden');
+                    const changes = document.getElementById('bibleSwapChanges');
+                    if (changes) changes.classList.add('hidden');
+                }
+
+                function showBibleSwapError(msg) {
+                    const el = document.getElementById('bibleSwapError');
+                    const text = document.getElementById('bibleSwapErrorText');
+                    if (text) text.textContent = msg || 'Unable to analyze the selected Bible IDML file.';
+                    if (el) el.classList.remove('hidden');
+                }
+
+                function hideBibleSwapError() {
+                    const el = document.getElementById('bibleSwapError');
+                    if (el) el.classList.add('hidden');
+                }
+
+                function renderBibleSwapReport(report) {
+                    if (!report) return;
+                    const card = document.getElementById('bibleSwapReportCard');
+                    const stats = document.getElementById('bibleSwapStats');
+                    if (!card || !stats) return;
+                    card.classList.remove('hidden');
+
+                    const pct = (n, d) => d > 0 ? ((n / d) * 100).toFixed(2) : '0.00';
+                    const versesPct = pct(report.versesMatched, report.versesExpected);
+                    const booksPct = pct(report.booksFound, report.booksExpected);
+                    const chaptersPct = pct(report.chaptersFound, report.chaptersExpected);
+                    const plan = report.versificationPlan;
+                    const projectedPct = plan
+                        ? plan.projectedVerseMatchPercent.toFixed(2)
+                        : null;
+
+                    const stat = (label, value, sub) => '<div class="bible-swap-stat-tile">' +
+                        '<span class="bible-swap-stat-label">' + label + '</span>' +
+                        '<span class="bible-swap-stat-value">' + value + '</span>' +
+                        (sub ? '<span class="bible-swap-stat-sub">' + sub + '</span>' : '') +
+                        '</div>';
+
+                    let statsHtml =
+                        stat('Verse match (raw)', versesPct + '%', report.versesMatched.toLocaleString() + ' / ' + report.versesExpected.toLocaleString() + ' verses') +
+                        stat('Books', booksPct + '%', report.booksFound + ' / ' + report.booksExpected + ' books') +
+                        stat('Chapters', chaptersPct + '%', report.chaptersFound + ' / ' + report.chaptersExpected + ' chapters');
+
+                    if (projectedPct && plan) {
+                        statsHtml += stat(
+                            'Projected match (plan)',
+                            projectedPct + '%',
+                            plan.versesMapped.toLocaleString() + ' mapped, ' +
+                            plan.versesInserted.toLocaleString() + ' inserted, ' +
+                            plan.versesRemoved.toLocaleString() + ' removed' +
+                            (plan.psalmChapterShifts ? ', ' + plan.psalmChapterShifts + ' Psalm chapter shifts' : '')
+                        );
+                    }
+
+                    stats.innerHTML = statsHtml;
+
+                    const psaWarn = document.getElementById('bibleSwapPsaWarning');
+                    if (psaWarn) psaWarn.classList.toggle('hidden', !report.hasPsalms);
+
+                    const mismatchEl = document.getElementById('bibleSwapMismatches');
+                    if (mismatchEl) {
+                        const items = (report.perBookMismatches || []).filter(m => (m.missing || 0) + (m.extra || 0) > 0).slice(0, 6);
+                        if (items.length === 0) {
+                            mismatchEl.classList.add('hidden');
+                            mismatchEl.innerHTML = '';
+                        } else {
+                            mismatchEl.classList.remove('hidden');
+                            mismatchEl.innerHTML =
+                                '<div style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--vscode-foreground);">' +
+                                    '<i class="codicon codicon-warning"></i>' +
+                                    '<span>Versification differences (raw 1:1 match)</span>' +
+                                '</div>' +
+                                '<div class="bible-swap-mismatch-list">' +
+                                items.map(m => '<div>' + m.book + ': ' +
+                                    (m.missing ? m.missing + ' missing' : '') +
+                                    (m.missing && m.extra ? ', ' : '') +
+                                    (m.extra ? m.extra + ' extra' : '') +
+                                '</div>').join('') +
+                                '</div>';
+                        }
+                    }
+
+                    renderBibleSwapChanges(report.versificationChanges);
                 }
 
                 document.addEventListener('DOMContentLoaded', () => {
@@ -4276,6 +5398,12 @@ function getWebviewContent(
                     // Remember the options so a "retry failed downloads" can
                     // reproduce the same export behaviour (e.g. timestamps).
                     exportState.lastOptions = options;
+                    // Bible Swap: only when a Biblica round-trip and a Bible IDML was selected
+                    if (selectedGroupKey === 'biblica' && formatToSend === 'rebuild-export' && bibleSwapPath && bibleSwapMode) {
+                        options.bibleSwapPath = bibleSwapPath;
+                        options.bibleSwapMode = bibleSwapMode;
+                        options.bibleSwapLanguage = bibleSwapLanguage;
+                    }
                     vscode.postMessage({
                         command: 'export',
                         format: formatToSend,

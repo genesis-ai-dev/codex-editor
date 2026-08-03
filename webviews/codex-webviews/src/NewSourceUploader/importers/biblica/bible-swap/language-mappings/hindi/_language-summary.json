@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-27T11:59:27.516Z",
+  "language": "hindi",
+  "languageLabel": "Hindi",
+  "volumeCount": 6,
+  "volumes": [
+    {
+      "studyVolume": "ACT-REV",
+      "studyFile": "ACT-REV.idml",
+      "bibleFile": "45ROM-66REV_hindi.idml",
+      "projectedMatchPercent": 75.72,
+      "versesMapped": 3144,
+      "versesRemoved": 1008,
+      "versesInserted": 26,
+      "totalRedirected": 36,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 55,
+      "mappingFile": "ACT-REV.mapping.json",
+      "elapsedSeconds": 53.2
+    },
+    {
+      "studyVolume": "GEN-DEU",
+      "studyFile": "GEN-DEU.idml",
+      "bibleFile": "01GEN_05DEU_hindi.idml",
+      "projectedMatchPercent": 99.86,
+      "versesMapped": 5840,
+      "versesRemoved": 8,
+      "versesInserted": 8,
+      "totalRedirected": 0,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 8,
+      "mappingFile": "GEN-DEU.mapping.json",
+      "elapsedSeconds": 79.8
+    },
+    {
+      "studyVolume": "ISA-MAL",
+      "studyFile": "ISA-MAL.idml",
+      "bibleFile": "23ISA-39MAL_hindi.idml",
+      "projectedMatchPercent": 99.93,
+      "versesMapped": 5460,
+      "versesRemoved": 4,
+      "versesInserted": 28,
+      "totalRedirected": 20,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 28,
+      "mappingFile": "ISA-MAL.mapping.json",
+      "elapsedSeconds": 148.6
+    },
+    {
+      "studyVolume": "JOB-SNG",
+      "studyFile": "JOB-SNG.idml",
+      "bibleFile": "18JOB-22SNG_hindi.idml",
+      "projectedMatchPercent": 99.9,
+      "versesMapped": 4767,
+      "versesRemoved": 5,
+      "versesInserted": 16,
+      "totalRedirected": 0,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 17,
+      "mappingFile": "JOB-SNG.mapping.json",
+      "elapsedSeconds": 98
+    },
+    {
+      "studyVolume": "JOS-EST",
+      "studyFile": "JOS-EST.idml",
+      "bibleFile": "06JOS-17EST_hindi.idml",
+      "projectedMatchPercent": 99.79,
+      "versesMapped": 6992,
+      "versesRemoved": 15,
+      "versesInserted": 18,
+      "totalRedirected": 0,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 18,
+      "mappingFile": "JOS-EST.mapping.json",
+      "elapsedSeconds": 130.4
+    },
+    {
+      "studyVolume": "MAT-JOHN",
+      "studyFile": "MAT-JOHN.idml",
+      "bibleFile": "40MAT_44ACT_hindi.idml",
+      "projectedMatchPercent": 99.68,
+      "versesMapped": 3752,
+      "versesRemoved": 12,
+      "versesInserted": 26,
+      "totalRedirected": 0,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 42,
+      "mappingFile": "MAT-JOHN.mapping.json",
+      "elapsedSeconds": 29.9
+    }
+  ]
+}

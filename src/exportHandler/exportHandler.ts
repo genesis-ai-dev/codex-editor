@@ -259,6 +259,21 @@ export interface ExportOptions {
     excludeLabels?: boolean;
     /** Per-file 0-based milestone indices to include when exporting audio. An empty array skips that file entirely. Files omitted from this map are exported in full (no milestone step). */
     selectedMilestonesByFile?: Record<string, number[]>;
+    /**
+     * Absolute path to a translated Bible IDML file used for the Biblica
+     * "Bible Swap" pass. When set and the file being exported is a Biblica
+     * Study Bible IDML, the verse content is replaced with verses from this
+     * Bible (PSA is skipped). Notes-only export keeps working when omitted.
+     */
+    bibleSwapPath?: string;
+    /** Surgical (default) or structure Bible swap mode for Biblica exports. */
+    bibleSwapMode?: "surgical" | "structure";
+    /**
+     * Bible language for the swap. "any" (default) analyzes versification at
+     * export time; a supported language (e.g. "portuguese", "russian") applies
+     * the shipped precomputed mapping for that language + study volume.
+     */
+    bibleSwapLanguage?: string;
 }
 
 // IDML Round-trip export: Uses idmlExporter or biblicaExporter based on filename
@@ -266,7 +281,7 @@ async function exportCodexContentAsIdmlRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    _options?: ExportOptions
+    options?: ExportOptions
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
@@ -276,6 +291,42 @@ async function exportCodexContentAsIdmlRoundtrip(
 
     const exportFolder = vscode.Uri.file(userSelectedPath);
     await vscode.workspace.fs.createDirectory(exportFolder);
+
+    // Load the optional Bible Swap IDML once (used only for Biblica files).
+    let bibleIdmlData: Uint8Array | undefined;
+    let bibleSwapParallelRunner:
+        | import("../../webviews/codex-webviews/src/NewSourceUploader/importers/biblica/biblicaExporter").BibleSwapParallelRunner
+        | undefined;
+    let disposeBibleSwapPool: (() => void) | undefined;
+    if (options?.bibleSwapPath) {
+        try {
+            bibleIdmlData = await vscode.workspace.fs.readFile(
+                vscode.Uri.file(options.bibleSwapPath)
+            );
+            const { applyBibleSwapStoriesParallel, disposeBibleSwapApplyPool } = await import(
+                "../projectManager/utils/bibleSwapApplyPool"
+            );
+            bibleSwapParallelRunner = (bibleStoryXml, swapMode, stories, serializedPlan, language, studyVolume) =>
+                applyBibleSwapStoriesParallel(
+                    bibleStoryXml,
+                    swapMode,
+                    stories,
+                    serializedPlan,
+                    language,
+                    studyVolume
+                );
+            disposeBibleSwapPool = disposeBibleSwapApplyPool;
+            console.log(
+                `[IDML Export] Loaded Bible Swap IDML: ${options.bibleSwapPath} (${bibleIdmlData.length} bytes)`
+            );
+        } catch (err) {
+            vscode.window.showWarningMessage(
+                `Bible Swap file could not be read; exporting notes-only. ${err instanceof Error ? err.message : String(err)
+                }`
+            );
+            bibleIdmlData = undefined;
+        }
+    }
 
     // Import exporters
     const { exportIdmlRoundtrip } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/indesign/idmlExporter");
@@ -376,19 +427,82 @@ async function exportCodexContentAsIdmlRoundtrip(
             console.log(`[IDML Export] Loaded original IDML: ${originalFileUri.fsPath} (${idmlData.length} bytes, valid ZIP signature)`);
 
             let updatedIdmlData: Uint8Array;
+            let usedBibleSwap = false;
+            let bibleSwapReport: import("../../webviews/codex-webviews/src/NewSourceUploader/importers/biblica/biblicaExporter").BibleSwapReport | null = null;
             if (isBiblicaFile) {
-                updatedIdmlData = await exportBiblicaIdml(idmlData, codexNotebook.cells);
+                usedBibleSwap = !!bibleIdmlData;
+                // Precomputed language mapping (Portuguese/Russian): apply the
+                // shipped versification plan for this study volume instead of
+                // analyzing at export time. "any" (or no mapping) falls back.
+                let bibleSwapSerializedPlan:
+                    | import("../../webviews/codex-webviews/src/NewSourceUploader/importers/biblica/bible-swap").SerializedVersificationPlan
+                    | undefined;
+                let bibleSwapStudyVolume: string | undefined;
+                if (usedBibleSwap && options?.bibleSwapLanguage) {
+                    const { loadBibleSwapMappingPlan } = await import(
+                        "../projectManager/utils/bibleSwapLanguageMappings"
+                    );
+                    const { studyVolumeFromFileName } = await import(
+                        "../../webviews/codex-webviews/src/NewSourceUploader/importers/biblica/bible-swap/language-mappings"
+                    );
+                    bibleSwapStudyVolume = studyVolumeFromFileName(originalFileName);
+                    const loaded = loadBibleSwapMappingPlan(
+                        options.bibleSwapLanguage,
+                        originalFileName
+                    );
+                    bibleSwapSerializedPlan = loaded?.plan;
+                    if (loaded?.volume) {
+                        bibleSwapStudyVolume = loaded.volume;
+                    }
+                }
+                updatedIdmlData = await exportBiblicaIdml(
+                    idmlData,
+                    codexNotebook.cells,
+                    usedBibleSwap
+                        ? {
+                            bibleIdmlData,
+                            bibleSwapMode: options?.bibleSwapMode ?? "surgical",
+                            bibleSwapParallelRunner,
+                            bibleSwapSerializedPlan,
+                            bibleSwapLanguage: options?.bibleSwapLanguage,
+                            bibleSwapStudyVolume,
+                            onBibleSwapComplete: (report) => {
+                                bibleSwapReport = report;
+                            },
+                        }
+                        : undefined
+                );
             } else {
                 updatedIdmlData = await exportIdmlRoundtrip(idmlData, codexNotebook.cells);
             }
 
             const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-            const suffix = isBiblicaFile ? '_biblica_translated' : '_translated';
+            const suffix = isBiblicaFile
+                ? usedBibleSwap
+                    ? '_biblica_translated_bible-swap'
+                    : '_biblica_translated'
+                : '_translated';
             const injectedName = originalFileName.replace(/\.idml$/i, `_${timestamp}${suffix}.idml`);
             const injectedUri = vscode.Uri.joinPath(exportFolder, injectedName);
             await vscode.workspace.fs.writeFile(injectedUri, updatedIdmlData);
 
             console.log(`[IDML Export] ${exporterType} export completed: ${injectedName}`);
+            if (bibleSwapReport !== null) {
+                const r = bibleSwapReport as import("../../webviews/codex-webviews/src/NewSourceUploader/importers/biblica/biblicaExporter").BibleSwapReport;
+                const msg =
+                    `Bible Swap: replaced ${r.replacedVerses} verses` +
+                    (r.missingFromBible > 0 ? `, ${r.missingFromBible} not found in Bible` : "") +
+                    (r.psalmVersesInserted > 0 ? `, ${r.psalmVersesInserted} Psalm verses inserted` : "") +
+                    (r.extraInBibleAppended > 0 ? `, ${r.extraInBibleAppended} extra verses appended` : "") +
+                    `. Book intros, headings, study notes and footnotes are intentionally left in the original language.`;
+                if (r.replacedVerses === 0) {
+                    vscode.window.showWarningMessage(
+                        `${injectedName}: Bible Swap completed but no verses were replaced. The selected Bible IDML may not match the Study Bible's verse markers.`
+                    );
+                } else {
+                    vscode.window.showInformationMessage(`${injectedName}: ${msg}`);
+                }
+            }
         } catch (err) {
             console.error("IDML round-trip export failed:", err);
             reporter.fileMissing(
@@ -1549,11 +1663,13 @@ async function exportCodexContentAsRebuild(
                 (corpusMarker && corpusMarker.startsWith('idml-')) ||
                 importerType === 'biblica' ||
                 fileType === 'biblica' ||
+                importerType === 'reach4life' ||
+                fileType === 'reach4life' ||
                 importerType === 'indesign' ||
                 importerType === 'biblica-experimental' || // Backward compatibility
                 fileType === 'biblica-experimental' // Backward compatibility
             ) {
-                // Biblica and InDesign files both use the IDML exporter
+                // Biblica, Reach4Life, and InDesign files use the IDML exporter
                 filesByType['idml'] = filesByType['idml'] || [];
                 filesByType['idml'].push(filePath);
             } else if (
@@ -2041,15 +2157,15 @@ export const exportCodexContentAsSubtitlesVtt = async (
             totalCells += cells.length;
             debug(`File has ${cells.length} active cells`);
 
-                    // Generate VTT content
-                    const vttContent = generateVttData(
-                        cells,
-                        includeStyles,
-                        cueSplitting,
-                        file.fsPath,
-                        options?.excludeLabels === true
-                    );
-                    debug({ vttContent, cells, includeStyles });
+            // Generate VTT content
+            const vttContent = generateVttData(
+                cells,
+                includeStyles,
+                cueSplitting,
+                file.fsPath,
+                options?.excludeLabels === true
+            );
+            debug({ vttContent, cells, includeStyles });
 
             const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
             const fileName = basename(file.fsPath).replace(".codex", "") || "unknown";

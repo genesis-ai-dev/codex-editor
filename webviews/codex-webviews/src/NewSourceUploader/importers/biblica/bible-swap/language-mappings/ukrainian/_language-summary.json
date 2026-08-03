@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-27T12:40:16.897Z",
+  "language": "ukrainian",
+  "languageLabel": "Ukrainian",
+  "volumeCount": 6,
+  "volumes": [
+    {
+      "studyVolume": "ACT-REV",
+      "studyFile": "ACT-REV.idml",
+      "bibleFile": "44ACT-66REV_ukrainian.idml",
+      "projectedMatchPercent": 0,
+      "versesMapped": 0,
+      "versesRemoved": 4152,
+      "versesInserted": 0,
+      "totalRedirected": 0,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 172,
+      "mappingFile": "ACT-REV.mapping.json",
+      "elapsedSeconds": 53.3
+    },
+    {
+      "studyVolume": "GEN-DEU",
+      "error": "No matching translated bible IDML"
+    },
+    {
+      "studyVolume": "ISA-MAL",
+      "error": "No matching translated bible IDML"
+    },
+    {
+      "studyVolume": "JOB-SNG",
+      "error": "No matching translated bible IDML"
+    },
+    {
+      "studyVolume": "JOS-EST",
+      "error": "No matching translated bible IDML"
+    },
+    {
+      "studyVolume": "MAT-JOHN",
+      "studyFile": "MAT-JOHN.idml",
+      "bibleFile": "40MAT-43JHN_ukrainian.idml",
+      "projectedMatchPercent": 0,
+      "versesMapped": 0,
+      "versesRemoved": 3764,
+      "versesInserted": 0,
+      "totalRedirected": 0,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 89,
+      "mappingFile": "MAT-JOHN.mapping.json",
+      "elapsedSeconds": 29.3
+    }
+  ]
+}

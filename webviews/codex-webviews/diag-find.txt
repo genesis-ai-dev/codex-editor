@@ -1,0 +1,83 @@
+﻿
+ RUN  v2.1.9 C:/Users/marti/Desktop/FrontierRnD/Codex/codex-editor/webviews/codex-webviews
+
+node.exe : [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline 
+data, please update: `npm i baseline-browser-mapping@latest -D`
+At C:\Users\marti\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([baseline-brows...ping@latest -D`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(node:21368) [DEP0056] DeprecationWarning: The `util.isString` API is deprecated.  Please use `typeof arg === 
+"string"` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-chapter-diag.debug.test.ts > Portuguese chapter diagnostics > GEN-DEU: GEN 29
+
+@@@@@@ raw bible paragraphs around "Jac├│ casa com Lia" (pos 1090440)
+    [741] text%3ap_sd v=[8] @1084188-1084820 :: ÔÇò N├úo pode┬¡mos, enquanto todos os reba┬¡nhos n├úo se agru┬¡pa┬¡rem e a pedra n├úo for remo┬¡vida da boca do po├ºo. S├│ ent├úo daremos de beber ├ás ove
+    [742] text%3ap v=[9,10,11,12,13,14] @1084823-1089961 :: 9 9Ele ainda estava con┬¡ver┬¡sando, quando chegou Raquel com as ove┬¡lhas do seu pai, pois ela era pas┬¡tora.9 10 10Quando Jac├│ viu Raquel, fil
+    [743] text%3ap_sd v=[] @1089964-1090263 :: ÔÇò Voc├¬ ├® osso dos meus ossos e carne da minha carne.
+    [744] title%3as1 v=[] @1090266-1090542 :: Jac├│ casa com Lia e com Raquel
+    [745] text%3ap v=[14,15] @1090545-1091637 :: J├í fazia um m├¬s que Jac├│ estava na casa de Lab├úo,14 15 15quando este lhe disse:
+    [746] text%3ap_sd v=[15] @1091640-1092249 :: ÔÇò Ser├í que vai tra┬¡ba┬¡lhar de gra├ºa s├│ por ser meu parente? Diga┬¡-me qual deve ser o seu sal├í┬¡rio.15
+    [747] text%3ap v=[16,17,18] @1092252-1095952 :: 16 16Ora, Lab├úo tinha duas filhas; o nome da mais velha era Lia, e o da mais nova, Raquel.16 17 17Lia tinha olhos meigos, mas Raquel era bon
+    [748] text%3ap_sd v=[18] @1095955-1096522 :: ÔÇò Trabalharei para o senhor sete anos em troca de Raquel, a sua filha mais nova.18
+
+@@@@@@ raw bible paragraphs around "sete dias depois que o" (pos -1)
+
+########## GEN-DEU GEN|29 ##########
+  bible block verses 1-35, len 46222
+  bible: 30 paragraphs
+    [0] text%3ap_dc2 v=[1,2,3] :: 29 <?ACE 3?>1 29.1Ent├úo, Jac├│ seguiu via┬¡gem e chegou ├á terra dos povos do oriente.1 2 2Olhando ao redor, viu um po├ºo no
+    [1] text%3ap v=[4] :: 4 4Jac├│ per┬¡gun┬¡tou aos pas┬¡tores:
+    [2] text%3ap_sd v=[] :: ÔÇò Meus irm├úos, de onde voc├¬s s├úo?
+    [3] text%3ap v=[4,5] :: ÔÇò Somos de Har├ú ÔÇö respon┬¡deram.45 5ÔÇò Voc├¬s conhe┬¡cem Lab├úo, neto de Naor? ÔÇö perguntou┬¡-lhes Jac├│.Eles respon┬¡deram:
+    [4] text%3ap_sd v=[5] :: ÔÇò Sim, n├│s o conhe┬¡cemos.5
+    [5] text%3ap v=[6] :: 6 6Ent├úo, Jac├│ per┬¡gun┬¡tou:
+    [6] text%3ap_sd v=[] :: ÔÇò Ele vai bem?
+    [7] text%3ap v=[] :: Eles respon┬¡deram:
+    [8] text%3ap_sd v=[6] :: ÔÇò Sim, vai bem. Veja! Ali vem Raquel, a filha dele, com as ove┬¡lhas.6
+    [9] text%3ap v=[7] :: 7 7Ele disse:
+    [10] text%3ap_sd v=[7] :: ÔÇò Olhem, ainda ├® pleno dia, e n├úo ├® hora de reco┬¡lher os reba┬¡nhos. Deem de beber ├ás ove┬¡lhas e levem┬¡-nas de volta para
+    [11] text%3ap v=[8] :: 8 8Eles, por├®m, respon┬¡deram:
+    [12] text%3ap_sd v=[8] :: ÔÇò N├úo pode┬¡mos, enquanto todos os reba┬¡nhos n├úo se agru┬¡pa┬¡rem e a pedra n├úo for remo┬¡vida da boca do po├ºo. S├│ ent├úo dar
+    [13] text%3ap v=[9,10,11,12,13,14] :: 9 9Ele ainda estava con┬¡ver┬¡sando, quando chegou Raquel com as ove┬¡lhas do seu pai, pois ela era pas┬¡tora.9 10 10Quando 
+    [14] text%3ap_sd v=[] :: ÔÇò Voc├¬ ├® osso dos meus ossos e carne da minha carne.
+    [15] text%3ap v=[14,15] :: J├í fazia um m├¬s que Jac├│ estava na casa de Lab├úo,14 15 15quando este lhe disse:
+    [16] text%3ap_sd v=[15] :: ÔÇò Ser├í que vai tra┬¡ba┬¡lhar de gra├ºa s├│ por ser meu parente? Diga┬¡-me qual deve ser o seu sal├í┬¡rio.15
+    [17] text%3ap v=[16,17,18] :: 16 16Ora, Lab├úo tinha duas filhas; o nome da mais velha era Lia, e o da mais nova, Raquel.16 17 17Lia tinha olhos meigos
+    [18] text%3ap_sd v=[18] :: ÔÇò Trabalharei para o senhor sete anos em troca de Raquel, a sua filha mais nova.18
+    [19] text%3ap v=[19] :: 19 19Lab├úo res┬¡pon┬¡deu:
+    [20] text%3ap_sd v=[19,20] :: ÔÇò Ser├í melhor d├í┬¡-la a voc├¬ do que a outro homem. Fique aqui comigo.19 20 20Ent├úo, Jac├│ tra┬¡ba┬¡lhou sete anos por Raquel
+    [21] text%3ap v=[21] :: 21 21Ent├úo, Jac├│ disse a Lab├úo:
+    [22] text%3ap_sd v=[21] :: ÔÇò Entregue┬¡-me a minha mulher. Cum┬¡pri o prazo pre┬¡visto e quero deitar┬¡-me com ela.21
+    [23] text%3ap v=[22,23,24,25] :: 22 22Lab├úo reu┬¡niu todo o povo daquele lugar e deu uma festa.22 23 23Quando a noite chegou, no entanto, trouxe a sua fil
+    [24] text%3ap_sd v=[25] :: ÔÇò Que foi que o senhor me fez? N├úo foi por Raquel que eu traba┬¡lhei para o senhor? Por que o senhor me enga┬¡nou?25
+    [25] text%3ap v=[26] :: 26 26Lab├úo res┬¡pon┬¡deu:
+    [26] text%3ap_sd v=[26,27] :: ÔÇò Aqui n├úo ├® cos┬¡tume entre┬¡gar em casa┬¡mento a filha mais nova antes da mais velha.26 27 27Com┬¡plete a semana de n├║p┬¡ci
+    [27] text%3ap v=[28,29,30] :: 28 28Foi isso que Jac├│ fez. Quando com┬¡ple┬¡tou a semana de n├║p┬¡cias da pri┬¡meira, Lab├úo lhe deu a sua filha Raquel por m
+    [28] text%3ap v=[31,32] :: 31 31Quando o Senhor viu que Lia era despre┬¡zada, tornou┬¡-a f├®r┬¡til; Raquel, por├®m, era est├®ril.31 32 32Lia engra┬¡vidou,
+    [29] text%3ap v=[33,34,35] :: 33 33Lia engra┬¡vidou de novo e, quando deu ├á luz outro filho, disse: ÔÇ£Por┬¡que o Senhor ouviu que eu sou despre┬¡zada, deu
+  study spans (1):
+    span v1-35 @1095524-1136184 slices=29:1-35
+      studyText : 29 <?ACE 3?>1 29:1Then Jacob con┬¡tin┬¡ued on his jour┬¡ney. He came to the land where the east┬¡ern tribes lived.1 2 2There he saw a well in th
+      replacement: 29 <?ACE 3?>1 29.1Ent├úo, Jac├│ seguiu via┬¡gem e chegou ├á terra dos povos do oriente.1 2 2Olhando ao redor, viu um po├ºo no campo e tr├¬s reba┬¡nhos de ove┬¡lhas dei┬¡ta┬¡das por perto, pois os reba┬¡nhos bebi
+  plan structureChapter: {
+  studyBook: 'GEN',
+  studyChapter: '29',
+  studyVerseStart: 1,
+  studyVerseEnd: 35,
+  bibleSlices: [ { chapter: '29', firstVerse: 1, lastVerse: 35 } ],
+  insertOnly: false
+}
+  plan inserts: undefined
+
+ Ô£ô src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-chapter-diag.debug.test.ts (1 test) 2288ms
+   Ô£ô Portuguese chapter diagnostics > GEN-DEU: GEN 29 2287ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:19:06
+   Duration  4.66s (transform 221ms, setup 30ms, collect 354ms, tests 2.29s, environment 989ms, prepare 192ms)
+

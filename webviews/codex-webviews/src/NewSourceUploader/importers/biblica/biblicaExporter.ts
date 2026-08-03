@@ -29,6 +29,167 @@ import {
 // Import JSZip for Node.js environment
 import JSZip from 'jszip';
 
+/**
+ * Normalize bytes into a tight, zero-offset Uint8Array before handing them to
+ * JSZip. `vscode.workspace.fs.readFile` hands back a Node Buffer that is a
+ * *view* into a larger pooled ArrayBuffer (non-zero byteOffset / bigger
+ * underlying buffer). This JSZip version reads the whole underlying buffer
+ * instead of the view bounds, so it misparses the central directory and throws
+ * "End of data reached … Corrupted zip?". Copying guarantees JSZip only sees
+ * the file's own bytes.
+ *
+ * NOTE: must use `new Uint8Array(data)` (a real copy). `Buffer.prototype.slice`
+ * returns another view that shares the same oversized backing buffer, so it
+ * would NOT fix the problem.
+ */
+function toTightZipBytes(data: Uint8Array): Uint8Array {
+    return data.byteOffset === 0 && data.byteLength === data.buffer.byteLength
+        ? data
+        : new Uint8Array(data);
+}
+
+/** Top-level paragraph block in a Biblica Story XML (built once per story). */
+interface StoryParagraphBlock {
+    start: number;
+    end: number;
+    style?: string;
+    originalIndex: number;
+    isVerse: boolean;
+    isBlank: boolean;
+}
+
+/**
+ * Index all top-level ParagraphStyleRange elements in a story XML once.
+ * Used to avoid O(n × updates) full rescans during notes export.
+ */
+function buildStoryParagraphIndex(xml: string): StoryParagraphBlock[] {
+    const allBlocks: StoryParagraphBlock[] = [];
+    let depth = 0;
+    let currentStart = -1;
+    let currentStyle: string | undefined;
+    let inStory = false;
+    let storyDepth = 0;
+    let originalIndex = 0;
+
+    const tagRegex = /<\/?(Story|ParagraphStyleRange)\b[^>]*>/gi;
+    let match: RegExpExecArray | null;
+
+    while ((match = tagRegex.exec(xml)) !== null) {
+        const tag = match[0];
+        const tagName = tag.match(/<\/?(\w+)/)?.[1];
+        const isClosing = tag.startsWith("</");
+        const pos = match.index;
+
+        if (tagName === "Story") {
+            if (isClosing) {
+                storyDepth--;
+                if (storyDepth === 0) inStory = false;
+            } else {
+                storyDepth++;
+                if (storyDepth === 1) {
+                    inStory = true;
+                    depth = 0;
+                    originalIndex = 0;
+                }
+            }
+            continue;
+        }
+
+        if (!inStory || tagName !== "ParagraphStyleRange") continue;
+
+        if (isClosing) {
+            depth--;
+            if (depth === 0 && currentStart >= 0) {
+                const blockEnd = pos + tag.length;
+                const fullBlock = xml.substring(currentStart, blockEnd);
+                const textContent = fullBlock
+                    .replace(/<[^>]*>/g, "")
+                    .replace(/[\r\n]+/g, " ")
+                    .replace(/\s+/g, " ")
+                    .trim();
+                const isVerseParagraph = /cv%3av|meta%3av|cv:v|meta:v/i.test(fullBlock);
+                const isBlank = !textContent;
+                const styleMatch = fullBlock.match(/AppliedParagraphStyle="([^"]*)"/i);
+                const style = styleMatch ? styleMatch[1] : currentStyle;
+
+                allBlocks.push({
+                    start: currentStart,
+                    end: blockEnd,
+                    style,
+                    originalIndex,
+                    isVerse: isVerseParagraph,
+                    isBlank,
+                });
+
+                originalIndex++;
+                currentStart = -1;
+                currentStyle = undefined;
+            }
+        } else {
+            if (depth === 0) {
+                currentStart = pos;
+                const styleMatch = tag.match(/AppliedParagraphStyle="([^"]*)"/i);
+                currentStyle = styleMatch ? styleMatch[1] : undefined;
+            }
+            depth++;
+        }
+    }
+
+    return allBlocks;
+}
+
+function shiftParagraphBlocksAfter(
+    blocks: StoryParagraphBlock[],
+    fromOffset: number,
+    delta: number
+): void {
+    if (delta === 0) return;
+    for (const block of blocks) {
+        if (block.start >= fromOffset) {
+            block.start += delta;
+            block.end += delta;
+        }
+    }
+}
+
+function spliceParagraphBlock(
+    xml: string,
+    blocks: StoryParagraphBlock[],
+    targetBlock: StoryParagraphBlock,
+    updatedBlock: string
+): string {
+    const before = xml.slice(0, targetBlock.start);
+    const after = xml.slice(targetBlock.end);
+    const delta = updatedBlock.length - (targetBlock.end - targetBlock.start);
+    shiftParagraphBlocksAfter(blocks, targetBlock.end, delta);
+    return before + updatedBlock + after;
+}
+
+function replaceParagraphInner(
+    block: string,
+    newText: string,
+    dataAfter: string[] | undefined,
+    buildReplacementInner: (newText: string, dataAfter?: string[]) => string
+): string {
+    return block.replace(
+        /^(<ParagraphStyleRange\b[^>]*>)[\s\S]*?(<\/ParagraphStyleRange>)$/i,
+        (_m, openTag: string, closeTag: string) => {
+            const replacementInner = buildReplacementInner(newText, dataAfter);
+            return `${openTag}${replacementInner}${closeTag}`;
+        }
+    );
+}
+
+// Bible Swap (optional second-pass that replaces verse content)
+import {
+    applyBibleSwapWithShared,
+    buildBibleSwapSharedResources,
+    deserializeVersificationPlan,
+    type BibleSwapMode,
+    type SerializedVersificationPlan,
+    type SwapStats,
+} from './bible-swap';
+
 // Local hashing (matches idmlParser.ts behavior)
 function toArrayBufferForHash(input: string | ArrayBuffer): ArrayBuffer {
     if (input instanceof ArrayBuffer) return input;
@@ -554,13 +715,90 @@ export interface ParagraphUpdate {
  * @param codexCells - Array of Codex cell data
  * @returns Updated IDML as Uint8Array
  */
+/**
+ * Summary of what the Bible Swap pass did so callers (e.g. the export handler)
+ * can surface clear feedback to the user. All counts are aggregated across the
+ * Study Bible's Stories/*.xml files.
+ */
+export interface BibleSwapReport {
+    replacedVerses: number;
+    missingFromBible: number;
+    extraInBibleAppended: number;
+    /** @deprecated Always 0 — Psalms are now swapped. */
+    skippedPsa: number;
+    psalmSubheaderOffsets: number;
+    psalmVersesInserted: number;
+    modifiedStories: number;
+}
+
+export interface BiblicaExportOptions {
+    /**
+     * Optional Bible IDML file bytes. When provided, after the standard notes
+     * round-trip is applied, the Study Bible's verse content will be replaced
+     * with the matching verses from this Bible file ("Bible Swap").
+     *
+     * Psalms use versification mapping (subheader offset + extra verse insertion).
+     */
+    bibleIdmlData?: Uint8Array;
+    /**
+     * Surgical = content-only replacement in Study CSRs (default).
+     * Structure = replace whole chapter text blocks with Bible paragraph XML.
+     */
+    bibleSwapMode?: BibleSwapMode;
+    /**
+     * Optional callback invoked once the Bible Swap pass completes (success
+     * only). Callers can use this to show a user-facing summary.
+     */
+    onBibleSwapComplete?: (report: BibleSwapReport) => void;
+    /**
+     * Optional parallel runner (extension host worker pool). When omitted, swap
+     * runs on the main thread with shared Bible indexes.
+     */
+    bibleSwapParallelRunner?: BibleSwapParallelRunner;
+    /**
+     * Precomputed versification plan from a shipped language mapping
+     * (language-mappings/{language}/{VOLUME}.mapping.json). When set, the swap
+     * applies this plan directly instead of deriving one at export time.
+     */
+    bibleSwapSerializedPlan?: SerializedVersificationPlan;
+    /**
+     * Selected Bible Swap language id (`any`, `portuguese`, `russian`, …).
+     * Drives per-language strategy (forced structure volumes, chapter-block
+     * flags, plan refinements).
+     */
+    bibleSwapLanguage?: string;
+    /** Study volume id derived from the file name (e.g. `JOS-EST`). */
+    bibleSwapStudyVolume?: string;
+}
+
+export interface BibleSwapStoryInput {
+    storyKey: string;
+    studyStoryXml: string;
+}
+
+export interface BibleSwapStoryOutput {
+    storyKey: string;
+    xml: string;
+    stats: SwapStats;
+}
+
+export type BibleSwapParallelRunner = (
+    bibleStoryXml: string,
+    swapMode: BibleSwapMode,
+    stories: BibleSwapStoryInput[],
+    serializedPlan?: SerializedVersificationPlan,
+    language?: string,
+    studyVolume?: string
+) => Promise<BibleSwapStoryOutput[]>;
+
 export async function exportIdmlRoundtrip(
     originalIdmlData: Uint8Array,
     codexCells: Array<{
         kind: number;
         value: string;
         metadata: any;
-    }>
+    }>,
+    options?: BiblicaExportOptions
 ): Promise<Uint8Array> {
     // Validate input before attempting to parse as ZIP
     if (!originalIdmlData || originalIdmlData.length < 4) {
@@ -581,7 +819,7 @@ export async function exportIdmlRoundtrip(
     }
 
     // Load original IDML (ZIP file)
-    const zip = await JSZip.loadAsync(originalIdmlData);
+    const zip = await JSZip.loadAsync(toTightZipBytes(originalIdmlData));
 
     // Build mapping from IDML structure metadata to translated content
     const storyIdToUpdates = new Map<string, ParagraphUpdate[]>();
@@ -1123,7 +1361,19 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
         const escapedPid = escapeRegExp(pid);
         const blockRe = new RegExp(`(<ParagraphStyleRange[^>]*\\bid=["']${escapedPid}["'][^>]*>)([\\s\\S]*?)(<\\/ParagraphStyleRange>)`, 'i');
         const replacementInner = buildReplacementInner(newText, dataAfter);
-        return xml.replace(blockRe, (_m, openTag, _inner, closeTag) => `${openTag}${replacementInner}${closeTag}`);
+        return xml.replace(blockRe, (match, openTag, _inner, closeTag) => {
+            // Protect SBL/USFM machine markers (meta:bk / meta:id) — see
+            // `replaceNthParagraph` for the rationale. We detect the style on
+            // the opening tag itself rather than on the captured block.
+            if (/AppliedParagraphStyle="[^"]*meta(?:%3a|:)(?:bk|id)\b/i.test(openTag)) {
+                console.warn(
+                    `[Export] Skipping translation of machine marker paragraph id=${pid} ` +
+                    `(must keep its original SBL/USFM identifier for Bible Swap and downstream tools).`
+                );
+                return match;
+            }
+            return `${openTag}${replacementInner}${closeTag}`;
+        });
     };
 
     // Helper to replace paragraph by order index, optionally verifying by appliedParagraphStyle
@@ -1132,166 +1382,80 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
     // We need to map it to the filtered index (excluding verse and blank paragraphs)
     const replaceNthParagraph = (
         xml: string,
-        paragraphOrder: number, // Original paragraphOrder from import (counts ALL paragraphs)
+        paragraphOrder: number,
         newText: string,
         dataAfter?: string[],
-        expectedStyle?: string
+        expectedStyle?: string,
+        paragraphBlocks?: StoryParagraphBlock[]
     ): string => {
-        // Parse XML to find ALL top-level ParagraphStyleRange elements
-        // We need to track both the original index and filtered index
-        const allBlocks: { start: number; end: number; style?: string; originalIndex: number; isVerse: boolean; isBlank: boolean; }[] = [];
-        let depth = 0;
-        let currentStart = -1;
-        let currentStyle: string | undefined;
-        let inStory = false;
-        let storyDepth = 0;
-        let originalIndex = 0; // Track original index (counting ALL paragraphs)
-
-        // Match both opening and closing tags for Story and ParagraphStyleRange
-        const tagRegex = /<\/?(Story|ParagraphStyleRange)\b[^>]*>/gi;
-        let match: RegExpExecArray | null;
-
-        while ((match = tagRegex.exec(xml)) !== null) {
-            const tag = match[0];
-            const tagName = tag.match(/<\/?(\w+)/)?.[1];
-            const isClosing = tag.startsWith('</');
-            const pos = match.index;
-
-            if (tagName === 'Story') {
-                if (isClosing) {
-                    storyDepth--;
-                    if (storyDepth === 0) {
-                        inStory = false;
-                    }
-                } else {
-                    storyDepth++;
-                    if (storyDepth === 1) {
-                        inStory = true;
-                        depth = 0; // Reset paragraph depth when entering Story
-                        originalIndex = 0; // Reset counter for each story
-                    }
-                }
-                continue;
-            }
-
-            // Only process ParagraphStyleRange tags when inside a Story
-            if (!inStory || tagName !== 'ParagraphStyleRange') {
-                continue;
-            }
-
-            if (isClosing) {
-                depth--;
-                // If we've closed a top-level paragraph (depth back to 0), record it
-                if (depth === 0 && currentStart >= 0) {
-                    // Extract style from the full block
-                    const blockEnd = pos + tag.length;
-                    const fullBlock = xml.substring(currentStart, blockEnd);
-
-                    // Check if this paragraph is blank (matches import logic)
-                    const textContent = fullBlock
-                        .replace(/<[^>]*>/g, '') // Remove all tags
-                        .replace(/[\r\n]+/g, ' ') // Normalize line endings
-                        .replace(/\s+/g, ' ') // Collapse whitespace
-                        .trim();
-
-                    // Check if this is a verse paragraph
-                    const isVerseParagraph = /cv%3av|meta%3av|cv:v|meta:v/i.test(fullBlock);
-                    const isBlank = !textContent;
-
-                    const styleMatch = fullBlock.match(/AppliedParagraphStyle="([^"]*)"/i);
-                    const style = styleMatch ? styleMatch[1] : currentStyle;
-
-                    // Record ALL paragraphs with their original index
-                    allBlocks.push({
-                        start: currentStart,
-                        end: blockEnd,
-                        style,
-                        originalIndex,
-                        isVerse: isVerseParagraph,
-                        isBlank
-                    });
-
-                    originalIndex++; // Increment original index for ALL paragraphs
-                    currentStart = -1;
-                    currentStyle = undefined;
-                }
-            } else {
-                // Opening tag
-                if (depth === 0) {
-                    // This is a top-level paragraph start
-                    currentStart = pos;
-                    // Try to extract style from opening tag
-                    const styleMatch = tag.match(/AppliedParagraphStyle="([^"]*)"/i);
-                    currentStyle = styleMatch ? styleMatch[1] : undefined;
-                }
-                depth++;
-            }
-        }
-
-        // Find the paragraph with matching paragraphOrder (original index)
-        const targetBlock = allBlocks.find(b => b.originalIndex === paragraphOrder);
+        const allBlocks = paragraphBlocks ?? buildStoryParagraphIndex(xml);
+        const targetBlock = allBlocks.find((b) => b.originalIndex === paragraphOrder);
 
         if (!targetBlock) {
-            console.warn(`[Export] Paragraph with paragraphOrder ${paragraphOrder} not found (total paragraphs: ${allBlocks.length})`);
+            console.warn(
+                `[Export] Paragraph with paragraphOrder ${paragraphOrder} not found (total paragraphs: ${allBlocks.length})`
+            );
             return xml;
         }
 
-        // If the target is a verse paragraph or blank, that's unexpected (shouldn't have paragraphOrder)
         if (targetBlock.isVerse || targetBlock.isBlank) {
-            console.warn(`[Export] Paragraph at order ${paragraphOrder} is ${targetBlock.isVerse ? 'verse' : 'blank'}, skipping (should use verse-based matching)`);
+            console.warn(
+                `[Export] Paragraph at order ${paragraphOrder} is ${targetBlock.isVerse ? "verse" : "blank"}, skipping (should use verse-based matching)`
+            );
             return xml;
         }
 
-        // If expectedStyle is provided, verify it matches
+        if (targetBlock.style && /(?:^|\/)meta(?:%3a|:)(?:bk|id)\b/i.test(targetBlock.style)) {
+            console.warn(
+                `[Export] Skipping translation of machine marker paragraph (style: ${targetBlock.style}) at order ${paragraphOrder}. ` +
+                `meta:bk / meta:id must keep their original SBL/USFM identifiers for downstream tools (e.g. Bible Swap) to work.`
+            );
+            return xml;
+        }
+
+        let blockToReplace = targetBlock;
+
         if (expectedStyle && targetBlock.style) {
-            const normalizedExpected = decodeURIComponent(expectedStyle).replace(/%3a/gi, ':');
-            const normalizedActual = decodeURIComponent(targetBlock.style).replace(/%3a/gi, ':');
+            const normalizedExpected = decodeURIComponent(expectedStyle).replace(/%3a/gi, ":");
+            const normalizedActual = decodeURIComponent(targetBlock.style).replace(/%3a/gi, ":");
             if (normalizedExpected !== normalizedActual) {
-                console.warn(`[Export] Style mismatch at paragraphOrder ${paragraphOrder}: expected "${normalizedExpected}", found "${normalizedActual}". Searching for matching style...`);
-                // Try to find paragraph with matching style at or near the expected paragraphOrder
-                let foundBlock = null;
-                // Search within ±10 paragraphs of expected paragraphOrder
+                console.warn(
+                    `[Export] Style mismatch at paragraphOrder ${paragraphOrder}: expected "${normalizedExpected}", found "${normalizedActual}". Searching for matching style...`
+                );
+                let foundBlock: StoryParagraphBlock | null = null;
                 for (let i = Math.max(0, paragraphOrder - 10); i < Math.min(allBlocks.length, paragraphOrder + 11); i++) {
                     const block = allBlocks[i];
                     if (block.style && !block.isVerse && !block.isBlank) {
-                        const normalized = decodeURIComponent(block.style).replace(/%3a/gi, ':');
+                        const normalized = decodeURIComponent(block.style).replace(/%3a/gi, ":");
                         if (normalized === normalizedExpected) {
                             foundBlock = block;
-                            console.log(`[Export] Found matching style at paragraphOrder ${block.originalIndex} (expected ${paragraphOrder})`);
+                            console.log(
+                                `[Export] Found matching style at paragraphOrder ${block.originalIndex} (expected ${paragraphOrder})`
+                            );
                             break;
                         }
                     }
                 }
                 if (foundBlock) {
-                    // Use the found block instead
-                    const before = xml.slice(0, foundBlock.start);
-                    const block = xml.slice(foundBlock.start, foundBlock.end);
-                    const after = xml.slice(foundBlock.end);
-                    const updatedBlock = block.replace(/^(<ParagraphStyleRange\b[^>]*>)[\s\S]*?(<\/ParagraphStyleRange>)$/i, (_m, openTag, closeTag) => {
-                        const replacementInner = buildReplacementInner(newText, dataAfter);
-                        return `${openTag}${replacementInner}${closeTag}`;
-                    });
-                    return before + updatedBlock + after;
+                    blockToReplace = foundBlock;
                 } else {
-                    console.warn(`[Export] Could not find paragraph with style "${normalizedExpected}" near paragraphOrder ${paragraphOrder}, using paragraphOrder ${paragraphOrder} anyway`);
+                    console.warn(
+                        `[Export] Could not find paragraph with style "${normalizedExpected}" near paragraphOrder ${paragraphOrder}, using paragraphOrder ${paragraphOrder} anyway`
+                    );
                 }
             }
         }
 
-        // Use the target block's position for replacement
-        const before = xml.slice(0, targetBlock.start);
-        const block = xml.slice(targetBlock.start, targetBlock.end);
-        const after = xml.slice(targetBlock.end);
-
-        const updatedBlock = block.replace(/^(<ParagraphStyleRange\b[^>]*>)[\s\S]*?(<\/ParagraphStyleRange>)$/i, (_m, openTag, closeTag) => {
-            const replacementInner = buildReplacementInner(newText, dataAfter);
-            return `${openTag}${replacementInner}${closeTag}`;
-        });
-
-        return before + updatedBlock + after;
+        const block = xml.slice(blockToReplace.start, blockToReplace.end);
+        const updatedBlock = replaceParagraphInner(block, newText, dataAfter, buildReplacementInner);
+        if (!paragraphBlocks) {
+            return spliceParagraphBlock(xml, allBlocks, blockToReplace, updatedBlock);
+        }
+        return spliceParagraphBlock(xml, paragraphBlocks, blockToReplace, updatedBlock);
     };
 
     // Apply paragraph-based updates per story FIRST (on original file structure)
+    const exportNotesStarted = Date.now();
     // This ensures paragraphOrder indices match correctly since they're based on original structure
     for (const [storyId, updates] of storyIdToUpdates.entries()) {
         // Find corresponding story file in the zip
@@ -1308,6 +1472,8 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
 
         const xmlText = await zip.file(storyKey)!.async("string");
         let updated = xmlText;
+        const paragraphBlocks = buildStoryParagraphIndex(xmlText);
+        const notesPassStarted = Date.now();
 
         const surgicalUpdates: ParagraphUpdate[] = [];
         const legacyUpdates: ParagraphUpdate[] = [];
@@ -1372,12 +1538,32 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
                 updated = replaceParagraphById(updated, u.paragraphId, u.translated, u.dataAfter);
                 if (updated === beforeIdReplace && typeof u.paragraphOrder === 'number') {
                     console.log(`[Export] Paragraph ID ${u.paragraphId} not found, falling back to order-based replacement at index ${u.paragraphOrder}${u.appliedParagraphStyle ? ` (style: ${u.appliedParagraphStyle})` : ''}`);
-                    updated = replaceNthParagraph(updated, u.paragraphOrder, u.translated, u.dataAfter, u.appliedParagraphStyle);
+                    updated = replaceNthParagraph(
+                        updated,
+                        u.paragraphOrder,
+                        u.translated,
+                        u.dataAfter,
+                        u.appliedParagraphStyle,
+                        paragraphBlocks
+                    );
                 }
-            } else if (typeof u.paragraphOrder === 'number') {
-                console.log(`[Export] Replacing paragraph at index ${u.paragraphOrder}${u.appliedParagraphStyle ? ` (style: ${u.appliedParagraphStyle})` : ''}`);
-                updated = replaceNthParagraph(updated, u.paragraphOrder, u.translated, u.dataAfter, u.appliedParagraphStyle);
+            } else if (typeof u.paragraphOrder === "number") {
+                updated = replaceNthParagraph(
+                    updated,
+                    u.paragraphOrder,
+                    u.translated,
+                    u.dataAfter,
+                    u.appliedParagraphStyle,
+                    paragraphBlocks
+                );
             }
+        }
+
+        if (updates.length > 0) {
+            console.log(
+                `[Export] Notes pass for ${storyKey}: ${updates.length} update(s) in ${Date.now() - notesPassStarted}ms ` +
+                `(story ${(xmlText.length / 1_000_000).toFixed(1)}MB, ${paragraphBlocks.length} paragraphs indexed once)`
+            );
         }
 
         if (updated !== xmlText) {
@@ -1417,6 +1603,7 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
 
                     const xmlText = await storyFile.async("string");
                     let updated = xmlText;
+                    const paragraphBlocks = buildStoryParagraphIndex(xmlText);
 
                     const surgicalUpdates = updates.filter(
                         (u) => Array.isArray(u.contentSegments) && u.contentSegments.length > 0
@@ -1439,7 +1626,14 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
                     for (const u of sortedLegacyUpdates) {
                         if (typeof u.paragraphOrder === 'number') {
                             console.log(`[Export] Replacing paragraph at index ${u.paragraphOrder}${u.appliedParagraphStyle ? ` (style: ${u.appliedParagraphStyle})` : ''}`);
-                            updated = replaceNthParagraph(updated, u.paragraphOrder, u.translated, u.dataAfter, u.appliedParagraphStyle);
+                            updated = replaceNthParagraph(
+                                updated,
+                                u.paragraphOrder,
+                                u.translated,
+                                u.dataAfter,
+                                u.appliedParagraphStyle,
+                                paragraphBlocks
+                            );
                         }
                     }
 
@@ -1466,88 +1660,90 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
     // COMMENTED OUT: Verse-based export is disabled - only exporting notes, not verse content
     /*
     if (hasVerseBasedCells && Object.keys(verseUpdates).length > 0) {
-        console.log(`[Export] Processing ${Object.keys(verseUpdates).length} verse-based updates...`);
-
-        // Get all story files
-        const storyFiles = Object.keys(zip.files).filter(name =>
-            name.startsWith('Stories/Story_') && name.endsWith('.xml')
-        );
-
-        console.log(`[Export] Found ${storyFiles.length} story files to process`);
-
-        for (const storyPath of storyFiles) {
-            const file = zip.file(storyPath);
-            if (!file) continue;
-
-            let xmlContent = await file.async('text');
-            const originalXml = xmlContent;
-
-            // Extract book abbreviation from the XML content
-            // Look for book abbreviation in paragraph styles or metadata (meta%3abk - Biblica format)
-            const bookMatch = xmlContent.match(/AppliedParagraphStyle="[^"]*meta%3abk[^"]*"[^>]*>[\s\S]*?<Content>([A-Z]{2,4})<\/Content>/i);
-            const currentBook = bookMatch ? bookMatch[1] : '';
-
-            if (!currentBook) {
-                console.log(`[Export] No book abbreviation found in ${storyPath}, skipping verse-based replacement`);
-                continue;
-            }
-
-            console.log(`[Export] Processing story ${storyPath} for book ${currentBook}`);
-
-            // Look for chapter numbers in cv%3adc markers (Biblica format)
-            const chapterMatches = [...xmlContent.matchAll(/<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*cv%3adc[^"]*"[^>]*>\s*<Content>(\d+)<\/Content>/gi)];
-
-            if (chapterMatches.length > 0) {
-                console.log(`[Export] Found ${chapterMatches.length} chapter markers in ${storyPath}`);
-                // Process each chapter section separately
-                let modifiedXml = xmlContent;
-                let cumulativeOffset = 0;
-
-                for (let i = 0; i < chapterMatches.length; i++) {
-                    const chapterMatch = chapterMatches[i];
-                    const chapterNumber = chapterMatch[1];
-
-                    // Find the section for this chapter
-                    const startIndex = (chapterMatch.index || 0) + cumulativeOffset;
-                    const nextChapterMatch = chapterMatches[i + 1];
-                    const endIndex = nextChapterMatch && nextChapterMatch.index !== undefined
-                        ? nextChapterMatch.index + cumulativeOffset
-                        : modifiedXml.length;
-
-                    if (startIndex >= 0 && startIndex < modifiedXml.length) {
-                        const before = modifiedXml.substring(0, startIndex);
-                        const chapterSection = modifiedXml.substring(startIndex, endIndex);
-                        const after = modifiedXml.substring(endIndex);
-
-                        // Replace verses in this chapter section
-                        console.log(`[Export] Processing chapter ${chapterNumber} of ${currentBook} (${chapterSection.length} chars)`);
-                        const updatedSection = replaceVerseContent(chapterSection, currentBook, chapterNumber);
-
-                        // Calculate offset change for next iteration
-                        const lengthDiff = updatedSection.length - chapterSection.length;
-                        cumulativeOffset += lengthDiff;
-
-                        modifiedXml = before + updatedSection + after;
+                console.log(`[Export] Processing ${Object.keys(verseUpdates).length} verse-based updates...`);
+        
+                // Get all story files
+                const storyFiles = Object.keys(zip.files).filter(name =>
+                    name.startsWith('Stories/Story_') && name.endsWith('.xml')
+                );
+        
+                console.log(`[Export] Found ${storyFiles.length} story files to process`);
+        
+                for (const storyPath of storyFiles) {
+                    const file = zip.file(storyPath);
+                    if (!file) continue;
+        
+                    let xmlContent = await file.async('text');
+                    const originalXml = xmlContent;
+        
+                    // Extract book abbreviation from the XML content
+                    // Look for book abbreviation in paragraph styles or metadata (meta%3abk - Biblica format)
+                    const bookMatch = xmlContent.match(/AppliedParagraphStyle="[^"]*meta%3abk[^"]*"[^>]*>[\s\S]*?<Content>([A-Z]{2,4})<\/Content>/i);
+                    const currentBook = bookMatch ? bookMatch[1] : '';
+        
+                    if (!currentBook) {
+                        console.log(`[Export] No book abbreviation found in ${storyPath}, skipping verse-based replacement`);
+                        continue;
+                    }
+        
+                    console.log(`[Export] Processing story ${storyPath} for book ${currentBook}`);
+        
+                    // Look for chapter numbers in cv%3adc markers (Biblica format)
+                    const chapterMatches = [...xmlContent.matchAll(/<CharacterStyleRange[^>]*AppliedCharacterStyle="[^"]*cv%3adc[^"]*"[^>]*>\s*<Content>(\d+)<\/Content>/gi)];
+        
+                    if (chapterMatches.length > 0) {
+                        console.log(`[Export] Found ${chapterMatches.length} chapter markers in ${storyPath}`);
+                        // Process each chapter section separately
+                        let modifiedXml = xmlContent;
+                        let cumulativeOffset = 0;
+        
+                        for (let i = 0; i < chapterMatches.length; i++) {
+                            const chapterMatch = chapterMatches[i];
+                            const chapterNumber = chapterMatch[1];
+        
+                            // Find the section for this chapter
+                            const startIndex = (chapterMatch.index || 0) + cumulativeOffset;
+                            const nextChapterMatch = chapterMatches[i + 1];
+                            const endIndex = nextChapterMatch && nextChapterMatch.index !== undefined
+                                ? nextChapterMatch.index + cumulativeOffset
+                                : modifiedXml.length;
+        
+                            if (startIndex >= 0 && startIndex < modifiedXml.length) {
+                                const before = modifiedXml.substring(0, startIndex);
+                                const chapterSection = modifiedXml.substring(startIndex, endIndex);
+                                const after = modifiedXml.substring(endIndex);
+        
+                                // Replace verses in this chapter section
+                                console.log(`[Export] Processing chapter ${chapterNumber} of ${currentBook} (${chapterSection.length} chars)`);
+                                const updatedSection = replaceVerseContent(chapterSection, currentBook, chapterNumber);
+        
+                                // Calculate offset change for next iteration
+                                const lengthDiff = updatedSection.length - chapterSection.length;
+                                cumulativeOffset += lengthDiff;
+        
+                                modifiedXml = before + updatedSection + after;
+                            }
+                        }
+        
+                        xmlContent = modifiedXml;
+                    } else {
+                        // No chapter markers found, try to process the whole file with chapter "1"
+                        console.log(`[Export] No chapter markers in ${storyPath}, trying chapter 1`);
+                        xmlContent = replaceVerseContent(xmlContent, currentBook, '1');
+                    }
+        
+                    // Update the file if changed
+                    if (xmlContent !== originalXml) {
+                        console.log(`[Export] Updated ${storyPath} with verse replacements`);
+                        zip.file(storyPath, xmlContent);
+                    } else {
+                        console.log(`[Export] No changes made to ${storyPath}`);
                     }
                 }
-
-                xmlContent = modifiedXml;
-            } else {
-                // No chapter markers found, try to process the whole file with chapter "1"
-                console.log(`[Export] No chapter markers in ${storyPath}, trying chapter 1`);
-                xmlContent = replaceVerseContent(xmlContent, currentBook, '1');
             }
+            */
 
-            // Update the file if changed
-            if (xmlContent !== originalXml) {
-                console.log(`[Export] Updated ${storyPath} with verse replacements`);
-                zip.file(storyPath, xmlContent);
-            } else {
-                console.log(`[Export] No changes made to ${storyPath}`);
-            }
-        }
-    }
-    */
+    console.log(`[Export] Notes round-trip finished in ${Date.now() - exportNotesStarted}ms`);
 
     // CRITICAL: JSZip.generateAsync() only includes files that were explicitly added/modified
     // Since we only modify story files, we need to ensure all other files are preserved
@@ -1567,11 +1763,247 @@ ${footnoteString.split('\n').map(line => `                    ${line}`).join('\n
 
     console.log(`[Export] Modified ${modifiedFiles.size} story file(s). All other files will be preserved from original IDML.`);
 
+    // Bible Swap (optional): after the notes splice, replace verse content
+    // in the Study Bible Story XML(s) with verses from a translated Bible IDML.
+    if (options?.bibleIdmlData) {
+        const bibleSwapStarted = Date.now();
+                try {
+                    const report = await applyBibleSwapPass(
+                        zip,
+                        options.bibleIdmlData,
+                        options.bibleSwapMode ?? "surgical",
+                        options.bibleSwapParallelRunner,
+                        options.bibleSwapSerializedPlan,
+                        options.bibleSwapLanguage,
+                        options.bibleSwapStudyVolume
+                    );
+            console.log(`[Export] Bible swap pass finished in ${Date.now() - bibleSwapStarted}ms`);
+            options.onBibleSwapComplete?.(report);
+        } catch (err) {
+            // Bible swap failure is non-fatal: the notes-only IDML is still valid.
+            console.warn(
+                `[Export] Bible swap failed; exporting notes-only IDML. Reason: ${err instanceof Error ? err.message : String(err)}`
+            );
+        }
+    }
+
     // Generate updated IDML with UTF-8 encoding
+    const zipStarted = Date.now();
     const updatedIdmlData = await zip.generateAsync({
         type: "uint8array",
         compression: "DEFLATE",
-        compressionOptions: { level: 6 }
+        compressionOptions: { level: 1 },
     });
+    console.log(
+        `[Export] ZIP generate finished in ${Date.now() - zipStarted}ms (${updatedIdmlData.length} bytes)`
+    );
     return updatedIdmlData;
+}
+
+/**
+ * Apply the Bible Swap to every `Stories/*.xml` inside the Study Bible zip.
+ *
+ * - Reads the translated Bible IDML bytes.
+ * - Builds a verse index from the largest `Stories/*.xml` (per analysis doc).
+ * - For each Study Bible story XML, runs `applyBibleSwapToStudyXml`, which
+ *   replaces verse content (block-swap or content-only fallback) and skips
+ *   Psalms with versification mapping (subheader offset + verse insertion).
+ */
+async function applyBibleSwapPass(
+            studyZip: JSZip,
+            bibleIdmlData: Uint8Array,
+            swapMode: BibleSwapMode = "surgical",
+            parallelRunner?: BibleSwapParallelRunner,
+            serializedPlan?: SerializedVersificationPlan,
+            language?: string,
+            studyVolume?: string
+        ): Promise<BibleSwapReport> {
+    if (
+        !bibleIdmlData ||
+        bibleIdmlData.length < 4 ||
+        bibleIdmlData[0] !== 0x50 ||
+        bibleIdmlData[1] !== 0x4b
+    ) {
+        throw new Error("Bible Swap: provided Bible IDML data is not a valid IDML/ZIP archive.");
+    }
+
+    const bibleZip = await JSZip.loadAsync(toTightZipBytes(bibleIdmlData));
+
+    // Find largest Stories/*.xml inside the Bible IDML.
+    let bibleStoryKey: string | null = null;
+    let bibleStorySize = -1;
+    for (const name of Object.keys(bibleZip.files)) {
+        if (!name.startsWith("Stories/") || !name.endsWith(".xml")) continue;
+        const file = bibleZip.files[name];
+        if (file.dir) continue;
+        const sz =
+            (file as unknown as { _data?: { uncompressedSize?: number; }; })._data
+                ?.uncompressedSize ?? -1;
+        if (sz > bibleStorySize) {
+            bibleStorySize = sz;
+            bibleStoryKey = name;
+        }
+    }
+    if (!bibleStoryKey) {
+        // Fallback: read every story and pick the longest by text length.
+        let bestText: string | null = null;
+        for (const name of Object.keys(bibleZip.files)) {
+            if (!name.startsWith("Stories/") || !name.endsWith(".xml")) continue;
+            const file = bibleZip.file(name);
+            if (!file) continue;
+            const text = await file.async("text");
+            if (!bestText || text.length > bestText.length) bestText = text;
+        }
+                if (!bestText) throw new Error("Bible Swap: no Stories/*.xml found inside Bible IDML.");
+                return spliceBibleSwapIntoZip(
+                    studyZip, bestText, swapMode, parallelRunner, serializedPlan, language, studyVolume
+                );
+            }
+            const bibleStoryFile = bibleZip.file(bibleStoryKey);
+            if (!bibleStoryFile) throw new Error(`Bible Swap: could not read ${bibleStoryKey}`);
+            const bibleStoryXml = await bibleStoryFile.async("text");
+            console.log(
+                `[Bible Swap] Using ${swapMode} mode with Bible story ${bibleStoryKey} (${bibleStoryXml.length} chars)` +
+                (serializedPlan ? " with precomputed language mapping plan" : "") +
+                (language && language !== "any" ? ` [language=${language}${studyVolume ? `/${studyVolume}` : ""}]` : "")
+            );
+            return spliceBibleSwapIntoZip(
+                studyZip, bibleStoryXml, swapMode, parallelRunner, serializedPlan, language, studyVolume
+            );
+        }
+
+function aggregateSwapResult(
+    storyKey: string,
+    original: string,
+    xml: string,
+    stats: SwapStats,
+    swapMode: BibleSwapMode,
+    totals: {
+        totalReplaced: number;
+        totalAppendedExtras: number;
+        totalMissing: number;
+        totalPsalmOffsets: number;
+        totalPsalmInserted: number;
+        modifiedStories: number;
+    }
+): void {
+    if (xml !== original) {
+        totals.modifiedStories++;
+        const modeDetail =
+            swapMode === "structure"
+                ? `chapters: ${stats.chaptersReplaced ?? 0}, missing-ch: ${stats.chaptersMissing?.length ?? 0}`
+                : `psalm-offsets: ${stats.psalmSubheaderOffsets}, psalm-inserted: ${stats.psalmVersesInserted}`;
+        console.log(
+            `[Bible Swap] ${storyKey} (${swapMode}): replaced ${stats.replacedCount} ` +
+            `(missing: ${stats.missingFromBible.length}, ${modeDetail}, ` +
+            `extras: ${stats.extraInBibleAppended.length}, ` +
+            `xml: ${original.length} -> ${xml.length} chars)`
+        );
+    }
+    totals.totalReplaced += stats.replacedCount;
+    totals.totalAppendedExtras += stats.extraInBibleAppended.length;
+    totals.totalMissing += stats.missingFromBible.length;
+    totals.totalPsalmOffsets += stats.psalmSubheaderOffsets;
+    totals.totalPsalmInserted += stats.psalmVersesInserted;
+}
+
+        async function spliceBibleSwapIntoZip(
+            studyZip: JSZip,
+            bibleStoryXml: string,
+            swapMode: BibleSwapMode,
+            parallelRunner?: BibleSwapParallelRunner,
+            serializedPlan?: SerializedVersificationPlan,
+            language?: string,
+            studyVolume?: string
+        ): Promise<BibleSwapReport> {
+    const studyStoryKeys = Object.keys(studyZip.files).filter(
+        (name) => name.startsWith("Stories/") && name.endsWith(".xml")
+    );
+    const totals = {
+        totalReplaced: 0,
+        totalAppendedExtras: 0,
+        totalMissing: 0,
+        totalPsalmOffsets: 0,
+        totalPsalmInserted: 0,
+        modifiedStories: 0,
+    };
+
+    const storyInputs: BibleSwapStoryInput[] = [];
+    for (const storyKey of studyStoryKeys) {
+        const file = studyZip.file(storyKey);
+        if (!file) continue;
+        storyInputs.push({
+            storyKey,
+            studyStoryXml: await file.async("text"),
+        });
+    }
+
+            if (parallelRunner && storyInputs.length > 0) {
+                console.log(
+                    `[Bible Swap] Parallel swap across ${storyInputs.length} story file(s) (worker pool)`
+                );
+                const results = await parallelRunner(
+                    bibleStoryXml,
+                    swapMode,
+                    storyInputs,
+                    serializedPlan,
+                    language,
+                    studyVolume
+                );
+        for (const result of results) {
+            const original =
+                storyInputs.find((s) => s.storyKey === result.storyKey)?.studyStoryXml ?? "";
+            if (result.xml !== original) {
+                studyZip.file(result.storyKey, result.xml);
+            }
+            aggregateSwapResult(
+                result.storyKey,
+                original,
+                result.xml,
+                result.stats,
+                swapMode,
+                totals
+            );
+        }
+            } else {
+                const shared = buildBibleSwapSharedResources(bibleStoryXml, swapMode, language);
+                const versificationPlan = serializedPlan
+                    ? deserializeVersificationPlan(serializedPlan)
+                    : undefined;
+                for (const { storyKey, studyStoryXml } of storyInputs) {
+                    const { xml, stats } = applyBibleSwapWithShared(
+                        studyStoryXml,
+                        bibleStoryXml,
+                        swapMode,
+                        shared,
+                        {
+                            versificationPlan,
+                            language,
+                            studyVolume,
+                        }
+                    );
+            if (xml !== studyStoryXml) {
+                studyZip.file(storyKey, xml);
+            }
+            aggregateSwapResult(storyKey, studyStoryXml, xml, stats, swapMode, totals);
+        }
+    }
+
+    console.log(
+        `[Bible Swap] DONE. Replaced ${totals.totalReplaced} verses across ${totals.modifiedStories} story file(s). ` +
+        `Psalm subheader offsets: ${totals.totalPsalmOffsets}. ` +
+        `Psalm verses inserted: ${totals.totalPsalmInserted}. ` +
+        `Appended extras: ${totals.totalAppendedExtras}. ` +
+        `Missing from Bible: ${totals.totalMissing}.`
+    );
+
+    return {
+        replacedVerses: totals.totalReplaced,
+        missingFromBible: totals.totalMissing,
+        extraInBibleAppended: totals.totalAppendedExtras,
+        skippedPsa: 0,
+        psalmSubheaderOffsets: totals.totalPsalmOffsets,
+        psalmVersesInserted: totals.totalPsalmInserted,
+        modifiedStories: totals.modifiedStories,
+    };
 }
