@@ -5,7 +5,8 @@ import {
     splitSegmentsAtLineBreaks,
     getStructuralApostropheSegmentIndexes,
     isStructuralApostropheSegment,
-    stripStructuralApostropheSegments,
+    omitSegmentsAtIndexes,
+    getVerseMarkerSegmentIndexes,
 } from './biblicaImportUtils';
 import { buildSegmentedParagraphHtml } from '../common/contentSegmentUtils';
 
@@ -54,10 +55,32 @@ describe('biblicaImportUtils', () => {
         ];
         const indexes = getStructuralApostropheSegmentIndexes(segments, styles);
         expect(indexes).toEqual([1]);
-        expect(stripStructuralApostropheSegments(segments, indexes)).toEqual([
+        expect(omitSegmentsAtIndexes(segments, indexes)).toEqual([
             'Israel',
             's covenant history',
         ]);
+    });
+
+    it('detects chapter/verse marker slots by character style', () => {
+        // Matthew's closing 28:20 markers, flushed into Mark's intro:ie paragraph.
+        const segments = ['28:', '20'];
+        const styles = ['CharacterStyle/meta%3ac', 'CharacterStyle/meta%3av'];
+
+        expect(getVerseMarkerSegmentIndexes(segments, styles)).toEqual([0, 1]);
+        expect(omitSegmentsAtIndexes(segments, [0, 1])).toEqual([]);
+    });
+
+    it('does not mistake other meta styles for verse markers', () => {
+        expect(
+            getVerseMarkerSegmentIndexes(
+                ['Matthew', 'Mt', '3'],
+                [
+                    'CharacterStyle/meta%3arh',
+                    'CharacterStyle/meta%3atoc3',
+                    'CharacterStyle/cv%3adc',
+                ]
+            )
+        ).toEqual([]);
     });
 
     it('omits apostrophe segments from editor HTML while preserving indices', () => {
