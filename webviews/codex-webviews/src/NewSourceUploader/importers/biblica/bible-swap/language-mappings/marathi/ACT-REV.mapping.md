@@ -1,35 +1,35 @@
 # Versification Mapping: Marathi · ACT-REV
 
-Generated: 2026-07-27T12:15:13.278Z
+Generated: 2026-08-04T13:06:47.460Z
 Study: ACT-REV.idml
-Bible: 45ROM-66REV_marathi.idml
+Bible: 44ACT-66REV_marathi.idml
 
 ## Summary
 
-- Projected match: **75.43%**
-- Mapped: 3132 · Removed: 1020 · Inserted: 32
+- Projected match: **99.98%**
+- Mapped: 4178 · Removed: 1 · Inserted: 1
 - Psalm chapter shifts: 0
-- Redirects: 36 · Structure inserts: 0
+- Redirects: 38 · Structure inserts: 0
 
 ## Books with largest gaps
 
 | Book | Study | Bible | Missing | Extra | Overlap |
 |------|------:|------:|--------:|------:|--------:|
-| ACT | 1002 | 0 | 1002 | 0 | 0% |
 | PHM | 24 | 25 | 24 | 25 | 0% |
 | 2JN | 12 | 13 | 12 | 13 | 0% |
-| REV | 403 | 401 | 6 | 4 | 98.51% |
-| 1TI | 112 | 111 | 4 | 3 | 96.43% |
-| ROM | 430 | 432 | 2 | 4 | 99.53% |
-| 1CO | 436 | 436 | 2 | 2 | 99.54% |
-| 2TI | 82 | 82 | 2 | 2 | 97.56% |
-| EPH | 154 | 154 | 2 | 2 | 98.7% |
+| ROM | 431 | 432 | 1 | 2 | 99.77% |
+| 1CO | 436 | 437 | 0 | 1 | 100% |
 | 1JN | 104 | 105 | 0 | 1 | 100% |
 | 1PE | 104 | 105 | 0 | 1 | 100% |
 | 1TH | 88 | 89 | 0 | 1 | 100% |
+| 1TI | 112 | 113 | 0 | 1 | 100% |
 | 2CO | 256 | 257 | 0 | 1 | 100% |
 | 2PE | 60 | 61 | 0 | 1 | 100% |
 | 2TH | 46 | 47 | 0 | 1 | 100% |
+| 2TI | 82 | 83 | 0 | 1 | 100% |
+| 3JN | 14 | 15 | 0 | 1 | 100% |
+| ACT | 1006 | 1007 | 0 | 1 | 100% |
+| COL | 94 | 95 | 0 | 1 | 100% |
 
 ## Sample redirects (study → bible)
 
@@ -45,6 +45,7 @@ Bible: 45ROM-66REV_marathi.idml
 - 2JN 5:10 → 2JN 1:10
 - 2JN 5:11 → 2JN 1:11
 - 2JN 5:12 → 2JN 1:12
+- 2JN 5:13 → 2JN 1:13
 - PHM 3:1 → PHM 1:1
 - PHM 3:2 → PHM 1:2
 - PHM 3:3 → PHM 1:3
@@ -57,103 +58,22 @@ Bible: 45ROM-66REV_marathi.idml
 - PHM 3:10 → PHM 1:10
 - PHM 3:11 → PHM 1:11
 - PHM 3:12 → PHM 1:12
-- PHM 3:13 → PHM 1:13
-- … and 11 more
+- … and 13 more
 
 ## Chapters with versification deltas
 
-### 1CO 10 — study 33 vs bible 32
-- Removed study verses: 3, 4
-- Inserted bible verses: 34
-
-### 1CO 16 — study 23 vs bible 24
-- Inserted bible verses: 24
-
-### 1JN 5 — study 20 vs bible 21
-- Inserted bible verses: 21
-
-### 1PE 5 — study 13 vs bible 14
-- Inserted bible verses: 14
-
-### 1TH 5 — study 27 vs bible 28
-- Inserted bible verses: 28
-
-### 1TI 1 — study 20 vs bible 19
-- Removed study verses: 3, 4
-- Inserted bible verses: 34
-
-### 1TI 6 — study 20 vs bible 20
-- Removed study verses: 15, 16
-- Inserted bible verses: 21, 1516
-
-### 2CO 13 — study 13 vs bible 14
-- Inserted bible verses: 14
-
 ### 2JN 1 — study 0 vs bible 13
 
-### 2JN 5 — study 12 vs bible 0
-- Inserted bible verses: 13
+### 2JN 5 — study 13 vs bible 0
 - Cross-chapter mappings present
 
-### 2PE 3 — study 17 vs bible 18
-- Inserted bible verses: 18
+### PHM 1 — study 0 vs bible 25
 
-### 2TH 3 — study 17 vs bible 18
-- Inserted bible verses: 18
+### PHM 3 — study 25 vs bible 0
+- Cross-chapter mappings present
 
-### 2TI 3 — study 17 vs bible 16
-- Removed study verses: 6, 7
-- Inserted bible verses: 67
+### ROM 12 — study 20 vs bible 21
+- Inserted bible verses: 21
 
-### 2TI 4 — study 21 vs bible 22
-- Inserted bible verses: 22
-
-### 3JN 1 — study 14 vs bible 15
-- Inserted bible verses: 15
-
-### ACT 1 — study 26 vs bible 0
-- Removed study verses: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26
-
-### ACT 10 — study 48 vs bible 0
-- Removed study verses: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48
-
-### ACT 11 — study 30 vs bible 0
-- Removed study verses: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30
-
-### ACT 12 — study 25 vs bible 0
-- Removed study verses: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25
-
-### ACT 13 — study 52 vs bible 0
-- Removed study verses: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52
-
-### ACT 14 — study 28 vs bible 0
-- Removed study verses: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28
-
-### ACT 15 — study 40 vs bible 0
-- Removed study verses: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 35, 36, 37, 38, 39, 40, 41, 3334
-
-### ACT 16 — study 40 vs bible 0
-- Removed study verses: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40
-
-### ACT 17 — study 34 vs bible 0
-- Removed study verses: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34
-
-### ACT 18 — study 28 vs bible 0
-- Removed study verses: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28
-
-### ACT 19 — study 41 vs bible 0
-- Removed study verses: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41
-
-### ACT 2 — study 47 vs bible 0
-- Removed study verses: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47
-
-### ACT 20 — study 38 vs bible 0
-- Removed study verses: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38
-
-### ACT 21 — study 40 vs bible 0
-- Removed study verses: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40
-
-### ACT 22 — study 30 vs bible 0
-- Removed study verses: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30
-
-… and 30 more chapters with deltas
+### ROM 122 — study 1 vs bible 0
+- Removed study verses: 21

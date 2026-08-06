@@ -459,6 +459,10 @@ export function buildBibleChapterBlockIndex(
         // Clip boundary paragraphs so closing-chapter blocks don't absorb the
         // next chapter's opening text (Portuguese NEH 7/8, 2CO 1/2, etc.).
         clipChapterBoundarySpans: true,
+        // Carry Bible `meta:eot` (with its meta:c/meta:v pair) on the last
+        // chapter so the external validator keys the final verse the same way
+        // it does against the raw Bible (French 2CH 36 → EOT 6:23).
+        retainEndOfTextMarkers: true,
         ...options,
     });
 }

@@ -42,6 +42,11 @@ import {
 } from "./psalmVersification";
 import { readChapterTransitionFromParagraph } from "./chapterBlocks";
 import { canonicalizeParagraphStyle } from "./paragraphStyleRoles";
+import {
+    digitsOnly,
+    parseVerseMarkerNumber,
+    parseVerseMarkerNumbers,
+} from "./verseMarkers";
 
 import type {
     BibleVerseIndex,
@@ -57,10 +62,7 @@ import { resolveVersePlan } from "./versificationPlan";
 export type { BibleVerseIndex, ParagraphChunkEntry, SwapStats, VerseEntry, VerseKey };
 export { verseKey };
 
-/** Strip everything except digits from a marker like "1:" / "1." / " 3 ". */
-export function digitsOnly(s: string): string {
-    return (s || "").replace(/[^0-9]/g, "");
-}
+export { digitsOnly, parseVerseMarkerNumber, parseVerseMarkerNumbers };
 
 /**
  * Parse a `meta:c` marker's `<Content>` text into a chapter number.
@@ -378,6 +380,7 @@ function cloneOpenVerse(closed: OpenVerse): OpenVerse {
         book: closed.book,
         chapter: closed.chapter,
         verse: closed.verse,
+        verseNumbers: [...closed.verseNumbers],
         parts: [...closed.parts],
         contentPositions: closed.contentPositions.map((p) => ({ ...p })),
         paragraphStart: closed.paragraphStart,
@@ -460,10 +463,11 @@ export function scanStudyStoryForSwap(
     walkStory(
         storyXml,
         (closed) => {
-            const key = verseKey(closed.book, closed.chapter, closed.verse);
-            if (!studyIndex.has(key)) {
-                const proseParts = closed.parts.filter(isProseSegment);
-                const openingStyle = closed.paragraphChunks[0]?.paragraphStyle ?? "";
+            const proseParts = closed.parts.filter(isProseSegment);
+            const openingStyle = closed.paragraphChunks[0]?.paragraphStyle ?? "";
+            for (const verse of closed.verseNumbers) {
+                const key = verseKey(closed.book, closed.chapter, verse);
+                if (studyIndex.has(key)) continue;
                 studyIndex.set(key, {
                     text: cleanWhitespace(proseParts.join(" ")),
                     segments: [...proseParts],
@@ -608,7 +612,10 @@ interface ParagraphChunkState {
 interface OpenVerse {
     book: string;
     chapter: string;
+    /** First verse the marker covers; also pairs its opening/closing markers. */
     verse: string;
+    /** Every verse the marker covers — more than one for a merged "9-10". */
+    verseNumbers: string[];
     parts: string[];
     contentPositions: ContentPosition[];
     paragraphStart: number;
@@ -641,7 +648,7 @@ function buildAcrosticVerseFromParagraph(
     book: string,
     chapter: string
 ): OpenVerse | null {
-    let verseNum = "";
+    let verseNums: number[] = [];
     const parts: string[] = [];
     const contentPositions: ContentPosition[] = [];
     const paragraphChunks: ParagraphChunkState[] = [];
@@ -655,10 +662,10 @@ function buildAcrosticVerseFromParagraph(
 
     for (const csr of iterateCsrAbs(storyXml, para.bodyStart, para.bodyEnd)) {
         if (isVerseMarkerStyle(csr.appliedCharacterStyle)) {
-            const vnum = digitsOnly(
+            const covered = parseVerseMarkerNumbers(
                 collectContentText(storyXml, csr.absBodyStart, csr.absBodyEnd)
             );
-            if (vnum && !verseNum) verseNum = vnum;
+            if (covered.length > 0 && verseNums.length === 0) verseNums = covered;
             continue;
         }
         if (!isNoStyleContentStyle(csr.appliedCharacterStyle)) continue;
@@ -687,11 +694,12 @@ function buildAcrosticVerseFromParagraph(
         }
     }
 
-    if (!verseNum || !chunk.proseParts.some(isProseSegment)) return null;
+    if (verseNums.length === 0 || !chunk.proseParts.some(isProseSegment)) return null;
     return {
         book,
         chapter,
-        verse: verseNum,
+        verse: String(verseNums[0]),
+        verseNumbers: verseNums.map(String),
         parts,
         contentPositions,
         paragraphStart: para.fullStart,
@@ -872,8 +880,9 @@ function walkStory(
                     csr.absBodyStart,
                     csr.absBodyEnd
                 );
-                const vnum = digitsOnly(text);
-                if (!vnum) continue;
+                const covered = parseVerseMarkerNumbers(text);
+                if (covered.length === 0) continue;
+                const vnum = String(covered[0]);
                 if (!currentBook || !currentChapter) {
                     if (currentBook && !currentChapter) {
                         currentChapter = "1";
@@ -893,6 +902,7 @@ function walkStory(
                     book: currentBook,
                     chapter: currentChapter,
                     verse: vnum,
+                    verseNumbers: covered.map(String),
                     parts: [],
                     contentPositions: [],
                     paragraphStart: findPoetryLeadInStart(
@@ -906,8 +916,9 @@ function walkStory(
             }
             if (isVerseMarkerStyle(csr.appliedCharacterStyle)) {
                 const text = collectContentText(storyXml, csr.absBodyStart, csr.absBodyEnd);
-                const vnum = digitsOnly(text);
-                if (!vnum) continue;
+                const covered = parseVerseMarkerNumbers(text);
+                if (covered.length === 0) continue;
+                const vnum = String(covered[0]);
                 if (openVerse && openVerse.verse === vnum) {
                     // Closing marker: finalize the verse.
                     onVerseClosed(openVerse, lastChapterNoStyle);
@@ -945,6 +956,7 @@ function walkStory(
                         book: currentBook,
                         chapter: currentChapter,
                         verse: vnum,
+                        verseNumbers: covered.map(String),
                         parts: [],
                         contentPositions: [],
                         paragraphStart: findPoetryLeadInStart(storyXml, para.fullStart),
@@ -1156,27 +1168,31 @@ function isInsideRange(pos: number, ranges: Array<[number, number]>): boolean {
 export function buildBibleVerseIndex(bibleStoryXml: string): BibleVerseIndex {
     const index: BibleVerseIndex = new Map();
     walkStory(bibleStoryXml, (closed) => {
-        const key = verseKey(closed.book, closed.chapter, closed.verse);
-        if (index.has(key)) return;
         const proseParts = closed.parts.filter(isProseSegment);
         const openingStyle =
             closed.paragraphChunks[0]?.paragraphStyle ?? "";
-        index.set(key, {
-            text: cleanWhitespace(proseParts.join(" ")),
-            segments: [...proseParts],
-            paragraphSig: buildParagraphSig(closed.paragraphChunks),
-            paragraphChunks: closed.paragraphChunks.map((c) => ({
-                paragraphStyle: c.paragraphStyle,
-                proseSegments: c.proseParts.filter(isProseSegment),
-            })),
-            verseSpanXml: bibleStoryXml.slice(
-                closed.paragraphStart,
-                closed.paragraphEnd
-            ),
-            isSubheader:
-                isPsalmSubheaderParagraphStyle(openingStyle) ||
-                isAcrosticHeadingParagraphStyle(openingStyle),
-        });
+        // A merged marker ("9-10") prints one span for several verses; index it
+        // under each so the study's separate slots all resolve to it.
+        for (const verse of closed.verseNumbers) {
+            const key = verseKey(closed.book, closed.chapter, verse);
+            if (index.has(key)) continue;
+            index.set(key, {
+                text: cleanWhitespace(proseParts.join(" ")),
+                segments: [...proseParts],
+                paragraphSig: buildParagraphSig(closed.paragraphChunks),
+                paragraphChunks: closed.paragraphChunks.map((c) => ({
+                    paragraphStyle: c.paragraphStyle,
+                    proseSegments: c.proseParts.filter(isProseSegment),
+                })),
+                verseSpanXml: bibleStoryXml.slice(
+                    closed.paragraphStart,
+                    closed.paragraphEnd
+                ),
+                isSubheader:
+                    isPsalmSubheaderParagraphStyle(openingStyle) ||
+                    isAcrosticHeadingParagraphStyle(openingStyle),
+            });
+        }
     }, undefined, { indexBibleSubheaders: true, indexAcrosticHeadings: true });
     return index;
 }

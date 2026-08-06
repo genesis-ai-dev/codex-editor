@@ -10,9 +10,9 @@ import {
     PSA_BOOK_CODE,
     isPsalmSubheaderParagraphStyle,
 } from "./psalmVersification";
+import { parseVerseMarkerNumbers } from "./verseMarkers";
 import {
     collectContentText,
-    digitsOnly,
     parseChapterMarkerContent,
     extractBookCode,
     isBookMarkerParagraphStyle,
@@ -171,18 +171,21 @@ export function buildCompatVerseIndex(
             }
 
             if (isVerseMarkerStyle(csr.appliedCharacterStyle)) {
-                const vnum = digitsOnly(
+                const covered = parseVerseMarkerNumbers(
                     collectContentText(storyXml, csr.absBodyStart, csr.absBodyEnd)
                 );
-                if (!vnum) continue;
+                if (covered.length === 0) continue;
+                const vnum = String(covered[0]);
 
                 if (openVerse && openVerse.verse === vnum) {
-                    addVerse(
-                        openVerse.book,
-                        openVerse.chapter,
-                        openVerse.verse,
-                        openVerse.paragraphStyle
-                    );
+                    for (const verse of covered) {
+                        addVerse(
+                            openVerse.book,
+                            openVerse.chapter,
+                            String(verse),
+                            openVerse.paragraphStyle
+                        );
+                    }
                     openVerse = null;
                 } else if (currentBook) {
                     if (!currentChapter) {

@@ -53,35 +53,27 @@ describe("language registry", () => {
 });
 
 describe("per-language strategies", () => {
-    it("forces Structure on Russian JOB-SNG and French/Hindi/Marathi ACT-REV", () => {
-        expect(
-            resolveSwapModeForLanguage(
-                getBibleSwapLanguageStrategy("russian"),
-                "JOB-SNG",
-                "surgical"
-            )
-        ).toBe("structure");
-        expect(
-            resolveSwapModeForLanguage(
-                getBibleSwapLanguageStrategy("french"),
-                "ACT-REV",
-                "surgical"
-            )
-        ).toBe("structure");
-        expect(
-            resolveSwapModeForLanguage(
-                getBibleSwapLanguageStrategy("hindi"),
-                "ACT-REV",
-                "surgical"
-            )
-        ).toBe("structure");
-        expect(
-            resolveSwapModeForLanguage(
-                getBibleSwapLanguageStrategy("marathi"),
-                "JOB-SNG",
-                "surgical"
-            )
-        ).toBe("structure");
+    it("forces Structure on French/Marathi/Russian JOB-SNG only", () => {
+        for (const language of ["french", "marathi", "russian"]) {
+            expect(
+                resolveSwapModeForLanguage(
+                    getBibleSwapLanguageStrategy(language),
+                    "JOB-SNG",
+                    "surgical"
+                )
+            ).toBe("structure");
+        }
+        // French/Marathi/Hindi ACT–REV Bibles now start at Acts, so Structure is
+        // no longer forced there and the user's choice stands.
+        for (const language of ["french", "marathi", "hindi"]) {
+            expect(
+                resolveSwapModeForLanguage(
+                    getBibleSwapLanguageStrategy(language),
+                    "ACT-REV",
+                    "surgical"
+                )
+            ).toBe("surgical");
+        }
         expect(
             resolveSwapModeForLanguage(
                 getBibleSwapLanguageStrategy("portuguese"),

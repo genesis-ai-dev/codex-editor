@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-27T12:20:34.827Z",
+  "generatedAt": "2026-08-04T13:12:02.834Z",
   "language": "marathi",
   "languageLabel": "Marathi",
   "studyVolume": "JOB-SNG",
@@ -15,21 +15,21 @@
     }
   },
   "compatibility": {
-    "studyVerseCount": 4772,
-    "bibleVerseCount": 4782,
+    "studyVerseCount": 4785,
+    "bibleVerseCount": 4785,
     "studyBookCount": 5,
     "bibleBookCount": 5,
     "perBook": [
       {
         "book": "PSA",
         "studyVerseCount": 2453,
-        "bibleVerseCount": 2438,
+        "bibleVerseCount": 2440,
         "studyChapterCount": 150,
         "bibleChapterCount": 150,
-        "rawOverlapCount": 2427,
-        "missingInBible": 26,
-        "extraInBible": 11,
-        "overlapPercent": 98.94
+        "rawOverlapCount": 2431,
+        "missingInBible": 22,
+        "extraInBible": 9,
+        "overlapPercent": 99.1
       },
       {
         "book": "SNG",
@@ -43,17 +43,6 @@
         "overlapPercent": 78.63
       },
       {
-        "book": "JOB",
-        "studyVerseCount": 1068,
-        "bibleVerseCount": 1069,
-        "studyChapterCount": 42,
-        "bibleChapterCount": 42,
-        "rawOverlapCount": 1066,
-        "missingInBible": 2,
-        "extraInBible": 3,
-        "overlapPercent": 99.81
-      },
-      {
         "book": "PRO",
         "studyVerseCount": 911,
         "bibleVerseCount": 915,
@@ -62,6 +51,17 @@
         "rawOverlapCount": 911,
         "missingInBible": 0,
         "extraInBible": 4,
+        "overlapPercent": 100
+      },
+      {
+        "book": "JOB",
+        "studyVerseCount": 1068,
+        "bibleVerseCount": 1070,
+        "studyChapterCount": 42,
+        "bibleChapterCount": 42,
+        "rawOverlapCount": 1068,
+        "missingInBible": 0,
+        "extraInBible": 2,
         "overlapPercent": 100
       },
       {
@@ -5843,7 +5843,8 @@
             "38|34",
             "38|35",
             "38|36",
-            "38|3738",
+            "38|37",
+            "38|38",
             "38|39",
             "38|40",
             "38|41",
@@ -6090,7 +6091,8 @@
             "12|4",
             "12|5",
             "12|6",
-            "12|78",
+            "12|7",
+            "12|8",
             "13|1",
             "13|2",
             "13|3",
@@ -6400,7 +6402,8 @@
             "33|15",
             "33|16",
             "33|17",
-            "33|1819",
+            "33|18",
+            "33|19",
             "33|20",
             "33|21",
             "33|22",
@@ -9646,11 +9649,11 @@
     }
   },
   "versificationSummary": {
-    "versesMapped": 4765,
-    "versesRemoved": 7,
-    "versesInserted": 17,
+    "versesMapped": 4784,
+    "versesRemoved": 1,
+    "versesInserted": 1,
     "psalmChapterShifts": 0,
-    "projectedVerseMatchPercent": 99.85
+    "projectedVerseMatchPercent": 99.98
   },
   "plan": {
     "verseMappings": [
@@ -12966,6 +12969,21 @@
           "book": "ECC",
           "chapter": "12",
           "verse": "13"
+        },
+        "crossChapter": false
+      },
+      {
+        "study": {
+          "book": "ECC",
+          "chapter": "12",
+          "verse": "14",
+          "key": "ECC|12|14"
+        },
+        "action": "replace",
+        "bible": {
+          "book": "ECC",
+          "chapter": "12",
+          "verse": "14"
         },
         "crossChapter": false
       },
@@ -27376,7 +27394,13 @@
           "verse": "37",
           "key": "JOB|38|37"
         },
-        "action": "remove"
+        "action": "replace",
+        "bible": {
+          "book": "JOB",
+          "chapter": "38",
+          "verse": "37"
+        },
+        "crossChapter": false
       },
       {
         "study": {
@@ -27385,7 +27409,13 @@
           "verse": "38",
           "key": "JOB|38|38"
         },
-        "action": "remove"
+        "action": "replace",
+        "bible": {
+          "book": "JOB",
+          "chapter": "38",
+          "verse": "38"
+        },
+        "crossChapter": false
       },
       {
         "study": {
@@ -27414,6 +27444,21 @@
           "book": "JOB",
           "chapter": "38",
           "verse": "40"
+        },
+        "crossChapter": false
+      },
+      {
+        "study": {
+          "book": "JOB",
+          "chapter": "38",
+          "verse": "41",
+          "key": "JOB|38|41"
+        },
+        "action": "replace",
+        "bible": {
+          "book": "JOB",
+          "chapter": "38",
+          "verse": "41"
         },
         "crossChapter": false
       },
@@ -28974,6 +29019,21 @@
           "book": "JOB",
           "chapter": "42",
           "verse": "16"
+        },
+        "crossChapter": false
+      },
+      {
+        "study": {
+          "book": "JOB",
+          "chapter": "42",
+          "verse": "17",
+          "key": "JOB|42|17"
+        },
+        "action": "replace",
+        "bible": {
+          "book": "JOB",
+          "chapter": "42",
+          "verse": "17"
         },
         "crossChapter": false
       },
@@ -33279,6 +33339,21 @@
           "book": "PRO",
           "chapter": "10",
           "verse": "31"
+        },
+        "crossChapter": false
+      },
+      {
+        "study": {
+          "book": "PRO",
+          "chapter": "10",
+          "verse": "32",
+          "key": "PRO|10|32"
+        },
+        "action": "replace",
+        "bible": {
+          "book": "PRO",
+          "chapter": "10",
+          "verse": "32"
         },
         "crossChapter": false
       },
@@ -42674,6 +42749,21 @@
       },
       {
         "study": {
+          "book": "PRO",
+          "chapter": "31",
+          "verse": "31",
+          "key": "PRO|31|31"
+        },
+        "action": "replace",
+        "bible": {
+          "book": "PRO",
+          "chapter": "31",
+          "verse": "31"
+        },
+        "crossChapter": false
+      },
+      {
+        "study": {
           "book": "PSA",
           "chapter": "1",
           "verse": "1",
@@ -44668,7 +44758,13 @@
           "verse": "7",
           "key": "PSA|12|7"
         },
-        "action": "remove"
+        "action": "replace",
+        "bible": {
+          "book": "PSA",
+          "chapter": "12",
+          "verse": "7"
+        },
+        "crossChapter": false
       },
       {
         "study": {
@@ -44677,7 +44773,13 @@
           "verse": "8",
           "key": "PSA|12|8"
         },
-        "action": "remove"
+        "action": "replace",
+        "bible": {
+          "book": "PSA",
+          "chapter": "12",
+          "verse": "8"
+        },
+        "crossChapter": false
       },
       {
         "study": {
@@ -47322,6 +47424,21 @@
       {
         "study": {
           "book": "PSA",
+          "chapter": "24",
+          "verse": "10",
+          "key": "PSA|24|10"
+        },
+        "action": "replace",
+        "bible": {
+          "book": "PSA",
+          "chapter": "24",
+          "verse": "10"
+        },
+        "crossChapter": false
+      },
+      {
+        "study": {
+          "book": "PSA",
           "chapter": "25",
           "verse": "1",
           "key": "PSA|25|1"
@@ -49306,7 +49423,13 @@
           "verse": "18",
           "key": "PSA|33|18"
         },
-        "action": "remove"
+        "action": "replace",
+        "bible": {
+          "book": "PSA",
+          "chapter": "33",
+          "verse": "18"
+        },
+        "crossChapter": false
       },
       {
         "study": {
@@ -49315,7 +49438,13 @@
           "verse": "19",
           "key": "PSA|33|19"
         },
-        "action": "remove"
+        "action": "replace",
+        "bible": {
+          "book": "PSA",
+          "chapter": "33",
+          "verse": "19"
+        },
+        "crossChapter": false
       },
       {
         "study": {
@@ -54309,6 +54438,21 @@
           "book": "PSA",
           "chapter": "52",
           "verse": "8"
+        },
+        "crossChapter": false
+      },
+      {
+        "study": {
+          "book": "PSA",
+          "chapter": "52",
+          "verse": "9",
+          "key": "PSA|52|9"
+        },
+        "action": "replace",
+        "bible": {
+          "book": "PSA",
+          "chapter": "52",
+          "verse": "9"
         },
         "crossChapter": false
       },
@@ -59574,6 +59718,21 @@
           "book": "PSA",
           "chapter": "74",
           "verse": "22"
+        },
+        "crossChapter": false
+      },
+      {
+        "study": {
+          "book": "PSA",
+          "chapter": "74",
+          "verse": "23",
+          "key": "PSA|74|23"
+        },
+        "action": "replace",
+        "bible": {
+          "book": "PSA",
+          "chapter": "74",
+          "verse": "23"
         },
         "crossChapter": false
       },
@@ -70545,6 +70704,21 @@
       {
         "study": {
           "book": "PSA",
+          "chapter": "111",
+          "verse": "10",
+          "key": "PSA|111|10"
+        },
+        "action": "replace",
+        "bible": {
+          "book": "PSA",
+          "chapter": "111",
+          "verse": "10"
+        },
+        "crossChapter": false
+      },
+      {
+        "study": {
+          "book": "PSA",
           "chapter": "112",
           "verse": "1",
           "key": "PSA|112|1"
@@ -71514,6 +71688,21 @@
           "book": "PSA",
           "chapter": "117",
           "verse": "1"
+        },
+        "crossChapter": false
+      },
+      {
+        "study": {
+          "book": "PSA",
+          "chapter": "117",
+          "verse": "2",
+          "key": "PSA|117|2"
+        },
+        "action": "replace",
+        "bible": {
+          "book": "PSA",
+          "chapter": "117",
+          "verse": "2"
         },
         "crossChapter": false
       },
@@ -74685,6 +74874,21 @@
       {
         "study": {
           "book": "PSA",
+          "chapter": "120",
+          "verse": "7",
+          "key": "PSA|120|7"
+        },
+        "action": "replace",
+        "bible": {
+          "book": "PSA",
+          "chapter": "120",
+          "verse": "7"
+        },
+        "crossChapter": false
+      },
+      {
+        "study": {
+          "book": "PSA",
           "chapter": "121",
           "verse": "1",
           "key": "PSA|121|1"
@@ -77034,6 +77238,21 @@
           "book": "PSA",
           "chapter": "138",
           "verse": "7"
+        },
+        "crossChapter": false
+      },
+      {
+        "study": {
+          "book": "PSA",
+          "chapter": "138",
+          "verse": "8",
+          "key": "PSA|138|8"
+        },
+        "action": "replace",
+        "bible": {
+          "book": "PSA",
+          "chapter": "138",
+          "verse": "8"
         },
         "crossChapter": false
       },
@@ -79439,6 +79658,21 @@
       },
       {
         "study": {
+          "book": "PSA",
+          "chapter": "150",
+          "verse": "6",
+          "key": "PSA|150|6"
+        },
+        "action": "replace",
+        "bible": {
+          "book": "PSA",
+          "chapter": "150",
+          "verse": "6"
+        },
+        "crossChapter": false
+      },
+      {
+        "study": {
           "book": "SNG",
           "chapter": "1",
           "verse": "1",
@@ -81196,166 +81430,12 @@
     "chapterRemaps": [],
     "chapterInserts": [
       {
-        "book": "JOB",
-        "studyChapter": "38",
-        "verses": [
-          {
-            "bibleChapter": "38",
-            "bibleVerse": "3738"
-          },
-          {
-            "bibleChapter": "38",
-            "bibleVerse": "41"
-          }
-        ]
-      },
-      {
-        "book": "JOB",
-        "studyChapter": "42",
-        "verses": [
-          {
-            "bibleChapter": "42",
-            "bibleVerse": "17"
-          }
-        ]
-      },
-      {
         "book": "PSA",
         "studyChapter": "9",
         "verses": [
           {
             "bibleChapter": "9",
             "bibleVerse": "20"
-          }
-        ]
-      },
-      {
-        "book": "PSA",
-        "studyChapter": "12",
-        "verses": [
-          {
-            "bibleChapter": "12",
-            "bibleVerse": "78"
-          }
-        ]
-      },
-      {
-        "book": "PSA",
-        "studyChapter": "24",
-        "verses": [
-          {
-            "bibleChapter": "24",
-            "bibleVerse": "10"
-          }
-        ]
-      },
-      {
-        "book": "PSA",
-        "studyChapter": "33",
-        "verses": [
-          {
-            "bibleChapter": "33",
-            "bibleVerse": "1819"
-          }
-        ]
-      },
-      {
-        "book": "PSA",
-        "studyChapter": "52",
-        "verses": [
-          {
-            "bibleChapter": "52",
-            "bibleVerse": "9"
-          }
-        ]
-      },
-      {
-        "book": "PSA",
-        "studyChapter": "74",
-        "verses": [
-          {
-            "bibleChapter": "74",
-            "bibleVerse": "23"
-          }
-        ]
-      },
-      {
-        "book": "PSA",
-        "studyChapter": "111",
-        "verses": [
-          {
-            "bibleChapter": "111",
-            "bibleVerse": "10"
-          }
-        ]
-      },
-      {
-        "book": "PSA",
-        "studyChapter": "117",
-        "verses": [
-          {
-            "bibleChapter": "117",
-            "bibleVerse": "2"
-          }
-        ]
-      },
-      {
-        "book": "PSA",
-        "studyChapter": "120",
-        "verses": [
-          {
-            "bibleChapter": "120",
-            "bibleVerse": "7"
-          }
-        ]
-      },
-      {
-        "book": "PSA",
-        "studyChapter": "138",
-        "verses": [
-          {
-            "bibleChapter": "138",
-            "bibleVerse": "8"
-          }
-        ]
-      },
-      {
-        "book": "PSA",
-        "studyChapter": "150",
-        "verses": [
-          {
-            "bibleChapter": "150",
-            "bibleVerse": "6"
-          }
-        ]
-      },
-      {
-        "book": "PRO",
-        "studyChapter": "10",
-        "verses": [
-          {
-            "bibleChapter": "10",
-            "bibleVerse": "32"
-          }
-        ]
-      },
-      {
-        "book": "PRO",
-        "studyChapter": "31",
-        "verses": [
-          {
-            "bibleChapter": "31",
-            "bibleVerse": "31"
-          }
-        ]
-      },
-      {
-        "book": "ECC",
-        "studyChapter": "12",
-        "verses": [
-          {
-            "bibleChapter": "12",
-            "bibleVerse": "14"
           }
         ]
       }
@@ -81883,18 +81963,13 @@
         "book": "JOB",
         "studyChapter": "38",
         "studyVerseStart": 1,
-        "studyVerseEnd": 40,
+        "studyVerseEnd": 41,
         "insertOnly": false,
         "bibleSlices": [
           {
             "chapter": "38",
             "firstVerse": 1,
-            "lastVerse": 36
-          },
-          {
-            "chapter": "38",
-            "firstVerse": 39,
-            "lastVerse": 40
+            "lastVerse": 41
           }
         ]
       },
@@ -81944,13 +82019,13 @@
         "book": "JOB",
         "studyChapter": "42",
         "studyVerseStart": 1,
-        "studyVerseEnd": 16,
+        "studyVerseEnd": 17,
         "insertOnly": false,
         "bibleSlices": [
           {
             "chapter": "42",
             "firstVerse": 1,
-            "lastVerse": 16
+            "lastVerse": 17
           }
         ]
       },
@@ -82112,13 +82187,13 @@
         "book": "PSA",
         "studyChapter": "12",
         "studyVerseStart": 1,
-        "studyVerseEnd": 6,
+        "studyVerseEnd": 8,
         "insertOnly": false,
         "bibleSlices": [
           {
             "chapter": "12",
             "firstVerse": 1,
-            "lastVerse": 6
+            "lastVerse": 8
           }
         ]
       },
@@ -82280,13 +82355,13 @@
         "book": "PSA",
         "studyChapter": "24",
         "studyVerseStart": 1,
-        "studyVerseEnd": 9,
+        "studyVerseEnd": 10,
         "insertOnly": false,
         "bibleSlices": [
           {
             "chapter": "24",
             "firstVerse": 1,
-            "lastVerse": 9
+            "lastVerse": 10
           }
         ]
       },
@@ -82412,11 +82487,6 @@
           {
             "chapter": "33",
             "firstVerse": 1,
-            "lastVerse": 17
-          },
-          {
-            "chapter": "33",
-            "firstVerse": 20,
             "lastVerse": 22
           }
         ]
@@ -82677,13 +82747,13 @@
         "book": "PSA",
         "studyChapter": "52",
         "studyVerseStart": 1,
-        "studyVerseEnd": 8,
+        "studyVerseEnd": 9,
         "insertOnly": false,
         "bibleSlices": [
           {
             "chapter": "52",
             "firstVerse": 1,
-            "lastVerse": 8
+            "lastVerse": 9
           }
         ]
       },
@@ -82985,13 +83055,13 @@
         "book": "PSA",
         "studyChapter": "74",
         "studyVerseStart": 1,
-        "studyVerseEnd": 22,
+        "studyVerseEnd": 23,
         "insertOnly": false,
         "bibleSlices": [
           {
             "chapter": "74",
             "firstVerse": 1,
-            "lastVerse": 22
+            "lastVerse": 23
           }
         ]
       },
@@ -83503,13 +83573,13 @@
         "book": "PSA",
         "studyChapter": "111",
         "studyVerseStart": 1,
-        "studyVerseEnd": 9,
+        "studyVerseEnd": 10,
         "insertOnly": false,
         "bibleSlices": [
           {
             "chapter": "111",
             "firstVerse": 1,
-            "lastVerse": 9
+            "lastVerse": 10
           }
         ]
       },
@@ -83587,13 +83657,13 @@
         "book": "PSA",
         "studyChapter": "117",
         "studyVerseStart": 1,
-        "studyVerseEnd": 1,
+        "studyVerseEnd": 2,
         "insertOnly": false,
         "bibleSlices": [
           {
             "chapter": "117",
             "firstVerse": 1,
-            "lastVerse": 1
+            "lastVerse": 2
           }
         ]
       },
@@ -83629,13 +83699,13 @@
         "book": "PSA",
         "studyChapter": "120",
         "studyVerseStart": 1,
-        "studyVerseEnd": 6,
+        "studyVerseEnd": 7,
         "insertOnly": false,
         "bibleSlices": [
           {
             "chapter": "120",
             "firstVerse": 1,
-            "lastVerse": 6
+            "lastVerse": 7
           }
         ]
       },
@@ -83881,13 +83951,13 @@
         "book": "PSA",
         "studyChapter": "138",
         "studyVerseStart": 1,
-        "studyVerseEnd": 7,
+        "studyVerseEnd": 8,
         "insertOnly": false,
         "bibleSlices": [
           {
             "chapter": "138",
             "firstVerse": 1,
-            "lastVerse": 7
+            "lastVerse": 8
           }
         ]
       },
@@ -84049,13 +84119,13 @@
         "book": "PSA",
         "studyChapter": "150",
         "studyVerseStart": 1,
-        "studyVerseEnd": 5,
+        "studyVerseEnd": 6,
         "insertOnly": false,
         "bibleSlices": [
           {
             "chapter": "150",
             "firstVerse": 1,
-            "lastVerse": 5
+            "lastVerse": 6
           }
         ]
       },
@@ -84189,13 +84259,13 @@
         "book": "PRO",
         "studyChapter": "10",
         "studyVerseStart": 1,
-        "studyVerseEnd": 31,
+        "studyVerseEnd": 32,
         "insertOnly": false,
         "bibleSlices": [
           {
             "chapter": "10",
             "firstVerse": 1,
-            "lastVerse": 31
+            "lastVerse": 32
           }
         ]
       },
@@ -84483,13 +84553,13 @@
         "book": "PRO",
         "studyChapter": "31",
         "studyVerseStart": 1,
-        "studyVerseEnd": 30,
+        "studyVerseEnd": 31,
         "insertOnly": false,
         "bibleSlices": [
           {
             "chapter": "31",
             "firstVerse": 1,
-            "lastVerse": 30
+            "lastVerse": 31
           }
         ]
       },
@@ -84651,13 +84721,13 @@
         "book": "ECC",
         "studyChapter": "12",
         "studyVerseStart": 1,
-        "studyVerseEnd": 13,
+        "studyVerseEnd": 14,
         "insertOnly": false,
         "bibleSlices": [
           {
             "chapter": "12",
             "firstVerse": 1,
-            "lastVerse": 13
+            "lastVerse": 14
           }
         ]
       },
@@ -84776,9 +84846,9 @@
     ],
     "trailingInserts": [],
     "stats": {
-      "versesMapped": 4765,
-      "versesRemoved": 7,
-      "versesInserted": 17,
+      "versesMapped": 4784,
+      "versesRemoved": 1,
+      "versesInserted": 1,
       "psalmChapterSlots": 0,
       "psalmChapterShifts": 0
     }
@@ -84786,2294 +84856,31 @@
   "changes": {
     "removed": [
       {
-        "book": "JOB",
-        "chapter": "38",
-        "verse": "37",
-        "textPreview": "Who is wise enough to count the clouds? Who can tip over the water jars of the heavens?"
-      },
-      {
-        "book": "JOB",
-        "chapter": "38",
-        "verse": "38",
-        "textPreview": "I tip them over when the ground be­com­es hard. I do it when the soil sticks together."
-      },
-      {
         "book": "PSA",
         "chapter": "8",
         "verse": "20",
         "textPreview": ", strike them with terror. Let the na­tions know they are only human beings."
-      },
-      {
-        "book": "PSA",
-        "chapter": "12",
-        "verse": "7",
-        "textPreview": ", you will keep needy peo­ple safe. You will al­ways keep sin­ners from hurting us."
-      },
-      {
-        "book": "PSA",
-        "chapter": "12",
-        "verse": "8",
-        "textPreview": "Proud and sin­ful peo­ple walk around openly when the evil they do is praised by the human race."
-      },
-      {
-        "book": "PSA",
-        "chapter": "33",
-        "verse": "18",
-        "textPreview": "But the looks with favour on those who re­spect him. He watches over those who put their hope i…"
-      },
-      {
-        "book": "PSA",
-        "chapter": "33",
-        "verse": "19",
-        "textPreview": "He watches over them to save them from death. He wants to keep them alive when there is no food…"
       }
     ],
     "inserted": [
-      {
-        "book": "ECC",
-        "chapter": "12",
-        "verse": "14",
-        "textPreview": "कारण प्रत्येक गुप्त गोष्टीबद्दल, ती चांगली असो किंवा वाईट, त्याचा परमेश्वर न्याय करतील.",
-        "structure": "text:q1|text:q2"
-      },
-      {
-        "book": "JOB",
-        "chapter": "38",
-        "verse": "41",
-        "textPreview": "कावळ्यांना अन्न कोण पुरवितो जेव्हा त्यांची पिल्ले भुकेने परमेश्वराकडे आरोळी मारतात आणि अन्नाअभा…",
-        "structure": "text:q1|text:q2"
-      },
-      {
-        "book": "JOB",
-        "chapter": "38",
-        "verse": "3738",
-        "textPreview": "मेघांची गणना करण्याचे बुद्धिसामर्थ्य कोणाजवळ आहे? जेव्हा माती कडक होते, आणि जमिनीची ढेकळे एकत्र…",
-        "structure": "text:q1|text:q2|text:q1|text:q2"
-      },
-      {
-        "book": "JOB",
-        "chapter": "42",
-        "verse": "17",
-        "textPreview": "इय्योब वयस्कर व पूर्ण परि­पक्व होऊन मरण पावला.",
-        "structure": "text:p"
-      },
-      {
-        "book": "PRO",
-        "chapter": "10",
-        "verse": "32",
-        "textPreview": "नीतिमानांच्या ओठास कृपा कशी मिळवावी हे कळते, परंतु दुष्ट लोकांचे मुख फक्त विकृतीच जाणते .",
-        "structure": "text:q1|text:q2"
-      },
-      {
-        "book": "PRO",
-        "chapter": "31",
-        "verse": "31",
-        "textPreview": "तिने केलेल्या सर्व कृत्यांसाठी तिचा सन्मान कर, आणि तिच्या कार्याबद्दल शहराच्या वेशीजवळ तिची प्र…",
-        "structure": "text:q1|text:q2"
-      },
       {
         "book": "PSA",
         "chapter": "9",
         "verse": "20",
         "textPreview": "याहवेह, त्यांच्यावर भयाचा प्रहार करा; आपण केवळ नाशवंत आहोत याची राष्ट्रांना जाणीव होऊ द्या. <?A…",
         "structure": "text:q1|text:q2"
-      },
-      {
-        "book": "PSA",
-        "chapter": "12",
-        "verse": "78",
-        "textPreview": "जेव्हा मनुष्याच्या दुष्टपणाचा आदर केला जातो , आणि दुष्ट सर्वत्र अहंकाराने फिरत असतात. याहवेह, त…",
-        "structure": "text:q1|text:q2|text:q1|text:q2"
-      },
-      {
-        "book": "PSA",
-        "chapter": "24",
-        "verse": "10",
-        "textPreview": "हा गौरवशाली राजा कोण आहेत? सर्वशक्तिमान याहवेह— तेच आहेत गौरवशाली राजा. <?ACE 8?>",
-        "structure": "text:q1|text:q2|text:q2"
-      },
-      {
-        "book": "PSA",
-        "chapter": "33",
-        "verse": "1819",
-        "textPreview": "परंतु जे त्यांचे भय धरतात, ज्यांची आशा त्यांच्या अक्षय प्रीतीवर आहे, त्यांच्यावर याहवेहची दृष्ट…",
-        "structure": "text:q1|text:q2|text:q1|text:q2"
-      },
-      {
-        "book": "PSA",
-        "chapter": "52",
-        "verse": "9",
-        "textPreview": "कारण तुम्ही जे काही केले त्याबद्दल तुमच्या विश्वासू लोकांसमक्ष मी सदासर्वकाळ तुमची स्तुती करेन.…",
-        "structure": "text:q1|text:q2|text:q1|text:q2"
-      },
-      {
-        "book": "PSA",
-        "chapter": "74",
-        "verse": "23",
-        "textPreview": "तुमच्या विरोधकांच्या आक्रोशाकडे दुर्लक्ष करू नका, तुमच्या शत्रूंचा कोलाहल क्षणोक्षणी वाढतच आहे.",
-        "structure": "text:q1|text:q2"
-      },
-      {
-        "book": "PSA",
-        "chapter": "111",
-        "verse": "10",
-        "textPreview": "याहवेहचे भय सुज्ञानाचा प्रारंभ होय; त्यांच्या नियमाचे पालन करणार्‍यांना उत्तम आकलन शक्ती प्राप्…",
-        "structure": "text:q1|text:q2"
-      },
-      {
-        "book": "PSA",
-        "chapter": "117",
-        "verse": "2",
-        "textPreview": "कारण ते आमच्यावर परम प्रीती करतात; आणि याहवेहची विश्वसनीयता सर्वकाळ टिकते. याहवेहचे स्तवन करा.",
-        "structure": "text:q1|text:q2|text:q1"
-      },
-      {
-        "book": "PSA",
-        "chapter": "120",
-        "verse": "7",
-        "textPreview": "मी तर शांतताप्रिय आहे; पण मी काही बोलताच ते युद्धास तयार होतात.",
-        "structure": "text:q1|text:q2"
-      },
-      {
-        "book": "PSA",
-        "chapter": "138",
-        "verse": "8",
-        "textPreview": "याहवेह माझे निर्दोषत्व सिद्ध करतील; परमेश्वरा, तुमची करुणा सनातन आहे— आपल्या हस्तकृतीचा त्याग क…",
-        "structure": "text:q1|text:q2"
-      },
-      {
-        "book": "PSA",
-        "chapter": "150",
-        "verse": "6",
-        "textPreview": "प्रत्येक सजीव प्राणी याहवेहचे स्तवन करो. याहवेहचे स्तवन करा.",
-        "structure": "text:q1|text:q1"
       }
     ],
     "redirected": [],
     "structureInserts": [],
-    "totalRemoved": 7,
-    "totalInserted": 17,
+    "totalRemoved": 1,
+    "totalInserted": 1,
     "totalRedirected": 0,
     "totalStructureInserts": 0,
     "truncated": false
   },
   "psalmSubheaderChapters": [],
   "byChapter": [
-    {
-      "book": "ECC",
-      "chapter": "12",
-      "studyVerseCount": 13,
-      "bibleVerseCount": 14,
-      "studyVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11,
-        12,
-        13
-      ],
-      "bibleVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11,
-        12,
-        13,
-        14
-      ],
-      "mappedCount": 13,
-      "removedCount": 0,
-      "insertedCount": 1,
-      "mapped": [
-        {
-          "studyVerse": 1,
-          "bibleChapter": "12",
-          "bibleVerse": 1,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 2,
-          "bibleChapter": "12",
-          "bibleVerse": 2,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 3,
-          "bibleChapter": "12",
-          "bibleVerse": 3,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 4,
-          "bibleChapter": "12",
-          "bibleVerse": 4,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 5,
-          "bibleChapter": "12",
-          "bibleVerse": 5,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 6,
-          "bibleChapter": "12",
-          "bibleVerse": 6,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 7,
-          "bibleChapter": "12",
-          "bibleVerse": 7,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 8,
-          "bibleChapter": "12",
-          "bibleVerse": 8,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 9,
-          "bibleChapter": "12",
-          "bibleVerse": 9,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 10,
-          "bibleChapter": "12",
-          "bibleVerse": 10,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 11,
-          "bibleChapter": "12",
-          "bibleVerse": 11,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 12,
-          "bibleChapter": "12",
-          "bibleVerse": 12,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 13,
-          "bibleChapter": "12",
-          "bibleVerse": 13,
-          "crossChapter": false
-        }
-      ],
-      "removed": [],
-      "inserted": [
-        14
-      ],
-      "bibleOnlyVerses": [],
-      "hasVersificationDelta": true
-    },
-    {
-      "book": "JOB",
-      "chapter": "38",
-      "studyVerseCount": 40,
-      "bibleVerseCount": 40,
-      "studyVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11,
-        12,
-        13,
-        14,
-        15,
-        16,
-        17,
-        18,
-        19,
-        20,
-        21,
-        22,
-        23,
-        24,
-        25,
-        26,
-        27,
-        28,
-        29,
-        30,
-        31,
-        32,
-        33,
-        34,
-        35,
-        36,
-        37,
-        38,
-        39,
-        40
-      ],
-      "bibleVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11,
-        12,
-        13,
-        14,
-        15,
-        16,
-        17,
-        18,
-        19,
-        20,
-        21,
-        22,
-        23,
-        24,
-        25,
-        26,
-        27,
-        28,
-        29,
-        30,
-        31,
-        32,
-        33,
-        34,
-        35,
-        36,
-        39,
-        40,
-        41,
-        3738
-      ],
-      "mappedCount": 38,
-      "removedCount": 2,
-      "insertedCount": 2,
-      "mapped": [
-        {
-          "studyVerse": 1,
-          "bibleChapter": "38",
-          "bibleVerse": 1,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 2,
-          "bibleChapter": "38",
-          "bibleVerse": 2,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 3,
-          "bibleChapter": "38",
-          "bibleVerse": 3,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 4,
-          "bibleChapter": "38",
-          "bibleVerse": 4,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 5,
-          "bibleChapter": "38",
-          "bibleVerse": 5,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 6,
-          "bibleChapter": "38",
-          "bibleVerse": 6,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 7,
-          "bibleChapter": "38",
-          "bibleVerse": 7,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 8,
-          "bibleChapter": "38",
-          "bibleVerse": 8,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 9,
-          "bibleChapter": "38",
-          "bibleVerse": 9,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 10,
-          "bibleChapter": "38",
-          "bibleVerse": 10,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 11,
-          "bibleChapter": "38",
-          "bibleVerse": 11,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 12,
-          "bibleChapter": "38",
-          "bibleVerse": 12,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 13,
-          "bibleChapter": "38",
-          "bibleVerse": 13,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 14,
-          "bibleChapter": "38",
-          "bibleVerse": 14,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 15,
-          "bibleChapter": "38",
-          "bibleVerse": 15,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 16,
-          "bibleChapter": "38",
-          "bibleVerse": 16,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 17,
-          "bibleChapter": "38",
-          "bibleVerse": 17,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 18,
-          "bibleChapter": "38",
-          "bibleVerse": 18,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 19,
-          "bibleChapter": "38",
-          "bibleVerse": 19,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 20,
-          "bibleChapter": "38",
-          "bibleVerse": 20,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 21,
-          "bibleChapter": "38",
-          "bibleVerse": 21,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 22,
-          "bibleChapter": "38",
-          "bibleVerse": 22,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 23,
-          "bibleChapter": "38",
-          "bibleVerse": 23,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 24,
-          "bibleChapter": "38",
-          "bibleVerse": 24,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 25,
-          "bibleChapter": "38",
-          "bibleVerse": 25,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 26,
-          "bibleChapter": "38",
-          "bibleVerse": 26,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 27,
-          "bibleChapter": "38",
-          "bibleVerse": 27,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 28,
-          "bibleChapter": "38",
-          "bibleVerse": 28,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 29,
-          "bibleChapter": "38",
-          "bibleVerse": 29,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 30,
-          "bibleChapter": "38",
-          "bibleVerse": 30,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 31,
-          "bibleChapter": "38",
-          "bibleVerse": 31,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 32,
-          "bibleChapter": "38",
-          "bibleVerse": 32,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 33,
-          "bibleChapter": "38",
-          "bibleVerse": 33,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 34,
-          "bibleChapter": "38",
-          "bibleVerse": 34,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 35,
-          "bibleChapter": "38",
-          "bibleVerse": 35,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 36,
-          "bibleChapter": "38",
-          "bibleVerse": 36,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 39,
-          "bibleChapter": "38",
-          "bibleVerse": 39,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 40,
-          "bibleChapter": "38",
-          "bibleVerse": 40,
-          "crossChapter": false
-        }
-      ],
-      "removed": [
-        37,
-        38
-      ],
-      "inserted": [
-        41,
-        3738
-      ],
-      "bibleOnlyVerses": [],
-      "hasVersificationDelta": true
-    },
-    {
-      "book": "JOB",
-      "chapter": "42",
-      "studyVerseCount": 16,
-      "bibleVerseCount": 17,
-      "studyVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11,
-        12,
-        13,
-        14,
-        15,
-        16
-      ],
-      "bibleVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11,
-        12,
-        13,
-        14,
-        15,
-        16,
-        17
-      ],
-      "mappedCount": 16,
-      "removedCount": 0,
-      "insertedCount": 1,
-      "mapped": [
-        {
-          "studyVerse": 1,
-          "bibleChapter": "42",
-          "bibleVerse": 1,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 2,
-          "bibleChapter": "42",
-          "bibleVerse": 2,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 3,
-          "bibleChapter": "42",
-          "bibleVerse": 3,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 4,
-          "bibleChapter": "42",
-          "bibleVerse": 4,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 5,
-          "bibleChapter": "42",
-          "bibleVerse": 5,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 6,
-          "bibleChapter": "42",
-          "bibleVerse": 6,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 7,
-          "bibleChapter": "42",
-          "bibleVerse": 7,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 8,
-          "bibleChapter": "42",
-          "bibleVerse": 8,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 9,
-          "bibleChapter": "42",
-          "bibleVerse": 9,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 10,
-          "bibleChapter": "42",
-          "bibleVerse": 10,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 11,
-          "bibleChapter": "42",
-          "bibleVerse": 11,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 12,
-          "bibleChapter": "42",
-          "bibleVerse": 12,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 13,
-          "bibleChapter": "42",
-          "bibleVerse": 13,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 14,
-          "bibleChapter": "42",
-          "bibleVerse": 14,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 15,
-          "bibleChapter": "42",
-          "bibleVerse": 15,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 16,
-          "bibleChapter": "42",
-          "bibleVerse": 16,
-          "crossChapter": false
-        }
-      ],
-      "removed": [],
-      "inserted": [
-        17
-      ],
-      "bibleOnlyVerses": [],
-      "hasVersificationDelta": true
-    },
-    {
-      "book": "PRO",
-      "chapter": "10",
-      "studyVerseCount": 31,
-      "bibleVerseCount": 32,
-      "studyVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11,
-        12,
-        13,
-        14,
-        15,
-        16,
-        17,
-        18,
-        19,
-        20,
-        21,
-        22,
-        23,
-        24,
-        25,
-        26,
-        27,
-        28,
-        29,
-        30,
-        31
-      ],
-      "bibleVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11,
-        12,
-        13,
-        14,
-        15,
-        16,
-        17,
-        18,
-        19,
-        20,
-        21,
-        22,
-        23,
-        24,
-        25,
-        26,
-        27,
-        28,
-        29,
-        30,
-        31,
-        32
-      ],
-      "mappedCount": 31,
-      "removedCount": 0,
-      "insertedCount": 1,
-      "mapped": [
-        {
-          "studyVerse": 1,
-          "bibleChapter": "10",
-          "bibleVerse": 1,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 2,
-          "bibleChapter": "10",
-          "bibleVerse": 2,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 3,
-          "bibleChapter": "10",
-          "bibleVerse": 3,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 4,
-          "bibleChapter": "10",
-          "bibleVerse": 4,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 5,
-          "bibleChapter": "10",
-          "bibleVerse": 5,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 6,
-          "bibleChapter": "10",
-          "bibleVerse": 6,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 7,
-          "bibleChapter": "10",
-          "bibleVerse": 7,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 8,
-          "bibleChapter": "10",
-          "bibleVerse": 8,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 9,
-          "bibleChapter": "10",
-          "bibleVerse": 9,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 10,
-          "bibleChapter": "10",
-          "bibleVerse": 10,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 11,
-          "bibleChapter": "10",
-          "bibleVerse": 11,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 12,
-          "bibleChapter": "10",
-          "bibleVerse": 12,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 13,
-          "bibleChapter": "10",
-          "bibleVerse": 13,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 14,
-          "bibleChapter": "10",
-          "bibleVerse": 14,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 15,
-          "bibleChapter": "10",
-          "bibleVerse": 15,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 16,
-          "bibleChapter": "10",
-          "bibleVerse": 16,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 17,
-          "bibleChapter": "10",
-          "bibleVerse": 17,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 18,
-          "bibleChapter": "10",
-          "bibleVerse": 18,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 19,
-          "bibleChapter": "10",
-          "bibleVerse": 19,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 20,
-          "bibleChapter": "10",
-          "bibleVerse": 20,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 21,
-          "bibleChapter": "10",
-          "bibleVerse": 21,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 22,
-          "bibleChapter": "10",
-          "bibleVerse": 22,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 23,
-          "bibleChapter": "10",
-          "bibleVerse": 23,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 24,
-          "bibleChapter": "10",
-          "bibleVerse": 24,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 25,
-          "bibleChapter": "10",
-          "bibleVerse": 25,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 26,
-          "bibleChapter": "10",
-          "bibleVerse": 26,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 27,
-          "bibleChapter": "10",
-          "bibleVerse": 27,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 28,
-          "bibleChapter": "10",
-          "bibleVerse": 28,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 29,
-          "bibleChapter": "10",
-          "bibleVerse": 29,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 30,
-          "bibleChapter": "10",
-          "bibleVerse": 30,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 31,
-          "bibleChapter": "10",
-          "bibleVerse": 31,
-          "crossChapter": false
-        }
-      ],
-      "removed": [],
-      "inserted": [
-        32
-      ],
-      "bibleOnlyVerses": [],
-      "hasVersificationDelta": true
-    },
-    {
-      "book": "PRO",
-      "chapter": "31",
-      "studyVerseCount": 30,
-      "bibleVerseCount": 31,
-      "studyVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11,
-        12,
-        13,
-        14,
-        15,
-        16,
-        17,
-        18,
-        19,
-        20,
-        21,
-        22,
-        23,
-        24,
-        25,
-        26,
-        27,
-        28,
-        29,
-        30
-      ],
-      "bibleVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11,
-        12,
-        13,
-        14,
-        15,
-        16,
-        17,
-        18,
-        19,
-        20,
-        21,
-        22,
-        23,
-        24,
-        25,
-        26,
-        27,
-        28,
-        29,
-        30,
-        31
-      ],
-      "mappedCount": 30,
-      "removedCount": 0,
-      "insertedCount": 1,
-      "mapped": [
-        {
-          "studyVerse": 1,
-          "bibleChapter": "31",
-          "bibleVerse": 1,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 2,
-          "bibleChapter": "31",
-          "bibleVerse": 2,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 3,
-          "bibleChapter": "31",
-          "bibleVerse": 3,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 4,
-          "bibleChapter": "31",
-          "bibleVerse": 4,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 5,
-          "bibleChapter": "31",
-          "bibleVerse": 5,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 6,
-          "bibleChapter": "31",
-          "bibleVerse": 6,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 7,
-          "bibleChapter": "31",
-          "bibleVerse": 7,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 8,
-          "bibleChapter": "31",
-          "bibleVerse": 8,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 9,
-          "bibleChapter": "31",
-          "bibleVerse": 9,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 10,
-          "bibleChapter": "31",
-          "bibleVerse": 10,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 11,
-          "bibleChapter": "31",
-          "bibleVerse": 11,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 12,
-          "bibleChapter": "31",
-          "bibleVerse": 12,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 13,
-          "bibleChapter": "31",
-          "bibleVerse": 13,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 14,
-          "bibleChapter": "31",
-          "bibleVerse": 14,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 15,
-          "bibleChapter": "31",
-          "bibleVerse": 15,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 16,
-          "bibleChapter": "31",
-          "bibleVerse": 16,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 17,
-          "bibleChapter": "31",
-          "bibleVerse": 17,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 18,
-          "bibleChapter": "31",
-          "bibleVerse": 18,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 19,
-          "bibleChapter": "31",
-          "bibleVerse": 19,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 20,
-          "bibleChapter": "31",
-          "bibleVerse": 20,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 21,
-          "bibleChapter": "31",
-          "bibleVerse": 21,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 22,
-          "bibleChapter": "31",
-          "bibleVerse": 22,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 23,
-          "bibleChapter": "31",
-          "bibleVerse": 23,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 24,
-          "bibleChapter": "31",
-          "bibleVerse": 24,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 25,
-          "bibleChapter": "31",
-          "bibleVerse": 25,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 26,
-          "bibleChapter": "31",
-          "bibleVerse": 26,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 27,
-          "bibleChapter": "31",
-          "bibleVerse": 27,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 28,
-          "bibleChapter": "31",
-          "bibleVerse": 28,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 29,
-          "bibleChapter": "31",
-          "bibleVerse": 29,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 30,
-          "bibleChapter": "31",
-          "bibleVerse": 30,
-          "crossChapter": false
-        }
-      ],
-      "removed": [],
-      "inserted": [
-        31
-      ],
-      "bibleOnlyVerses": [],
-      "hasVersificationDelta": true
-    },
-    {
-      "book": "PSA",
-      "chapter": "111",
-      "studyVerseCount": 9,
-      "bibleVerseCount": 10,
-      "studyVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9
-      ],
-      "bibleVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10
-      ],
-      "mappedCount": 9,
-      "removedCount": 0,
-      "insertedCount": 1,
-      "mapped": [
-        {
-          "studyVerse": 1,
-          "bibleChapter": "111",
-          "bibleVerse": 1,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 2,
-          "bibleChapter": "111",
-          "bibleVerse": 2,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 3,
-          "bibleChapter": "111",
-          "bibleVerse": 3,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 4,
-          "bibleChapter": "111",
-          "bibleVerse": 4,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 5,
-          "bibleChapter": "111",
-          "bibleVerse": 5,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 6,
-          "bibleChapter": "111",
-          "bibleVerse": 6,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 7,
-          "bibleChapter": "111",
-          "bibleVerse": 7,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 8,
-          "bibleChapter": "111",
-          "bibleVerse": 8,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 9,
-          "bibleChapter": "111",
-          "bibleVerse": 9,
-          "crossChapter": false
-        }
-      ],
-      "removed": [],
-      "inserted": [
-        10
-      ],
-      "bibleOnlyVerses": [],
-      "hasVersificationDelta": true
-    },
-    {
-      "book": "PSA",
-      "chapter": "117",
-      "studyVerseCount": 1,
-      "bibleVerseCount": 2,
-      "studyVerses": [
-        1
-      ],
-      "bibleVerses": [
-        1,
-        2
-      ],
-      "mappedCount": 1,
-      "removedCount": 0,
-      "insertedCount": 1,
-      "mapped": [
-        {
-          "studyVerse": 1,
-          "bibleChapter": "117",
-          "bibleVerse": 1,
-          "crossChapter": false
-        }
-      ],
-      "removed": [],
-      "inserted": [
-        2
-      ],
-      "bibleOnlyVerses": [],
-      "hasVersificationDelta": true
-    },
-    {
-      "book": "PSA",
-      "chapter": "12",
-      "studyVerseCount": 8,
-      "bibleVerseCount": 7,
-      "studyVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8
-      ],
-      "bibleVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        78
-      ],
-      "mappedCount": 6,
-      "removedCount": 2,
-      "insertedCount": 1,
-      "mapped": [
-        {
-          "studyVerse": 1,
-          "bibleChapter": "12",
-          "bibleVerse": 1,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 2,
-          "bibleChapter": "12",
-          "bibleVerse": 2,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 3,
-          "bibleChapter": "12",
-          "bibleVerse": 3,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 4,
-          "bibleChapter": "12",
-          "bibleVerse": 4,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 5,
-          "bibleChapter": "12",
-          "bibleVerse": 5,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 6,
-          "bibleChapter": "12",
-          "bibleVerse": 6,
-          "crossChapter": false
-        }
-      ],
-      "removed": [
-        7,
-        8
-      ],
-      "inserted": [
-        78
-      ],
-      "bibleOnlyVerses": [],
-      "hasVersificationDelta": true
-    },
-    {
-      "book": "PSA",
-      "chapter": "120",
-      "studyVerseCount": 6,
-      "bibleVerseCount": 7,
-      "studyVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "bibleVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7
-      ],
-      "mappedCount": 6,
-      "removedCount": 0,
-      "insertedCount": 1,
-      "mapped": [
-        {
-          "studyVerse": 1,
-          "bibleChapter": "120",
-          "bibleVerse": 1,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 2,
-          "bibleChapter": "120",
-          "bibleVerse": 2,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 3,
-          "bibleChapter": "120",
-          "bibleVerse": 3,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 4,
-          "bibleChapter": "120",
-          "bibleVerse": 4,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 5,
-          "bibleChapter": "120",
-          "bibleVerse": 5,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 6,
-          "bibleChapter": "120",
-          "bibleVerse": 6,
-          "crossChapter": false
-        }
-      ],
-      "removed": [],
-      "inserted": [
-        7
-      ],
-      "bibleOnlyVerses": [],
-      "hasVersificationDelta": true
-    },
-    {
-      "book": "PSA",
-      "chapter": "138",
-      "studyVerseCount": 7,
-      "bibleVerseCount": 8,
-      "studyVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7
-      ],
-      "bibleVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8
-      ],
-      "mappedCount": 7,
-      "removedCount": 0,
-      "insertedCount": 1,
-      "mapped": [
-        {
-          "studyVerse": 1,
-          "bibleChapter": "138",
-          "bibleVerse": 1,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 2,
-          "bibleChapter": "138",
-          "bibleVerse": 2,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 3,
-          "bibleChapter": "138",
-          "bibleVerse": 3,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 4,
-          "bibleChapter": "138",
-          "bibleVerse": 4,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 5,
-          "bibleChapter": "138",
-          "bibleVerse": 5,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 6,
-          "bibleChapter": "138",
-          "bibleVerse": 6,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 7,
-          "bibleChapter": "138",
-          "bibleVerse": 7,
-          "crossChapter": false
-        }
-      ],
-      "removed": [],
-      "inserted": [
-        8
-      ],
-      "bibleOnlyVerses": [],
-      "hasVersificationDelta": true
-    },
-    {
-      "book": "PSA",
-      "chapter": "150",
-      "studyVerseCount": 5,
-      "bibleVerseCount": 6,
-      "studyVerses": [
-        1,
-        2,
-        3,
-        4,
-        5
-      ],
-      "bibleVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "mappedCount": 5,
-      "removedCount": 0,
-      "insertedCount": 1,
-      "mapped": [
-        {
-          "studyVerse": 1,
-          "bibleChapter": "150",
-          "bibleVerse": 1,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 2,
-          "bibleChapter": "150",
-          "bibleVerse": 2,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 3,
-          "bibleChapter": "150",
-          "bibleVerse": 3,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 4,
-          "bibleChapter": "150",
-          "bibleVerse": 4,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 5,
-          "bibleChapter": "150",
-          "bibleVerse": 5,
-          "crossChapter": false
-        }
-      ],
-      "removed": [],
-      "inserted": [
-        6
-      ],
-      "bibleOnlyVerses": [],
-      "hasVersificationDelta": true
-    },
-    {
-      "book": "PSA",
-      "chapter": "24",
-      "studyVerseCount": 9,
-      "bibleVerseCount": 10,
-      "studyVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9
-      ],
-      "bibleVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10
-      ],
-      "mappedCount": 9,
-      "removedCount": 0,
-      "insertedCount": 1,
-      "mapped": [
-        {
-          "studyVerse": 1,
-          "bibleChapter": "24",
-          "bibleVerse": 1,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 2,
-          "bibleChapter": "24",
-          "bibleVerse": 2,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 3,
-          "bibleChapter": "24",
-          "bibleVerse": 3,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 4,
-          "bibleChapter": "24",
-          "bibleVerse": 4,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 5,
-          "bibleChapter": "24",
-          "bibleVerse": 5,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 6,
-          "bibleChapter": "24",
-          "bibleVerse": 6,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 7,
-          "bibleChapter": "24",
-          "bibleVerse": 7,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 8,
-          "bibleChapter": "24",
-          "bibleVerse": 8,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 9,
-          "bibleChapter": "24",
-          "bibleVerse": 9,
-          "crossChapter": false
-        }
-      ],
-      "removed": [],
-      "inserted": [
-        10
-      ],
-      "bibleOnlyVerses": [],
-      "hasVersificationDelta": true
-    },
-    {
-      "book": "PSA",
-      "chapter": "33",
-      "studyVerseCount": 22,
-      "bibleVerseCount": 21,
-      "studyVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11,
-        12,
-        13,
-        14,
-        15,
-        16,
-        17,
-        18,
-        19,
-        20,
-        21,
-        22
-      ],
-      "bibleVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11,
-        12,
-        13,
-        14,
-        15,
-        16,
-        17,
-        20,
-        21,
-        22,
-        1819
-      ],
-      "mappedCount": 20,
-      "removedCount": 2,
-      "insertedCount": 1,
-      "mapped": [
-        {
-          "studyVerse": 1,
-          "bibleChapter": "33",
-          "bibleVerse": 1,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 2,
-          "bibleChapter": "33",
-          "bibleVerse": 2,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 3,
-          "bibleChapter": "33",
-          "bibleVerse": 3,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 4,
-          "bibleChapter": "33",
-          "bibleVerse": 4,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 5,
-          "bibleChapter": "33",
-          "bibleVerse": 5,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 6,
-          "bibleChapter": "33",
-          "bibleVerse": 6,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 7,
-          "bibleChapter": "33",
-          "bibleVerse": 7,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 8,
-          "bibleChapter": "33",
-          "bibleVerse": 8,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 9,
-          "bibleChapter": "33",
-          "bibleVerse": 9,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 10,
-          "bibleChapter": "33",
-          "bibleVerse": 10,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 11,
-          "bibleChapter": "33",
-          "bibleVerse": 11,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 12,
-          "bibleChapter": "33",
-          "bibleVerse": 12,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 13,
-          "bibleChapter": "33",
-          "bibleVerse": 13,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 14,
-          "bibleChapter": "33",
-          "bibleVerse": 14,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 15,
-          "bibleChapter": "33",
-          "bibleVerse": 15,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 16,
-          "bibleChapter": "33",
-          "bibleVerse": 16,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 17,
-          "bibleChapter": "33",
-          "bibleVerse": 17,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 20,
-          "bibleChapter": "33",
-          "bibleVerse": 20,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 21,
-          "bibleChapter": "33",
-          "bibleVerse": 21,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 22,
-          "bibleChapter": "33",
-          "bibleVerse": 22,
-          "crossChapter": false
-        }
-      ],
-      "removed": [
-        18,
-        19
-      ],
-      "inserted": [
-        1819
-      ],
-      "bibleOnlyVerses": [],
-      "hasVersificationDelta": true
-    },
-    {
-      "book": "PSA",
-      "chapter": "52",
-      "studyVerseCount": 8,
-      "bibleVerseCount": 9,
-      "studyVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8
-      ],
-      "bibleVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9
-      ],
-      "mappedCount": 8,
-      "removedCount": 0,
-      "insertedCount": 1,
-      "mapped": [
-        {
-          "studyVerse": 1,
-          "bibleChapter": "52",
-          "bibleVerse": 1,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 2,
-          "bibleChapter": "52",
-          "bibleVerse": 2,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 3,
-          "bibleChapter": "52",
-          "bibleVerse": 3,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 4,
-          "bibleChapter": "52",
-          "bibleVerse": 4,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 5,
-          "bibleChapter": "52",
-          "bibleVerse": 5,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 6,
-          "bibleChapter": "52",
-          "bibleVerse": 6,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 7,
-          "bibleChapter": "52",
-          "bibleVerse": 7,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 8,
-          "bibleChapter": "52",
-          "bibleVerse": 8,
-          "crossChapter": false
-        }
-      ],
-      "removed": [],
-      "inserted": [
-        9
-      ],
-      "bibleOnlyVerses": [],
-      "hasVersificationDelta": true
-    },
-    {
-      "book": "PSA",
-      "chapter": "74",
-      "studyVerseCount": 22,
-      "bibleVerseCount": 23,
-      "studyVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11,
-        12,
-        13,
-        14,
-        15,
-        16,
-        17,
-        18,
-        19,
-        20,
-        21,
-        22
-      ],
-      "bibleVerses": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11,
-        12,
-        13,
-        14,
-        15,
-        16,
-        17,
-        18,
-        19,
-        20,
-        21,
-        22,
-        23
-      ],
-      "mappedCount": 22,
-      "removedCount": 0,
-      "insertedCount": 1,
-      "mapped": [
-        {
-          "studyVerse": 1,
-          "bibleChapter": "74",
-          "bibleVerse": 1,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 2,
-          "bibleChapter": "74",
-          "bibleVerse": 2,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 3,
-          "bibleChapter": "74",
-          "bibleVerse": 3,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 4,
-          "bibleChapter": "74",
-          "bibleVerse": 4,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 5,
-          "bibleChapter": "74",
-          "bibleVerse": 5,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 6,
-          "bibleChapter": "74",
-          "bibleVerse": 6,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 7,
-          "bibleChapter": "74",
-          "bibleVerse": 7,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 8,
-          "bibleChapter": "74",
-          "bibleVerse": 8,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 9,
-          "bibleChapter": "74",
-          "bibleVerse": 9,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 10,
-          "bibleChapter": "74",
-          "bibleVerse": 10,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 11,
-          "bibleChapter": "74",
-          "bibleVerse": 11,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 12,
-          "bibleChapter": "74",
-          "bibleVerse": 12,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 13,
-          "bibleChapter": "74",
-          "bibleVerse": 13,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 14,
-          "bibleChapter": "74",
-          "bibleVerse": 14,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 15,
-          "bibleChapter": "74",
-          "bibleVerse": 15,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 16,
-          "bibleChapter": "74",
-          "bibleVerse": 16,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 17,
-          "bibleChapter": "74",
-          "bibleVerse": 17,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 18,
-          "bibleChapter": "74",
-          "bibleVerse": 18,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 19,
-          "bibleChapter": "74",
-          "bibleVerse": 19,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 20,
-          "bibleChapter": "74",
-          "bibleVerse": 20,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 21,
-          "bibleChapter": "74",
-          "bibleVerse": 21,
-          "crossChapter": false
-        },
-        {
-          "studyVerse": 22,
-          "bibleChapter": "74",
-          "bibleVerse": 22,
-          "crossChapter": false
-        }
-      ],
-      "removed": [],
-      "inserted": [
-        23
-      ],
-      "bibleOnlyVerses": [],
-      "hasVersificationDelta": true
-    },
     {
       "book": "PSA",
       "chapter": "8",

@@ -11,7 +11,7 @@ import {
     loadMainStory,
     volumeFilesExist,
     volumePaths,
-} from "./portugueseFullValidation";
+} from "./bibleSwapValidation";
 import {
     iterateChapterMarkersInParagraph,
     readChapterTransitionFromParagraph,

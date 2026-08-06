@@ -296,6 +296,123 @@ function pushSlice(
     slices.push({ chapter, firstVerse: verse, lastVerse: verse });
 }
 
+/** Verse refs for one book in canonical (chapter, verse) order. */
+function orderedBookVerses(index: BibleVerseIndex, book: string): BibleVerseRef[] {
+    return listVerseKeys(index)
+        .filter((k) => k.startsWith(`${book}|`))
+        .map((k) => {
+            const [, chapter, verse] = k.split("|");
+            return { book, chapter, verse };
+        })
+        .sort(
+            (a, b) =>
+                parseVerseNum(a.chapter) - parseVerseNum(b.chapter) ||
+                parseVerseNum(a.verse) - parseVerseNum(b.verse)
+        );
+}
+
+/** Whether a chapter list is exactly 1..N with no gaps or stray numbers. */
+function isContiguousChapterRun(chapters: string[]): boolean {
+    const numbers = chapters.map(parseVerseNum).sort((a, b) => a - b);
+    return numbers.every((n, i) => n === i + 1);
+}
+
+/**
+ * Whether a book's chapter divisions differ between study and translation while
+ * the underlying verse sequence is identical.
+ *
+ * Translations that follow the Hebrew chapter divisions split the prophets
+ * differently from the English study Bible: French Joel has 4 chapters where
+ * the study has 3 (study JOL 2:28–32 is bible JOL 3:1–5, study JOL 3 is bible
+ * JOL 4), and French Malachi has 3 where the study has 4 (study MAL 4:1–6 is
+ * bible MAL 3:19–24). Aligning those by chapter number strands a whole chapter
+ * of text, so the book is realigned positionally instead.
+ *
+ * Deliberately narrow: books whose chapter sets match are left on the
+ * align-by-chapter-number path, as are books whose verse totals differ (genuine
+ * textual additions/removals) and books with a stray chapter number outside the
+ * 1..N run. Those strays are mis-parsed markers (study ROM 12:21 is tagged
+ * chapter "122", PHM 3, 2JN 5, OBA 9), not a chapter division, and positional
+ * pairing would sort them out of document order and shift the rest of the book.
+ */
+function shouldRealignBookPositionally(
+    book: string,
+    studyIndex: BibleVerseIndex,
+    bibleIndex: BibleVerseIndex
+): boolean {
+    const studyChapters = collectChaptersForBook(studyIndex, book);
+    const bibleChapters = collectChaptersForBook(bibleIndex, book);
+    if (studyChapters.length === 0 || bibleChapters.length === 0) return false;
+    if (!isContiguousChapterRun(studyChapters)) return false;
+    if (!isContiguousChapterRun(bibleChapters)) return false;
+    if (studyChapters.length === bibleChapters.length) return false;
+
+    const studyCount = orderedBookVerses(studyIndex, book).length;
+    return studyCount > 0 && studyCount === orderedBookVerses(bibleIndex, book).length;
+}
+
+/**
+ * Pair study verses to Bible verses by position within the book, so a study
+ * chapter may span two Bible chapters (or two study chapters collapse into one).
+ */
+function buildRealignedBookPlan(
+    book: string,
+    studyIndex: BibleVerseIndex,
+    bibleIndex: BibleVerseIndex,
+    plan: VersificationPlan
+): void {
+    const studyRefs = orderedBookVerses(studyIndex, book);
+    const bibleRefs = orderedBookVerses(bibleIndex, book);
+    const firstBibleRef = new Map<string, BibleVerseRef>();
+
+    for (const [i, studyRef] of studyRefs.entries()) {
+        const bibleRef = bibleRefs[i];
+        const studyKey = verseKey(book, studyRef.chapter, studyRef.verse);
+        plan.verseMap.set(studyKey, { action: "replace", bible: bibleRef });
+        plan.stats.versesMapped++;
+
+        // First Bible verse a study chapter lands on drives its chapter marker.
+        if (!firstBibleRef.has(studyRef.chapter)) {
+            firstBibleRef.set(studyRef.chapter, bibleRef);
+        }
+
+        const chKey = chapterBlockKey(book, studyRef.chapter);
+        const studyVerse = parseVerseNum(studyRef.verse);
+        let chPlan = plan.structureChapters.get(chKey);
+        if (!chPlan) {
+            chPlan = {
+                studyBook: book,
+                studyChapter: studyRef.chapter,
+                studyVerseStart: studyVerse,
+                studyVerseEnd: studyVerse,
+                bibleSlices: [],
+                insertOnly: false,
+            };
+            plan.structureChapters.set(chKey, chPlan);
+        } else {
+            chPlan.studyVerseStart = Math.min(chPlan.studyVerseStart, studyVerse);
+            chPlan.studyVerseEnd = Math.max(chPlan.studyVerseEnd, studyVerse);
+        }
+        pushSlice(chPlan.bibleSlices, bibleRef.chapter, parseVerseNum(bibleRef.verse));
+    }
+
+    // A study chapter that starts on Bible verse 1 already receives the
+    // translation's own chapter marker with the spliced block, so remapping it
+    // would rewrite that marker a second time. Only chapters starting mid-Bible
+    // chapter (French MAL 4 → MAL 3:19) keep their study marker and need it.
+    const remaps = new Map(
+        [...firstBibleRef]
+            .filter(
+                ([studyCh, bibleRef]) =>
+                    studyCh !== bibleRef.chapter && parseVerseNum(bibleRef.verse) !== 1
+            )
+            .map(([studyCh, bibleRef]) => [studyCh, bibleRef.chapter])
+    );
+    if (remaps.size > 0) {
+        plan.chapterRemaps.set(book, remaps);
+    }
+}
+
 function buildDirectBookPlan(
     book: string,
     studyIndex: BibleVerseIndex,
@@ -391,9 +508,14 @@ export function buildVersificationPlanFromIndices(
     // chapter N to translated chapter N by verse number, replacing matching
     // verses, appending the translation's extra verses, and removing study
     // verses the translation lacks. The translation's own numbering (including
-    // a superscription counted as verse 1) is preserved.
+    // a superscription counted as verse 1) is preserved. Books whose chapter
+    // divisions differ (Hebrew versification) are realigned by position.
     for (const book of studyBooks) {
-        buildDirectBookPlan(book, studyIndex, bibleIndex, plan);
+        if (shouldRealignBookPositionally(book, studyIndex, bibleIndex)) {
+            buildRealignedBookPlan(book, studyIndex, bibleIndex, plan);
+        } else {
+            buildDirectBookPlan(book, studyIndex, bibleIndex, plan);
+        }
     }
 
     return plan;

@@ -12,7 +12,7 @@ import {
     loadMappingDocument,
     volumeFilesExist,
     volumePaths,
-} from "./portugueseFullValidation";
+} from "./bibleSwapValidation";
 import {
     bibleSlicesForStudyRange,
     buildBibleChapterBlockIndex,

@@ -10,7 +10,7 @@ import {
     loadMappingDocument,
     volumeFilesExist,
     volumePaths,
-} from "./portugueseFullValidation";
+} from "./bibleSwapValidation";
 import { parseValidatorStory } from "./validatorHarness";
 import {
     applyBibleSwapWithShared,

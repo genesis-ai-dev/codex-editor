@@ -14,6 +14,7 @@ import type {
     ChapterTextSpan,
 } from "./types";
 import { chapterBlockKey } from "./types";
+import { parseVerseMarkerNumbers } from "./verseMarkers";
 import {
     collectContentText,
     digitsOnly,
@@ -62,6 +63,14 @@ export interface BuildChapterBlockOptions {
      * structure-swap coalesce can rewrite it as one well-formed PSR.
      */
     clipChapterBoundarySpans?: boolean;
+    /**
+     * Append trailing `meta:eot` paragraphs to the last chapter span of the
+     * book they follow. French (and some other) Bible IDMLs park an end-of-text
+     * marker after the final verse that still carries `meta:c`/`meta:v` (e.g.
+     * 2CH EOT → `6.`/`23`); the external validator treats that as a real verse
+     * close, so the marker has to travel into the swapped export for parity.
+     */
+    retainEndOfTextMarkers?: boolean;
 }
 
 function isIntroNotesOrTitleStyle(style: string): boolean {
@@ -73,6 +82,10 @@ function isIntroNotesOrTitleStyle(style: string): boolean {
 
 function isMetaParagraphStyle(style: string): boolean {
     return /(?:^|\/)meta%3a/.test(style) || /(?:^|\/)meta:/.test(style);
+}
+
+function isEndOfTextParagraphStyle(style: string): boolean {
+    return /(?:^|\/)meta%3aeot\b/.test(style) || /(?:^|\/)meta:eot\b/.test(style);
 }
 
 function isHeadParagraphStyle(style: string): boolean {
@@ -145,10 +158,10 @@ function verseClosedInParagraph(
     let count = 0;
     for (const csr of iterateCsrAbs(blockXml, bodyStart, bodyEnd)) {
         if (!isVerseMarkerStyle(csr.appliedCharacterStyle)) continue;
-        const vnum = digitsOnly(
+        const covered = parseVerseMarkerNumbers(
             collectContentText(blockXml, csr.absBodyStart, csr.absBodyEnd)
         );
-        if (vnum === String(verse)) count++;
+        if (covered.includes(verse)) count++;
     }
     return count >= 2;
 }
@@ -162,10 +175,10 @@ function paragraphVerseCloseEnd(
     let count = 0;
     for (const csr of iterateCsrAbs(blockXml, bodyStart, bodyEnd)) {
         if (!isVerseMarkerStyle(csr.appliedCharacterStyle)) continue;
-        const vnum = digitsOnly(
+        const covered = parseVerseMarkerNumbers(
             collectContentText(blockXml, csr.absBodyStart, csr.absBodyEnd)
         );
-        if (vnum === String(verse)) {
+        if (covered.includes(verse)) {
             count++;
             if (count >= 2) return csr.absFullEnd;
         }
@@ -196,21 +209,14 @@ function paragraphSliceEndForVerse(
             );
         const isMetaV = isVerseMarkerStyle(csr.appliedCharacterStyle);
         if (!isCv && !isMetaV) continue;
-        const vnum = parseInt(
-            digitsOnly(
-                collectContentText(
-                    blockXml,
-                    csr.absBodyStart,
-                    csr.absBodyEnd
-                )
-            ),
-            10
+        const covered = parseVerseMarkerNumbers(
+            collectContentText(blockXml, csr.absBodyStart, csr.absBodyEnd)
         );
-        if (!Number.isFinite(vnum)) continue;
-        if (vnum === lastVerse && isMetaV) {
+        if (covered.length === 0) continue;
+        if (covered.includes(lastVerse) && isMetaV) {
             afterLastVerseMarker = csr.absFullEnd;
         }
-        if (vnum > lastVerse) {
+        if (covered[0] > lastVerse) {
             return afterLastVerseMarker ?? csr.absFullStart;
         }
     }
@@ -237,14 +243,11 @@ function paragraphSliceStartForVerse(
     let afterLowerVerse: number | null = null;
     for (const csr of iterateCsrAbs(blockXml, bodyStart, bodyEnd)) {
         if (!isAnyVerseMarkerStyle(csr.appliedCharacterStyle)) continue;
-        const vnum = parseInt(
-            digitsOnly(
-                collectContentText(blockXml, csr.absBodyStart, csr.absBodyEnd)
-            ),
-            10
+        const covered = parseVerseMarkerNumbers(
+            collectContentText(blockXml, csr.absBodyStart, csr.absBodyEnd)
         );
-        if (!Number.isFinite(vnum)) continue;
-        if (vnum >= firstVerse) break;
+        if (covered.length === 0) continue;
+        if (covered[covered.length - 1] >= firstVerse) break;
         afterLowerVerse = csr.absFullEnd;
     }
     return afterLowerVerse;
@@ -261,17 +264,10 @@ function clipSliceEndBeforeVerse(
     for (const para of paragraphsIntersecting(blockXml, sliceStart, sliceEnd)) {
         for (const csr of iterateCsrAbs(blockXml, para.bodyStart, para.bodyEnd)) {
             if (!isAnyVerseMarkerStyle(csr.appliedCharacterStyle)) continue;
-            const vnum = parseInt(
-                digitsOnly(
-                    collectContentText(
-                        blockXml,
-                        csr.absBodyStart,
-                        csr.absBodyEnd
-                    )
-                ),
-                10
+            const covered = parseVerseMarkerNumbers(
+                collectContentText(blockXml, csr.absBodyStart, csr.absBodyEnd)
             );
-            if (!Number.isFinite(vnum) || vnum < beforeVerse) continue;
+            if (!covered.some((v) => v >= beforeVerse)) continue;
             if (csr.absFullStart > sliceStart && csr.absFullStart < clip) {
                 clip = csr.absFullStart;
             }
@@ -461,11 +457,11 @@ export function getVerseNumbersInRegion(
         for (const csr of iterateCsrAbs(storyXml, scanStart, scanEnd)) {
             if (csr.absFullStart < regionStart || csr.absFullStart >= regionEnd) continue;
             if (!isAnyVerseMarkerStyle(csr.appliedCharacterStyle)) continue;
-            const vnum = digitsOnly(
+            for (const n of parseVerseMarkerNumbers(
                 collectContentText(storyXml, csr.absBodyStart, csr.absBodyEnd)
-            );
-            const n = parseInt(vnum, 10);
-            if (Number.isFinite(n)) found.add(n);
+            )) {
+                found.add(n);
+            }
         }
     }
     return Array.from(found).sort((a, b) => a - b);
@@ -1230,6 +1226,20 @@ export function buildChapterSpanIndex(
 
         if (isIntroNotesOrTitleStyle(style) || isMetaParagraphStyle(style)) {
             flushBlock();
+            if (
+                options?.retainEndOfTextMarkers &&
+                isEndOfTextParagraphStyle(style) &&
+                currentBook &&
+                currentChapter
+            ) {
+                const key = chapterBlockKey(currentBook, currentChapter);
+                const list = index.get(key);
+                const last = list?.[list.length - 1];
+                if (last && para.fullEnd > last.absEnd) {
+                    last.absEnd = para.fullEnd;
+                    last.blockXml = storyXml.slice(last.absStart, last.absEnd);
+                }
+            }
             reopenAfterBoundary = false;
             continue;
         }

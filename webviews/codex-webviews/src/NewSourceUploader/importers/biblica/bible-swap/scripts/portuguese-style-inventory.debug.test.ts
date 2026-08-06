@@ -9,7 +9,7 @@ import {
     loadMainStory,
     volumeFilesExist,
     volumePaths,
-} from "./portugueseFullValidation";
+} from "./bibleSwapValidation";
 import { getParagraphIndex } from "../paragraphIndex";
 import { getVerseNumbersInRegion } from "../chapterBlocks";
 import { collectContentText } from "../surgicalSwap";

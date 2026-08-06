@@ -1,6 +1,6 @@
 /**
- * Runs the real export-time Bible Swap over every Portuguese study volume and
- * scores the result with the external validator's own rules
+ * Runs the real export-time Bible Swap over every study volume of a language
+ * and scores the result with the external validator's own rules
  * (`validatorHarness.ts`), so a test can assert on the same issue list the
  * batch validation report shows.
  */
@@ -24,7 +24,7 @@ import {
 const TEST_FILES_ROOT =
     "C:/Users/marti/Desktop/FrontierRnD/Test Files/Biblica Global Publishing";
 export const STUDY_DIR = `${TEST_FILES_ROOT}/English IDML`;
-export const PORTUGUESE_BIBLE_DIR = `${TEST_FILES_ROOT}/BIBLE Files/Portuguese Full Bible`;
+const BIBLE_ROOT = `${TEST_FILES_ROOT}/BIBLE Files`;
 
 export interface VolumePair {
     volume: string;
@@ -32,26 +32,86 @@ export interface VolumePair {
     bibleFile: string;
 }
 
-export const PORTUGUESE_VOLUMES: readonly VolumePair[] = [
-    { volume: "GEN-DEU", studyFile: "GEN-DEU.idml", bibleFile: "01GEN-05DEU_portuguese.idml" },
-    { volume: "JOS-EST", studyFile: "JOS-EST.idml", bibleFile: "06JOS-17EST_portuguese.idml" },
-    { volume: "JOB-SNG", studyFile: "JOB-SNG.idml", bibleFile: "18JOB-22SNG_portuguese.idml" },
-    { volume: "ISA-MAL", studyFile: "ISA-MAL.idml", bibleFile: "23ISA-39MAL_portuguese.idml" },
-    { volume: "MAT-JOHN", studyFile: "MAT-JOHN.idml", bibleFile: "40MAT-43JHN_portuguese.idml" },
-    { volume: "ACT-REV", studyFile: "ACT-REV.idml", bibleFile: "44ACT-66REV_portuguese.idml" },
-];
+export interface LanguageFixture {
+    language: string;
+    bibleDir: string;
+    volumes: readonly VolumePair[];
+}
+
+/**
+ * Volume layout shared by every language whose Bible ships as six IDMLs.
+ * `overrides` covers Bibles that ship a volume under a different file name.
+ */
+function standardVolumes(
+    suffix: string,
+    overrides: Record<string, string> = {}
+): readonly VolumePair[] {
+    const pairs: VolumePair[] = [
+        { volume: "GEN-DEU", studyFile: "GEN-DEU.idml", bibleFile: `01GEN-05DEU_${suffix}.idml` },
+        { volume: "JOS-EST", studyFile: "JOS-EST.idml", bibleFile: `06JOS-17EST_${suffix}.idml` },
+        { volume: "JOB-SNG", studyFile: "JOB-SNG.idml", bibleFile: `18JOB-22SNG_${suffix}.idml` },
+        { volume: "ISA-MAL", studyFile: "ISA-MAL.idml", bibleFile: `23ISA-39MAL_${suffix}.idml` },
+        { volume: "MAT-JOHN", studyFile: "MAT-JOHN.idml", bibleFile: `40MAT-43JHN_${suffix}.idml` },
+        { volume: "ACT-REV", studyFile: "ACT-REV.idml", bibleFile: `44ACT-66REV_${suffix}.idml` },
+    ];
+    return pairs.map((pair) =>
+        overrides[pair.volume] ? { ...pair, bibleFile: overrides[pair.volume] } : pair
+    );
+}
+
+export const LANGUAGE_FIXTURES: Record<string, LanguageFixture> = {
+    portuguese: {
+        language: "portuguese",
+        bibleDir: `${BIBLE_ROOT}/Portuguese Full Bible`,
+        volumes: standardVolumes("portuguese"),
+    },
+    marathi: {
+        language: "marathi",
+        bibleDir: `${BIBLE_ROOT}/NEW/Marathi Full Bible`,
+        volumes: standardVolumes("marathi"),
+    },
+    french: {
+        language: "french",
+        bibleDir: `${BIBLE_ROOT}/NEW/French Full Bible`,
+        volumes: standardVolumes("french", {
+            "MAT-JOHN": "40MAT_43JHN_french.idml",
+        }),
+    },
+    hindi: {
+        language: "hindi",
+        bibleDir: `${BIBLE_ROOT}/NEW/Hindi Full Bible`,
+        volumes: standardVolumes("hindi", {
+            "GEN-DEU": "01GEN_05DEU_hindi.idml",
+            "MAT-JOHN": "40MAT_43JHN_hindi.idml",
+        }),
+    },
+};
+
+export const PORTUGUESE_VOLUMES = LANGUAGE_FIXTURES.portuguese.volumes;
+export const MARATHI_VOLUMES = LANGUAGE_FIXTURES.marathi.volumes;
+export const FRENCH_VOLUMES = LANGUAGE_FIXTURES.french.volumes;
+export const HINDI_VOLUMES = LANGUAGE_FIXTURES.hindi.volumes;
+
+export function languageFixture(language: string): LanguageFixture {
+    const fixture = LANGUAGE_FIXTURES[language];
+    if (!fixture) throw new Error(`No Bible Swap fixture registered for "${language}"`);
+    return fixture;
+}
 
 const MAPPING_ROOT = path.join(__dirname, "..", "language-mappings");
 
-export function volumePaths(pair: VolumePair): { study: string; bible: string } {
+export function volumePaths(
+    pair: VolumePair,
+    language = "portuguese"
+): { study: string; bible: string } {
     return {
         study: path.join(STUDY_DIR, pair.studyFile),
-        bible: path.join(PORTUGUESE_BIBLE_DIR, pair.bibleFile),
+        bible: path.join(languageFixture(language).bibleDir, pair.bibleFile),
     };
 }
 
-export function volumeFilesExist(pair: VolumePair): boolean {
-    const { study, bible } = volumePaths(pair);
+export function volumeFilesExist(pair: VolumePair, language = "portuguese"): boolean {
+    const { study, bible } = volumePaths(pair, language);
     return fs.existsSync(study) && fs.existsSync(bible);
 }
 
@@ -67,12 +127,16 @@ export async function loadMainStory(idmlPath: string): Promise<string> {
     return xml;
 }
 
+export function mappingFilePath(language: string, volume: string): string {
+    return path.join(MAPPING_ROOT, language, `${volume}.mapping.json`);
+}
+
 export function loadMappingDocument(
     language: string,
     volume: string
 ): BibleSwapMappingDocument {
     return JSON.parse(
-        fs.readFileSync(path.join(MAPPING_ROOT, language, `${volume}.mapping.json`), "utf-8")
+        fs.readFileSync(mappingFilePath(language, volume), "utf-8")
     ) as BibleSwapMappingDocument;
 }
 
@@ -92,7 +156,7 @@ export async function swapAndValidateVolume(
     pair: VolumePair,
     language = "portuguese"
 ): Promise<VolumeValidation> {
-    const { study, bible } = volumePaths(pair);
+    const { study, bible } = volumePaths(pair, language);
     const studyXml = await loadMainStory(study);
     const bibleXml = await loadMainStory(bible);
 
