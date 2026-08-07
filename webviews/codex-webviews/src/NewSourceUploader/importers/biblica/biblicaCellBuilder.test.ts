@@ -73,6 +73,12 @@ const story = (paragraphs: IDMLParagraph[]): IDMLStory => ({
 const build = (paragraphs: IDMLParagraph[]) =>
     createCellsFromStories([story(paragraphs)], { originalHash: "hash" }, "TEST.idml");
 
+/** Import in front/back matter mode, where every text-bearing style becomes a cell. */
+const buildFrontBack = (paragraphs: IDMLParagraph[]) =>
+    createCellsFromStories([story(paragraphs)], { originalHash: "hash" }, "TEST.idml", {
+        includeAllTextStyles: true,
+    });
+
 /** Milestone titles in order, as they appear in the imported notebook. */
 const milestoneTitles = (cells: ProcessedCell[]): string[] => {
     const pair = {
@@ -260,5 +266,113 @@ describe("createCellsFromStories — chapter/verse marker bleed-through", () => 
         expect(
             cells[0].metadata?.data?.idmlStructure?.structuralApostropheSegmentIndexes
         ).toBeUndefined();
+    });
+});
+
+describe("createCellsFromStories — front/back matter volumes", () => {
+    it("imports layout styles that the study-notes pass skips", async () => {
+        const paragraphs = [
+            paragraph("intro%3aimt2", "Bible Dictionary"),
+            paragraph("text%3ap", "12 tribes: Genesis 32:1 – 35:29. Page 51"),
+            paragraph("text%3am", "Jacob had 12 sons."),
+            paragraph("toc%3aTOC body text", "Genesis\t6"),
+            paragraph("title%3amt1", "HOLY BIBLE"),
+        ];
+
+        // The notes pass only recognises intro/* styles.
+        expect((await build(paragraphs)).map(cellText)).toEqual(["Bible Dictionary"]);
+
+        expect((await buildFrontBack(paragraphs)).map(cellText)).toEqual([
+            "Bible Dictionary",
+            "12 tribes: Genesis 32:1 – 35:29. Page 51",
+            "Jacob had 12 sons.",
+            "Genesis\t6",
+            "HOLY BIBLE",
+        ]);
+    });
+
+    it("skips auto-generated running heads", async () => {
+        const cells = await buildFrontBack([
+            paragraph("meta%3arh", "\tRunning head"),
+            paragraph("text%3am", "Real text."),
+        ]);
+
+        expect(cells.map(cellText)).toEqual(["Real text."]);
+    });
+
+    it("turns each head:ms1 heading into its own milestone", async () => {
+        const cells = await buildFrontBack([
+            paragraph("intro%3aimt2", "Bible Dictionary"),
+            paragraph("text%3am", "Front note."),
+            paragraph("head%3ams1", "A"),
+            paragraph("text%3ap", "Aaron:"),
+            paragraph("text%3am", "Brother of Moses."),
+            paragraph("head%3ams1", "B"),
+            paragraph("text%3ap", "Baal:"),
+        ]);
+
+        expect(milestoneTitles(cells)).toEqual(["Bible Dictionary", "A", "B"]);
+        // The letter stays a cell of its own so it is translatable and round-trips.
+        expect(cells.map(cellText)).toContain("A");
+        expect(cellByText(cells, (text) => text === "Baal:").chapterNumber).toBe("B");
+    });
+
+    it("labels milestones without a book prefix", async () => {
+        const cells = await buildFrontBack([
+            paragraph("head%3ams1", "A"),
+            paragraph("text%3am", "An entry."),
+        ]);
+
+        expect(cellByText(cells, (text) => text === "An entry.").globalReferences).toEqual([]);
+        expect(milestoneTitles(cells)).toEqual(["A"]);
+    });
+
+    it("keeps apostrophe slots visible and out of the force-clear list", async () => {
+        const cells = await buildFrontBack([
+            styledParagraph("text%3am", [
+                { style: "$ID/[No character style]", text: "Jacob" },
+                { style: "source serif", text: "\u02BC" },
+                { style: "$ID/[No character style]", text: "s sons" },
+            ]),
+        ]);
+
+        expect(cells).toHaveLength(1);
+        expect(cellText(cells[0])).toBe("Jacob\u02BCs sons");
+        expect(
+            cells[0].metadata?.data?.idmlStructure?.structuralApostropheSegmentIndexes
+        ).toBeUndefined();
+    });
+
+    it("still hides apostrophe slots for study notes", async () => {
+        const cells = await build([
+            styledParagraph("intro%3aipi", [
+                { style: "$ID/[No character style]", text: "Jacob" },
+                { style: "source serif", text: "\u02BC" },
+                { style: "$ID/[No character style]", text: "s sons" },
+            ]),
+        ]);
+
+        expect(cellText(cells[0])).toBe("Jacobs sons");
+        expect(
+            cells[0].metadata?.data?.idmlStructure?.structuralApostropheSegmentIndexes
+        ).toEqual([1]);
+    });
+
+    it("joins a heading split across lines with a space", async () => {
+        const heading: IDMLParagraph = {
+            ...paragraph("intro%3aimt2", "placeholder"),
+            contentSegments: ["The Drama Of The Bible:", "a visual chronology"],
+            contentSegmentBreakBefore: [false, true],
+            contentSegmentStyles: [
+                "CharacterStyle/$ID/[No character style]",
+                "CharacterStyle/$ID/[No character style]",
+            ],
+        };
+
+        const cells = await buildFrontBack([heading, paragraph("text%3am", "Body.")]);
+
+        expect(milestoneTitles(cells)).toEqual([
+            "The Drama Of The Bible: a visual chronology",
+        ]);
     });
 });

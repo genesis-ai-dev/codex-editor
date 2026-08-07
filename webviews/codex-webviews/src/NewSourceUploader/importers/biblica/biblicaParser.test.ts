@@ -513,4 +513,47 @@ describe('BiblicaParser – content segments', () => {
         expect(para.contentSegments).toEqual(['Line one', 'Line two']);
         expect(para.contentSegmentBreakBefore).toEqual([false, true]);
     });
+
+    // A table lives inside its host paragraph's CharacterStyleRange, and each cell is its own
+    // paragraph. Letting the host claim the cells' runs made every paragraph after the table
+    // address the wrong block on export.
+    it('keeps table-cell text out of the paragraph that hosts the table', async () => {
+        const xml = wrapInStory(`
+<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/Paragraphs%3aRegular paragraphs%3am-b">
+    <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]">
+        <Table Self="t1" BodyRowCount="1" ColumnCount="2">
+            <Cell Self="t1c1">
+                <ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/text%3apc">
+                    <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/bd">
+                        <Content>Biblical unit</Content>
+                    </CharacterStyleRange>
+                </ParagraphStyleRange>
+            </Cell>
+            <Cell Self="t1c2">
+                <ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/text%3apc">
+                    <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]">
+                        <Content>Metric equivalent</Content>
+                    </CharacterStyleRange>
+                </ParagraphStyleRange>
+            </Cell>
+        </Table>
+    </CharacterStyleRange>
+</ParagraphStyleRange>
+<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/text%3am">
+    <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]">
+        <Content>After the table.</Content>
+    </CharacterStyleRange>
+</ParagraphStyleRange>`);
+
+        const doc = await parser.parseIDML(xml);
+        const paragraphs = doc.stories[0].paragraphs;
+
+        // Host, two table cells, then the following paragraph — in document order.
+        expect(paragraphs).toHaveLength(4);
+        expect(paragraphs[0].contentSegments).toEqual([]);
+        expect(paragraphs[0].characterStyleRanges.map((r) => r.content)).toEqual(['']);
+        expect(paragraphs[1].contentSegments).toEqual(['Biblical unit']);
+        expect(paragraphs[2].contentSegments).toEqual(['Metric equivalent']);
+        expect(paragraphs[3].contentSegments).toEqual(['After the table.']);
+    });
 });

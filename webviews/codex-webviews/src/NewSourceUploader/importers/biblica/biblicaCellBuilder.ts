@@ -3,6 +3,9 @@
  *
  * Only intro/* note paragraphs become cells; verse paragraphs are scanned to derive the
  * chapter-range milestone label and globalReferences that get attached to those notes.
+ *
+ * Front/back matter volumes (see isBiblicaFrontBackMatterDocument) hold no scripture, so
+ * they run in "all styles" mode where every text-bearing paragraph becomes a cell.
  */
 
 import type { CustomNotebookCellData } from "types";
@@ -20,7 +23,9 @@ import {
 import {
     isBiblicaBookTitleStyle,
     isBiblicaDivisionHeadingStyle,
+    isBiblicaMajorSectionHeadingStyle,
     isBiblicaNoteSectionStyle,
+    isBiblicaRunningHeadStyle,
     isStructuralOnlyContent,
     splitSegmentsAtLineBreaks,
     getStructuralApostropheSegmentIndexes,
@@ -29,6 +34,14 @@ import {
     omitSegmentsAtIndexes,
     toDivisionMilestoneLabel,
 } from "./biblicaImportUtils";
+
+export interface CreateCellsOptions {
+    /**
+     * Accept every text-bearing paragraph style, not just intro/* notes. Used for the
+     * front/back matter volumes, whose text sits in layout styles.
+     */
+    includeAllTextStyles?: boolean;
+}
 
 /**
  * Compute the chapter-range milestone label for a note section.
@@ -49,8 +62,10 @@ export function computeChapterRangeLabel(
 export async function createCellsFromStories(
     stories: IDMLStory[],
     htmlRepresentation: { stories?: { id: string; }[]; originalHash?: string; },
-    sourceFileName: string
+    sourceFileName: string,
+    options: CreateCellsOptions = {}
 ): Promise<ProcessedCell[]> {
+    const { includeAllTextStyles = false } = options;
     const cells: ProcessedCell[] = [];
     let currentBook = "";
     let currentChapter = "1";
@@ -128,7 +143,9 @@ export async function createCellsFromStories(
             }
 
             // --- Fallback book detection from paragraph content ---
-            if (!currentBook) {
+            // Front/back matter is not scoped to a book, and its layout text (TOC lines,
+            // dictionary entries) can look like a book code by accident.
+            if (!currentBook && !includeAllTextStyles) {
                 const validBookCodes = [
                     "GEN", "EXO", "LEV", "NUM", "DEU", "JOS", "JDG", "RUT",
                     "1SA", "2SA", "1KI", "2KI", "1CH", "2CH", "EZR", "NEH",
@@ -214,7 +231,13 @@ export async function createCellsFromStories(
             // --- From here on, this is a non-verse paragraph ---
 
             // Only intro/* note styles become editable cells; skip meta running headers, TOC, etc.
-            if (!isBiblicaNoteSectionStyle(paragraphStyle)) {
+            // Front/back matter has no note styles to speak of, so it takes any paragraph that
+            // carries text and only drops the auto-generated running heads.
+            if (includeAllTextStyles) {
+                if (isBiblicaRunningHeadStyle(paragraphStyle)) {
+                    continue;
+                }
+            } else if (!isBiblicaNoteSectionStyle(paragraphStyle)) {
                 continue;
             }
 
@@ -229,10 +252,13 @@ export async function createCellsFromStories(
                 paragraph.contentSegmentStyles?.length === contentSegments.length
                     ? paragraph.contentSegmentStyles
                     : getSegmentCharacterStylesForParagraph(paragraph, contentSegments.length);
-            const structuralApostropheIndexes = getStructuralApostropheSegmentIndexes(
-                contentSegments,
-                allSegmentStyles
-            );
+            // Study notes hide the "source serif" apostrophe slots so a translator's own
+            // punctuation replaces them. Front/back matter is prose-heavy English where those
+            // slots are ordinary possessives and contractions ("Jacobʼs", "didnʼt"), so they
+            // stay visible and are written back untouched.
+            const structuralApostropheIndexes = includeAllTextStyles
+                ? []
+                : getStructuralApostropheSegmentIndexes(contentSegments, allSegmentStyles);
             // Hidden in the editor, but only the apostrophes are cleared on export;
             // verse markers must survive untouched, so they stay out of the metadata list.
             const hiddenSegmentIndexes = mergeSegmentIndexes(
@@ -249,9 +275,19 @@ export async function createCellsFromStories(
                 continue;
             }
 
-            const contentWithoutBreaks = visibleContentSegments
+            // Flattened heading text used to derive milestone labels. A paragraph broken over
+            // several IDML lines needs a space at each break, or the words run together.
+            const hiddenSegmentIndexSet = new Set(hiddenSegmentIndexes);
+            const contentWithoutBreaks = contentSegments
+                .map((segment, index) => {
+                    if (hiddenSegmentIndexSet.has(index)) {
+                        return "";
+                    }
+                    const needsSpace = index > 0 && contentSegmentBreakBefore[index];
+                    return needsSpace ? ` ${segment}` : segment;
+                })
                 .join("")
-                .replace(/[\r\n]+/g, "")
+                .replace(/[\r\n]+/g, " ")
                 .replace(/\s+/g, " ")
                 .trim();
 
@@ -273,6 +309,16 @@ export async function createCellsFromStories(
                 currentMilestoneLabel = null;
             }
 
+            // Major section headings (head:ms1) carve front/back matter into milestones — the
+            // Bible Dictionary uses one per alphabet letter. The heading still gets its own
+            // cell so the letter stays translatable and round-trips.
+            if (includeAllTextStyles && isBiblicaMajorSectionHeadingStyle(paragraphStyle)) {
+                const sectionLabel = toDivisionMilestoneLabel(contentWithoutBreaks);
+                if (sectionLabel) {
+                    currentMilestoneLabel = sectionLabel;
+                }
+            }
+
             // Chapter label headings (head:cl) like "Psalm 2" introduce a new
             // chapter. Force a new milestone so the heading and any following
             // descriptions (head:d_h) are grouped with the upcoming chapter,
@@ -291,7 +337,9 @@ export async function createCellsFromStories(
 
             // First note paragraph after a verse section: compute the milestone label
             // for this note group and freeze it until the next verse section.
-            if (currentMilestoneLabel === null) {
+            // Front/back matter has no chapters to range over: paragraphs ahead of the first
+            // heading stay unlabelled and land on the notebook's opening milestone.
+            if (currentMilestoneLabel === null && !includeAllTextStyles) {
                 currentMilestoneLabel = computeChapterRangeLabel(
                     firstChapterInRange,
                     lastChapterInRange,
@@ -307,7 +355,9 @@ export async function createCellsFromStories(
             // Leaving it off also keeps the milestone titled by the heading alone rather
             // than "<Book> <heading>".
             const noteGlobalReferences: string[] =
-                !currentDivisionLabel && currentBook ? [currentBook] : [];
+                !includeAllTextStyles && !currentDivisionLabel && currentBook
+                    ? [currentBook]
+                    : [];
             const lineGroups = splitSegmentsAtLineBreaks(
                 contentSegments,
                 contentSegmentBreakBefore

@@ -5,6 +5,8 @@
 import React, { useCallback } from "react";
 import { BookOpen } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
+import type { CustomNotebookCellData } from "types";
+import { CodexCellTypes } from "types/enums";
 import { UnifiedImporterForm, type FileAnalysisStat } from "../../components/UnifiedImporterForm";
 import { ImporterComponentProps, sequentialCellAligner } from "../../types/plugin";
 import type { NotebookPair, ImportProgress } from "../../types/common";
@@ -16,6 +18,7 @@ import {
     createCodexCellsFromSource,
 } from "../../utils/workflowHelpers";
 import { createCellsFromStories } from "./biblicaCellBuilder";
+import { isBiblicaFrontBackMatterDocument } from "./biblicaImportUtils";
 
 async function processBiblicaIdml(
     studyBibleFile: File,
@@ -69,18 +72,28 @@ async function processBiblicaIdml(
     const htmlMapper = new HTMLMapper();
     const htmlRepresentation = htmlMapper.convertToHTML(document);
 
+    // Front/back matter volumes (contents, dictionary, timelines, maps, cover) carry no
+    // verses, and their text lives in layout styles rather than intro/* note styles.
+    const isFrontBackMatter = isBiblicaFrontBackMatterDocument(document.stories);
+    const contentType = isFrontBackMatter ? "frontBackMatter" : "notes";
+
     onProgress({
         stage: "Cells",
-        message: "Creating notebook cells from study notes…",
+        message: isFrontBackMatter
+            ? "Creating notebook cells from front/back matter…"
+            : "Creating notebook cells from study notes…",
         progress: 75,
     });
     const allCells = await createCellsFromStories(
         document.stories,
         htmlRepresentation,
-        studyBibleFile.name
+        studyBibleFile.name,
+        { includeAllTextStyles: isFrontBackMatter }
     );
 
-    if (allCells.length === 0) {
+    // Some front/back volumes are pure artwork (maps, plates) and hold no editable text.
+    // They still import so the file stays part of the project and round-trips unchanged.
+    if (allCells.length === 0 && !isFrontBackMatter) {
         throw new Error(
             "No cells were created from the parsed content. Check the cell creation logic."
         );
@@ -96,6 +109,22 @@ async function processBiblicaIdml(
         images: cell.images,
         metadata: cell.metadata,
     }));
+
+    if (simplifiedNoteCells.length === 0) {
+        // Artwork-only volume: a lone milestone keeps the notebook well-formed so the file
+        // is still listed in the project and exports back byte-for-byte.
+        const milestoneId = uuidv4();
+        simplifiedNoteCells.push({
+            id: milestoneId,
+            content: "1",
+            images: [],
+            metadata: {
+                id: milestoneId,
+                type: CodexCellTypes.MILESTONE,
+                edits: [],
+            } as CustomNotebookCellData["metadata"],
+        });
+    }
 
     const rawBaseName = studyBibleFile.name.replace(/\.idml$/i, "");
     const cleanBaseName = rawBaseName.replace(/[-_]?notes$/i, "");
@@ -123,14 +152,14 @@ async function processBiblicaIdml(
                         originalHash: document.originalHash,
                         documentId: document.id,
                         importTimestamp: new Date().toISOString(),
-                        contentType: "notes",
+                        contentType,
                     },
                     documentId: document.id,
                     storyCount: document.stories.length,
                     originalHash: document.originalHash,
                     totalCells: simplifiedNoteCells.length,
                     fileType: "biblica",
-                    contentType: "notes",
+                    contentType,
                 },
             },
             codex: {
@@ -149,7 +178,7 @@ async function processBiblicaIdml(
                         originalHash: document.originalHash,
                         documentId: document.id,
                         importTimestamp: new Date().toISOString(),
-                        contentType: "notes",
+                        contentType,
                     },
                     documentId: document.id,
                     storyCount: document.stories.length,
@@ -157,7 +186,7 @@ async function processBiblicaIdml(
                     totalCells: simplifiedNoteCells.length,
                     fileType: "biblica",
                     isCodex: true,
-                    contentType: "notes",
+                    contentType,
                 },
             },
         });

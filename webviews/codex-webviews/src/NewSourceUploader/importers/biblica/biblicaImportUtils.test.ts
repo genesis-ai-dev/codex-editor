@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
+    isBiblicaFrontBackMatterDocument,
+    isBiblicaMajorSectionHeadingStyle,
     isBiblicaNoteSectionStyle,
+    isBiblicaRunningHeadStyle,
     isStructuralOnlyContent,
     splitSegmentsAtLineBreaks,
     getStructuralApostropheSegmentIndexes,
@@ -9,11 +12,53 @@ import {
     getVerseMarkerSegmentIndexes,
 } from './biblicaImportUtils';
 import { buildSegmentedParagraphHtml } from '../common/contentSegmentUtils';
+import type { IDMLStory } from './types';
 
 describe('biblicaImportUtils', () => {
     it('detects intro note styles', () => {
         expect(isBiblicaNoteSectionStyle('ParagraphStyle/intro%3aipi')).toBe(true);
         expect(isBiblicaNoteSectionStyle('ParagraphStyle/meta%3arh')).toBe(false);
+    });
+
+    it('detects major section headings and running heads', () => {
+        expect(isBiblicaMajorSectionHeadingStyle('ParagraphStyle/head%3ams1')).toBe(true);
+        expect(isBiblicaMajorSectionHeadingStyle('ParagraphStyle/head%3acl')).toBe(false);
+        expect(isBiblicaRunningHeadStyle('ParagraphStyle/meta%3arh')).toBe(true);
+        expect(isBiblicaRunningHeadStyle('ParagraphStyle/text%3am')).toBe(false);
+    });
+
+    it('recognises a front/back matter volume by the absence of verses', () => {
+        const storyWith = (metadata: Record<string, unknown>): IDMLStory =>
+            ({
+                id: 'u363',
+                paragraphs: [
+                    {
+                        paragraphStyleRange: {
+                            appliedParagraphStyle: 'ParagraphStyle/text%3am',
+                            properties: {},
+                            content: 'text',
+                        },
+                        characterStyleRanges: [],
+                        metadata,
+                    },
+                ],
+            }) as unknown as IDMLStory;
+
+        expect(isBiblicaFrontBackMatterDocument([storyWith({ biblicaVerseSegments: [] })])).toBe(
+            true
+        );
+        expect(
+            isBiblicaFrontBackMatterDocument([
+                storyWith({
+                    biblicaVerseSegments: [
+                        { bookAbbreviation: 'MAT', chapterNumber: '1', verseNumber: '1' },
+                    ],
+                }),
+            ])
+        ).toBe(false);
+        expect(
+            isBiblicaFrontBackMatterDocument([storyWith({ isPartOfSpanningVerse: true })])
+        ).toBe(false);
     });
 
     it('treats ACE-only content as structural', () => {

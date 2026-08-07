@@ -2,6 +2,8 @@
  * Biblica-specific import helpers for note paragraph filtering and line-break splitting.
  */
 
+import type { IDMLStory } from "./types";
+
 /** InDesign ACE placeholder markers in running headers / structural paragraphs. */
 const ACE_MARKER_PATTERN = /<\?ACE\s+\d+\?>/gi;
 
@@ -32,6 +34,51 @@ export function isBiblicaDivisionHeadingStyle(paragraphStyle: string): boolean {
  */
 export function isBiblicaBookTitleStyle(paragraphStyle: string): boolean {
     return paragraphStyle.includes("intro%3aimt1") || paragraphStyle.includes("intro:imt1");
+}
+
+/**
+ * True when a document carries no scripture at all.
+ *
+ * Biblica ships the study Bible's front and back matter (title pages, contents, "how to
+ * use", the Bible Dictionary, timelines, maps, cover) as separate IDML volumes with no
+ * chapter/verse markers anywhere. Their text lives in layout paragraph styles such as
+ * text:m, toc:*, title:mt1 or Box Text rather than the intro/* note styles, so every
+ * text-bearing paragraph has to become a cell instead of only the note styles.
+ */
+export function isBiblicaFrontBackMatterDocument(stories: IDMLStory[]): boolean {
+    for (const story of stories) {
+        for (const paragraph of story.paragraphs) {
+            const metadata = paragraph.metadata as
+                | { biblicaVerseSegments?: unknown[]; isPartOfSpanningVerse?: boolean; }
+                | undefined;
+            if (metadata?.isPartOfSpanningVerse) {
+                return false;
+            }
+            if (
+                Array.isArray(metadata?.biblicaVerseSegments) &&
+                metadata.biblicaVerseSegments.length > 0
+            ) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+/**
+ * Major section headings (head:ms1) split front/back matter into milestones. In the Bible
+ * Dictionary each one holds a single alphabet letter ("A", "B", …).
+ */
+export function isBiblicaMajorSectionHeadingStyle(paragraphStyle: string): boolean {
+    return paragraphStyle.includes("head%3ams1") || paragraphStyle.includes("head:ms1");
+}
+
+/**
+ * Running heads (meta:rh) repeat the section marker and page number on every page. InDesign
+ * regenerates them from the layout, so they hold no translatable text of their own.
+ */
+export function isBiblicaRunningHeadStyle(paragraphStyle: string): boolean {
+    return paragraphStyle.includes("meta%3arh") || paragraphStyle.includes("meta:rh");
 }
 
 /**
