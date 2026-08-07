@@ -1867,8 +1867,9 @@ function resolveAudioSelection(
 
 /**
  * Resolves conflicts in metadata.json, specifically merging the remote updating list
+ * (exported for unit tests)
  */
-async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<string> {
+export async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<string> {
     try {
         const base = JSON.parse(conflict.base || "{}");
         const ours = JSON.parse(conflict.ours || "{}");
@@ -2213,6 +2214,14 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
                 const bVal = baseObj?.[key];
                 const oVal = ourObj?.[key];
                 const tVal = theirObj?.[key];
+
+                // A field present in base but absent from theirs was deleted remotely.
+                // If ours didn't change it since base, honor the deletion by leaving the
+                // key out entirely — before the object recursion below, which would
+                // otherwise rebuild a deleted object piece by piece from ours (#1105).
+                if (tVal === undefined && bVal !== undefined && JSON.stringify(oVal) === JSON.stringify(bVal)) {
+                    continue;
+                }
 
                 // Recurse for objects
                 const isObj = (v: any) => typeof v === 'object' && v !== null && !Array.isArray(v);
