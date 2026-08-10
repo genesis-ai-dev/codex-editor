@@ -1333,19 +1333,22 @@ export class SyncManager {
             // Pass the sync result to optimize database synchronization
             this.rebuildIndexesInBackground(syncResult);
 
-            // Refresh webviews for affected codex files to show newly added cells
+            // Refresh webviews for affected notebook files to show newly added cells.
+            // Include .source files: milestone placement edits live on source files,
+            // so their open panels need the post-sync refresh too.
             try {
-                const affectedCodexFiles = [
-                    ...syncResult.changedFiles.filter(f => f.endsWith('.codex')),
-                    ...syncResult.newFiles.filter(f => f.endsWith('.codex'))
+                const isNotebookFile = (f: string) => f.endsWith('.codex') || f.endsWith('.source');
+                const affectedNotebookFiles = [
+                    ...syncResult.changedFiles.filter(isNotebookFile),
+                    ...syncResult.newFiles.filter(isNotebookFile)
                 ];
 
-                if (affectedCodexFiles.length > 0) {
-                    debug(`Refreshing webviews for ${affectedCodexFiles.length} affected codex file(s)`);
+                if (affectedNotebookFiles.length > 0) {
+                    debug(`Refreshing webviews for ${affectedNotebookFiles.length} affected notebook file(s)`);
                     const { GlobalProvider } = await import("../globalProvider");
                     const provider = GlobalProvider.getInstance().getProvider("codex-cell-editor") as any;
                     if (provider && typeof provider.refreshWebviewsForFiles === 'function') {
-                        await provider.refreshWebviewsForFiles(affectedCodexFiles);
+                        await provider.refreshWebviewsForFiles(affectedNotebookFiles);
                     } else {
                         debug("[SyncManager] Codex cell editor provider not available or missing refreshWebviewsForFiles method");
                     }

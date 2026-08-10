@@ -959,7 +959,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     if (!document.isDirty && timeSinceLastSave > SAVE_DEBOUNCE_MS) {
                         // External change detected - safe to revert
                         debug("Document not dirty and not recently saved, reverting");
-                        document.revert();
+                        this.reloadDocumentFromDiskAndRefresh(document, webviewPanel).catch(
+                            (error) =>
+                                console.error(
+                                    "[CodexCellEditorProvider] Failed to reload document after external change:",
+                                    error
+                                )
+                        );
                     } else {
                         debug(`Skipping revert: isDirty=${document.isDirty}, timeSinceLastSave=${timeSinceLastSave}ms`);
                     }
@@ -5313,6 +5319,22 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
      * @param filePaths Array of file paths (workspace-relative or absolute) to refresh
      * @param options.sourceFilesOnly When true (e.g. after verse range migration), only refresh .source files, not .codex
      */
+    /**
+     * Reload a document that was rewritten on disk by an external process
+     * (sync merge, migration, external tool) and push a full milestone
+     * refresh to its webview. The position-preserving update path triggered
+     * by revert() alone resends only the current page's cells, so structural
+     * changes (added/renamed milestones, new subdivisions) would never reach
+     * the webview's milestone index without the explicit refresh.
+     */
+    public async reloadDocumentFromDiskAndRefresh(
+        document: CodexCellDocument,
+        webviewPanel: vscode.WebviewPanel
+    ): Promise<void> {
+        await document.revert();
+        await sendMilestoneRefreshToWebview(document, webviewPanel, this);
+    }
+
     public async refreshWebviewsForFiles(
         filePaths: string[],
         options?: { isSourceAndCodexFiles?: boolean; }
