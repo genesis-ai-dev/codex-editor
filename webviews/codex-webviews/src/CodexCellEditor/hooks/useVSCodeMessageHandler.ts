@@ -106,6 +106,15 @@ interface UseVSCodeMessageHandlerProps {
         progress: number;
     }) => void;
 
+    updateStructureResolveState?: (state: {
+        isProcessing: boolean;
+        totalCells: number;
+        completedCells: number;
+        currentCellId?: string;
+        cellsToProcess: string[];
+        progress: number;
+    }) => void;
+
     updateSingleCellTranslationState?: (state: {
         isProcessing: boolean;
         cellId?: string;
@@ -174,6 +183,7 @@ export const useVSCodeMessageHandler = ({
 
     // New handlers
     updateAutocompletionState,
+    updateStructureResolveState,
     updateSingleCellTranslationState,
     updateSingleCellQueueState,
     updateCellTranslationCompletion,
@@ -282,6 +292,11 @@ export const useVSCodeMessageHandler = ({
                 case "providerAutocompletionState":
                     if (updateAutocompletionState) {
                         updateAutocompletionState(message.state);
+                    }
+                    break;
+                case "providerStructureResolveState":
+                    if (updateStructureResolveState) {
+                        updateStructureResolveState(message.state);
                     }
                     break;
                 case "providerSingleCellTranslationState":
@@ -466,6 +481,7 @@ export const useVSCodeMessageHandler = ({
         videoStreamUnavailable,
         videoNeedsDownload,
         updateAutocompletionState,
+        updateStructureResolveState,
         updateSingleCellTranslationState,
         updateSingleCellQueueState,
         updateCellTranslationCompletion,

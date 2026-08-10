@@ -76,6 +76,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const [isZippingMini, setIsZippingMini] = useState<boolean>(false);
     const [zipProgress, setZipProgress] = useState<number>(0);
     const [isCleaning, setIsCleaning] = useState<boolean>(false);
+    const [isDeleting, setIsDeleting] = useState<boolean>(false);
+    const [deletingStage, setDeletingStage] = useState<"verifying" | "deleting">("verifying");
     const userInitiatedStrategyChangeRef = React.useRef<boolean>(false);
     const [isApplyingStrategyDuringOtherOp, setIsApplyingStrategyDuringOtherOp] =
         useState<boolean>(false);
@@ -117,6 +119,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         isZipping ||
         isZippingMini ||
         isCleaning ||
+        isDeleting ||
         isApplyingStrategyDuringOtherOp ||
         isCalculatingStrategy;
 
@@ -280,6 +283,15 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
             if (msg?.command === "project.cleaningInProgress") {
                 if (msg.projectPath === project.path) {
                     setIsCleaning(msg.cleaning);
+                }
+                return;
+            }
+            if (msg?.command === "project.deletingInProgress") {
+                if (msg.projectPath === project.path) {
+                    setIsDeleting(msg.deleting);
+                    if (msg.deleting && msg.stage) {
+                        setDeletingStage(msg.stage);
+                    }
                 }
                 return;
             }
@@ -836,12 +848,30 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                     <Button
                                         variant="outline"
                                         size="sm"
-                                        onClick={() => onDeleteProject(project)}
+                                        onClick={() => {
+                                            // Optimistically disable actions right away so the
+                                            // confirmation-dialog window can't accept repeated
+                                            // Delete clicks. Start in "verifying" until the host
+                                            // confirms; it echoes deletingInProgress to advance the
+                                            // stage and to clear this on cancel/failure.
+                                            setDeletingStage("verifying");
+                                            setIsDeleting(true);
+                                            onDeleteProject(project);
+                                        }}
                                         className="h-6 text-xs text-red-500 hover:text-red-600"
                                         disabled={disableControls}
                                     >
-                                        <i className="codicon codicon-trash mr-1" />
-                                        Delete
+                                        {isDeleting ? (
+                                            <>
+                                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                                                {deletingStage === "deleting" ? "Deleting..." : "Verifying..."}
+                                            </>
+                                        ) : (
+                                            <>
+                                                <i className="codicon codicon-trash mr-1" />
+                                                Delete
+                                            </>
+                                        )}
                                     </Button>
                                 )}
                             </div>

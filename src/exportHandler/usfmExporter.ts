@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { basename } from "path";
 import * as grammar from "usfm-grammar";
 import { CodexCellTypes } from "../../types/enums";
-import { readCodexNotebookFromUri, isContentCellType } from "./exportHandlerUtils";
+import { readCodexNotebookFromUri, getActiveCells, isContentCellType } from "./exportHandlerUtils";
 import type { ExportOptions } from "./exportHandler";
 import type { ExportProgressReporter } from "./exportProgress";
 
@@ -247,7 +247,9 @@ export async function exportCodexContentAsUsfm(
                 const codexNotebook =
                     await readCodexNotebookFromUri(file);
 
-                const textCells = codexNotebook.cells.filter(
+                const activeCells = getActiveCells(codexNotebook.cells);
+
+                const textCells = activeCells.filter(
                     (cell) =>
                         (cell.kind === 2 || cell.kind === 1) &&
                         isContentCellType(cell.metadata?.type)
@@ -289,16 +291,14 @@ export async function exportCodexContentAsUsfm(
                 usfmContent += `\\toc3 ${bookCode}\n`;
                 usfmContent += `\\mt1 ${fullBookName}\n`;
 
-                const relevantCells = codexNotebook.cells.filter(
+                const relevantCells = activeCells.filter(
                     (cell) => {
-                        const metadata = cell.metadata as any;
                         return (
                             (cell.kind === 2 || cell.kind === 1) &&
                             cell.metadata?.type &&
                             cell.metadata?.type !==
                             CodexCellTypes.MILESTONE &&
-                            cell.value.trim().length > 0 &&
-                            !metadata?.merged
+                            cell.value.trim().length > 0
                         );
                     }
                 );

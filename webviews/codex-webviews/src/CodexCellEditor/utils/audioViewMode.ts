@@ -144,7 +144,7 @@ export const getCellListIcon = ({
  * previously in `AudioHistoryViewer`; behaviour is unchanged.
  *
  * Returns:
- *   - "loading"  → spinner / "Loading..." text
+ *   - "loading"  → spinner / "Downloading..." text
  *   - "error"    → red X-circle, click disabled (file missing / fetch failed)
  *   - "playing"  → currently playing this entry, click stops
  *   - "download" → bytes not yet on disk for this attachment id

@@ -30,6 +30,7 @@ import { formatBytes } from "../lib/utils";
 import { Switch } from "../components/ui/switch";
 import { Label } from "../components/ui/label";
 import { RenameModal } from "../components/RenameModal";
+import { getBookNameValidationMessage } from "@sharedUtils";
 import {
     Dialog,
     DialogContent,
@@ -803,16 +804,22 @@ function NavigationView() {
 
     const handleBookNameModalConfirm = () => {
         const { item, newName } = state.bookNameModal;
-        if (item && newName.trim() !== "") {
+        const trimmed = newName.trim();
+        if (item && trimmed !== "") {
+            // Defensive: refuse to send an invalid name. The modal disables Save
+            // when this returns non-null, so users normally shouldn't reach here.
+            if (getBookNameValidationMessage(trimmed)) {
+                return;
+            }
             // Use fileDisplayName from metadata if available, otherwise fall back to formatted label
             const currentDisplayName =
                 item.fileDisplayName || formatLabel(item.label, state.bibleBookMap || new Map());
-            if (newName.trim() !== currentDisplayName) {
+            if (trimmed !== currentDisplayName) {
                 vscode.postMessage({
                     command: "editBookName",
                     content: {
                         bookAbbr: item.label,
-                        newBookName: newName.trim(),
+                        newBookName: trimmed,
                     },
                 });
             }
@@ -1373,6 +1380,7 @@ function NavigationView() {
                 placeholder="Enter new book name"
                 confirmButtonLabel="Save"
                 disabled={disableBookNameButton}
+                validate={getBookNameValidationMessage}
                 onClose={handleBookNameModalClose}
                 onConfirm={handleBookNameModalConfirm}
                 onValueChange={handleBookNameModalInputChange}

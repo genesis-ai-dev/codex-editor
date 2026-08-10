@@ -3,6 +3,7 @@ import { Button } from "../components/ui/button";
 import { extractChapterNumberFromMilestoneValue } from "./CodexCellEditor";
 import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
+import { ResolveAllModal } from "./modals/ResolveAllModal";
 import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
 import { MilestoneAccordion } from "./components/MilestoneAccordion";
 import {
@@ -39,6 +40,11 @@ interface ChapterNavigationHeaderProps {
     ) => void;
     onStopAutocomplete: () => void;
     isAutocompletingChapter: boolean;
+    onResolveStructureBatch: (numberOfCells: number) => void;
+    onStopResolveStructureBatch: () => void;
+    isResolvingStructureBatch: boolean;
+    mismatchedCellIds: string[];
+    showResolveAllButton: boolean;
     onSetTextDirection: (direction: "ltr" | "rtl") => void;
     textDirection: "ltr" | "rtl";
     isSourceText: boolean;
@@ -105,6 +111,11 @@ export function ChapterNavigationHeader({
     onAutocompleteChapter,
     onStopAutocomplete,
     isAutocompletingChapter,
+    onResolveStructureBatch,
+    onStopResolveStructureBatch,
+    isResolvingStructureBatch,
+    mismatchedCellIds,
+    showResolveAllButton,
     onSetTextDirection,
     textDirection,
     isSourceText,
@@ -162,6 +173,7 @@ export function ChapterNavigationHeader({
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
+    const [showResolveConfirm, setShowResolveConfirm] = useState(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
     const [autoDownloadAudioOnOpen, setAutoDownloadAudioOnOpenState] = useState<boolean>(false);
     const [autoRecordOnMicClick, setAutoRecordOnMicClickState] = useState<boolean>(false);
@@ -211,6 +223,7 @@ ChapterNavigationHeaderProps) {
 
     // Helper to determine if any translation is in progress
     const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
+    const isAnyBatchOperationInProgress = isAnyTranslationInProgress || isResolvingStructureBatch;
 
     // Update font size when metadata changes
     useEffect(() => {
@@ -375,11 +388,22 @@ ChapterNavigationHeaderProps) {
 
     // Common handler for stopping any kind of translation
     const handleStopTranslation = () => {
-        if (isAutocompletingChapter) {
+        if (isResolvingStructureBatch) {
+            onStopResolveStructureBatch();
+        } else if (isAutocompletingChapter) {
             onStopAutocomplete();
         } else if (isTranslatingCell && onStopSingleCellTranslation) {
             onStopSingleCellTranslation();
         }
+    };
+
+    const handleResolveAllClick = () => {
+        setShowResolveConfirm(true);
+    };
+
+    const handleConfirmResolveAll = (numberOfCells: number) => {
+        onResolveStructureBatch(numberOfCells);
+        setShowResolveConfirm(false);
     };
 
     const handleAutocompleteClick = () => {
@@ -549,10 +573,13 @@ ChapterNavigationHeaderProps) {
                     <MobileHeaderMenu
                         isAutocompletingChapter={isAutocompletingChapter}
                         isTranslatingCell={isTranslatingCell}
+                        isResolvingStructureBatch={isResolvingStructureBatch}
                         onAutocompleteClick={handleAutocompleteClick}
+                        onResolveAllClick={handleResolveAllClick}
                         onStopTranslation={handleStopTranslation}
                         unsavedChanges={unsavedChanges}
                         isSourceText={isSourceText}
+                        showResolveAllButton={showResolveAllButton}
                         textDirection={textDirection}
                         onSetTextDirection={onSetTextDirection}
                         fontSize={fontSize}
@@ -878,12 +905,14 @@ ChapterNavigationHeaderProps) {
             >
                 {!isSourceText && (
                     <>
-                        {isAnyTranslationInProgress ? (
+                        {isAnyBatchOperationInProgress ? (
                             <Button
                                 variant="outline"
                                 onClick={handleStopTranslation}
                                 title={
-                                    isAutocompletingChapter
+                                    isResolvingStructureBatch
+                                        ? "Stop Resolve"
+                                        : isAutocompletingChapter
                                         ? "Stop Autocomplete"
                                         : "Stop Translation"
                                 }
@@ -892,14 +921,27 @@ ChapterNavigationHeaderProps) {
                                 <i className="codicon codicon-circle-slash" />
                             </Button>
                         ) : (
-                            <Button
-                                variant="outline"
-                                onClick={handleAutocompleteClick}
-                                disabled={unsavedChanges}
-                                title="Autocomplete Chapter"
-                            >
-                                <i className="codicon codicon-sparkle" />
-                            </Button>
+                            <>
+                                <Button
+                                    variant="outline"
+                                    onClick={handleAutocompleteClick}
+                                    disabled={unsavedChanges}
+                                    title="Autocomplete Chapter"
+                                >
+                                    <i className="codicon codicon-sparkle" />
+                                </Button>
+                                {showResolveAllButton && (
+                                    <Button
+                                        variant="outline"
+                                        onClick={handleResolveAllClick}
+                                        disabled={unsavedChanges}
+                                        title="Resolve structure mismatches"
+                                    >
+                                        <i className="codicon codicon-warning" />
+                                        <span className="ml-1 hidden xl:inline">Resolve All</span>
+                                    </Button>
+                                )}
+                            </>
                         )}
                     </>
                 )}
@@ -1214,6 +1256,14 @@ ChapterNavigationHeaderProps) {
                     5,
                     untranslatedCellIds.length > 0 ? untranslatedCellIds.length : 5
                 )}
+            />
+
+            <ResolveAllModal
+                isOpen={showResolveConfirm}
+                onClose={() => setShowResolveConfirm(false)}
+                onConfirm={handleConfirmResolveAll}
+                mismatchedCellIds={mismatchedCellIds}
+                defaultValue={Math.min(5, mismatchedCellIds.length > 0 ? mismatchedCellIds.length : 5)}
             />
 
             <MilestoneAccordion

@@ -489,3 +489,26 @@ suite("reorderVerseRangeCells - core behaviors", () => {
         assert.strictEqual(inputSet.size, 0, "Every input cell must appear exactly once");
     });
 });
+
+suite("reorderVerseRangeCells - repairMode rescues stranded cells", () => {
+    const buildStranded = () => [
+        milestoneCell("m14", "Matthew 14"),
+        textCell("v14_5", "five", "MAT 14:5"),
+        milestoneCell("m15", "Matthew 15"),
+        textCell("v15_1", "x", "MAT 15:1"),
+        // A content single parked after the ch15 milestone (the post-dedup damage shape).
+        textCell("v14_6", "six", "MAT 14:6"),
+    ];
+
+    test("conservative mode leaves a cell stranded past a later milestone (sync behavior)", () => {
+        const res = reorderVerseRangeCells(buildStranded(), {});
+        assert.deepStrictEqual(cellIds(res.cells), ["m14", "v14_5", "m15", "v15_1", "v14_6"]);
+        assert.strictEqual(res.orderChanged, false);
+    });
+
+    test("repairMode pulls the stranded cell back into its chapter, in verse order", () => {
+        const res = reorderVerseRangeCells(buildStranded(), { repairMode: true });
+        assert.deepStrictEqual(cellIds(res.cells), ["m14", "v14_5", "v14_6", "m15", "v15_1"]);
+        assert.strictEqual(res.orderChanged, true);
+    });
+});

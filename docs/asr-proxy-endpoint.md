@@ -1,22 +1,33 @@
 # ASR HTTP POST Endpoint Specification
 
-This document describes the HTTP POST protocol for implementing an ASR (Automatic Speech Recognition) transcription endpoint compatible with the Codex Editor.
+This document describes the HTTP POST protocol the Codex Editor expects from
+an ASR (Automatic Speech Recognition) endpoint. The reference upstream is
+**Meta Omnilingual ASR** (`omniASR_LLM_1B_v2`), served on Modal as
+`genesis-ai-dev--codex-asr-serve.modal.run` (renamed from the
+historical `mms-zeroshot-asr` deployment).
+
+The Frontier auth server runs a thin **proxy** in front of that Modal
+endpoint, adds JWT validation, and is what the Codex client actually talks to
+in production. This spec covers the proxy's wire contract; the proxy in turn
+forwards to OmniASR.
 
 ## Overview
 
-The Codex Editor uses a simple HTTP POST request for audio transcription. This allows for straightforward integration without WebSocket complexity.
+The client uses a simple multipart HTTP POST to the proxy URL. No
+WebSockets, no streaming progress messages. One request → one transcription.
 
 ## Authentication
 
-The client passes authentication via a JWT token as either:
+The client passes a Frontier JWT via either:
 1. **Authorization header**: `Authorization: Bearer <token>`
 2. **Query parameter**: `?token=<token>&source=codex`
 
 The server should:
-1. Validate the JWT token before processing the request
-2. Reject requests with invalid or missing tokens (401)
-3. Establish a connection to the actual ASR service (e.g., Modal endpoint)
-4. Forward the audio file and return the transcription result
+1. Validate the JWT before processing.
+2. Reject invalid/missing tokens with HTTP 401.
+3. Forward the audio (and the optional `lang` query parameter, if present)
+   to the upstream OmniASR service.
+4. Return the upstream's JSON response.
 
 ## Request Protocol
 
@@ -35,20 +46,34 @@ Authorization: Bearer <token>  (optional if token in query)
 
 ### Query Parameters
 
-- `source` (required): `"codex"` or `"langquest"`
-- `token` (optional): JWT token if not in Authorization header
+- `source` (required): `"codex"` or `"langquest"` — for logging.
+- `token` (optional): JWT, if not in the Authorization header.
+- `lang` (**optional**): OmniASR language code in
+  `{iso639_3}_{Script}` form (e.g. `swh_Latn`, `urd_Arab`, `cmn_Hans`).
+  Forward this directly to OmniASR. **Omit** it to engage the upstream's
+  built-in language ID — `codex-asr` runs MMS-LID first and feeds the
+  detected code into OmniASR (the resolved code is then included in the
+  response). The full list of accepted codes is bundled with the client
+  in `sharedUtils/omniAsrSupportedLangs.ts` (and is the live response of
+  OmniASR's `GET /languages`).
 
 ### Request Body
 
 **Content-Type**: `multipart/form-data`
 
 **Form Fields**:
-- `file`: Audio file (WAV, MP3, OGG, FLAC, WebM - max 50MB)
+- `file`: Audio file (WAV, MP3, OGG, FLAC, WebM, M4A — max 50 MB,
+  max 40 s per chunk; OmniASR chunks longer audio internally)
 
-### Example Request
+### Example Requests
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/asr/transcribe?source=codex&token=JWT_TOKEN" \
+# Auto-detect (no lang)
+curl -X POST "https://auth.frontier.example/api/v1/asr/transcribe?source=codex&token=JWT_TOKEN" \
+  -F "file=@audio.wav"
+
+# Project-language mode (Swahili, Latin script)
+curl -X POST "https://auth.frontier.example/api/v1/asr/transcribe?source=codex&token=JWT_TOKEN&lang=swh_Latn" \
   -F "file=@audio.wav"
 ```
 
@@ -60,9 +85,25 @@ curl -X POST "http://localhost:8000/api/v1/asr/transcribe?source=codex&token=JWT
 {
   "text": "This is the transcribed text",
   "duration_s": 4.94,
-  "inference_s": 1.72
+  "inference_s": 1.72,
+  "lang": "swh_Latn"
 }
 ```
+
+The `lang` field reflects what was **actually used** for transcription:
+- Request supplied `lang` → echoed verbatim.
+- Request omitted `lang` → upstream ran MMS-LID and the resolved
+  `{iso639_3}_{Script}` code is returned here. If LID failed (silence,
+  unrecognised language, …) the field is omitted and the response also
+  includes `lid_s` so callers can tell auto-detect actually ran. The
+  client renders an "Auto Detect" badge in that case.
+
+Auto-detect responses include an additional `"lid_s": <float>` field
+with the LID inference time (useful for monitoring).
+
+The client also accepts a legacy field name `language` in place of `lang`
+(this was the Frontier proxy's earlier convention) — either works. Prefer
+`lang` going forward.
 
 ### Error Response (4xx/5xx)
 
@@ -73,32 +114,30 @@ curl -X POST "http://localhost:8000/api/v1/asr/transcribe?source=codex&token=JWT
 ```
 
 **Common Error Codes**:
-- `400`: Bad Request (missing source parameter, invalid audio format)
+- `400`: Bad request (missing source, invalid audio, unknown `lang` code)
 - `401`: Unauthorized (invalid or missing token)
-- `502`: Bad Gateway (upstream service unavailable)
-- `504`: Gateway Timeout (upstream service timeout)
+- `502`: Bad gateway (upstream OmniASR unavailable)
+- `504`: Gateway timeout (upstream timeout)
 
 ## Example Implementation (Python/FastAPI)
-
-Here's a basic example of implementing the ASR proxy endpoint:
 
 ```python
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Header
 from fastapi.responses import JSONResponse
 import httpx
 import jwt
+from typing import Optional
 
 app = FastAPI()
 
-# Configuration
-ASR_SERVICE_URL = "https://genesis-ai-dev--mms-zeroshot-asr-serve.modal.run/transcribe"
+# Configuration (post-rename; the old URL was
+# https://genesis-ai-dev--mms-zeroshot-asr-serve.modal.run/transcribe)
+ASR_SERVICE_URL = "https://genesis-ai-dev--codex-asr-serve.modal.run/transcribe"
 JWT_SECRET = "your-jwt-secret"
 
 def validate_token(token: str) -> dict:
-    """Validate JWT token and return payload"""
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-        return payload
+        return jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
@@ -107,74 +146,69 @@ async def transcribe_audio(
     file: UploadFile = File(...),
     authorization: Optional[str] = Header(None),
     token: Optional[str] = Query(None),
-    source: str = Query(...)
+    source: str = Query(...),
+    lang: Optional[str] = Query(None),  # OmniASR {iso639_3}_{Script}
 ):
-    """HTTP POST endpoint for ASR transcription with authentication"""
-    
-    # Extract token from header or query
     auth_token = None
     if authorization and authorization.startswith("Bearer "):
         auth_token = authorization[7:]
     elif token:
         auth_token = token
-    
     if not auth_token:
         raise HTTPException(status_code=401, detail="Token required")
-    
-    # Validate token
-    try:
-        user = validate_token(auth_token)
-        user_id = user.get("sub")
-    except HTTPException:
-        raise
-    
-    # Read audio file
+    validate_token(auth_token)
+
     audio_content = await file.read()
-    
-    # Forward to upstream ASR service
+
     async with httpx.AsyncClient(timeout=60.0) as client:
         files = {"file": (file.filename, audio_content, file.content_type)}
-        response = await client.post(ASR_SERVICE_URL, files=files)
-        
+        params = {}
+        if lang:
+            params["lang"] = lang
+        response = await client.post(ASR_SERVICE_URL, files=files, params=params)
+
         if response.status_code != 200:
             raise HTTPException(
                 status_code=response.status_code,
-                detail=f"Transcription service error: {response.text}"
+                detail=f"Transcription service error: {response.text}",
             )
-        
+
+        # Pass OmniASR's response through verbatim (it already echoes `lang`
+        # when present, and omits it in auto-detect mode).
         return JSONResponse(content=response.json())
 ```
 
 ## Client Implementation Reference
 
-The Codex Editor client implementation can be found in:
+- **Client**: `webviews/codex-webviews/src/CodexCellEditor/WhisperTranscriptionClient.ts`
+- **Code resolver** (project language → `{iso639_3}_{Script}`):
+  `sharedUtils/asrLanguageUtils.ts`
+- **Supported codes**: `sharedUtils/omniAsrSupportedLangs.ts`
+- **Default scripts**: `sharedUtils/omniAsrDefaultScripts.ts`
+- **Friendly names**: `sharedUtils/omniAsrFriendlyNames.ts`
 
-- **TypeScript Client**: `webviews/codex-webviews/src/CodexCellEditor/WhisperTranscriptionClient.ts`
-- **Integration**: `webviews/codex-webviews/src/CodexCellEditor/CodexCellEditor.tsx`
+### Key Client Behaviour
 
-### Key Client Behavior
-
-1. Requests ASR config (including auth token) from VS Code extension
-2. Creates FormData with audio blob
-3. POSTs to endpoint URL with token in query parameter or Authorization header
-4. Receives JSON response with transcription text
-5. Handles errors and timeouts (default 60s)
+1. Requests ASR config (endpoint + auth token + resolved OmniASR code) from the extension host.
+2. POSTs `multipart/form-data` with the audio file; forwards `?lang=...` when in project mode.
+3. Parses `lang` (or legacy `language`) from the JSON response and stores it
+   on the cell's audio attachment.
+4. Renders the badge from the stored code via
+   `labelForTranscriptionLanguage()`.
 
 ## Testing Your Implementation
 
-### Test Cases
-
-1. **Valid audio**: Should return transcription
-2. **Invalid audio format**: Should return error message
-3. **Missing token**: Should reject with 401
-4. **Invalid token**: Should reject with 401
-5. **Timeout**: Should handle gracefully (client has 60s timeout)
-6. **Large audio files**: Should handle up to 50MB
-7. **Network errors**: Should return appropriate error codes
+1. **Project-mode request**: `?lang=swh_Latn` → expect 200 with
+   `"lang": "swh_Latn"` in response.
+2. **Auto-detect**: no `lang` → expect 200, **no** `lang` in response.
+3. **Unknown code**: `?lang=zzz_Zzzz` → expect 400 with descriptive error.
+4. **Invalid token**: 401.
+5. **Large audio (≤ 50 MB)**: 200.
+6. **Long audio (> 40 s)**: OmniASR chunks it; expect 200 with full
+   concatenated transcription.
+7. **Network error / upstream down**: 502/504 surfaced honestly.
 
 ## Supported Audio Formats
-
-The endpoint should support common audio formats:
 
 - `audio/webm` (recommended for browser recording)
 - `audio/wav`
@@ -185,28 +219,20 @@ The endpoint should support common audio formats:
 
 ## Security Considerations
 
-1. **Token Validation**: Always validate JWT tokens before processing
-2. **Rate Limiting**: Implement per-user rate limits to prevent abuse
-3. **File Size Limits**: Set reasonable limits on audio file sizes (50MB recommended)
-4. **Timeout**: Implement server-side timeouts to prevent hanging requests (60s recommended)
-5. **Logging**: Log usage for monitoring and debugging (but respect privacy)
-6. **HTTPS**: Always use secure connections in production
-
-## Performance Recommendations
-
-1. **Streaming**: For very large files, consider streaming uploads
-2. **Caching**: Cache model loading to reduce cold starts (handled by upstream service)
-3. **Resource Cleanup**: Properly close connections and free resources
-4. **Concurrent Requests**: Handle multiple simultaneous transcriptions efficiently
-5. **Timeout Handling**: Set reasonable timeouts for upstream requests
+1. **Token validation**: validate JWT before processing.
+2. **Rate limiting**: per-user limits to prevent abuse.
+3. **File size limits**: 50 MB.
+4. **Timeout**: server-side timeouts to prevent hanging requests (60 s recommended).
+5. **Logging**: log usage for monitoring but respect privacy.
+6. **HTTPS**: always.
 
 ## Integration with Frontier Auth Server
 
 The Frontier auth server should:
 
-1. Provide `getAsrEndpoint()` method returning the proxy HTTP URL
-2. Generate short-lived JWT tokens for ASR requests
-3. Include user identification in tokens for logging
-4. Handle token refresh if needed for long transcriptions
+1. Implement `getAsrEndpoint()` returning the proxy HTTPS URL.
+2. Generate short-lived JWTs for ASR requests.
+3. Include user identification in tokens for logging.
+4. Handle token refresh for long transcriptions if needed.
 
-This follows the same pattern as the existing `getLlmEndpoint()` implementation.
+This follows the same pattern as the existing `getLlmEndpoint()`.

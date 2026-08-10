@@ -32,7 +32,6 @@ import { exportCodexContentAsPlaintext } from "./plaintextExporter";
 import { exportCodexContentAsXliff } from "./xliffExporter";
 import { exportCodexContentAsUsfm } from "./usfmExporter";
 import { exportCodexContentAsHtml } from "./htmlExporter";
-import { analyzeNotebookContent } from "../projectManager/utils/exportViewUtils";
 import {
     createNoopReporter,
     type ExportProgressReporter,
@@ -1797,9 +1796,10 @@ export async function exportCodexContent(
         case CodexExportFormat.AUDIO: {
             if (options?.consolidateByCharacter) {
                 const { exportAudioByCharacter } = await import("./characterAudioExporter");
-                exportPromises.push(exportAudioByCharacter(wrapperPath, filesToExport, {
+                exportPromises.push(exportAudioByCharacter(wrapperPath, filesToExport, childReporter, {
                     format: options?.consolidatedAudioFormat,
-                }));
+                    selectedMilestonesByFile: options?.selectedMilestonesByFile,
+                }, token));
             } else {
                 const { exportAudioAttachments } = await import("./audioExporter");
                 exportPromises.push(exportAudioAttachments(wrapperPath, filesToExport, childReporter, {
@@ -1841,9 +1841,10 @@ export async function exportCodexContent(
     if (includeAudio) {
         if (options?.consolidateByCharacter) {
             const { exportAudioByCharacter } = await import("./characterAudioExporter");
-            exportPromises.push(exportAudioByCharacter(audioPath, filesToExport, {
+            exportPromises.push(exportAudioByCharacter(audioPath, filesToExport, childReporter, {
                 format: options?.consolidatedAudioFormat,
-            }));
+                selectedMilestonesByFile: options?.selectedMilestonesByFile,
+            }, token));
         } else {
             const { exportAudioAttachments } = await import("./audioExporter");
             exportPromises.push(
@@ -1874,23 +1875,7 @@ export async function exportCodexContent(
         return;
     }
 
-    // Write NOTICE.txt in per-file folders that will be empty due to missing content,
-    // and emit fileMissing events for them so the webview sees a complete list.
-    const isTextFormat = format !== CodexExportFormat.AUDIO;
     const isAudioExport = includeAudio || format === CodexExportFormat.AUDIO;
-    if (isTextFormat || isAudioExport) {
-        try {
-            reporter.report({ stage: "finalizing", message: "Generating notices for missing content..." });
-            await generateMissingContentNotices(
-                filesToExport,
-                isTextFormat ? formatPath : null,
-                isAudioExport ? audioPath : null,
-                childReporter
-            );
-        } catch (e) {
-            debug("Failed to generate NOTICE.txt files:", e);
-        }
-    }
 
     if (aggregated.errorMessages.length > 0 && aggregated.filesExported === 0) {
         reporter.error(aggregated.errorMessages.join("\n"));
@@ -1910,53 +1895,6 @@ export async function exportCodexContent(
             ...aggregated.errorMessages,
         ],
     });
-}
-
-async function generateMissingContentNotices(
-    filesToExport: string[],
-    textExportPath: string | null,
-    audioExportPath: string | null,
-    reporter?: ExportProgressReporter
-): Promise<void> {
-    for (const filePath of filesToExport) {
-        try {
-            const uri = vscode.Uri.file(filePath);
-            const notebook = await readCodexNotebookFromUri(uri);
-            const { hasTranslations, hasAudio } = analyzeNotebookContent(notebook);
-            const bookCode = basename(filePath).split(".")[0] || "BOOK";
-
-            if (audioExportPath && !hasAudio) {
-                const noticeUri = vscode.Uri.file(
-                    path.join(audioExportPath, bookCode, "NOTICE.txt")
-                );
-                await vscode.workspace.fs.createDirectory(
-                    vscode.Uri.file(path.join(audioExportPath, bookCode))
-                );
-                await vscode.workspace.fs.writeFile(
-                    noticeUri,
-                    Buffer.from(
-                        "This folder is empty because the source file contained no audio translations.\n"
-                    )
-                );
-                reporter?.fileMissing(bookCode, "no-audio-recorded");
-            }
-
-            if (textExportPath && !hasTranslations) {
-                const noticeUri = vscode.Uri.file(
-                    path.join(textExportPath, `${bookCode}-NOTICE.txt`)
-                );
-                await vscode.workspace.fs.writeFile(
-                    noticeUri,
-                    Buffer.from(
-                        "No text file was generated because the source file contained no text translations.\n"
-                    )
-                );
-                reporter?.fileMissing(bookCode, "no-text-recorded");
-            }
-        } catch (e) {
-            debug(`Failed to check content for ${filePath}:`, e);
-        }
-    }
 }
 
 // Compact helpers for id handling and lookups

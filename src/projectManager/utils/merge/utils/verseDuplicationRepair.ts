@@ -1,0 +1,329 @@
+import { CodexCellTypes, EditType } from "../../../../../types/enums";
+import { EditMapUtils } from "../../../../utils/editMapUtils";
+import { parseVerseRef } from "../../../../utils/verseRefUtils";
+import { isBibleTypeImporter } from "../../../../../sharedUtils/importerTypeUtils";
+
+/**
+ * Verse-range duplication repair (issue #848 / Pattani Malay).
+ *
+ * When a book exists in two versifications at once — verse-RANGE cells ("MAT 8:14-15")
+ * coexisting with SINGLE-verse cells ("MAT 8:14", "MAT 8:15") — the codex merge resolver keeps
+ * BOTH (it dedupes by metadata.id, and the two forms carry different ids), so the duplicates
+ * accumulate with translated content stranded across the two forms. This module collapses the
+ * duplication WITHOUT losing content or imposing a versification, and is shared by:
+ *   - the one-off repair migration (migration_repairVerseRangeDuplication), and
+ *   - the codex merge resolver (so duplication self-heals on every git sync and can't recur).
+ *
+ * Pure (no vscode); safe to unit-test standalone.
+ */
+
+interface VerseRepairCell {
+    cell: any;
+    id: string;
+    ref: string;
+    book: string;
+    chapter: number;
+    verses: number[];
+    isRange: boolean;
+    content: boolean;
+}
+
+/** True when a cell value carries real text once HTML tags / whitespace are stripped. */
+export function verseRepairHasContent(value: unknown): boolean {
+    if (typeof value !== "string" || value.length === 0) return false;
+    const text = value
+        .replace(/<[^>]*>/g, "")
+        .replace(/&nbsp;/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    return text.length > 0;
+}
+
+/**
+ * True when a cell carries a non-deleted attachment (recorded audio, etc.) that must not be
+ * silently dropped. Mirrors the app's "has live audio" check (an attachment whose `isDeleted`
+ * flag is not set); treats ANY live attachment as preservable so no recorded media is lost, even
+ * when the underlying file is currently missing locally.
+ */
+function cellHasLiveAttachment(cell: any): boolean {
+    const attachments = cell?.metadata?.attachments;
+    if (!attachments || typeof attachments !== "object") return false;
+    for (const key of Object.keys(attachments)) {
+        const att = attachments[key];
+        if (att && att.isDeleted !== true) return true;
+    }
+    return false;
+}
+
+/** A cell holds data worth preserving when it has real text OR a live attachment (e.g. audio). */
+function cellHasPreservableContent(cell: any): boolean {
+    return verseRepairHasContent(cell?.value) || cellHasLiveAttachment(cell);
+}
+
+/** True when a cell carries live (non-deleted) audio specifically — used to label conflicts. */
+function cellHasLiveAudio(cell: any): boolean {
+    const attachments = cell?.metadata?.attachments;
+    if (!attachments || typeof attachments !== "object") return false;
+    for (const key of Object.keys(attachments)) {
+        const att = attachments[key];
+        if (att && att.type === "audio" && att.isDeleted !== true) return true;
+    }
+    return false;
+}
+
+/** Concise passage label for a conflict cluster, e.g. "MAT 8:14-15". */
+function conflictLabel(cluster: VerseRepairCell[]): string {
+    const book = cluster[0]?.book ?? "";
+    const chapter = cluster[0]?.chapter ?? "";
+    let minV = Infinity;
+    let maxV = -Infinity;
+    for (const c of cluster)
+        for (const v of c.verses) {
+            if (v < minV) minV = v;
+            if (v > maxV) maxV = v;
+        }
+    if (!Number.isFinite(minV)) return `${book} ${chapter}`.trim();
+    return maxV > minV ? `${book} ${chapter}:${minV}-${maxV}` : `${book} ${chapter}:${minV}`;
+}
+
+function verseRepairIsCoveredByKept(
+    v: number,
+    cluster: VerseRepairCell[],
+    keep: Set<string>
+): boolean {
+    for (const c of cluster) if (keep.has(c.id) && c.verses.includes(v)) return true;
+    return false;
+}
+
+/**
+ * Decide which cells in one coverage cluster to keep vs tombstone.
+ *   - Every cell with content is KEPT.
+ *   - A CONFLICT (two content cells sharing a verse) returns `conflict: true` and tombstones
+ *     nothing — the repair never auto-removes translated text.
+ *   - Empty cells are kept only to cover verses no content cell covers, preferring the chapter's
+ *     dominant structural form; the rest are tombstoned.
+ *   - If the kept set does not cover every cluster verse exactly once, bail out (tombstone none).
+ */
+function classifyVerseCluster(
+    cluster: VerseRepairCell[],
+    dominantForm: "range" | "single"
+): { conflict: boolean; tombstone: string[] } {
+    const content = cluster.filter((c) => c.content);
+
+    const seenVerse = new Set<number>();
+    for (const c of content) {
+        for (const v of c.verses) {
+            if (seenVerse.has(v)) return { conflict: true, tombstone: [] };
+            seenVerse.add(v);
+        }
+    }
+
+    const keep = new Set<string>(content.map((c) => c.id));
+    const coveredByContent = new Set<number>();
+    for (const c of content) for (const v of c.verses) coveredByContent.add(v);
+
+    const allVerses = new Set<number>();
+    for (const c of cluster) for (const v of c.verses) allVerses.add(v);
+    const need = new Set<number>([...allVerses].filter((v) => !coveredByContent.has(v)));
+
+    if (need.size > 0) {
+        const empties = cluster.filter((c) => !c.content);
+        const formRank = (c: VerseRepairCell) =>
+            dominantForm === "single" ? (c.isRange ? 1 : 0) : c.isRange ? 0 : 1;
+        empties.sort((a, b) => formRank(a) - formRank(b) || a.verses.length - b.verses.length);
+        for (const c of empties) {
+            if (keep.has(c.id)) continue;
+            const coversNeeded = c.verses.some((v) => need.has(v));
+            const overlapsKept = c.verses.some(
+                (v) =>
+                    !need.has(v) &&
+                    (coveredByContent.has(v) || verseRepairIsCoveredByKept(v, cluster, keep))
+            );
+            if (coversNeeded && !overlapsKept) {
+                keep.add(c.id);
+                for (const v of c.verses) need.delete(v);
+            }
+            if (need.size === 0) break;
+        }
+    }
+
+    // Sanity: kept cells must cover every cluster verse exactly once, else leave it for review.
+    const cover = new Map<number, number>();
+    for (const c of cluster) {
+        if (!keep.has(c.id)) continue;
+        for (const v of c.verses) cover.set(v, (cover.get(v) || 0) + 1);
+    }
+    for (const v of allVerses) {
+        if ((cover.get(v) || 0) !== 1) return { conflict: false, tombstone: [] };
+    }
+
+    // Defensive: never tombstone a content cell (content is always in `keep` above).
+    const tombstone = cluster.filter((c) => !keep.has(c.id) && !c.content).map((c) => c.id);
+    return { conflict: false, tombstone };
+}
+
+export interface VerseDuplicationRepairPlan {
+    tombstoneIds: string[];
+    conflicts: Array<{ chapter: number; refs: string[]; hasAudio: boolean; label: string }>;
+}
+
+/**
+ * Build a repair plan for a notebook's cells: which empty duplicate cells to soft-delete and
+ * which overlapping-content conflicts to leave for manual review. Pure + idempotent (only live
+ * cells are considered, so a clean or already-repaired notebook yields an empty plan).
+ */
+export function planVerseDuplicationRepair(cells: any[]): VerseDuplicationRepairPlan {
+    const tombstoneIds: string[] = [];
+    const conflicts: Array<{ chapter: number; refs: string[]; hasAudio: boolean; label: string }> = [];
+    if (!Array.isArray(cells) || cells.length === 0) return { tombstoneIds, conflicts };
+
+    // Live text cells with a parseable ref, grouped by BOOK + chapter. Grouping by book is
+    // essential for multi-book notebooks (e.g. a "GEN-DEU" study-bible file): without it, GEN 1:1
+    // and EXO 1:1 share the same chapter:verse and would be wrongly treated as duplicates.
+    const byBookChapter = new Map<string, VerseRepairCell[]>();
+    for (const cell of cells) {
+        const md = cell?.metadata;
+        if (md?.type !== CodexCellTypes.TEXT) continue;
+        if (md?.data?.deleted === true) continue;
+        const id = md?.id;
+        if (typeof id !== "string" || id.length === 0) continue;
+        const ref = md?.data?.globalReferences?.[0];
+        if (typeof ref !== "string") continue;
+        const parsed = parseVerseRef(ref);
+        if (!parsed) continue;
+        const verses: number[] = [];
+        if (parsed.kind === "range") {
+            for (let v = parsed.verseStart; v <= parsed.verseEnd; v++) verses.push(v);
+        } else {
+            verses.push(parsed.verse);
+        }
+        if (verses.length === 0) continue;
+        const key = `${parsed.book} ${parsed.chapter}`;
+        const arr = byBookChapter.get(key) || [];
+        arr.push({
+            cell,
+            id,
+            ref,
+            book: parsed.book,
+            chapter: parsed.chapter,
+            verses,
+            isRange: parsed.kind === "range",
+            content: cellHasPreservableContent(cell),
+        });
+        byBookChapter.set(key, arr);
+    }
+
+    for (const groupCells of byBookChapter.values()) {
+        const chCells = groupCells;
+        const chapter = chCells[0].chapter;
+        // Dominant structural form among CONTENT cells in this chapter.
+        let rangeCount = 0;
+        let singleCount = 0;
+        for (const c of chCells) if (c.content) c.isRange ? rangeCount++ : singleCount++;
+        const dominantForm: "range" | "single" = rangeCount > singleCount ? "range" : "single";
+
+        // Connected components by shared verse coverage.
+        const verseMap = new Map<number, VerseRepairCell[]>();
+        for (const c of chCells)
+            for (const v of c.verses) {
+                const arr = verseMap.get(v) || [];
+                arr.push(c);
+                verseMap.set(v, arr);
+            }
+        const seen = new Set<string>();
+        for (const startCell of chCells) {
+            if (seen.has(startCell.id)) continue;
+            const cluster: VerseRepairCell[] = [];
+            const stack = [startCell];
+            seen.add(startCell.id);
+            while (stack.length) {
+                const cur = stack.pop()!;
+                cluster.push(cur);
+                for (const v of cur.verses)
+                    for (const neighbor of verseMap.get(v) || [])
+                        if (!seen.has(neighbor.id)) {
+                            seen.add(neighbor.id);
+                            stack.push(neighbor);
+                        }
+            }
+            if (cluster.length < 2) continue; // no duplication
+
+            // Only the verse-RANGE/single duplication pattern (issue #848) is eligible: a cluster
+            // must contain at least one range cell. Pure-single overlaps — e.g. a study bible with
+            // many note cells sharing one verse ref, or any other repeated single ref — are left
+            // entirely untouched (neither tombstoned nor flagged), since they are not the merge
+            // duplication this repair targets and may be legitimate.
+            if (!cluster.some((c) => c.isRange)) continue;
+
+            const result = classifyVerseCluster(cluster, dominantForm);
+            if (result.conflict) {
+                conflicts.push({
+                    chapter,
+                    refs: cluster.map((c) => c.ref),
+                    hasAudio: cluster.some((c) => cellHasLiveAudio(c.cell)),
+                    label: conflictLabel(cluster),
+                });
+                continue;
+            }
+            for (const id of result.tombstone) tombstoneIds.push(id);
+        }
+    }
+
+    return { tombstoneIds, conflicts };
+}
+
+/**
+ * Plan + apply the repair to a cell array in place. Soft-deletes empty duplicate cells with a
+ * MIGRATION edit (row + history preserved so the deletion wins on later merges). Conflicts are
+ * left untouched. Idempotent. No-op for known non-Bible importer types (mirrors
+ * {@link reorderVerseRangeCells}). Returns how many cells were tombstoned and how many
+ * overlapping-content conflicts were left for manual review.
+ */
+export function applyVerseDuplicationRepair(
+    cells: any[],
+    options?: { importerType?: string | null }
+): { tombstoned: number; conflicts: number } {
+    const importerType = options?.importerType;
+    if (
+        typeof importerType === "string" &&
+        importerType.trim() &&
+        !isBibleTypeImporter(importerType)
+    ) {
+        return { tombstoned: 0, conflicts: 0 };
+    }
+
+    const plan = planVerseDuplicationRepair(cells);
+    if (plan.tombstoneIds.length === 0) {
+        return { tombstoned: 0, conflicts: plan.conflicts.length };
+    }
+
+    const cellById = new Map<string, any>();
+    for (const c of cells) {
+        const id = c?.metadata?.id;
+        if (typeof id === "string") cellById.set(id, c);
+    }
+
+    const timestamp = Date.now();
+    let tombstoned = 0;
+    for (const id of plan.tombstoneIds) {
+        const cell = cellById.get(id);
+        if (!cell) continue;
+        const md = cell.metadata || (cell.metadata = {});
+        if (md.data?.deleted === true) continue;
+        if (cellHasPreservableContent(cell)) continue; // never delete text or audio/attachments
+        md.data = md.data || {};
+        md.data.deleted = true;
+        md.edits = md.edits || [];
+        md.edits.push({
+            editMap: EditMapUtils.dataDeleted(),
+            value: true,
+            timestamp,
+            type: EditType.MIGRATION,
+            author: "system",
+            validatedBy: [],
+        });
+        tombstoned++;
+    }
+
+    return { tombstoned, conflicts: plan.conflicts.length };
+}
