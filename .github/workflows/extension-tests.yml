@@ -15,7 +15,10 @@ permissions:
 
 jobs:
     test:
-        name: Node ${{ matrix.node }} • ${{ matrix.os }}
+        # Keep the Node version out of the job name: these names are what
+        # branch protection matches on, so bumping the matrix shouldn't
+        # orphan the required status checks.
+        name: Test • ${{ matrix.os }}
         runs-on: ${{ matrix.os }}
         timeout-minutes: 20
         defaults:
