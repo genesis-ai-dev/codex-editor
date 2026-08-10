@@ -27,7 +27,7 @@ let currentReason: ReviewReason | undefined;
 async function showReviewReminderModal(): Promise<void> {
     const openSettings = "Open Copilot Settings";
     const choice = await vscode.window.showWarningMessage(
-        "You changed your project's language but didn't update your AI translation instructions. If they still need to match the new language, you can update them anytime in Copilot Settings.",
+        "You changed your project's language but didn't update your AI translation instructions.\n\nTo update them to match the new language, you can edit them at any time in Copilot Settings.",
         { modal: true },
         openSettings
     );
