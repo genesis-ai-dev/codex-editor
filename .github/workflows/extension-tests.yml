@@ -25,7 +25,8 @@ jobs:
             fail-fast: false
             matrix:
                 os: [ubuntu-latest, macos-latest, windows-latest]
-                node: [20]
+                # @vscode/test-electron 3.x requires Node >= 22
+                node: [22]
 
         steps:
             - name: Checkout
@@ -52,27 +53,8 @@ jobs:
                   NODE_OPTIONS: --max_old_space_size=4096
               run: xvfb-run -a npm test
 
-            - name: Test (Windows)
-              if: runner.os == 'Windows'
-              env:
-                  NODE_OPTIONS: --max_old_space_size=4096
-              run: npm test
-
-            # macOS is intentionally non-blocking for now. The VS Code test
-            # harness (@vscode/test-electron 2.x) fails to launch the downloaded
-            # darwin-arm64 build on GitHub's macos-latest runner:
-            #   Error: spawn .../Visual Studio Code.app/Contents/MacOS/Electron ENOENT
-            # This is an upstream harness/runner incompatibility (see
-            # microsoft/vscode-test#348), not a problem with the extension —
-            # lint + compile pass on macOS and the full test suite passes on
-            # Linux and Windows. `continue-on-error` keeps the job running (so
-            # the failure stays visible in logs and the leg self-heals once the
-            # upstream fix lands) while preventing it from blocking merges.
-            # Remove this once @vscode/test-electron is upgraded (requires
-            # Node >= 22) and the arm64 launch is fixed upstream.
-            - name: Test (macOS, non-blocking)
-              if: runner.os == 'macOS'
-              continue-on-error: true
+            - name: Test (Windows / macOS)
+              if: runner.os != 'Linux'
               env:
                   NODE_OPTIONS: --max_old_space_size=4096
               run: npm test
