@@ -51,6 +51,23 @@ const makeMergedCell = (
     },
 });
 
+const makeHiddenCell = (
+    id: string,
+    value: string,
+    startTime: number,
+    endTime: number
+): Cell => ({
+    kind: 2,
+    languageId: "html",
+    value,
+    metadata: {
+        id,
+        type: CodexCellTypes.TEXT,
+        edits: [],
+        data: { startTime, endTime, hidden: true },
+    },
+});
+
 const makeCellWithoutTimestamps = (id: string, value: string): Cell => ({
     kind: 2,
     languageId: "html",
@@ -128,6 +145,15 @@ suite("Subtitle export filtering – milestone and timestamp guards", () => {
         assert.ok(srt.includes("Hello world"));
     });
 
+    test("SRT: excludes hidden cells", () => {
+        const cells: Cell[] = [makeHiddenCell("hidden-1", "Hidden text", 1, 2), ...textCells];
+
+        const srt = generateSrtData(cells, false);
+
+        assert.ok(!srt.includes("Hidden text"), "Hidden cell should be excluded from SRT");
+        assert.ok(srt.includes("Hello world"));
+    });
+
     test("SRT: outputs correct indices after filtering", () => {
         const cells: Cell[] = [
             makeMilestoneCell("ms-1", "Chapter 1"),
@@ -188,6 +214,15 @@ suite("Subtitle export filtering – milestone and timestamp guards", () => {
         const vtt = generateVttData(cells, false, false, "test.codex");
 
         assert.ok(!vtt.includes("Merged text"), "Merged cell should be excluded from VTT");
+        assert.ok(vtt.includes("Hello world"));
+    });
+
+    test("VTT: excludes hidden cells", () => {
+        const cells: Cell[] = [makeHiddenCell("hidden-1", "Hidden text", 1, 2), ...textCells];
+
+        const vtt = generateVttData(cells, false, false, "test.codex");
+
+        assert.ok(!vtt.includes("Hidden text"), "Hidden cell should be excluded from VTT");
         assert.ok(vtt.includes("Hello world"));
     });
 

@@ -39,7 +39,7 @@ export const FILE_TYPE_DISPLAY_NAMES: Record<string, string> = {
 };
 
 export interface NotebookAudioStats {
-    /** Active cells (kind 1|2, not merged/deleted) — the denominator. */
+    /** Active cells (kind 1|2, not merged/deleted/hidden) — the denominator. */
     eligibleCellCount: number;
     /** Cells with a take that will actually be exported. */
     audioReadyCount: number;
@@ -123,8 +123,8 @@ function isActiveTextCell(cell: CellEntry): boolean {
     if (cellType !== "text") {
         return false;
     }
-    const data = meta.data as { merged?: boolean; deleted?: boolean; } | undefined;
-    return !(data?.merged) && !(data?.deleted);
+    const data = meta.data as { merged?: boolean; deleted?: boolean; hidden?: boolean; } | undefined;
+    return !(data?.merged) && !(data?.deleted) && !(data?.hidden);
 }
 
 function cellHasNonEmptyValue(cell: CellEntry): boolean {

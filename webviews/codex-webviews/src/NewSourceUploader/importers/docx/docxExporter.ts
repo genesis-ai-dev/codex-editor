@@ -121,6 +121,14 @@ function collectTranslations(
     for (const cell of codexCells) {
         const meta = cell.metadata;
 
+        // Skip cells that should not appear in export (same semantics as getActiveCells)
+        if (meta?.data?.merged || meta?.data?.deleted || meta?.data?.hidden) {
+            continue;
+        }
+        if (meta?.type === 'milestone') {
+            continue;
+        }
+
         const translated = removeHtmlTags(cell.value).trim();
         if (!translated) continue;
 
