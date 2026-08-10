@@ -15,3 +15,20 @@ export const formatTimecode = (seconds: number): string => {
     const pad2 = (n: number) => String(n).padStart(2, "0");
     return `${pad2(h)}:${pad2(m)}:${pad2(s)}.${String(ms).padStart(3, "0")}`;
 };
+
+/**
+ * Returns a bracketed overage suffix (e.g. " [+5.000s]") when `actualSeconds`
+ * exceeds `allottedSeconds`, otherwise `null`.
+ *
+ * Used to surface how far a recorded audio clip runs past the time allowed by
+ * its cell timestamps, both in the Audio Recording tab's "Timestamp Length" bar
+ * and in the Timestamps tab's audio length readout.
+ */
+export const formatOverageSuffix = (
+    actualSeconds: number,
+    allottedSeconds: number
+): string | null => {
+    const overage = actualSeconds - allottedSeconds;
+    if (!isFinite(overage) || overage <= 0) return null;
+    return ` [+${overage.toFixed(3)}s]`;
+};
