@@ -16,6 +16,7 @@ import {
     MilestoneIndex,
 } from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
+import { EditMapUtils } from "../../utils/editMapUtils";
 import { maybeAutoResolveHtmlStructure } from "./utils/htmlStructureResolver";
 import {
     handleGlobalMessage,
@@ -3714,6 +3715,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 );
             }
 
+            // Resolve the author before mutating the cell: an await between
+            // updateCellData and the edits push lets an autosave serialize the
+            // cell and repopulate the serialization cache without the edit entry.
+            let author = "anonymous";
+            try {
+                const authApi = await this.getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                author = userInfo?.username || "anonymous";
+            } catch { /* ignore */ }
+
             const targetCellData = targetDocument.getCellData(cellId) || {};
             targetDocument.updateCellData(cellId, {
                 ...targetCellData,
@@ -3721,17 +3732,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             });
 
             try {
-                const cell = (targetDocument as any).getCell(cellId);
+                const cell = targetDocument.getCell(cellId);
                 if (cell) {
                     cell.metadata.edits = cell.metadata.edits || [];
                     cell.metadata.edits.push({
-                        editMap: ["metadata", "data", "hidden"],
+                        editMap: EditMapUtils.metadataNested("data", "hidden"),
                         value: hidden,
                         timestamp: Date.now(),
-                        type: "user-edit",
-                        author: "anonymous",
+                        type: EditType.USER_EDIT,
+                        author,
                         validatedBy: [],
                     });
+                    // Direct edits[] mutation bypasses updateCellData, so the
+                    // serialization cache must be invalidated by hand or a save
+                    // can write this cell from a stale cached string.
+                    targetDocument.markCellMutated(cellId);
                 }
             } catch (e) {
                 console.warn("Failed to append hidden edit on paired file cell", e);

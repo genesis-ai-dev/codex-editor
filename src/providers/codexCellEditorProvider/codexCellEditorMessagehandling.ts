@@ -2911,6 +2911,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         debug("toggleCellVisibility message received for cell:", cellId, "hidden:", hidden);
 
         try {
+            // Resolve the author before mutating the cell: an await between
+            // updateCellData and the edits push lets an autosave serialize the
+            // cell and repopulate the serialization cache without the edit entry.
+            let user = "anonymous";
+            try {
+                const authApi = await provider.getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                user = userInfo?.username || "anonymous";
+            } catch { /* ignore */ }
+
             const currentCellData = document.getCellData(cellId) || {};
 
             document.updateCellData(cellId, {
@@ -2924,21 +2934,18 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     if (!cellForEdits.metadata.edits) {
                         cellForEdits.metadata.edits = [] as any;
                     }
-                    const ts = Date.now();
-                    let user = "anonymous";
-                    try {
-                        const authApi = await provider.getAuthApi();
-                        const userInfo = await authApi?.getUserInfo();
-                        user = userInfo?.username || "anonymous";
-                    } catch { /* ignore */ }
                     (cellForEdits.metadata.edits as any[]).push({
                         editMap: EditMapUtils.metadataNested("data", "hidden"),
                         value: hidden,
-                        timestamp: ts,
+                        timestamp: Date.now(),
                         type: EditType.USER_EDIT,
                         author: user,
                         validatedBy: [],
                     });
+                    // Direct edits[] mutation bypasses updateCellData, so the
+                    // serialization cache must be invalidated by hand or a save
+                    // can write this cell from a stale cached string.
+                    document.markCellMutated(cellId);
                 }
             } catch (e) {
                 console.warn("Failed to record visibility edit entry on cell", e);
