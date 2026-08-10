@@ -1,5 +1,13 @@
 # ASR Authentication Proxy Implementation Summary
 
+> **Historical changelog.** This documents the initial WebSocket-era
+> introduction of the Frontier auth proxy. The current contract is HTTP
+> POST and the upstream is OmniASR (not MMS). For an up-to-date wire
+> spec and reference implementation see
+> [`asr-proxy-endpoint.md`](./asr-proxy-endpoint.md); for the auth-server
+> integration points see
+> [`AUTH_SERVER_ASR_IMPLEMENTATION.md`](./AUTH_SERVER_ASR_IMPLEMENTATION.md).
+
 ## Overview
 
 Successfully migrated ASR transcription from Ryder's personal Modal namespace to an authenticated proxy architecture. The system now supports:

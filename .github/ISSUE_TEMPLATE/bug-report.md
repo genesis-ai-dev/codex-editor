@@ -1,17 +1,15 @@
 ---
 name: Bug Report
 about: Report a bug
-title: "[Bug]: "
+title: "Bug: "
 labels: bug
 assignees: ''
 ---
 
 ## Description
-
 Describe the bug.
 
 ## Steps to Reproduce
-
 1.
 2.
 3.
@@ -21,3 +19,5 @@ Describe the bug.
 ## Actual Behavior
 
 ## Acceptance Criteria
+
+## Test Checklist

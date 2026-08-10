@@ -1818,7 +1818,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // Process content cells (excluding milestones, paratext, and deleted)
             if (cellType !== CodexCellTypes.MILESTONE && cellType !== "paratext") {
                 const isDeleted = cell.metadata?.data?.deleted === true;
-                if (!isDeleted) {
+                // Child cells (splits) are excluded from counts: pagination, subsection labels,
+                // and line numbering are all root-based (children display on their parent's page)
+                const isChildCell =
+                    cell.metadata?.parentId !== undefined ||
+                    (cell.metadata?.data as { parentId?: string; } | undefined)?.parentId !== undefined;
+                if (!isDeleted && !isChildCell) {
                     totalContentCells++;
                 }
 
@@ -1832,8 +1837,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
                         cell.metadata.data = {} as any;
                     }
                     (cell.metadata.data as any).milestoneIndex = currentMilestoneIndex;
-                    // Only count non-deleted cells for milestone cell count
-                    if (!isDeleted) {
+                    // Only count non-deleted root cells for milestone cell count
+                    if (!isDeleted && !isChildCell) {
                         currentMilestoneCellCount++;
                     }
                 }

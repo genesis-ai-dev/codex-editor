@@ -11,8 +11,36 @@ export async function openCodexDocumentWithSourcePair(
 ): Promise<void> {
     const normalizedPath = codexUri.fsPath.replace(/\\/g, "/");
 
+    // Resolve the editor provider once so we can wait for each pane's webview to
+    // become ready before returning. Callers frequently publish a navigation jump
+    // (e.g. the `cellToJumpTo` workspace-state key) immediately after this resolves.
+    // The provider registers that jump listener while resolving each editor, and
+    // `waitForWebviewReady` only returns once a pane has signalled ready (i.e. after
+    // it resolved + registered its listener). If we don't wait for the TARGET pane,
+    // a cold-opened editor can miss the jump and land on chapter 1 instead of the
+    // requested cell. See issue #996.
+    let provider:
+        | { waitForWebviewReady(uri: string, maxWaitMs?: number): Promise<boolean>; }
+        | undefined;
+    try {
+        const { CodexCellEditorProvider } = await import(
+            "../providers/codexCellEditorProvider/codexCellEditorProvider"
+        );
+        provider = CodexCellEditorProvider.getInstance() ?? undefined;
+    } catch {
+        provider = undefined;
+    }
+    const waitForPaneReady = async (uri: vscode.Uri) => {
+        if (provider) {
+            await provider.waitForWebviewReady(uri.toString(), 3000);
+        } else {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+    };
+
     if (!workspaceFolderUri) {
         await vscode.commands.executeCommand("vscode.openWith", codexUri, "codex.cellEditor");
+        await waitForPaneReady(codexUri);
         return;
     }
 
@@ -32,20 +60,7 @@ export async function openCodexDocumentWithSourcePair(
             "codex.cellEditor",
             { viewColumn: vscode.ViewColumn.One }
         );
-
-        try {
-            const { CodexCellEditorProvider } = await import(
-                "../providers/codexCellEditorProvider/codexCellEditorProvider"
-            );
-            const provider = CodexCellEditorProvider.getInstance();
-            if (provider) {
-                await provider.waitForWebviewReady(sourceUri.toString(), 3000);
-            } else {
-                await new Promise((resolve) => setTimeout(resolve, 100));
-            }
-        } catch {
-            await new Promise((resolve) => setTimeout(resolve, 100));
-        }
+        await waitForPaneReady(sourceUri);
 
         await vscode.commands.executeCommand(
             "vscode.openWith",
@@ -53,6 +68,7 @@ export async function openCodexDocumentWithSourcePair(
             "codex.cellEditor",
             { viewColumn: vscode.ViewColumn.Two }
         );
+        await waitForPaneReady(codexUri);
     } catch (sourceError) {
         console.warn("Could not open source file:", sourceError);
         await vscode.commands.executeCommand(
@@ -61,5 +77,6 @@ export async function openCodexDocumentWithSourcePair(
             "codex.cellEditor",
             { viewColumn: vscode.ViewColumn.Two }
         );
+        await waitForPaneReady(codexUri);
     }
 }

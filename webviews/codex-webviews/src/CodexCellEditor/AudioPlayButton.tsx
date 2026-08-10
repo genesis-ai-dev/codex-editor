@@ -8,6 +8,10 @@ import {
     setCachedAttachmentAudioDataUrl,
     clearCachedAudio,
 } from "../lib/audioCache";
+import {
+    isAudioDownloading,
+    subscribeAudioDownloading,
+} from "../lib/audioDownloadRegistry";
 import type { EditorPostMessages } from "../../../../types";
 import { getCellListIcon, type AudioAvailability } from "./utils/audioViewMode";
 
@@ -110,6 +114,12 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
         const [isPlaying, setIsPlaying] = useState(false);
         const [audioUrl, setAudioUrl] = useState<string | null>(null);
         const [isLoading, setIsLoading] = useState(false);
+        // Reflects a download started elsewhere (e.g. the cell editor's "Click to
+        // download" button) so the cell-list icon shows the spinner too. Seeded
+        // from the registry because this button may mount after the download began.
+        const [externalDownloading, setExternalDownloading] = useState<boolean>(() =>
+            isAudioDownloading(cellId)
+        );
         const pendingPlayRef = useRef(false);
         const audioRef = useRef<HTMLAudioElement | null>(null);
         // Last `selectedAudioId` we observed for this cell on a broadcast.
@@ -410,6 +420,19 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
             }
         };
 
+        // Reflect downloads started elsewhere for this cell. Re-seed on mount/cellId
+        // change (covers the case where the download began before this button
+        // mounted) and stay in sync via the registry subscription.
+        useEffect(() => {
+            setExternalDownloading(isAudioDownloading(cellId));
+            const unsubscribe = subscribeAudioDownloading((changedCellId, downloading) => {
+                if (changedCellId === cellId) {
+                    setExternalDownloading(downloading);
+                }
+            });
+            return unsubscribe;
+        }, [cellId]);
+
         // Keep inline button in sync if this audio is stopped by the global controller
         // (e.g. user clicked another cell's play button).
         useEffect(() => {
@@ -436,10 +459,12 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
             } as any);
         }, [isPlaying, isSourceText, vscode]);
 
+        const showLoading = isLoading || externalDownloading;
+
         const { iconClass, color } = getCellListIcon({
             state,
             hasAudioUrl: !!audioUrl || !!getCachedAudioDataUrl(cellId),
-            isLoading,
+            isLoading: showLoading,
             isPlaying,
         });
 
@@ -450,7 +475,7 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                 title={
                     disabled
                         ? "Audio playback disabled - other type is playing"
-                        : isLoading
+                        : showLoading
                         ? "Preparing audio..."
                         : state === "available-pointer"
                         ? audioUrl || getCachedAudioDataUrl(cellId)

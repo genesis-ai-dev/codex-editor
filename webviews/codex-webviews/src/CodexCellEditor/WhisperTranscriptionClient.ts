@@ -1,3 +1,10 @@
+/**
+ * HTTP client for the OmniASR transcription service.
+ *
+ * Despite the class name (kept for git-history continuity), this talks to
+ * Meta Omnilingual ASR through the Frontier auth-proxy. Contract spec lives
+ * at `docs/asr-proxy-endpoint.md`.
+ */
 export class WhisperTranscriptionClient {
     private url: string;
     private authToken?: string;
@@ -9,10 +16,17 @@ export class WhisperTranscriptionClient {
         this.authToken = authToken;
     }
 
+    /**
+     * @param audioBlob audio bytes (WebM, WAV, MP3, OGG, FLAC, ...).
+     * @param options.lang   OmniASR `{iso639_3}_{Script}` code (e.g. `swh_Latn`).
+     *                       Omit to let the server transcribe without language conditioning.
+     * @param options.timeoutMs request timeout in ms. Default 60s.
+     */
     async transcribe(
         audioBlob: Blob,
-        timeoutMs: number = 60000
-    ): Promise<{ text: string; }> {
+        options: { lang?: string; timeoutMs?: number; } = {}
+    ): Promise<{ text: string; lang: string | null; }> {
+        const { lang, timeoutMs = 60000 } = options;
         try {
             // Create FormData with audio file
             const formData = new FormData();
@@ -24,6 +38,12 @@ export class WhisperTranscriptionClient {
             url.searchParams.set("source", "codex");
             if (this.authToken) {
                 url.searchParams.set("token", this.authToken);
+            }
+            // OmniASR-specific: forward the language hint when provided. Omitting it tells
+            // the model to transcribe without conditioning (no internal LID, just the
+            // model's autoregressive guess).
+            if (lang) {
+                url.searchParams.set("lang", lang);
             }
 
             // Prepare headers
@@ -81,9 +101,15 @@ export class WhisperTranscriptionClient {
                     throw new Error(errorMsg);
                 }
 
-                // Parse response
+                // Parse response. OmniASR echoes `lang` when one was sent; in auto-detect
+                // mode it omits the field. The Frontier proxy used to call this field
+                // `language`, so we accept either.
                 const result = await response.json();
-                return { text: result.text || "" };
+                const echoedLang: string | null =
+                    (typeof result?.lang === "string" && result.lang) ||
+                    (typeof result?.language === "string" && result.language) ||
+                    null;
+                return { text: result.text || "", lang: echoedLang };
             } catch (error) {
                 clearTimeout(timeoutId);
 

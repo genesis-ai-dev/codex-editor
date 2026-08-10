@@ -373,6 +373,14 @@ type SourceCellVersions = {
     notebookId: string;
 };
 
+type SourceCellMapEntry = {
+    content: string;
+    versions: string[];
+    timestamps?: Timestamps;
+};
+
+type SourceCellMap = { [k: string]: SourceCellMapEntry };
+
 type EditorCellContent = {
     cellMarkers: string[];
     cellContent: string;
@@ -381,6 +389,22 @@ type EditorCellContent = {
     uri?: string;
     cellTimestamps?: Timestamps;
     cellAudioTimestamps?: Timestamps;
+    /**
+     * Set when the save was triggered by a find/replace operation in the
+     * FloatingSearchBar (issue #1103). Instructs the saveHtml handler to
+     * skip auto-validating the changed cell under the current user —
+     * mirroring the behavior `updateCellContentDirect` already applies for
+     * search/replace originating from the ParallelPassagesWebview.
+     */
+    fromSearchReplace?: boolean;
+    /**
+     * When `fromSearchReplace` is set, controls whether the current user's
+     * prior validation on the cell (if any) is carried forward as a new
+     * validation entry on the search-replace edit. Ignored on non-search
+     * saves. See `retainValidations` semantics in
+     * `codexDocument.updateCellContent`.
+     */
+    retainValidations?: boolean;
 };
 
 interface EditHistoryEntry {
@@ -415,6 +439,8 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
     | { command: "resolveHtmlStructure"; content: { cellId: string; }; }
+    | { command: "requestResolveHtmlStructureBatch"; content: { cellIds: string[]; }; }
+    | { command: "stopResolveHtmlStructureBatch"; }
     | {
         command: "updateNotebookMetadata";
         content: CustomNotebookMetadata;
@@ -521,6 +547,7 @@ export type EditorPostMessages =
     // removed: requestAudioAttachments
     | { command: "requestAudioForCell"; content: { cellId: string; audioId?: string; }; }
     | { command: "requestCellAudioTimestamps"; content: { cellId: string; }; }
+    | { command: "requestSourceCellTimestamps"; content: { cellId: string; }; }
     | { command: "getCommentsForCell"; content: { cellId: string; }; }
     | { command: "getCommentsForCells"; content: { cellIds: string[]; }; }
     | {
@@ -593,10 +620,24 @@ export type EditorPostMessages =
         content: {
             cellId: string;
             transcribedText: string;
-            language: string;
+            /** OmniASR `{iso639_3}_{Script}` code the server reported (or that we sent and the server
+             *  used silently). `null` when transcription ran in auto-detect mode and the server did
+             *  not echo a language back. Persisted on the audio attachment so the badge survives
+             *  re-renders. */
+            language: string | null;
         };
     }
     | { command: "getAsrConfig"; }
+    | {
+        command: "setAsrLanguageMode";
+        content: { mode: "auto" | "project"; };
+    }
+    | {
+        command: "setAsrScriptPref";
+        /** `"auto"` (best guess), `"latin"` (force Latin where supported), or a 4-letter
+         *  ISO 15924 tag (`"Arab"`, `"Cyrl"`, ...). */
+        content: { scriptPref: string; };
+    }
     | {
         command: "mergeCellWithPrevious";
         content: {
@@ -620,7 +661,6 @@ export type EditorPostMessages =
             previousCellId: string;
             currentContent: string;
             previousContent: string;
-            message: string;
         };
     }
     | {
@@ -2141,7 +2181,7 @@ type EditorReceiveMessages =
         type: "providerSendsInitialContent";
         content: QuillCellContent[];
         isSourceText: boolean;
-        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+        sourceCellMap: SourceCellMap;
         username?: string;
         validationCount?: number;
         validationCountAudio?: number;
@@ -2160,7 +2200,7 @@ type EditorReceiveMessages =
         currentMilestoneIndex: number;
         currentSubsectionIndex: number;
         isSourceText: boolean;
-        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+        sourceCellMap: SourceCellMap;
         username?: string;
         validationCount?: number;
         validationCountAudio?: number;
@@ -2202,7 +2242,7 @@ type EditorReceiveMessages =
         milestoneIndex: number;
         subsectionIndex: number;
         cells: QuillCellContent[];
-        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+        sourceCellMap: SourceCellMap;
     }
     | {
         type: "providerSendsSubsectionProgress";
@@ -2234,6 +2274,17 @@ type EditorReceiveMessages =
     }
     | {
         type: "providerAutocompletionState";
+        state: {
+            isProcessing: boolean;
+            totalCells: number;
+            completedCells: number;
+            currentCellId?: string;
+            cellsToProcess: string[];
+            progress: number;
+        };
+    }
+    | {
+        type: "providerStructureResolveState";
         state: {
             isProcessing: boolean;
             totalCells: number;
@@ -2431,7 +2482,25 @@ type EditorReceiveMessages =
          */
         force?: boolean;
     }
-    | { type: "asrConfig"; content: { endpoint: string; authToken?: string; }; }
+    | {
+        type: "asrConfig";
+        content: {
+            endpoint: string;
+            authToken?: string;
+            /** OmniASR `{iso639_3}_{Script}` code to send as `?lang=...`. Omitted when the
+             *  user picks Auto-Detect or when we can't safely resolve a code. */
+            lang?: string;
+            /** "project" (default) → send `lang`. "auto" → omit `lang`, let the server transcribe
+             *  without language conditioning. Persisted as workspace setting `asrLanguageMode`. */
+            languageMode: "auto" | "project";
+            /** Script preference: "auto" (best guess), "latin", or a 4-letter ISO 15924 tag.
+             *  Persisted as workspace setting `asrScriptPref`. */
+            scriptPref?: string;
+            /** Project target-language refName, e.g. "Swahili". Used as the badge fallback when
+             *  the server doesn't echo `lang` in the response. */
+            projectLanguageName?: string;
+        };
+    }
     | { type: "startBatchTranscription"; content: { count: number; }; }
     | {
         type: "providerConfirmsBacktranslationSet";
@@ -2599,6 +2668,13 @@ type EditorReceiveMessages =
         content: {
             cellId: string;
             audioTimestamps?: Timestamps;
+        };
+    }
+    | {
+        type: "providerSendsSourceCellTimestamps";
+        content: {
+            cellId: string;
+            timestamps?: Timestamps;
         };
     }
     | {

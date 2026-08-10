@@ -105,7 +105,20 @@ export async function getBookDisplayName(usfmCode: string): Promise<string> {
         console.warn("Error reading fileDisplayName from metadata:", error);
     }
 
-    // Fallback to English name
+    // Fallback to the canonical (disk-free) English book name
+    return getDefaultBookName(usfmCode);
+}
+
+/**
+ * Disk-free: map a USFM/book code to its canonical English book name.
+ *
+ * Unlike getBookDisplayName, this NEVER reads existing files. Use it during
+ * import/overwrite so a newly imported Bible's titles are regenerated fresh
+ * from the book code rather than inherited from whatever fileDisplayName is
+ * currently saved on disk (issue #1056: e.g. a Macula "Greek Matthew" must
+ * reset to "Matthew" when a non-Macula Bible overwrites it).
+ */
+export async function getDefaultBookName(usfmCode: string): Promise<string> {
     const books = await loadBooksLookup();
     const book = books.find(b => b.abbr === usfmCode);
     return book ? book.name : usfmCode;
