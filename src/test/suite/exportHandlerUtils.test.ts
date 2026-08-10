@@ -21,12 +21,13 @@ const makeCell = (
 });
 
 suite("Export handler active-cell filtering", () => {
-    test("excludes merged and deleted cells while preserving active-cell order", () => {
+    test("excludes merged, deleted, and hidden cells while preserving active-cell order", () => {
         const cells = [
             makeCell("first"),
             makeCell("merged", { merged: true }),
             makeCell("second", { merged: false, deleted: false }),
             makeCell("deleted", { deleted: true }),
+            makeCell("hidden", { hidden: true }),
             makeCell("third"),
         ];
 

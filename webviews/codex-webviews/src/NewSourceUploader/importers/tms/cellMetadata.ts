@@ -36,7 +36,7 @@ export function createTmsCellMetadata(params: TmsCellMetadataParams): { metadata
             id: cellId,
             type: CodexCellTypes.TEXT,
             edits: [],
-            unitId: params.unitId,
+            unitId: String(params.unitId),
             sourceLanguage: params.sourceLanguage,
             targetLanguage: params.targetLanguage,
             targetText: params.targetText,

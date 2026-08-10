@@ -13,15 +13,17 @@ export async function readCodexNotebookFromUri(
 }
 
 /**
- * Returns only active cells, excluding merged and deleted ones (based on metadata.data)
- * Keeps the original cell order intact
+ * Returns only active cells, excluding merged, deleted, and hidden ones (based on metadata.data).
+ * Hidden cells are treated like deleted for export purposes.
+ * Keeps the original cell order intact.
  */
 export function getActiveCells(cells: CodexNotebookAsJSONData["cells"]) {
     return cells.filter((cell) => {
         const data = (cell.metadata as any)?.data;
         const isMerged = !!(data && data.merged);
         const isDeleted = !!(data && data.deleted);
-        return !isMerged && !isDeleted;
+        const isHidden = !!(data && data.hidden);
+        return !isMerged && !isDeleted && !isHidden;
     });
 }
 
