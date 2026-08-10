@@ -15,8 +15,25 @@ interface ProjectLanguage {
 let currentPanel: vscode.WebviewPanel | undefined;
 let currentReason: ReviewReason | undefined;
 
-function escapeRefName(name: string | undefined): string {
-    return name ?? "your project";
+/**
+ * Reminds the user that they changed their project's language without updating
+ * their translation instructions, and offers to open Copilot Settings so they
+ * can update the system message if it still needs to match the new language.
+ *
+ * Shown both when the user clicks "Cancel" and when they close the panel with
+ * the X. We intentionally do NOT change the system message here — the user is
+ * in control of whether their instructions need updating.
+ */
+async function showReviewReminderModal(): Promise<void> {
+    const openSettings = "Open Copilot Settings";
+    const choice = await vscode.window.showWarningMessage(
+        "You changed your project's language but didn't update your AI translation instructions. If they still need to match the new language, you can update them anytime in Copilot Settings.",
+        { modal: true },
+        openSettings
+    );
+    if (choice === openSettings) {
+        await vscode.commands.executeCommand("codex-project-manager.openAISettings");
+    }
 }
 
 async function readLanguagesFromMetadata(
@@ -36,55 +53,6 @@ async function readLanguagesFromMetadata(
     } catch {
         return {};
     }
-}
-
-async function autoRegenerateAfterClose(
-    workspaceFolder: vscode.Uri,
-    reason: ReviewReason
-): Promise<void> {
-    const { source, target } = await readLanguagesFromMetadata(workspaceFolder);
-    if (!source?.refName || !target?.refName) {
-        vscode.window.showWarningMessage(
-            "You changed your project's language. Please review your AI translation instructions to make sure they match."
-        );
-        return;
-    }
-
-    await vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "Regenerating AI translation instructions",
-            cancellable: false,
-        },
-        async () => {
-            const generated = await generateChatSystemMessage(
-                { refName: source.refName! },
-                { refName: target.refName! },
-                workspaceFolder
-            );
-            if (!generated) {
-                vscode.window.showWarningMessage(
-                    `You changed your project's language to ${escapeRefName(
-                        reason === "sourceLanguageChanged" ? source.refName : target.refName
-                    )}, but the AI translation instructions could not be regenerated automatically. Please update them in Copilot Settings.`
-                );
-                return;
-            }
-            const saveResult = await MetadataManager.setChatSystemMessage(
-                generated,
-                workspaceFolder
-            );
-            if (saveResult.success) {
-                vscode.window.showInformationMessage(
-                    "Your AI translation instructions were regenerated to match the new language."
-                );
-            } else {
-                vscode.window.showWarningMessage(
-                    `Generated new AI translation instructions but could not save them: ${saveResult.error}`
-                );
-            }
-        }
-    );
 }
 
 function buildWebviewHtml(panel: vscode.WebviewPanel, extensionUri: vscode.Uri): string {
@@ -127,10 +95,10 @@ function buildWebviewHtml(panel: vscode.WebviewPanel, extensionUri: vscode.Uri):
 /**
  * Opens the system-message review panel after a project source/target language change.
  *
- * The user must either save (after editing or regenerating), explicitly dismiss
- * with "I don't need to change this", or close the panel. If the panel is closed
- * without the user addressing the prompt, the AI translation instructions are
- * regenerated automatically so they don't get left in a stale state.
+ * The user can save (after editing or regenerating) to update their instructions,
+ * or leave without changes via "Cancel" or the panel's X. In both no-change cases
+ * we surface a reminder modal pointing to Copilot Settings — we never silently
+ * rewrite the system message on their behalf.
  */
 export async function openSystemMessageReview(reason: ReviewReason): Promise<void> {
     const extension = vscode.extensions.getExtension(
@@ -278,11 +246,12 @@ export async function openSystemMessageReview(reason: ReviewReason): Promise<voi
                 break;
             }
             case "systemMessage.dismiss": {
+                // "Cancel": leave the system message unchanged. Mark as addressed so
+                // the dispose handler doesn't show a second reminder, then show the
+                // reminder modal ourselves.
                 addressed = true;
-                vscode.window.showWarningMessage(
-                    "You have changed your project's language. Please make sure that the translation instructions match!"
-                );
                 panel.dispose();
+                await showReviewReminderModal();
                 break;
             }
             default:
@@ -293,12 +262,12 @@ export async function openSystemMessageReview(reason: ReviewReason): Promise<voi
     panel.onDidDispose(async () => {
         messageSub.dispose();
         const wasAddressed = addressed;
-        const reasonAtClose = currentReason ?? reason;
         currentPanel = undefined;
         currentReason = undefined;
         if (!wasAddressed) {
-            // User closed the panel without addressing the prompt — auto-regenerate.
-            await autoRegenerateAfterClose(workspaceFolder, reasonAtClose);
+            // User closed the panel with the X without saving or cancelling.
+            // Leave the system message unchanged and just remind them.
+            await showReviewReminderModal();
         }
     });
 }
