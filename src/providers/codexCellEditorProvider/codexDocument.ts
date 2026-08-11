@@ -3477,6 +3477,14 @@ export class CodexCellDocument implements vscode.CustomDocument {
             ...newData,
         };
 
+        // Subdivision fields must land in edit history: the sync merge
+        // resolver replays the newest edit per editMap path, so fields
+        // written without an edit entry silently lose to the other side
+        // during conflicted 3-way merges.
+        if (isMilestoneCell && isModifyingSubdivisions) {
+            this.recordSubdivisionEditHistory(cellToUpdate, newData);
+        }
+
         // Invalidate milestone index cache if milestone cell's deleted flag was modified
         if (shouldInvalidateCache) {
             this.invalidateMilestoneIndexCache();
@@ -3492,6 +3500,61 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this._onDidChangeForWebview.fire({
             edits: this._edits,
         });
+    }
+
+    /**
+     * Records edit-history entries for subdivision-related milestone data
+     * (`subdivisions`, `subdivisionNames`, `subdivisionNamesFromSource`) so
+     * structural edits survive 3-way merges. Callers refresh `_author` before
+     * updating, so the entries carry the acting user.
+     */
+    private recordSubdivisionEditHistory(
+        cellToUpdate: CustomNotebookCellData,
+        newData: {
+            subdivisions?: MilestoneSubdivisionPlacement[];
+            subdivisionNames?: { [subdivisionKey: string]: string; };
+            subdivisionNamesFromSource?: { [subdivisionKey: string]: string; };
+        }
+    ): void {
+        if (!cellToUpdate.metadata.edits) {
+            cellToUpdate.metadata.edits = [];
+        }
+        const currentTimestamp = Date.now();
+        const makeEditBase = () => ({
+            timestamp: currentTimestamp,
+            type: EditType.USER_EDIT,
+            author: this._author,
+            validatedBy: [
+                {
+                    username: this._author,
+                    creationTimestamp: currentTimestamp,
+                    updatedTimestamp: currentTimestamp,
+                    isDeleted: false,
+                },
+            ],
+        });
+
+        if ("subdivisions" in newData) {
+            cellToUpdate.metadata.edits.push({
+                editMap: EditMapUtils.dataSubdivisions(),
+                value: newData.subdivisions ?? [],
+                ...makeEditBase(),
+            });
+        }
+        if ("subdivisionNames" in newData) {
+            cellToUpdate.metadata.edits.push({
+                editMap: EditMapUtils.dataSubdivisionNames(),
+                value: newData.subdivisionNames ?? {},
+                ...makeEditBase(),
+            });
+        }
+        if ("subdivisionNamesFromSource" in newData) {
+            cellToUpdate.metadata.edits.push({
+                editMap: EditMapUtils.dataSubdivisionNamesFromSource(),
+                value: newData.subdivisionNamesFromSource ?? {},
+                ...makeEditBase(),
+            });
+        }
     }
 
     /**
