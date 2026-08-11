@@ -15,7 +15,10 @@ permissions:
 
 jobs:
     test:
-        name: Node ${{ matrix.node }} • ${{ matrix.os }}
+        # Keep the Node version out of the job name: these names are what
+        # branch protection matches on, so bumping the matrix shouldn't
+        # orphan the required status checks.
+        name: Test • ${{ matrix.os }}
         runs-on: ${{ matrix.os }}
         timeout-minutes: 20
         defaults:
@@ -25,7 +28,8 @@ jobs:
             fail-fast: false
             matrix:
                 os: [ubuntu-latest, macos-latest, windows-latest]
-                node: [20]
+                # @vscode/test-electron 3.x requires Node >= 22
+                node: [22]
 
         steps:
             - name: Checkout
@@ -52,7 +56,7 @@ jobs:
                   NODE_OPTIONS: --max_old_space_size=4096
               run: xvfb-run -a npm test
 
-            - name: Test (macOS/Windows)
+            - name: Test (Windows / macOS)
               if: runner.os != 'Linux'
               env:
                   NODE_OPTIONS: --max_old_space_size=4096

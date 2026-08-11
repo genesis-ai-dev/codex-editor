@@ -833,7 +833,7 @@ export class IDMLParser {
 
         // Capture trailing CharacterStyleRange blocks without <Content> (e.g., <Br/> with ParagraphBreakType)
         const trailingRuns: string[] = [];
-        const childNodes = Array.from(paragraphElement.getElementsByTagName('CharacterStyleRange')) as Element[];
+        const childNodes = this.getOwnDescendants(paragraphElement, 'CharacterStyleRange');
         for (const node of childNodes) {
             const hasContent = node.getElementsByTagName('Content').length > 0;
             if (!hasContent) {
@@ -884,7 +884,7 @@ export class IDMLParser {
                 afterVerse: string;
                 footnotes?: string[]; // Array of footnote XML strings for round-trip preservation
             }> = [];
-            const csrNodes = Array.from(paragraphElement.getElementsByTagName('CharacterStyleRange')) as Element[];
+            const csrNodes = this.getOwnDescendants(paragraphElement, 'CharacterStyleRange');
 
             // Helper functions to identify character style types
             const isChapterNumberStyle = (el: Element) => {
@@ -1425,12 +1425,37 @@ export class IDMLParser {
     }
 
     /**
+     * True when a descendant belongs to a paragraph nested inside this one.
+     *
+     * InDesign anchors tables inside a host paragraph's CharacterStyleRange, and each table
+     * cell holds its own ParagraphStyleRange. Those cells are separate paragraphs, so their
+     * runs must not be reported as the host paragraph's content.
+     */
+    private isInsideNestedParagraph(element: Element, paragraphElement: Element): boolean {
+        let node: Element | null = element.parentElement;
+        while (node && node !== paragraphElement) {
+            if (node.tagName?.toLowerCase() === 'paragraphstylerange') {
+                return true;
+            }
+            node = node.parentElement;
+        }
+        return false;
+    }
+
+    /** Descendant elements of a paragraph, excluding those owned by nested paragraphs. */
+    private getOwnDescendants(paragraphElement: Element, tagName: string): Element[] {
+        return (Array.from(paragraphElement.getElementsByTagName(tagName)) as Element[]).filter(
+            (element) => !this.isInsideNestedParagraph(element, paragraphElement)
+        );
+    }
+
+    /**
      * Extract character style ranges from paragraph
      * Filters out special-styled ranges (e.g., "source serif" for apostrophes)
      * while preserving line breaks by merging adjacent default-styled ranges
      */
     private async extractCharacterStyleRanges(paragraphElement: Element): Promise<IDMLCharacterStyleRange[]> {
-        const characterElements = paragraphElement.getElementsByTagName('CharacterStyleRange');
+        const characterElements = this.getOwnDescendants(paragraphElement, 'CharacterStyleRange');
 
         // First pass: extract all ranges
         const allRanges: IDMLCharacterStyleRange[] = [];
@@ -1627,6 +1652,8 @@ export class IDMLParser {
                         combined += child.textContent || '';
                     } else if (tag === 'Br') {
                         combined += '\n';
+                    } else if (tag === 'ParagraphStyleRange') {
+                        // A nested paragraph (table cell) owns its own text.
                     } else {
                         visit(child);
                     }
