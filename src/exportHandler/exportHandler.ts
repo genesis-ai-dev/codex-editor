@@ -1457,7 +1457,8 @@ async function exportCodexContentAsTmsRoundtrip(
 
             console.log(`[TMS Export] Loaded original ${determinedFileType.toUpperCase()} file:`, finalOriginalFileName, 'length:', originalTmsContent.length);
 
-            // Export with translations
+            // Pass all cells. Inactive (hidden/deleted/merged) cells are skipped when
+            // collecting translations so their original TMX/XLIFF targets are preserved.
             const updatedTmsContent = await exportTmsWithTranslations(
                 originalTmsContent,
                 codexNotebook.cells,
@@ -2264,7 +2265,9 @@ async function exportCodexContentAsDelimited(
                             return (cell.kind === 2 || cell.kind === 1) &&
                                 cell.metadata?.id &&
                                 isContentCellType(cell.metadata?.type) &&
-                                !metadata?.data?.merged;
+                                !metadata?.data?.merged &&
+                                !metadata?.data?.deleted &&
+                                !metadata?.data?.hidden;
                         })
                         .map((cell) => [cell.metadata.id, cell])
                 );
@@ -2276,7 +2279,9 @@ async function exportCodexContentAsDelimited(
                             return (cell.kind === 2 || cell.kind === 1) &&
                                 cell.metadata?.id &&
                                 isContentCellType(cell.metadata?.type) &&
-                                !metadata?.data?.merged;
+                                !metadata?.data?.merged &&
+                                !metadata?.data?.deleted &&
+                                !metadata?.data?.hidden;
                         })
                         .map((cell) => [cell.metadata.id, cell])
                 );
@@ -2313,7 +2318,9 @@ async function exportCodexContentAsDelimited(
 
                         if (isContentCellType(cellMetadata.type) &&
                             cellMetadata.id &&
-                            !cellMetadata?.data?.merged) {
+                            !cellMetadata?.data?.merged &&
+                            !cellMetadata?.data?.deleted &&
+                            !cellMetadata?.data?.hidden) {
                             totalCells++;
                             const sourceCell = sourceCellsMap.get(cellMetadata.id);
 

@@ -16,6 +16,7 @@ import {
     MilestoneIndex,
 } from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
+import { EditMapUtils } from "../../utils/editMapUtils";
 import { maybeAutoResolveHtmlStructure } from "./utils/htmlStructureResolver";
 import {
     handleGlobalMessage,
@@ -2921,6 +2922,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     private processNotebookData(notebook: CodexNotebookAsJSONData, document?: CodexCellDocument) {
         debug("Processing notebook data", notebook);
+        // convertCellToQuillContent already maps hidden/merged/deleted (and audioTimestamps, parentId, etc.)
         const translationUnits: QuillCellContent[] = notebook.cells.map((cell) =>
             convertCellToQuillContent(cell)
         );
@@ -2945,6 +2947,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 return;
             }
             if (cell.merged && !isSourceAndCorrectionEditorMode) {
+                return;
+            }
+
+            if (cell.hidden && !isSourceAndCorrectionEditorMode) {
                 return;
             }
 
@@ -2973,6 +2979,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 timestamps: cell.timestamps,
                 cellLabel: cell.cellLabel,
                 merged: cell.merged,
+                hidden: cell.hidden,
                 data: cell.data,
                 attachments: cell.attachments,
                 metadata: cell.metadata,
@@ -3022,49 +3029,80 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
         this.refreshInFlight.add(docKey);
 
-        webviewPanel.webview.html = this.getHtmlForWebview(
-            webviewPanel.webview,
-            document,
-            this.getTextDirection(document),
-            isSourceText
-        );
+        try {
+            webviewPanel.webview.html = this.getHtmlForWebview(
+                webviewPanel.webview,
+                document,
+                this.getTextDirection(document),
+                isSourceText
+            );
 
-        // Get bundled metadata to avoid separate requests
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const validationCount = config.get("validationCount", 1);
-        const validationCountAudio = config.get("validationCountAudio", 1);
-        const authApi = await this.getAuthApi();
-        const userInfo = await authApi?.getUserInfo();
-        const username = userInfo?.username || "anonymous";
+            // Get bundled metadata to avoid separate requests
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const validationCount = config.get("validationCount", 1);
+            const validationCountAudio = config.get("validationCountAudio", 1);
+            let username = "anonymous";
+            try {
+                const authApi = await this.getAuthApi();
+                if (authApi && typeof authApi.getUserInfo === "function") {
+                    const userInfo = await authApi.getUserInfo();
+                    username = userInfo?.username || "anonymous";
+                }
+            } catch (error) {
+                debug("refreshWebview: failed to resolve username from authApi", error);
+            }
 
-        // Build milestone index for paginated loading
-        const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
+            // Build milestone index for paginated loading
+            const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
 
-        // Update database with milestone indices (fire-and-forget, don't block webview update)
-        document.updateCellMilestoneIndices().catch((error) => {
-            console.warn("[CodexCellEditorProvider] Failed to update milestone indices in database:", error);
-        });
+            // Update database with milestone indices (fire-and-forget, don't block webview update)
+            document.updateCellMilestoneIndices().catch((error) => {
+                console.warn("[CodexCellEditorProvider] Failed to update milestone indices in database:", error);
+            });
 
-        // Calculate progress for all milestones
-        const milestoneProgress = document.calculateMilestoneProgress(validationCount, validationCountAudio);
-        milestoneIndex.milestoneProgress = milestoneProgress;
+            // Calculate progress for all milestones
+            const milestoneProgress = document.calculateMilestoneProgress(validationCount, validationCountAudio);
+            milestoneIndex.milestoneProgress = milestoneProgress;
 
-        // Check currentMilestoneSubsectionMap first to preserve position after edits
-        const docUri = document.uri.toString();
-        const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
-        let initialMilestoneIndex = 0;
-        let initialSubsectionIndex = 0;
+            // Check currentMilestoneSubsectionMap first to preserve position after edits
+            const docUri = document.uri.toString();
+            const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
+            let initialMilestoneIndex = 0;
+            let initialSubsectionIndex = 0;
 
-        if (currentPosition && milestoneIndex.milestones.length > 0) {
-            // Use milestone index from map if it's valid
-            if (currentPosition.milestoneIndex >= 0 && currentPosition.milestoneIndex < milestoneIndex.milestones.length) {
-                initialMilestoneIndex = currentPosition.milestoneIndex;
-                initialSubsectionIndex = currentPosition.subsectionIndex;
+            if (currentPosition && milestoneIndex.milestones.length > 0) {
+                // Use milestone index from map if it's valid
+                if (currentPosition.milestoneIndex >= 0 && currentPosition.milestoneIndex < milestoneIndex.milestones.length) {
+                    initialMilestoneIndex = currentPosition.milestoneIndex;
+                    initialSubsectionIndex = currentPosition.subsectionIndex;
+                } else {
+                    // Invalid milestone index in map, fall back to cached chapter logic
+                    const cachedChapter = this.getCachedChapter(docUri);
+                    initialSubsectionIndex = this.getCachedSubsection(docUri);
+
+                    if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
+                        // Find milestone that matches the cached chapter number
+                        const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                            const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                            return chapterNum !== null && chapterNum === cachedChapter;
+                        });
+                        if (milestoneIdx !== -1) {
+                            initialMilestoneIndex = milestoneIdx;
+                        } else {
+                            // Fallback: try using chapter number as index (1-indexed to 0-indexed)
+                            const fallbackIdx = cachedChapter - 1;
+                            if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
+                                initialMilestoneIndex = fallbackIdx;
+                            }
+                        }
+                    }
+                }
             } else {
-                // Invalid milestone index in map, fall back to cached chapter logic
+                // No entry in map, fall back to cached chapter logic
                 const cachedChapter = this.getCachedChapter(docUri);
                 initialSubsectionIndex = this.getCachedSubsection(docUri);
 
+                // If we have milestones and a cached chapter, try to find the matching milestone
                 if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
                     // Find milestone that matches the cached chapter number
                     const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
@@ -3082,90 +3120,70 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     }
                 }
             }
-        } else {
-            // No entry in map, fall back to cached chapter logic
-            const cachedChapter = this.getCachedChapter(docUri);
-            initialSubsectionIndex = this.getCachedSubsection(docUri);
 
-            // If we have milestones and a cached chapter, try to find the matching milestone
-            if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
-                // Find milestone that matches the cached chapter number
-                const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
-                    const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
-                    return chapterNum !== null && chapterNum === cachedChapter;
-                });
-                if (milestoneIdx !== -1) {
-                    initialMilestoneIndex = milestoneIdx;
-                } else {
-                    // Fallback: try using chapter number as index (1-indexed to 0-indexed)
-                    const fallbackIdx = cachedChapter - 1;
-                    if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
-                        initialMilestoneIndex = fallbackIdx;
-                    }
+            // Get first page of cells for the initial milestone
+            const initialCells = document.getCellsForMilestone(initialMilestoneIndex, initialSubsectionIndex, this.CELLS_PER_PAGE);
+            const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
+
+            // Build source cell map for the initial cells only
+            const initialSourceCellMap: Record<string, SourceCellMapEntry> = {};
+            for (const cell of initialCells) {
+                const cellId = cell.cellMarkers?.[0];
+                if (cellId && document._sourceCellMap[cellId]) {
+                    initialSourceCellMap[cellId] = document._sourceCellMap[cellId];
                 }
             }
-        }
+            const enrichedInitialSourceCellMap = await enrichSourceCellMapWithTimestamps(
+                document,
+                initialSourceCellMap
+            );
 
-        // Get first page of cells for the initial milestone
-        const initialCells = document.getCellsForMilestone(initialMilestoneIndex, initialSubsectionIndex, this.CELLS_PER_PAGE);
-        const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
-
-        // Build source cell map for the initial cells only
-        const initialSourceCellMap: Record<string, SourceCellMapEntry> = {};
-        for (const cell of initialCells) {
-            const cellId = cell.cellMarkers?.[0];
-            if (cellId && document._sourceCellMap[cellId]) {
-                initialSourceCellMap[cellId] = document._sourceCellMap[cellId];
-            }
-        }
-        const enrichedInitialSourceCellMap = await enrichSourceCellMapWithTimestamps(
-            document,
-            initialSourceCellMap
-        );
-
-        // Schedule updates to wait for webview ready signal
-        this.scheduleWebviewUpdate(document.uri.toString(), () => {
-            // Send paginated initial content with milestone index
-            this.postMessageToWebview(webviewPanel, {
-                type: "providerSendsInitialContentPaginated",
-                milestoneIndex: milestoneIndex,
-                cells: processedInitialCells,
-                currentMilestoneIndex: initialMilestoneIndex,
-                currentSubsectionIndex: initialSubsectionIndex,
-                isSourceText: isSourceText,
-                sourceCellMap: enrichedInitialSourceCellMap,
-                username: username,
-                validationCount: validationCount,
-                validationCountAudio: validationCountAudio,
-            });
-
-            this.postMessageToWebview(webviewPanel, {
-                type: "providerUpdatesNotebookMetadataForWebview",
-                content: notebookData.metadata,
-            });
-
-            // Audio attachment availability is derived in the webview from QuillCellContent.attachments
-
-            if (videoUrl) {
+            // Schedule updates to wait for webview ready signal
+            this.scheduleWebviewUpdate(document.uri.toString(), () => {
+                // Send paginated initial content with milestone index
                 this.postMessageToWebview(webviewPanel, {
-                    type: "updateVideoUrlInWebview",
-                    content: videoUrl,
+                    type: "providerSendsInitialContentPaginated",
+                    milestoneIndex: milestoneIndex,
+                    cells: processedInitialCells,
+                    currentMilestoneIndex: initialMilestoneIndex,
+                    currentSubsectionIndex: initialSubsectionIndex,
+                    isSourceText: isSourceText,
+                    sourceCellMap: enrichedInitialSourceCellMap,
+                    username: username,
+                    validationCount: validationCount,
+                    validationCountAudio: validationCountAudio,
                 });
-            }
-        });
 
-        debug("Webview refresh scheduled with paginated content");
+                this.postMessageToWebview(webviewPanel, {
+                    type: "providerUpdatesNotebookMetadataForWebview",
+                    content: notebookData.metadata,
+                });
 
-        // Release in-flight lock after a tick and run any queued refresh once
-        setTimeout(() => {
-            this.refreshInFlight.delete(docKey);
-            if (this.pendingRefresh.has(docKey)) {
-                this.pendingRefresh.delete(docKey);
-                debug("Running queued refresh after previous in-flight completed");
-                // Fire and forget; next call will set in-flight again
-                this.refreshWebview(webviewPanel, document);
-            }
-        }, 0);
+                // Audio attachment availability is derived in the webview from QuillCellContent.attachments
+
+                if (videoUrl) {
+                    this.postMessageToWebview(webviewPanel, {
+                        type: "updateVideoUrlInWebview",
+                        content: videoUrl,
+                    });
+                }
+            });
+
+            debug("Webview refresh scheduled with paginated content");
+        } finally {
+            // Release in-flight lock after a tick and run any queued refresh once
+            setTimeout(() => {
+                this.refreshInFlight.delete(docKey);
+                if (this.pendingRefresh.has(docKey)) {
+                    this.pendingRefresh.delete(docKey);
+                    debug("Running queued refresh after previous in-flight completed");
+                    // Fire and forget; next call will set in-flight again
+                    this.refreshWebview(webviewPanel, document).catch((error) => {
+                        console.warn("[CodexCellEditorProvider] Queued refreshWebview failed:", error);
+                    });
+                }
+            }, 0);
+        }
     }
 
     // Removed: sendAudioAttachmentsStatus; audio availability is computed client-side from content
@@ -3641,6 +3659,121 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             console.error("Error unmerging cell in target file:", error);
             vscode.window.showErrorMessage(
                 `Failed to unmerge corresponding cell: ${error instanceof Error ? error.message : String(error)}`
+            );
+        }
+    }
+
+    public async toggleCellVisibilityInPairedFile(cellId: string, hidden: boolean, uri: string, workspaceFolder: vscode.WorkspaceFolder) {
+        debug("Toggling cell visibility in paired file:", { cellId, hidden, uri });
+
+        try {
+            const normalizedPath = uri.replace(/\\/g, "/");
+            const baseFileName = path.basename(normalizedPath);
+
+            let targetPath: vscode.Uri;
+            let targetFileName: string;
+            let isSourceToTarget: boolean;
+
+            if (baseFileName.endsWith(".source")) {
+                targetFileName = baseFileName.replace(".source", ".codex");
+                targetPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "target", targetFileName);
+                isSourceToTarget = true;
+            } else if (baseFileName.endsWith(".codex")) {
+                targetFileName = baseFileName.replace(".codex", ".source");
+                targetPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts", targetFileName);
+                isSourceToTarget = false;
+            } else {
+                throw new Error(`Unsupported file type for visibility toggle: ${baseFileName}`);
+            }
+
+            await vscode.commands.executeCommand(
+                "vscode.openWith",
+                targetPath,
+                "codex.cellEditor",
+                { viewColumn: isSourceToTarget ? vscode.ViewColumn.Two : vscode.ViewColumn.One }
+            );
+
+            let targetDocument: CodexCellDocument | undefined;
+            const targetDocumentUri = targetPath.toString();
+
+            for (const [panelUri] of this.webviewPanels.entries()) {
+                if (this.isMatchingFilePair(targetDocumentUri, panelUri)) {
+                    targetDocument = await this.openCustomDocument(
+                        vscode.Uri.parse(panelUri),
+                        {},
+                        new vscode.CancellationTokenSource().token
+                    );
+                    break;
+                }
+            }
+
+            if (!targetDocument) {
+                targetDocument = await this.openCustomDocument(
+                    targetPath,
+                    {},
+                    new vscode.CancellationTokenSource().token
+                );
+            }
+
+            // Resolve the author before mutating the cell: an await between
+            // updateCellData and the edits push lets an autosave serialize the
+            // cell and repopulate the serialization cache without the edit entry.
+            let author = "anonymous";
+            try {
+                const authApi = await this.getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                author = userInfo?.username || "anonymous";
+            } catch { /* ignore */ }
+
+            const targetCellData = targetDocument.getCellData(cellId) || {};
+            targetDocument.updateCellData(cellId, {
+                ...targetCellData,
+                hidden,
+            });
+
+            try {
+                const cell = targetDocument.getCell(cellId);
+                if (cell) {
+                    cell.metadata.edits = cell.metadata.edits || [];
+                    cell.metadata.edits.push({
+                        editMap: EditMapUtils.metadataNested("data", "hidden"),
+                        value: hidden,
+                        timestamp: Date.now(),
+                        type: EditType.USER_EDIT,
+                        author,
+                        validatedBy: [],
+                    });
+                    // Direct edits[] mutation bypasses updateCellData, so the
+                    // serialization cache must be invalidated by hand or a save
+                    // can write this cell from a stale cached string.
+                    targetDocument.markCellMutated(cellId);
+                }
+            } catch (e) {
+                console.warn("Failed to append hidden edit on paired file cell", e);
+            }
+
+            await targetDocument.save(new vscode.CancellationTokenSource().token);
+
+            debug(`Successfully toggled visibility for cell ${cellId} in ${isSourceToTarget ? "target" : "source"} file ${targetFileName}`);
+
+            for (const [panelUri, panel] of this.webviewPanels.entries()) {
+                if (this.isMatchingFilePair(targetDocumentUri, panelUri)) {
+                    const docUri = panelUri;
+                    const rev = this.getDocumentRevision(docUri);
+                    const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
+                    safePostMessageToPanel(panel, {
+                        type: "refreshCurrentPage",
+                        rev,
+                        milestoneIndex: currentPosition?.milestoneIndex ?? 0,
+                        subsectionIndex: currentPosition?.subsectionIndex ?? 0,
+                    });
+                    break;
+                }
+            }
+        } catch (error) {
+            console.error("Error toggling cell visibility in paired file:", error);
+            vscode.window.showErrorMessage(
+                `Failed to toggle visibility in paired file: ${error instanceof Error ? error.message : String(error)}`
             );
         }
     }
@@ -4799,10 +4932,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             });
         });
 
-        // Refresh all webviews to show/hide merged cells appropriately
+        // Refresh all open webviews so hidden/merged cells are shown or filtered correctly
         for (const [docUri, panel] of this.webviewPanels) {
             if (this.currentDocument && docUri === this.currentDocument.uri.toString()) {
                 await this.refreshWebview(panel, this.currentDocument);
+            } else {
+                const rev = this.getDocumentRevision(docUri);
+                const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
+                safePostMessageToPanel(panel, {
+                    type: "refreshCurrentPage",
+                    rev,
+                    milestoneIndex: currentPosition?.milestoneIndex ?? 0,
+                    subsectionIndex: currentPosition?.subsectionIndex ?? 0,
+                });
             }
         }
     }
