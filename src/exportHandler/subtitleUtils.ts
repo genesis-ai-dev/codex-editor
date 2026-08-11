@@ -44,6 +44,8 @@ export function generateSrtData(
         const metadata = unit.metadata;
         return (
             !metadata?.data?.merged &&
+            !metadata?.data?.deleted &&
+            !metadata?.data?.hidden &&
             metadata?.type !== CodexCellTypes.MILESTONE &&
             metadata?.data?.startTime != null
         );

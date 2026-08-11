@@ -7,6 +7,9 @@ type DataStartTimeEditMap = ["metadata", "data", "startTime"];
 type DataEndTimeEditMap = ["metadata", "data", "endTime"];
 type DataAudioStartTimeEditMap = ["metadata", "data", "audioStartTime"];
 type DataAudioEndTimeEditMap = ["metadata", "data", "audioEndTime"];
+type DataSubdivisionsEditMap = ["metadata", "data", "subdivisions"];
+type DataSubdivisionNamesEditMap = ["metadata", "data", "subdivisionNames"];
+type DataSubdivisionNamesFromSourceEditMap = ["metadata", "data", "subdivisionNamesFromSource"];
 type SelectedAudioIdEditMap = ["metadata", "selectedAudioId"];
 type SelectionTimestampEditMap = ["metadata", "selectionTimestamp"];
 type IsLockedEditMap = ["metadata", "isLocked"];
@@ -74,6 +77,18 @@ export const EditMapUtils = {
 
     dataAudioEndTime(): DataAudioEndTimeEditMap {
         return ["metadata", "data", "audioEndTime"];
+    },
+
+    dataSubdivisions(): DataSubdivisionsEditMap {
+        return ["metadata", "data", "subdivisions"];
+    },
+
+    dataSubdivisionNames(): DataSubdivisionNamesEditMap {
+        return ["metadata", "data", "subdivisionNames"];
+    },
+
+    dataSubdivisionNamesFromSource(): DataSubdivisionNamesFromSourceEditMap {
+        return ["metadata", "data", "subdivisionNamesFromSource"];
     },
 
     selectedAudioId(): SelectedAudioIdEditMap {

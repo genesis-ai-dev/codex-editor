@@ -161,6 +161,7 @@ const CellList: React.FC<CellListProps> = ({
 
     const filteredTranslationUnits = useMemo(() => {
         let filtered = translationUnits;
+        const isSourceCorrectionMode = isSourceText && isCorrectionEditorMode;
 
         // NOTE: Do NOT filter out merged cells here. In source + correction editor mode the
         // provider intentionally keeps merged cells in the translation units (see
@@ -169,11 +170,16 @@ const CellList: React.FC<CellListProps> = ({
         // Filtering them here previously hid them in correction mode, which removed the only
         // place the unmerge button could appear (issue #691).
 
+        // Hide hidden cells unless we're in source correction mode (where the eyeball toggle is available)
+        if (!isSourceCorrectionMode) {
+            filtered = filtered.filter((unit) => !unit.hidden);
+        }
+
         // Filter out milestone cells from the view (they remain in JSON)
         filtered = filtered.filter((unit) => unit.cellType !== CodexCellTypes.MILESTONE);
 
         return filtered;
-    }, [translationUnits]);
+    }, [translationUnits, isSourceText, isCorrectionEditorMode]);
     // Use filtered units for all operations
     const workingTranslationUnits = filteredTranslationUnits;
     // State to track completed translations (only successful ones) - REMOVED: Now handled by parent
@@ -536,12 +542,22 @@ const CellList: React.FC<CellListProps> = ({
         return offset;
     }, [milestoneIndex, currentMilestoneIndex]);
 
-    // Offset from previous subsections (pages) in the current milestone. Used when line numbers are computed from current page only (fallback).
+    // Offset from previous subsections (pages) in the current milestone. Used
+    // when line numbers are computed from current page only (fallback). Prefers
+    // the resolver-provided subdivision's `startRootIndex` so user-added breaks
+    // (which produce uneven page sizes) get the correct starting cell number;
+    // falls back to arithmetic `currentSubsectionIndex * cellsPerPage` only when
+    // resolved subdivisions are not yet available.
     const subsectionLineNumberOffset = useCallback((): number => {
         if (!milestoneIndex) return 0;
+        const milestone = milestoneIndex.milestones[currentMilestoneIndex];
+        const subdivision = milestone?.subdivisions?.[currentSubsectionIndex];
+        if (subdivision) {
+            return subdivision.startRootIndex;
+        }
         const effectiveCellsPerPage = milestoneIndex.cellsPerPage ?? cellsPerPage ?? 50;
         return currentSubsectionIndex * effectiveCellsPerPage;
-    }, [milestoneIndex, currentSubsectionIndex, cellsPerPage]);
+    }, [milestoneIndex, currentMilestoneIndex, currentSubsectionIndex, cellsPerPage]);
 
     // Helper function to get the chapter-based verse number (skipping paratext cells)
     // Now uses globalReferences and includes offset for pagination.
@@ -585,7 +601,8 @@ const CellList: React.FC<CellListProps> = ({
                     unit.cellType !== CodexCellTypes.PARATEXT &&
                     unit.cellType !== CodexCellTypes.MILESTONE &&
                     !isChildCell(unit) &&
-                    !unit.merged
+                    !unit.merged &&
+                    !unit.hidden
                 ) {
                     visibleCellCount++;
                 }
