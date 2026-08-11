@@ -82,6 +82,8 @@ export const generateVttData = (
             const metadata = unit.metadata;
             return (
                 !metadata?.data?.merged &&
+                !metadata?.data?.deleted &&
+                !metadata?.data?.hidden &&
                 metadata?.type !== CodexCellTypes.MILESTONE &&
                 metadata?.data?.startTime != null
             );
@@ -127,7 +129,7 @@ ${cues}`;
 
 /**
  * Returns true if any two cues in the given cells have overlapping time ranges.
- * Uses the same cell filtering as generateVttData (excludes merged, requires startTime).
+ * Uses the same cell filtering as generateVttData (excludes merged/deleted/hidden, requires startTime).
  * Two cues [s1,e1] and [s2,e2] overlap when s1 < e2 && s2 < e1.
  */
 export const hasOverlappingCues = (cells: CodexNotebookAsJSONData["cells"]): boolean => {
@@ -136,6 +138,8 @@ export const hasOverlappingCues = (cells: CodexNotebookAsJSONData["cells"]): boo
             const metadata = unit.metadata;
             return (
                 !metadata?.data?.merged &&
+                !metadata?.data?.deleted &&
+                !metadata?.data?.hidden &&
                 metadata?.type !== CodexCellTypes.MILESTONE &&
                 metadata?.data?.startTime != null
             );

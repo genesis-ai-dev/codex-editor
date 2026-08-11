@@ -183,8 +183,9 @@ function buildCellMilestoneMap(cells: CodexNotebookAsJSONData["cells"]): Map<str
         const isMilestone = cell?.metadata?.type === "milestone";
         const data = cell?.metadata?.data;
         const isDeleted = !!(data && data.deleted);
+        const isHidden = !!(data && data.hidden);
 
-        if (isMilestone && !isDeleted) {
+        if (isMilestone && !isDeleted && !isHidden) {
             milestoneSeq++;
             const milestoneValue = typeof cell?.value === "string" ? cell.value.trim() : "";
             const isNumericOnly = /^\d+$/.test(milestoneValue);
@@ -216,9 +217,10 @@ function computeDialogueLineNumbers(
         const data = cell?.metadata?.data;
         const isMerged = !!(data && data.merged);
         const isDeleted = !!(data && data.deleted);
+        const isHidden = !!(data && data.hidden);
         const isParatext = cell?.metadata?.type === "paratext";
         const isMilestone = cell?.metadata?.type === CodexCellTypes.MILESTONE;
-        if (!isValidKind || isMerged || isDeleted || isParatext || isMilestone) continue;
+        if (!isValidKind || isMerged || isDeleted || isHidden || isParatext || isMilestone) continue;
         const id: string | undefined = cell?.metadata?.id;
         if (!id) continue;
         line += 1;

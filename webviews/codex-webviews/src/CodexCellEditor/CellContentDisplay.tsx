@@ -343,11 +343,19 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         };
 
         const handleCancelMerge = (e: React.MouseEvent) => {
-            e.stopPropagation(); // Prevent the cell click handler from firing
+            e.stopPropagation();
             vscode.postMessage({
                 command: "cancelMerge",
                 content: { cellId: cellIds[0] },
             } as any);
+        };
+
+        const handleToggleVisibility = (e: React.MouseEvent) => {
+            e.stopPropagation();
+            vscode.postMessage({
+                command: "toggleCellVisibility",
+                content: { cellId: cellIds[0], hidden: !cell.hidden },
+            } as EditorPostMessages);
         };
 
         // Handler for merging cell with previous cell
@@ -683,9 +691,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     overflow: "visible",
                     maxWidth: "100%",
                     boxSizing: "border-box",
-                    transition: "border 0.3s ease",
+                    transition: "border 0.3s ease, opacity 0.2s ease",
                     overflowWrap: "break-word",
                     wordWrap: "break-word",
+                    opacity: cell.hidden && isSourceText && isCorrectionEditorMode ? 0.45 : 1,
                     wordBreak: "break-word",
                 }}
             >
@@ -991,6 +1000,28 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                             >
                                                 <i
                                                     className="codicon codicon-debug-step-back"
+                                                    style={{ fontSize: "12px" }}
+                                                />
+                                            </Button>
+                                        </div>
+                                    )}
+                                    {isSourceText && isCorrectionEditorMode && (
+                                        <div style={{ flexShrink: 0 }}>
+                                            <Button
+                                                variant="ghost"
+                                                style={{
+                                                    height: "16px",
+                                                    width: "16px",
+                                                    padding: 0,
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                }}
+                                                onClick={handleToggleVisibility}
+                                                title={cell.hidden ? "Show cell in normal mode" : "Hide cell in normal mode"}
+                                            >
+                                                <i
+                                                    className={`codicon ${cell.hidden ? "codicon-eye-closed" : "codicon-eye"}`}
                                                     style={{ fontSize: "12px" }}
                                                 />
                                             </Button>

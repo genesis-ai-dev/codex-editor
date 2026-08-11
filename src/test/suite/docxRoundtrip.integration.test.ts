@@ -245,5 +245,201 @@ suite("DOCX round-trip integration (mock DOCX fixture)", function () {
 
         assert.strictEqual(changedCount, 2, "Expected exactly two paragraphs to change");
     });
+
+    test("import (split) -> translate one middle segment -> export: untranslated segments keep source text", async () => {
+        const docxPath = resolveMockDocxPath();
+        const originalBuf = fs.readFileSync(docxPath);
+        const originalArrayBuffer = toArrayBuffer(originalBuf);
+
+        const fileLike: FileLike = {
+            name: path.basename(docxPath),
+            size: originalBuf.byteLength,
+            lastModified: Date.now(),
+            arrayBuffer: async () => originalArrayBuffer,
+        };
+
+        // Force aggressive splitting so ordinary paragraphs break into 3+ segments.
+        const imported = await parseDocxRoundtrip(fileLike as unknown as File, undefined, {
+            idealCellLength: 10,
+        });
+        assert.strictEqual(imported.success, true, "Expected DOCX import success");
+        assert.ok(imported.notebookPair, "Expected notebookPair from importer");
+
+        const codexCells = imported.notebookPair!.codex.cells;
+
+        // Group split-paragraph segment cells (skip table cells and unsplit paragraphs).
+        const segmentsByPara = new Map<number, any[]>();
+        for (const c of codexCells as any[]) {
+            const meta = c?.metadata;
+            if (Array.isArray(meta?.paragraphIndices)) continue; // table cell
+            if (typeof meta?.segmentIndex !== "number") continue; // only split segments
+            if (typeof meta?.paragraphIndex !== "number") continue;
+            const arr = segmentsByPara.get(meta.paragraphIndex) ?? [];
+            arr.push(c);
+            segmentsByPara.set(meta.paragraphIndex, arr);
+        }
+
+        // Find a paragraph split into >= 3 segments, all with non-empty source text.
+        let targetPara: number | undefined;
+        let targetSegments: any[] | undefined;
+        for (const [paraIdx, segs] of segmentsByPara) {
+            if (segs.length < 3) continue;
+            const sorted = [...segs].sort(
+                (a, b) => a.metadata.segmentIndex - b.metadata.segmentIndex
+            );
+            if (sorted.every((s) => String(s.metadata?.data?.originalText ?? "").trim().length > 0)) {
+                targetPara = paraIdx;
+                targetSegments = sorted;
+                break;
+            }
+        }
+
+        assert.ok(
+            targetPara !== undefined && targetSegments,
+            "Expected the fixture to contain a paragraph split into >= 3 non-empty segments"
+        );
+
+        const sorted = targetSegments!;
+        const middleIdx = Math.floor(sorted.length / 2);
+        const middleCellId = sorted[middleIdx].metadata.id;
+        const dummy = "__MIDDLE_SEGMENT_TRANSLATION__";
+
+        // Build exporter input: ONLY the middle segment of the target paragraph is translated.
+        // Every other cell is left untranslated (empty) so it stays byte-untouched.
+        const exporterCells = (codexCells as any[]).map((c) => ({
+            kind: 2,
+            value: c?.metadata?.id === middleCellId ? `<p>${dummy}</p>` : "",
+            metadata: c.metadata,
+        }));
+
+        const exportedArrayBuffer = await exportDocxWithTranslations(originalArrayBuffer, exporterCells);
+
+        const originalZip = await JSZip.loadAsync(originalArrayBuffer);
+        const exportedZip = await JSZip.loadAsync(exportedArrayBuffer);
+
+        const originalDocXml = await originalZip.file("word/document.xml")!.async("string");
+        const exportedDocXml = await exportedZip.file("word/document.xml")!.async("string");
+
+        const origParagraphTexts = extractParagraphTexts(originalDocXml);
+        const expParagraphTexts = extractParagraphTexts(exportedDocXml);
+        assert.strictEqual(
+            expParagraphTexts.length,
+            origParagraphTexts.length,
+            "Expected same paragraph count in document.xml"
+        );
+
+        // Untranslated segments fall back to their (trimmed) source text; the translated middle
+        // segment shows the translation. Order is preserved by segmentIndex.
+        const expectedCombined = sorted
+            .map((s, i) => (i === middleIdx ? dummy : String(s.metadata.data.originalText).trim()))
+            .join(" ");
+
+        assert.strictEqual(
+            expParagraphTexts[targetPara!],
+            expectedCombined,
+            "Expected the split paragraph to keep source text for untranslated segments"
+        );
+
+        // Explicit no-data-loss checks.
+        const firstSource = String(sorted[0].metadata.data.originalText).trim();
+        const lastSource = String(sorted[sorted.length - 1].metadata.data.originalText).trim();
+        assert.ok(
+            expParagraphTexts[targetPara!].includes(firstSource),
+            "Expected first (untranslated) segment source to be preserved"
+        );
+        assert.ok(
+            expParagraphTexts[targetPara!].includes(lastSource),
+            "Expected last (untranslated) segment source to be preserved"
+        );
+        assert.ok(
+            expParagraphTexts[targetPara!].includes(dummy),
+            "Expected the translated middle segment to be present"
+        );
+        assert.notStrictEqual(
+            expParagraphTexts[targetPara!],
+            dummy,
+            "Paragraph must not be overwritten with only the translated segment"
+        );
+
+        // Only the target paragraph should change; everything else stays untouched.
+        let changedCount = 0;
+        for (let i = 0; i < origParagraphTexts.length; i++) {
+            if (origParagraphTexts[i] !== expParagraphTexts[i]) {
+                changedCount++;
+                assert.strictEqual(i, targetPara, `Unexpected paragraph text change at index ${i}`);
+            }
+        }
+        assert.strictEqual(changedCount, 1, "Expected exactly one paragraph to change");
+    });
+
+    test("import (split) -> translate all segments -> export: full joined translation (regression)", async () => {
+        const docxPath = resolveMockDocxPath();
+        const originalBuf = fs.readFileSync(docxPath);
+        const originalArrayBuffer = toArrayBuffer(originalBuf);
+
+        const fileLike: FileLike = {
+            name: path.basename(docxPath),
+            size: originalBuf.byteLength,
+            lastModified: Date.now(),
+            arrayBuffer: async () => originalArrayBuffer,
+        };
+
+        const imported = await parseDocxRoundtrip(fileLike as unknown as File, undefined, {
+            idealCellLength: 10,
+        });
+        assert.strictEqual(imported.success, true, "Expected DOCX import success");
+        const codexCells = imported.notebookPair!.codex.cells;
+
+        const segmentsByPara = new Map<number, any[]>();
+        for (const c of codexCells as any[]) {
+            const meta = c?.metadata;
+            if (Array.isArray(meta?.paragraphIndices)) continue;
+            if (typeof meta?.segmentIndex !== "number") continue;
+            if (typeof meta?.paragraphIndex !== "number") continue;
+            const arr = segmentsByPara.get(meta.paragraphIndex) ?? [];
+            arr.push(c);
+            segmentsByPara.set(meta.paragraphIndex, arr);
+        }
+
+        let targetPara: number | undefined;
+        let targetSegments: any[] | undefined;
+        for (const [paraIdx, segs] of segmentsByPara) {
+            if (segs.length < 3) continue;
+            targetPara = paraIdx;
+            targetSegments = [...segs].sort(
+                (a, b) => a.metadata.segmentIndex - b.metadata.segmentIndex
+            );
+            break;
+        }
+        assert.ok(
+            targetPara !== undefined && targetSegments,
+            "Expected the fixture to contain a paragraph split into >= 3 segments"
+        );
+
+        const sorted = targetSegments!;
+        const idToDummy = new Map<string, string>();
+        sorted.forEach((s, i) => idToDummy.set(s.metadata.id, `__SEG_${i}__`));
+
+        const exporterCells = (codexCells as any[]).map((c) => {
+            const dummy = idToDummy.get(c?.metadata?.id);
+            return {
+                kind: 2,
+                value: dummy ? `<p>${dummy}</p>` : "",
+                metadata: c.metadata,
+            };
+        });
+
+        const exportedArrayBuffer = await exportDocxWithTranslations(originalArrayBuffer, exporterCells);
+        const exportedZip = await JSZip.loadAsync(exportedArrayBuffer);
+        const exportedDocXml = await exportedZip.file("word/document.xml")!.async("string");
+        const expParagraphTexts = extractParagraphTexts(exportedDocXml);
+
+        const expectedCombined = sorted.map((_, i) => `__SEG_${i}__`).join(" ");
+        assert.strictEqual(
+            expParagraphTexts[targetPara!],
+            expectedCombined,
+            "Expected fully-translated split paragraph to export the full joined translation"
+        );
+    });
 });
 
