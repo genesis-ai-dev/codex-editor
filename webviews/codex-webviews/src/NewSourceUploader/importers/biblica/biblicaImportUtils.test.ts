@@ -1,18 +1,64 @@
 import { describe, it, expect } from 'vitest';
 import {
+    isBiblicaFrontBackMatterDocument,
+    isBiblicaMajorSectionHeadingStyle,
     isBiblicaNoteSectionStyle,
+    isBiblicaRunningHeadStyle,
     isStructuralOnlyContent,
     splitSegmentsAtLineBreaks,
     getStructuralApostropheSegmentIndexes,
     isStructuralApostropheSegment,
-    stripStructuralApostropheSegments,
+    omitSegmentsAtIndexes,
+    getVerseMarkerSegmentIndexes,
 } from './biblicaImportUtils';
 import { buildSegmentedParagraphHtml } from '../common/contentSegmentUtils';
+import type { IDMLStory } from './types';
 
 describe('biblicaImportUtils', () => {
     it('detects intro note styles', () => {
         expect(isBiblicaNoteSectionStyle('ParagraphStyle/intro%3aipi')).toBe(true);
         expect(isBiblicaNoteSectionStyle('ParagraphStyle/meta%3arh')).toBe(false);
+    });
+
+    it('detects major section headings and running heads', () => {
+        expect(isBiblicaMajorSectionHeadingStyle('ParagraphStyle/head%3ams1')).toBe(true);
+        expect(isBiblicaMajorSectionHeadingStyle('ParagraphStyle/head%3acl')).toBe(false);
+        expect(isBiblicaRunningHeadStyle('ParagraphStyle/meta%3arh')).toBe(true);
+        expect(isBiblicaRunningHeadStyle('ParagraphStyle/text%3am')).toBe(false);
+    });
+
+    it('recognises a front/back matter volume by the absence of verses', () => {
+        const storyWith = (metadata: Record<string, unknown>): IDMLStory =>
+            ({
+                id: 'u363',
+                paragraphs: [
+                    {
+                        paragraphStyleRange: {
+                            appliedParagraphStyle: 'ParagraphStyle/text%3am',
+                            properties: {},
+                            content: 'text',
+                        },
+                        characterStyleRanges: [],
+                        metadata,
+                    },
+                ],
+            }) as unknown as IDMLStory;
+
+        expect(isBiblicaFrontBackMatterDocument([storyWith({ biblicaVerseSegments: [] })])).toBe(
+            true
+        );
+        expect(
+            isBiblicaFrontBackMatterDocument([
+                storyWith({
+                    biblicaVerseSegments: [
+                        { bookAbbreviation: 'MAT', chapterNumber: '1', verseNumber: '1' },
+                    ],
+                }),
+            ])
+        ).toBe(false);
+        expect(
+            isBiblicaFrontBackMatterDocument([storyWith({ isPartOfSpanningVerse: true })])
+        ).toBe(false);
     });
 
     it('treats ACE-only content as structural', () => {
@@ -54,10 +100,32 @@ describe('biblicaImportUtils', () => {
         ];
         const indexes = getStructuralApostropheSegmentIndexes(segments, styles);
         expect(indexes).toEqual([1]);
-        expect(stripStructuralApostropheSegments(segments, indexes)).toEqual([
+        expect(omitSegmentsAtIndexes(segments, indexes)).toEqual([
             'Israel',
             's covenant history',
         ]);
+    });
+
+    it('detects chapter/verse marker slots by character style', () => {
+        // Matthew's closing 28:20 markers, flushed into Mark's intro:ie paragraph.
+        const segments = ['28:', '20'];
+        const styles = ['CharacterStyle/meta%3ac', 'CharacterStyle/meta%3av'];
+
+        expect(getVerseMarkerSegmentIndexes(segments, styles)).toEqual([0, 1]);
+        expect(omitSegmentsAtIndexes(segments, [0, 1])).toEqual([]);
+    });
+
+    it('does not mistake other meta styles for verse markers', () => {
+        expect(
+            getVerseMarkerSegmentIndexes(
+                ['Matthew', 'Mt', '3'],
+                [
+                    'CharacterStyle/meta%3arh',
+                    'CharacterStyle/meta%3atoc3',
+                    'CharacterStyle/cv%3adc',
+                ]
+            )
+        ).toEqual([]);
     });
 
     it('omits apostrophe segments from editor HTML while preserving indices', () => {
