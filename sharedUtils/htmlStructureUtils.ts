@@ -67,12 +67,29 @@ const tagDifference = (a: string[], b: string[]): string[] => {
 const stripEmptyParagraphs = (html: string): string =>
     (html || "").replace(/<p\b[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>/gi, "");
 
+/**
+ * Normalize an HTML fragment for structure comparison. Structure enforcement
+ * exists for round-trip export fidelity, and line breaks are user content
+ * that neither exporter's mapping depends on — so differences a line break
+ * creates must never surface as mismatch errors (or worse, get stripped by a
+ * resolve). Three normalizations, applied to both sides:
+ * - empty paragraphs (blank lines) are dropped,
+ * - bare `<br>` tags are dropped (attributed breaks such as InDesign's
+ *   `<br class="idml-eoc">` still count as structure),
+ * - adjacent bare-paragraph boundaries are collapsed, so a paragraph the
+ *   user split with Enter still compares as one block.
+ */
+const normalizeForStructureComparison = (html: string): string =>
+    stripEmptyParagraphs(html)
+        .replace(/<br\s*\/?>/gi, " ")
+        .replace(/<\/p>\s*<p>/gi, " ");
+
 export const compareHtmlStructure = (
     sourceHtml: string,
     targetHtml: string,
 ): HtmlStructureDiff => {
-    const sourceSkeleton = extractHtmlSkeleton(stripEmptyParagraphs(sourceHtml));
-    const targetSkeleton = extractHtmlSkeleton(stripEmptyParagraphs(targetHtml));
+    const sourceSkeleton = extractHtmlSkeleton(normalizeForStructureComparison(sourceHtml));
+    const targetSkeleton = extractHtmlSkeleton(normalizeForStructureComparison(targetHtml));
     if (sourceSkeleton === targetSkeleton) {
         return { isMatch: true, errors: [] };
     }
@@ -188,44 +205,6 @@ export const convertBareSpanPairsToParagraphs = (html: string): string => {
 };
 
 /**
- * Merge adjacent attribute-less paragraphs into one, joining their contents
- * with a single space. Pressing Enter mid-cell splits a paragraph into two
- * bare `<p>` blocks, which mismatches a single-paragraph source; merging them
- * keeps the translation's structure in line with the source without losing
- * any text. Attributed paragraphs (e.g. InDesign's) are never merged into.
- */
-export const mergeAdjacentBareParagraphs = (html: string): string =>
-    (html || "").replace(/<\/p>\s*<p>/gi, " ");
-
-/**
- * Remove bare `<br>` line breaks that the target has beyond the source's
- * count, replacing each with a single space so words stay separated. The
- * first breaks are kept (they are the ones likeliest to mirror the source's);
- * the rightmost extras — typically a Shift+Enter the user added — are
- * dropped. Attributed breaks (e.g. InDesign's `<br class="idml-eoc">`) are
- * neither counted nor removed.
- */
-export const removeExtraBareLineBreaks = (
-    sourceHtml: string,
-    targetHtml: string,
-): string => {
-    if (!targetHtml) return targetHtml;
-    const bareBr = () => /<br\s*\/?>/gi;
-    const sourceCount = (sourceHtml || "").match(bareBr())?.length ?? 0;
-    const matches = [...targetHtml.matchAll(bareBr())];
-    if (matches.length <= sourceCount) return targetHtml;
-
-    let result = "";
-    let last = 0;
-    for (const extra of matches.slice(sourceCount)) {
-        result += targetHtml.slice(last, extra.index) + " ";
-        last = extra.index + extra[0].length;
-    }
-    result += targetHtml.slice(last);
-    return result;
-};
-
-/**
  * If the (trimmed) fragment is exactly one element wrapping all remaining
  * content, return its opening tag, tag name, and inner content; otherwise null.
  */
@@ -302,26 +281,16 @@ export const rewrapWithSourceWrappers = (
     return source.openTags.join("") + target.inner + source.closeTags.join("");
 };
 
-export interface DeterministicFixOptions {
-    /**
-     * Allow fixes that alter the target's line breaks: merging Enter-split
-     * bare paragraphs and turning extra `<br>`s into spaces. Enabled by
-     * default for explicit resolve actions (Resolve button, Resolve All, the
-     * manual repair command) and for freshly generated LLM output. The silent
-     * save-time repair disables it, so a line break the user typed is warned
-     * about via the mismatch label — never silently removed.
-     */
-    lineBreakFixes?: boolean;
-}
-
 /**
  * Attempt to fix a structure mismatch without an LLM. Handles the common
  * artifacts of the editing pipeline: spurious bare `<span>`/`<p>` wrappers
  * that should be removed, bare spans that should have been `<p>` tags, or
  * source wrapper chains (styled `<p>`/`<span>` from docx imports) that the
- * editor stripped on save. With `lineBreakFixes` enabled (the default),
- * Enter-split paragraphs are merged back and extra `<br>`s beyond the
- * source's count become spaces.
+ * editor stripped on save.
+ *
+ * Line breaks are never touched: the comparison tolerates them (see
+ * `normalizeForStructureComparison`), so a user's Enter/Shift+Enter neither
+ * flags a mismatch nor gets stripped by a resolve.
  *
  * Returns the fixed HTML only if the result verifiably matches the source
  * structure; returns null when no deterministic fix applies.
@@ -329,35 +298,17 @@ export interface DeterministicFixOptions {
 export const tryDeterministicStructureFix = (
     sourceHtml: string,
     targetHtml: string,
-    options?: DeterministicFixOptions,
 ): string | null => {
     if (compareHtmlStructure(sourceHtml, targetHtml).isMatch) return null;
-    const lineBreakFixes = options?.lineBreakFixes ?? true;
     const rewrapped = rewrapWithSourceWrappers(sourceHtml, targetHtml);
-
-    // Line-break artifacts: paragraphs split by Enter are merged back and
-    // extra <br>s (Shift+Enter) beyond the source's count become spaces.
-    const mergedParagraphs = mergeAdjacentBareParagraphs(targetHtml);
-    const normalizedLineBreaks = removeExtraBareLineBreaks(sourceHtml, mergedParagraphs);
-    const rewrappedNormalized = rewrapWithSourceWrappers(sourceHtml, normalizedLineBreaks);
-    const lineBreakCandidates = lineBreakFixes
-        ? [
-              ...(rewrappedNormalized !== null ? [rewrappedNormalized] : []),
-              removeExtraBareLineBreaks(sourceHtml, targetHtml),
-              mergedParagraphs,
-              normalizedLineBreaks,
-          ]
-        : [];
-
     const candidates = [
         // Preferred: re-dressing with the source's verbatim wrappers keeps the
         // source's attributes (styles, data-style-id) for round-trip export.
         ...(rewrapped !== null ? [rewrapped] : []),
-        removeBareSpanPairs(targetHtml),
         convertBareSpanPairsToParagraphs(targetHtml),
+        removeBareSpanPairs(targetHtml),
         removeBareParagraphPairs(targetHtml),
         removeBareParagraphPairs(removeBareSpanPairs(targetHtml)),
-        ...lineBreakCandidates,
         // Plain-text targets (e.g. translations applied from other views) that
         // just need the source's single block wrapper.
         `<p>${targetHtml}</p>`,
