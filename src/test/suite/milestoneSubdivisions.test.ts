@@ -553,6 +553,69 @@ suite("Milestone Subdivisions Test Suite", () => {
             );
         });
 
+        test("updateCellData records subdivision changes in edit history", async () => {
+            const document = await createDocumentWithCells(buildCellsWithSubdivisions());
+            const placements = [{ startCellId: "v6" }];
+            const names = { v6: "Later Half" };
+
+            document.updateCellData("milestone-1", {
+                subdivisions: placements,
+                subdivisionNames: names,
+            });
+
+            const cell = (document as any)._documentData.cells.find(
+                (c: any) => c.metadata?.id === "milestone-1"
+            );
+            const edits = cell.metadata.edits || [];
+
+            const subdivisionsEdit = edits.find(
+                (e: any) => e.editMap?.join(".") === "metadata.data.subdivisions"
+            );
+            assert.ok(
+                subdivisionsEdit,
+                "subdivisions change must be recorded in edit history for merge durability"
+            );
+            assert.deepStrictEqual(subdivisionsEdit.value, placements);
+
+            const namesEdit = edits.find(
+                (e: any) => e.editMap?.join(".") === "metadata.data.subdivisionNames"
+            );
+            assert.ok(namesEdit, "subdivisionNames change must be recorded in edit history");
+            assert.deepStrictEqual(namesEdit.value, names);
+        });
+
+        test("updateCellData records mirrored source names in target edit history", async () => {
+            const document = await createDocumentWithCells(buildCellsWithSubdivisions());
+            const mirroredNames = { v6: "From Source" };
+
+            document.updateCellData("milestone-1", {
+                subdivisionNamesFromSource: mirroredNames,
+            });
+
+            const cell = (document as any)._documentData.cells.find(
+                (c: any) => c.metadata?.id === "milestone-1"
+            );
+            const mirrorEdit = (cell.metadata.edits || []).find(
+                (e: any) => e.editMap?.join(".") === "metadata.data.subdivisionNamesFromSource"
+            );
+            assert.ok(mirrorEdit, "mirrored source names must be recorded in edit history");
+            assert.deepStrictEqual(mirrorEdit.value, mirroredNames);
+        });
+
+        test("updateCellData does not record subdivision edits for non-milestone cells", async () => {
+            const document = await createDocumentWithCells(buildCellsWithSubdivisions());
+
+            document.updateCellData("v1", { hidden: true });
+
+            const cell = (document as any)._documentData.cells.find(
+                (c: any) => c.metadata?.id === "v1"
+            );
+            const subdivisionEdits = (cell.metadata.edits || []).filter((e: any) =>
+                e.editMap?.join(".").startsWith("metadata.data.subdivision")
+            );
+            assert.strictEqual(subdivisionEdits.length, 0);
+        });
+
         // -----------------------------------------------------------------
         // addMilestoneSubdivisionAnchor handler — resolves cellNumber → cellId
         // server-side and delegates to the shared commit pipeline.
