@@ -1,8 +1,9 @@
-import type { AudioEditorClip } from "./audioEditModel";
-
-export const BROWSER_AUDIO_SAMPLE_RATE = 44100;
-export const BROWSER_AUDIO_CHANNELS = 1;
-const MAX_WAV_BYTES = 200 * 1024 * 1024;
+import { estimateWavBytes, MAX_AUDIO_ATTACHMENT_BYTES, maxWavDurationSec } from "@sharedUtils";
+import {
+    resolveAudioRenderFormat,
+    type AudioEditorClip,
+    type AudioRenderFormat,
+} from "./audioEditModel";
 
 export interface BrowserAudioRenderResult {
     bytes: Uint8Array;
@@ -20,55 +21,75 @@ function writeAscii(view: DataView, offset: number, value: string): void {
 }
 
 /** Writes the standard 44-byte PCM WAV header used by the saved attachment. */
-function writeWavHeader(view: DataView, sampleCount: number, sampleRate: number): void {
-    const dataSize = sampleCount * 2;
+function writeWavHeader(
+    view: DataView,
+    frameCount: number,
+    sampleRate: number,
+    channels: number
+): void {
+    const blockAlign = channels * 2;
+    const dataSize = frameCount * blockAlign;
     writeAscii(view, 0, "RIFF");
     view.setUint32(4, 36 + dataSize, true);
     writeAscii(view, 8, "WAVE");
     writeAscii(view, 12, "fmt ");
     view.setUint32(16, 16, true);
     view.setUint16(20, 1, true);
-    view.setUint16(22, BROWSER_AUDIO_CHANNELS, true);
+    view.setUint16(22, channels, true);
     view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
+    view.setUint32(28, sampleRate * blockAlign, true);
+    view.setUint16(32, blockAlign, true);
     view.setUint16(34, 16, true);
     writeAscii(view, 36, "data");
     view.setUint32(40, dataSize, true);
 }
 
-/** Encodes normalized mono floating-point samples as little-endian PCM16 WAV. */
-export function encodeMonoPcmWav(samples: Float32Array, sampleRate: number): Uint8Array {
-    const output = new ArrayBuffer(44 + samples.length * 2);
+/** Encodes per-channel floating-point samples as interleaved PCM16 WAV. */
+export function encodePcmWav(channelData: Float32Array[], sampleRate: number): Uint8Array {
+    const channels = Math.max(1, channelData.length);
+    const frameCount = channelData[0]?.length ?? 0;
+    const output = new ArrayBuffer(44 + frameCount * channels * 2);
     const view = new DataView(output);
-    writeWavHeader(view, samples.length, sampleRate);
-    for (let index = 0; index < samples.length; index++) {
-        const sample = Math.max(-1, Math.min(1, samples[index] ?? 0));
-        view.setInt16(44 + index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    writeWavHeader(view, frameCount, sampleRate, channels);
+    let offset = 44;
+    for (let frame = 0; frame < frameCount; frame++) {
+        for (let channel = 0; channel < channels; channel++) {
+            const raw = channelData[channel]?.[frame] ?? 0;
+            const sample = Math.max(-1, Math.min(1, raw));
+            view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+            offset += 2;
+        }
     }
     return new Uint8Array(output);
 }
 
-/**
- * Reads one mono sample at an arbitrary source time. Linear interpolation
- * handles source files whose sample rate differs from the output sample rate.
- */
-function readInterpolatedMonoSample(buffer: AudioBuffer, timeSec: number): number {
-    const sourceIndex = Math.max(0, timeSec * buffer.sampleRate);
-    const lower = Math.min(buffer.length - 1, Math.floor(sourceIndex));
-    const upper = Math.min(buffer.length - 1, lower + 1);
-    const fraction = sourceIndex - lower;
-    let mixed = 0;
-    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-        const samples = buffer.getChannelData(channel);
-        mixed += (samples[lower] ?? 0) * (1 - fraction) + (samples[upper] ?? 0) * fraction;
-    }
-    return mixed / Math.max(1, buffer.numberOfChannels);
+function getAudioContextClass(): typeof AudioContext | undefined {
+    return (
+        window.AudioContext ||
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    );
+}
+
+function getOfflineAudioContextClass(): typeof OfflineAudioContext | undefined {
+    return (
+        window.OfflineAudioContext ||
+        (window as typeof window & { webkitOfflineAudioContext?: typeof OfflineAudioContext })
+            .webkitOfflineAudioContext
+    );
+}
+
+/** Error message for edits whose WAV output would exceed the attachment cap. */
+export function audioTooLongMessage(format: AudioRenderFormat): string {
+    const limitSec = maxWavDurationSec(format.sampleRate, format.channels);
+    const minutes = Math.floor(limitSec / 60);
+    return `The edited audio would be larger than the 50 MB attachment limit (about ${minutes} minutes at this quality). Please edit it in shorter sections.`;
 }
 
 /**
- * Decodes each unique source Blob with Web Audio, renders the non-destructive
- * clip list in timeline order, and returns a WAV attachment without FFmpeg.
+ * Decodes each unique source Blob once, renders the non-destructive clip list
+ * in timeline order with an OfflineAudioContext (off the main thread, with
+ * the browser's resampler), and returns a WAV attachment. The output keeps
+ * the primary source's sample rate and the widest source channel count.
  */
 export async function renderAudioClipsInBrowser(
     clips: AudioEditorClip[]
@@ -78,53 +99,69 @@ export async function renderAudioClipsInBrowser(
         (total, clip) => total + Math.max(0, clip.endSec - clip.startSec),
         0
     );
-    const sampleCount = Math.ceil(durationSec * BROWSER_AUDIO_SAMPLE_RATE);
-    if (44 + sampleCount * 2 > MAX_WAV_BYTES) {
-        throw new Error("The edited audio is too long to export safely. Please edit it in shorter sections.");
+    if (durationSec <= 0) throw new Error("There is no audio to save.");
+
+    const AudioContextClass = getAudioContextClass();
+    const OfflineAudioContextClass = getOfflineAudioContextClass();
+    if (!AudioContextClass || !OfflineAudioContextClass) {
+        throw new Error("This VS Code environment does not support built-in audio processing.");
     }
 
-    const AudioContextClass = window.AudioContext ||
-        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) throw new Error("This VS Code environment does not support built-in audio processing.");
+    // Decode each source once even when delete/insert operations split it into many clips.
     const context = new AudioContextClass();
+    const decoded = new Map<string, AudioBuffer>();
     try {
-        // Decode each source once even when delete/insert operations split it into many clips.
         const inputs = new Map<string, Blob>();
         clips.forEach((clip) => inputs.set(clip.inputId, clip.audioBlob));
-        const decoded = new Map<string, AudioBuffer>();
         await Promise.all([...inputs.entries()].map(async ([inputId, blob]) => {
             const bytes = await blob.arrayBuffer();
             decoded.set(inputId, await context.decodeAudioData(bytes.slice(0)));
         }));
-
-        // Copy every source-time clip into one continuous output buffer.
-        const samples = new Float32Array(sampleCount);
-        let outputOffset = 0;
-        for (const clip of clips) {
-            const input = decoded.get(clip.inputId);
-            if (!input) throw new Error(`Could not read the inserted audio: ${clip.label}`);
-            const clipSamples = Math.max(
-                0,
-                Math.round((clip.endSec - clip.startSec) * BROWSER_AUDIO_SAMPLE_RATE)
-            );
-            for (let index = 0; index < clipSamples && outputOffset + index < samples.length; index++) {
-                const sourceTime = clip.startSec + index / BROWSER_AUDIO_SAMPLE_RATE;
-                samples[outputOffset + index] = readInterpolatedMonoSample(input, sourceTime);
-            }
-            outputOffset += clipSamples;
-        }
-
-        return {
-            bytes: encodeMonoPcmWav(samples, BROWSER_AUDIO_SAMPLE_RATE),
-            durationSec,
-            sampleRate: BROWSER_AUDIO_SAMPLE_RATE,
-            channels: BROWSER_AUDIO_CHANNELS,
-            bitrateKbps: Math.round(BROWSER_AUDIO_SAMPLE_RATE * 16 / 1000),
-        };
-    } catch (error) {
-        if (error instanceof Error && error.message.startsWith("Could not")) throw error;
+    } catch {
         throw new Error("Could not decode this audio format. Try a WAV, MP3, M4A, OGG, or WebM file.");
     } finally {
         await context.close().catch(() => undefined);
     }
+
+    const format = resolveAudioRenderFormat(
+        clips.map((clip) => {
+            const buffer = decoded.get(clip.inputId);
+            return {
+                sampleRate: buffer?.sampleRate,
+                channels: buffer?.numberOfChannels,
+                isPrimary: clip.isPrimary,
+            };
+        })
+    );
+    if (estimateWavBytes(durationSec, format.sampleRate, format.channels) > MAX_AUDIO_ATTACHMENT_BYTES) {
+        throw new Error(audioTooLongMessage(format));
+    }
+
+    const frameCount = Math.ceil(durationSec * format.sampleRate);
+    const offline = new OfflineAudioContextClass(format.channels, frameCount, format.sampleRate);
+    let timelineOffsetSec = 0;
+    for (const clip of clips) {
+        const input = decoded.get(clip.inputId);
+        if (!input) throw new Error(`Could not read the inserted audio: ${clip.label}`);
+        const clipDurationSec = Math.max(0, clip.endSec - clip.startSec);
+        if (clipDurationSec <= 0) continue;
+        const source = offline.createBufferSource();
+        source.buffer = input;
+        source.connect(offline.destination);
+        source.start(timelineOffsetSec, clip.startSec, clipDurationSec);
+        timelineOffsetSec += clipDurationSec;
+    }
+
+    const rendered = await offline.startRendering();
+    const channelData = Array.from(
+        { length: rendered.numberOfChannels },
+        (_, channel) => rendered.getChannelData(channel)
+    );
+    return {
+        bytes: encodePcmWav(channelData, format.sampleRate),
+        durationSec,
+        sampleRate: format.sampleRate,
+        channels: format.channels,
+        bitrateKbps: Math.round((format.sampleRate * 16 * format.channels) / 1000),
+    };
 }

@@ -1,10 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FilePlus2, Loader2, Save, Scissors, Undo2, X, ZoomIn, ZoomOut } from "lucide-react";
+import { estimateWavBytes, MAX_AUDIO_ATTACHMENT_BYTES } from "@sharedUtils";
 import type { EditorPostMessages } from "../../../../../types";
 import { Button } from "../../components/ui/button";
 import { useMessageHandler } from "../hooks/useCentralizedMessageDispatcher";
 import { AudioPointerTimeControl } from "./AudioPointerTimeControl";
-import { audioFileExtension, blobToDataUrl, decodeAudioDuration } from "./audioFileUtils";
+import {
+    audioFileExtension,
+    blobToDataUrl,
+    decodeAudioInfo,
+    type DecodedAudioInfo,
+} from "./audioFileUtils";
 import {
     MIN_AUDIO_CLIP_DURATION_SEC,
     PRIMARY_AUDIO_INPUT_ID,
@@ -13,6 +19,7 @@ import {
     getAudioEditorDuration,
     insertAudioClipsAtTimelinePosition,
     keepAudioTimelineRange,
+    resolveAudioRenderFormat,
     type AudioEditorDraft,
 } from "./audioEditModel";
 import {
@@ -22,7 +29,7 @@ import {
     updateAudioTrimStart,
     type AudioTrimRange,
 } from "./audioTrimMath";
-import { renderAudioClipsInBrowser } from "./browserAudioRenderer";
+import { audioTooLongMessage, renderAudioClipsInBrowser } from "./browserAudioRenderer";
 import { SimpleAudioTimeline } from "./SimpleAudioTimeline";
 import { useAudioEditHistory } from "./useAudioEditHistory";
 
@@ -85,6 +92,18 @@ export function SimpleAudioEditorPanel({
     const durationSec = getAudioEditorDuration(draft.clips);
     const disabled = pendingRequestId !== null;
     const rangeDurationSec = Math.max(0, range.endSec - range.startSec);
+    // Budget the WAV output against the provider's attachment cap up front,
+    // so the user learns about oversized edits before rendering, not after.
+    const renderFormat = resolveAudioRenderFormat(
+        draft.clips.map((clip) => ({
+            sampleRate: clip.sourceSampleRate,
+            channels: clip.sourceChannels,
+            isPrimary: clip.isPrimary,
+        }))
+    );
+    const exceedsSaveLimit =
+        estimateWavBytes(durationSec, renderFormat.sampleRate, renderFormat.channels) >
+        MAX_AUDIO_ATTACHMENT_BYTES;
     // Delete mode may use a zero-width selection; Keep mode must remain playable.
     const minimumPointerGapSec = mode === "delete" ? 0 : MIN_AUDIO_CLIP_DURATION_SEC;
 
@@ -135,15 +154,23 @@ export function SimpleAudioEditorPanel({
         [cellId, onSaved, pendingRequestId, sourceAudioId]
     );
 
-    const handleInputDuration = useCallback((inputId: string, decodedDuration: number) => {
-        if (!Number.isFinite(decodedDuration) || decodedDuration <= 0) return;
+    const handleInputInfo = useCallback((inputId: string, info: DecodedAudioInfo) => {
+        if (!Number.isFinite(info.durationSec) || info.durationSec <= 0) return;
         replace((current) => ({
             ...current,
-            clips: current.clips.map((clip) =>
-                clip.inputId === inputId && clip.sourceDurationSec <= 0
-                    ? { ...clip, sourceDurationSec: decodedDuration, endSec: decodedDuration }
-                    : clip
-            ),
+            clips: current.clips.map((clip) => {
+                if (clip.inputId !== inputId) return clip;
+                // Duration only fills in when unknown; a clip the user already
+                // trimmed must keep its pointers. Format hints are idempotent.
+                const needsDuration = clip.sourceDurationSec <= 0;
+                return {
+                    ...clip,
+                    sourceDurationSec: needsDuration ? info.durationSec : clip.sourceDurationSec,
+                    endSec: needsDuration ? info.durationSec : clip.endSec,
+                    sourceSampleRate: clip.sourceSampleRate || info.sampleRate,
+                    sourceChannels: clip.sourceChannels || info.channels,
+                };
+            }),
         }));
     }, [replace]);
 
@@ -188,7 +215,7 @@ export function SimpleAudioEditorPanel({
     const insertAudioFile = async (file: File) => {
         try {
             if (file.size > 50 * 1024 * 1024) throw new Error("The inserted audio must be 50 MB or smaller.");
-            const insertedDuration = await decodeAudioDuration(file);
+            const insertedInfo = await decodeAudioInfo(file);
             const url = URL.createObjectURL(file);
             ownedUrlsRef.current.add(url);
             const clip = createAudioEditorClip({
@@ -197,7 +224,9 @@ export function SimpleAudioEditorPanel({
                 audioBlob: file,
                 audioUrl: url,
                 fileExtension: audioFileExtension(file.name, file.type),
-                durationSec: insertedDuration,
+                durationSec: insertedInfo.durationSec,
+                sampleRate: insertedInfo.sampleRate,
+                channels: insertedInfo.channels,
             });
             const nextClips = insertAudioClipsAtTimelinePosition(
                 draft.clips,
@@ -205,7 +234,7 @@ export function SimpleAudioEditorPanel({
                 insertTimeSec
             );
             commit({ ...draft, clips: nextClips });
-            setInsertTimeSec(insertTimeSec + insertedDuration);
+            setInsertTimeSec(insertTimeSec + insertedInfo.durationSec);
             setError(null);
         } catch (insertError) {
             setError(insertError instanceof Error ? insertError.message : "Could not insert this audio file.");
@@ -288,7 +317,7 @@ export function SimpleAudioEditorPanel({
                 ))}
                 onInsertTimeChange={(timeSec) => setInsertTimeSec(Math.min(durationSec, Math.max(0, timeSec)))}
                 onZoomChange={setZoom}
-                onInputDuration={handleInputDuration}
+                onInputInfo={handleInputInfo}
             />
 
             {rangeMode ? (
@@ -347,7 +376,7 @@ export function SimpleAudioEditorPanel({
                     {mode === "insert" && <Button size="sm" disabled={disabled} onClick={() => fileInputRef.current?.click()}><FilePlus2 className="mr-2 h-4 w-4" />Choose audio to insert</Button>}
                     <Button
                         size="sm"
-                        disabled={disabled || durationSec <= 0 || !canUndo}
+                        disabled={disabled || durationSec <= 0 || !canUndo || exceedsSaveLimit}
                         title={!canUndo ? "Make an edit before saving a new version" : undefined}
                         onClick={() => void saveNewVersion()}
                     >
@@ -362,6 +391,11 @@ export function SimpleAudioEditorPanel({
                 }} />
             </div>
 
+            {exceedsSaveLimit && (
+                <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                    {audioTooLongMessage(renderFormat)}
+                </div>
+            )}
             {error && <div className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>}
         </section>
     );

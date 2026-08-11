@@ -11,8 +11,14 @@ export function audioFileExtension(fileName: string, mimeType: string): string {
     return "webm";
 }
 
-/** Decodes only enough metadata to obtain an inserted file's playable duration. */
-export async function decodeAudioDuration(audioBlob: Blob): Promise<number> {
+export interface DecodedAudioInfo {
+    durationSec: number;
+    sampleRate: number;
+    channels: number;
+}
+
+/** Decodes an inserted file to obtain its playable duration and format. */
+export async function decodeAudioInfo(audioBlob: Blob): Promise<DecodedAudioInfo> {
     const AudioContextClass = window.AudioContext ||
         (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextClass) throw new Error("Audio decoding is not available.");
@@ -23,7 +29,11 @@ export async function decodeAudioDuration(audioBlob: Blob): Promise<number> {
         if (!Number.isFinite(decoded.duration) || decoded.duration <= 0) {
             throw new Error("The audio file has no playable duration.");
         }
-        return decoded.duration;
+        return {
+            durationSec: decoded.duration,
+            sampleRate: decoded.sampleRate,
+            channels: decoded.numberOfChannels,
+        };
     } finally {
         await context.close().catch(() => undefined);
     }

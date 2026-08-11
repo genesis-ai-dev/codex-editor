@@ -14,6 +14,10 @@ export interface AudioEditorClip {
     audioUrl: string;
     fileExtension: string;
     sourceDurationSec: number;
+    /** Decoded source sample rate in Hz; 0 until the input has been decoded. */
+    sourceSampleRate: number;
+    /** Decoded source channel count; 0 until the input has been decoded. */
+    sourceChannels: number;
     startSec: number;
     endSec: number;
     isPrimary: boolean;
@@ -35,6 +39,8 @@ export function createAudioEditorClip(options: {
     audioUrl: string;
     fileExtension: string;
     durationSec: number;
+    sampleRate?: number;
+    channels?: number;
     isPrimary?: boolean;
 }): AudioEditorClip {
     return {
@@ -45,9 +51,40 @@ export function createAudioEditorClip(options: {
         audioUrl: options.audioUrl,
         fileExtension: options.fileExtension,
         sourceDurationSec: options.durationSec,
+        sourceSampleRate: options.sampleRate ?? 0,
+        sourceChannels: options.channels ?? 0,
         startSec: 0,
         endSec: options.durationSec,
         isPrimary: options.isPrimary ?? false,
+    };
+}
+
+/** Output format for a render: sample rate in Hz and channel count. */
+export interface AudioRenderFormat {
+    sampleRate: number;
+    channels: number;
+}
+
+/** Used when no source format is known yet (nothing decoded). */
+export const DEFAULT_RENDER_SAMPLE_RATE = 48000;
+/** Sources above 48 kHz are downsampled; speech gains nothing beyond it. */
+export const MAX_RENDER_SAMPLE_RATE = 48000;
+export const MAX_RENDER_CHANNELS = 2;
+
+/**
+ * Render-output policy shared by the size estimate and the actual render:
+ * the primary source's sample rate and the widest source channel count,
+ * both capped. Sources reporting 0 (not yet decoded) fall back to defaults.
+ */
+export function resolveAudioRenderFormat(
+    sources: Array<{ sampleRate?: number; channels?: number; isPrimary?: boolean }>
+): AudioRenderFormat {
+    const primary = sources.find((source) => source.isPrimary) ?? sources[0];
+    const sampleRate = primary?.sampleRate || DEFAULT_RENDER_SAMPLE_RATE;
+    const channels = Math.max(1, ...sources.map((source) => source.channels || 1));
+    return {
+        sampleRate: Math.min(MAX_RENDER_SAMPLE_RATE, sampleRate),
+        channels: Math.min(MAX_RENDER_CHANNELS, channels),
     };
 }
 

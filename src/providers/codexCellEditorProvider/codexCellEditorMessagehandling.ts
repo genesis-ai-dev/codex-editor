@@ -36,6 +36,7 @@ import {
     getSourceCellTimestamps,
     type SourceCellMapEntry,
 } from "./utils/sourceCellTimestampsUtils";
+import { MAX_AUDIO_ATTACHMENT_BYTES } from "../../../sharedUtils";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -5169,9 +5170,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             if (!buffer || buffer.length === 0) {
                 throw new Error("Decoded audio is empty");
             }
-            // Enforce a reasonable max size (e.g., 50 MB) to avoid runaway writes
-            const MAX_BYTES = 50 * 1024 * 1024;
-            if (buffer.length > MAX_BYTES) {
+            // Same cap the webview audio editor budgets against before rendering.
+            if (buffer.length > MAX_AUDIO_ATTACHMENT_BYTES) {
                 throw new Error("Audio exceeds maximum allowed size (50 MB)");
             }
 

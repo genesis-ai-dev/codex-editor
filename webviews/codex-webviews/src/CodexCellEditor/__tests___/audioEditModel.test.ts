@@ -6,6 +6,7 @@ import {
     insertAudioClipsAtTimelinePosition,
     keepAudioTimelineRange,
     locateAudioTimelinePosition,
+    resolveAudioRenderFormat,
     splitClipRemovingSelection,
     trimAudioEditorClip,
 } from "../audio-editor/audioEditModel";
@@ -110,5 +111,34 @@ describe("audioEditModel", () => {
             [8, 10],
             [0, 2],
         ]);
+    });
+});
+
+describe("resolveAudioRenderFormat", () => {
+    it("uses the primary source's sample rate and the widest channel count", () => {
+        expect(resolveAudioRenderFormat([
+            { sampleRate: 22050, channels: 1, isPrimary: true },
+            { sampleRate: 44100, channels: 2 },
+        ])).toEqual({ sampleRate: 22050, channels: 2 });
+    });
+
+    it("caps the output at 48 kHz stereo", () => {
+        expect(resolveAudioRenderFormat([
+            { sampleRate: 96000, channels: 6, isPrimary: true },
+        ])).toEqual({ sampleRate: 48000, channels: 2 });
+    });
+
+    it("falls back to 48 kHz mono while sources are undecoded", () => {
+        expect(resolveAudioRenderFormat([
+            { sampleRate: 0, channels: 0, isPrimary: true },
+        ])).toEqual({ sampleRate: 48000, channels: 1 });
+        expect(resolveAudioRenderFormat([])).toEqual({ sampleRate: 48000, channels: 1 });
+    });
+
+    it("treats the first source as primary when none is flagged", () => {
+        expect(resolveAudioRenderFormat([
+            { sampleRate: 44100, channels: 1 },
+            { sampleRate: 48000, channels: 1 },
+        ])).toEqual({ sampleRate: 44100, channels: 1 });
     });
 });

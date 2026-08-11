@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { decodeAudio, generatePeaks } from "../../utils/audioProcessing";
 import { getAudioEditorDuration, type AudioEditorClip } from "./audioEditModel";
+import type { DecodedAudioInfo } from "./audioFileUtils";
 import { formatAudioEditTime, type AudioTrimRange } from "./audioTrimMath";
 
 type PointerMode = "range" | "insert";
@@ -17,7 +18,7 @@ interface SimpleAudioTimelineProps {
     onRangeChange: (range: AudioTrimRange) => void;
     onInsertTimeChange: (timeSec: number) => void;
     onZoomChange: (zoom: number) => void;
-    onInputDuration: (inputId: string, durationSec: number) => void;
+    onInputInfo: (inputId: string, info: DecodedAudioInfo) => void;
 }
 
 const HEIGHT = 198;
@@ -76,20 +77,20 @@ export function SimpleAudioTimeline({
     onRangeChange,
     onInsertTimeChange,
     onZoomChange,
-    onInputDuration,
+    onInputInfo,
 }: SimpleAudioTimelineProps) {
     const viewportRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const dragTargetRef = useRef<DragTarget | null>(null);
     const zoomAnchorRef = useRef<{ timeSec: number; viewportX: number } | null>(null);
-    const onInputDurationRef = useRef(onInputDuration);
+    const onInputInfoRef = useRef(onInputInfo);
     const wheelStateRef = useRef({ disabled, onZoomChange, pixelsPerSecond: 1, zoom });
     const [viewportWidth, setViewportWidth] = useState(640);
     const [peaksByInput, setPeaksByInput] = useState<Map<string, number[]>>(new Map());
     const durationSec = getAudioEditorDuration(clips);
     const pixelsPerSecond = BASE_PIXELS_PER_SECOND * Math.min(8, Math.max(0.75, zoom));
     const canvasWidth = Math.min(30000, Math.max(viewportWidth - 2, durationSec * pixelsPerSecond));
-    onInputDurationRef.current = onInputDuration;
+    onInputInfoRef.current = onInputInfo;
     wheelStateRef.current = { disabled, onZoomChange, pixelsPerSecond, zoom };
 
     // Split clips can share a Blob, so waveform decoding is keyed by input ID.
@@ -153,7 +154,11 @@ export function SimpleAudioTimeline({
         void Promise.all(uniqueInputs.map(async ([inputId, blob]) => {
             const bytes = await blob.arrayBuffer();
             const buffer = await decodeAudio(bytes.slice(0));
-            onInputDurationRef.current(inputId, buffer.duration);
+            onInputInfoRef.current(inputId, {
+                durationSec: buffer.duration,
+                sampleRate: buffer.sampleRate,
+                channels: buffer.numberOfChannels,
+            });
             const raw = generatePeaks(buffer, 2400);
             const maximum = Math.max(0.01, ...raw);
             return [inputId, raw.map((peak) => peak / maximum)] as const;
