@@ -10,7 +10,7 @@ import {
 import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import Editor, { EditorHandles } from "./Editor";
 import { getCleanedHtml } from "./utils";
-import { formatTimecode } from "@sharedUtils";
+import { formatTimecode, formatOverageSuffix } from "@sharedUtils";
 import { CodexCellTypes } from "../../../../types/enums";
 import { AddParatextButton } from "./AddParatextButton";
 import ReactMarkdown from "react-markdown";
@@ -5684,12 +5684,45 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     effectiveAudioTimestamps.endTime !==
                                                                         undefined &&
                                                                     (effectiveAudioTimestamps.endTime as number) >
-                                                                        (effectiveAudioTimestamps.startTime as number)
-                                                                        ? `${(
-                                                                              (effectiveAudioTimestamps.endTime as number) -
-                                                                              (effectiveAudioTimestamps.startTime as number)
-                                                                          ).toFixed(3)}s`
-                                                                        : "Invalid duration"}
+                                                                        (effectiveAudioTimestamps.startTime as number) ? (
+                                                                        <>
+                                                                            {`${(
+                                                                                (effectiveAudioTimestamps.endTime as number) -
+                                                                                (effectiveAudioTimestamps.startTime as number)
+                                                                            ).toFixed(3)}s`}
+                                                                            {(() => {
+                                                                                const cellStart =
+                                                                                    effectiveTimestamps?.startTime;
+                                                                                const cellEnd =
+                                                                                    effectiveTimestamps?.endTime;
+                                                                                if (
+                                                                                    typeof cellStart !==
+                                                                                        "number" ||
+                                                                                    typeof cellEnd !==
+                                                                                        "number" ||
+                                                                                    cellEnd <= cellStart
+                                                                                ) {
+                                                                                    return null;
+                                                                                }
+                                                                                const audioLength =
+                                                                                    (effectiveAudioTimestamps.endTime as number) -
+                                                                                    (effectiveAudioTimestamps.startTime as number);
+                                                                                const overage =
+                                                                                    formatOverageSuffix(
+                                                                                        audioLength,
+                                                                                        cellEnd -
+                                                                                            cellStart
+                                                                                    );
+                                                                                return overage ? (
+                                                                                    <span className="text-red-500">
+                                                                                        {overage}
+                                                                                    </span>
+                                                                                ) : null;
+                                                                            })()}
+                                                                        </>
+                                                                    ) : (
+                                                                        "Invalid duration"
+                                                                    )}
                                                                 </div>
                                                             </div>
                                                         )}
@@ -6079,18 +6112,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         audioValidationPopoverProps
                                                     }
                                                     targetDurationSeconds={
-                                                        isSubtitlesType &&
                                                         cellTimestamps?.startTime !== undefined &&
                                                         cellTimestamps?.endTime !== undefined
                                                             ? cellTimestamps.endTime -
                                                               cellTimestamps.startTime
                                                             : undefined
                                                     }
-                                                    audioDurationSeconds={
-                                                        isSubtitlesType
-                                                            ? audioDuration ?? undefined
-                                                            : undefined
-                                                    }
+                                                    audioDurationSeconds={audioDuration ?? undefined}
                                                     transcriptionLanguageLabel={
                                                         transcriptionBadgeLabel
                                                     }
@@ -6361,6 +6389,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     <span>Timestamp Length</span>
                                                                     <span>
                                                                         {targetDuration.toFixed(1)}s
+                                                                        {(() => {
+                                                                            const overage =
+                                                                                formatOverageSuffix(
+                                                                                    recordingElapsedTime,
+                                                                                    targetDuration
+                                                                                );
+                                                                            return overage ? (
+                                                                                <span className="text-red-500">
+                                                                                    {overage}
+                                                                                </span>
+                                                                            ) : null;
+                                                                        })()}
                                                                     </span>
                                                                 </div>
                                                             </div>
