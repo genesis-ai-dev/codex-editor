@@ -19,6 +19,7 @@ import {
     SelectValue,
 } from "../components/ui/select";
 import { Input } from "../components/ui/input";
+import { formatOverageSuffix } from "@sharedUtils";
 
 interface AudioWaveformWithTranscriptionProps {
     audioUrl: string;
@@ -299,7 +300,18 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                         <div className="flex justify-between text-xs text-muted-foreground">
                             <span>{audioDurationSeconds.toFixed(3)}s</span>
                             <span>Timestamp Length</span>
-                            <span>{targetDurationSeconds.toFixed(3)}s</span>
+                            <span>
+                                {targetDurationSeconds.toFixed(3)}s
+                                {(() => {
+                                    const overage = formatOverageSuffix(
+                                        audioDurationSeconds,
+                                        targetDurationSeconds
+                                    );
+                                    return overage ? (
+                                        <span className="text-red-500">{overage}</span>
+                                    ) : null;
+                                })()}
+                            </span>
                         </div>
                     </div>
                 )}
