@@ -505,3 +505,96 @@ export const extractSegments = async (
 
     return outputPaths;
 };
+
+export interface TranscodedAudio {
+    bytes: Buffer;
+    mimeType: string;
+    fileExtension: string;
+    bitrateKbps: number;
+    sampleRate: number;
+}
+
+const OPUS_BITRATE_KBPS = 48;
+
+/**
+ * Transcode a PCM WAV buffer to Opus in WebM — the same format family the
+ * recorder produces — for compact attachment storage. Streams through
+ * stdin/stdout, so nothing touches disk. Returns null when FFmpeg is
+ * unavailable or the conversion fails; callers keep the WAV in that case.
+ */
+export const transcodeWavToOpusWebm = async (
+    wavBuffer: Buffer
+): Promise<TranscodedAudio | null> => {
+    try {
+        const ffmpegBinaryPath = await getFFmpegPath(extensionContext);
+        const spawn = getSpawn();
+        if (!ffmpegBinaryPath || !spawn) {
+            return null;
+        }
+
+        const bytes = await new Promise<Buffer | null>((resolve) => {
+            const ffmpeg = spawn(ffmpegBinaryPath, [
+                "-hide_banner",
+                "-loglevel", "error",
+                "-f", "wav",
+                "-i", "pipe:0",
+                "-c:a", "libopus",
+                "-b:a", `${OPUS_BITRATE_KBPS}k`,
+                "-f", "webm",
+                "pipe:1",
+            ]);
+
+            const chunks: Buffer[] = [];
+            let stderrText = "";
+            // Backstop for a hung binary; normal transcodes finish in seconds.
+            const killTimer = setTimeout(() => {
+                try {
+                    ffmpeg.kill("SIGKILL");
+                } catch {
+                    // already exited
+                }
+            }, 120_000);
+
+            ffmpeg.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+            ffmpeg.stderr.on("data", (chunk: Buffer) => {
+                stderrText += chunk.toString();
+            });
+            ffmpeg.on("error", () => {
+                clearTimeout(killTimer);
+                resolve(null);
+            });
+            ffmpeg.on("exit", (code: number | null) => {
+                clearTimeout(killTimer);
+                if (code === 0 && chunks.length > 0) {
+                    resolve(Buffer.concat(chunks));
+                } else {
+                    if (stderrText) {
+                        console.warn(
+                            "[audioProcessor] Opus transcode failed:",
+                            stderrText.slice(0, 500)
+                        );
+                    }
+                    resolve(null);
+                }
+            });
+            // EPIPE fires if ffmpeg exits before consuming all input.
+            ffmpeg.stdin.on("error", () => undefined);
+            ffmpeg.stdin.write(wavBuffer);
+            ffmpeg.stdin.end();
+        });
+
+        if (!bytes) {
+            return null;
+        }
+        return {
+            bytes,
+            mimeType: "audio/webm",
+            fileExtension: "webm",
+            bitrateKbps: OPUS_BITRATE_KBPS,
+            // libopus always encodes at 48 kHz.
+            sampleRate: 48000,
+        };
+    } catch {
+        return null;
+    }
+};

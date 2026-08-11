@@ -37,6 +37,7 @@ import {
     type SourceCellMapEntry,
 } from "./utils/sourceCellTimestampsUtils";
 import { MAX_AUDIO_ATTACHMENT_BYTES } from "../../../sharedUtils";
+import { transcodeWavToOpusWebm } from "../../utils/audioProcessor";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -5175,6 +5176,31 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 throw new Error("Audio exceeds maximum allowed size (50 MB)");
             }
 
+            // The audio editor sends uncompressed WAV. Store it as Opus/WebM
+            // (the recorder's format family) when FFmpeg is available; on any
+            // transcode failure the WAV is kept so saving never regresses.
+            let fileBuffer: Buffer = buffer;
+            let fileExt = safeExt;
+            let attachmentMetadata = typedEvent.content.metadata;
+            if (safeExt === "wav" && attachmentMetadata?.editOperation) {
+                const transcoded = await transcodeWavToOpusWebm(buffer);
+                if (transcoded) {
+                    fileBuffer = transcoded.bytes;
+                    fileExt = transcoded.fileExtension;
+                    attachmentMetadata = {
+                        ...attachmentMetadata,
+                        mimeType: transcoded.mimeType,
+                        sizeBytes: transcoded.bytes.length,
+                        sampleRate: transcoded.sampleRate,
+                        bitrateKbps: transcoded.bitrateKbps,
+                    };
+                    debug("Transcoded edited WAV to Opus/WebM", {
+                        wavBytes: buffer.length,
+                        webmBytes: transcoded.bytes.length,
+                    });
+                }
+            }
+
             const pointersDir = path.join(
                 workspaceFolder.uri.fsPath,
                 ".project",
@@ -5193,7 +5219,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             await vscode.workspace.fs.createDirectory(vscode.Uri.file(pointersDir));
             await vscode.workspace.fs.createDirectory(vscode.Uri.file(filesDir));
 
-            const fileName = `${sanitizedAudioId}.${safeExt}`;
+            const fileName = `${sanitizedAudioId}.${fileExt}`;
             const pointersPath = path.join(pointersDir, fileName);
             const filesPath = path.join(filesDir, fileName);
 
@@ -5216,9 +5242,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             };
 
             // Write actual file (primary). Pointer write is best-effort.
-            await writeFileAtomically(filesPath, buffer);
+            await writeFileAtomically(filesPath, fileBuffer);
             try {
-                await writeFileAtomically(pointersPath, buffer);
+                await writeFileAtomically(pointersPath, fileBuffer);
             } catch (pointerErr) {
                 console.warn("Pointer write failed; proceeding with saved file only", pointerErr);
             }
@@ -5246,7 +5272,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 isDeleted: false,
                 createdBy: createdBy,
                 // Persist optional metadata if provided by client
-                ...(typedEvent.content.metadata ? { metadata: typedEvent.content.metadata } : {}),
+                ...(attachmentMetadata ? { metadata: attachmentMetadata } : {}),
             } as any);
 
             // Persist metadata update to the .codex/.source file before we show "saved" in the webview.
@@ -5377,7 +5403,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 } catch (e) {
                     console.warn("Failed to read freshly saved audio from disk; falling back to buffer", e);
                     try {
-                        base64Now = `data:${mimeNow};base64,${Buffer.from(buffer).toString('base64')}`;
+                        base64Now = `data:${mimeNow};base64,${Buffer.from(fileBuffer).toString('base64')}`;
                     } catch (fallbackErr) {
                         console.warn("Fallback to in-memory buffer failed", fallbackErr);
                     }
