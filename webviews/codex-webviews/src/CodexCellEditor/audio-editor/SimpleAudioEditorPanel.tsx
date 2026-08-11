@@ -71,6 +71,8 @@ export function SimpleAudioEditorPanel({
         () => createInitialDraft(audioBlob, audioUrl),
         [audioBlob, audioUrl]
     );
+    const initialDraftRef = useRef(initialDraft);
+    initialDraftRef.current = initialDraft;
     const { value: draft, commit, replace, reset, undo, canUndo } = useAudioEditHistory(initialDraft);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const ownedUrlsRef = useRef<Set<string>>(new Set());
@@ -87,13 +89,15 @@ export function SimpleAudioEditorPanel({
     const minimumPointerGapSec = mode === "delete" ? 0 : MIN_AUDIO_CLIP_DURATION_SEC;
 
     // A new source attachment starts a fresh, full-length editing session.
+    // Keyed to the attachment ID rather than blob identity, so a background
+    // refetch of the same attachment cannot discard in-progress edits.
     useEffect(() => {
-        reset(initialDraft);
+        reset(initialDraftRef.current);
         setMode("delete");
         setRange({ startSec: 0, endSec: 0 });
         setInsertTimeSec(0);
         setError(null);
-    }, [initialDraft, reset, sourceAudioId]);
+    }, [reset, sourceAudioId]);
 
     // Object URLs must remain alive for undo, then are released when the panel closes.
     useEffect(() => {
@@ -341,7 +345,12 @@ export function SimpleAudioEditorPanel({
                     {mode === "delete" && <Button variant="destructive" size="sm" disabled={disabled || rangeDurationSec <= 0} onClick={deleteRange}>Delete selected audio</Button>}
                     {mode === "keep" && <Button size="sm" disabled={disabled || rangeDurationSec < MIN_AUDIO_CLIP_DURATION_SEC} onClick={keepRange}>Keep selected audio</Button>}
                     {mode === "insert" && <Button size="sm" disabled={disabled} onClick={() => fileInputRef.current?.click()}><FilePlus2 className="mr-2 h-4 w-4" />Choose audio to insert</Button>}
-                    <Button size="sm" disabled={disabled || durationSec <= 0} onClick={() => void saveNewVersion()}>
+                    <Button
+                        size="sm"
+                        disabled={disabled || durationSec <= 0 || !canUndo}
+                        title={!canUndo ? "Make an edit before saving a new version" : undefined}
+                        onClick={() => void saveNewVersion()}
+                    >
                         {disabled ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                         {disabled ? "Generating..." : "Save as new version"}
                     </Button>
