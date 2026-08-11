@@ -7,6 +7,8 @@ import {
     removeBareParagraphPairs,
     convertBareSpanPairsToParagraphs,
     rewrapWithSourceWrappers,
+    mergeAdjacentBareParagraphs,
+    removeExtraBareLineBreaks,
     tryDeterministicStructureFix,
     extractPlainTextFromHtml,
     type HtmlStructureDiff,
@@ -422,6 +424,109 @@ describe("htmlStructureUtils", () => {
                     "<p><span>Hola</span><span>mundo</span></p>"
                 )
             ).toBeNull();
+        });
+
+        it("merges an Enter-split paragraph back into one", () => {
+            const fixed = tryDeterministicStructureFix(
+                "<p>one two</p>",
+                "<p>uno</p><p>dos</p>"
+            );
+            expect(fixed).toBe("<p>uno dos</p>");
+        });
+
+        it("re-dresses an Enter-split paragraph with the source's styled wrapper", () => {
+            const fixed = tryDeterministicStructureFix(
+                '<p style="line-height: 2">one two</p>',
+                "<p>uno</p><p>dos</p>"
+            );
+            expect(fixed).toBe('<p style="line-height: 2">uno dos</p>');
+        });
+
+        it("replaces an extra Shift+Enter line break with a space", () => {
+            const fixed = tryDeterministicStructureFix(
+                "<p>Hello world</p>",
+                "<p>Hola<br>mundo</p>"
+            );
+            expect(fixed).toBe("<p>Hola mundo</p>");
+        });
+
+        it("keeps line breaks the source also has, dropping only the extras", () => {
+            const fixed = tryDeterministicStructureFix(
+                "<p>a<br/>b</p>",
+                "<p>x<br/>y<br/>z</p>"
+            );
+            expect(fixed).toBe("<p>x<br/>y z</p>");
+        });
+
+        it("fixes a paragraph split combined with an extra line break", () => {
+            const fixed = tryDeterministicStructureFix(
+                "<p>one two three</p>",
+                "<p>uno<br>dos</p><p>tres</p>"
+            );
+            expect(fixed).toBe("<p>uno dos tres</p>");
+        });
+
+        it("skips line-break fixes when lineBreakFixes is disabled", () => {
+            // The silent save-time repair opts out so a user's Enter/Shift+Enter
+            // is warned about, never removed without an explicit action.
+            expect(
+                tryDeterministicStructureFix("<p>one two</p>", "<p>uno</p><p>dos</p>", {
+                    lineBreakFixes: false,
+                })
+            ).toBeNull();
+            expect(
+                tryDeterministicStructureFix("<p>Hello world</p>", "<p>Hola<br>mundo</p>", {
+                    lineBreakFixes: false,
+                })
+            ).toBeNull();
+        });
+
+        it("still fixes wrapper artifacts when lineBreakFixes is disabled", () => {
+            expect(
+                tryDeterministicStructureFix("<p>Hello world</p>", "<p><span>Hola mundo</span></p>", {
+                    lineBreakFixes: false,
+                })
+            ).toBe("<p>Hola mundo</p>");
+        });
+    });
+
+    describe("mergeAdjacentBareParagraphs", () => {
+        it("merges adjacent bare paragraphs with a space", () => {
+            expect(mergeAdjacentBareParagraphs("<p>a</p><p>b</p><p>c</p>")).toBe("<p>a b c</p>");
+        });
+
+        it("merges across whitespace between paragraphs", () => {
+            expect(mergeAdjacentBareParagraphs("<p>a</p>\n  <p>b</p>")).toBe("<p>a b</p>");
+        });
+
+        it("does not merge into attributed paragraphs", () => {
+            const html = '<p>a</p><p class="indesign-paragraph">b</p>';
+            expect(mergeAdjacentBareParagraphs(html)).toBe(html);
+        });
+
+        it("handles empty input", () => {
+            expect(mergeAdjacentBareParagraphs("")).toBe("");
+        });
+    });
+
+    describe("removeExtraBareLineBreaks", () => {
+        it("replaces extra bare breaks with spaces, rightmost first", () => {
+            expect(removeExtraBareLineBreaks("a<br/>b", "x<br/>y<br/>z")).toBe("x<br/>y z");
+        });
+
+        it("removes all bare breaks when the source has none", () => {
+            expect(removeExtraBareLineBreaks("<p>ab</p>", "<p>x<br>y</p>")).toBe("<p>x y</p>");
+        });
+
+        it("leaves the target alone when it has no extra breaks", () => {
+            expect(removeExtraBareLineBreaks("a<br/>b", "x<br/>y")).toBe("x<br/>y");
+        });
+
+        it("never counts or removes attributed breaks", () => {
+            const target = 'x<br class="idml-eoc" data-eoc="1" />y<br>z';
+            expect(removeExtraBareLineBreaks("", target)).toBe(
+                'x<br class="idml-eoc" data-eoc="1" />y z'
+            );
         });
     });
 

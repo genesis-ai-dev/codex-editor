@@ -158,6 +158,32 @@ suite("htmlStructureResolver", () => {
             assert.strictEqual(result, "");
             assert.strictEqual(executeCommandStub.callCount, 0);
         });
+
+        test("never removes a user's Enter-split paragraph on save", async () => {
+            // A mid-cell Enter creates two paragraphs; the save path must warn
+            // (mismatch label) rather than silently merging the user's input.
+            // Only explicit actions (Resolve, Resolve All, manual repair)
+            // normalize line breaks.
+            executeCommandStub.resolves({ cellId: "cell-1", content: "<p>one two</p>" });
+
+            const result = await maybeRepairStructureDeterministically(
+                "cell-1",
+                "<p>uno</p><p>dos</p>",
+                createMockDocument(true),
+            );
+            assert.strictEqual(result, "<p>uno</p><p>dos</p>");
+        });
+
+        test("never removes a user's Shift+Enter line break on save", async () => {
+            executeCommandStub.resolves({ cellId: "cell-1", content: "<p>Hello world</p>" });
+
+            const result = await maybeRepairStructureDeterministically(
+                "cell-1",
+                "<p>Hola<br>mundo</p>",
+                createMockDocument(true),
+            );
+            assert.strictEqual(result, "<p>Hola<br>mundo</p>");
+        });
     });
 
     suite("maybeAutoResolveHtmlStructure", () => {

@@ -156,6 +156,11 @@ export const getSourceCellContent = async (cellId: string): Promise<string | nul
  * source's wrappers and create a mismatch. This re-applies the deterministic
  * fixes (never an LLM call, never a text change) and returns the original
  * content untouched when no safe fix applies.
+ *
+ * Line-break fixes are deliberately disabled here: an Enter or Shift+Enter
+ * the user typed must never be silently removed on save. The cell shows the
+ * mismatch label instead, and the break is only normalized through an
+ * explicit action (Resolve, Resolve All, or the manual repair command).
  */
 export const maybeRepairStructureDeterministically = async (
     cellId: string,
@@ -170,7 +175,7 @@ export const maybeRepairStructureDeterministically = async (
     if (!sourceHtml) return html;
     if (compareHtmlStructure(sourceHtml, html).isMatch) return html;
 
-    return tryDeterministicStructureFix(sourceHtml, html) ?? html;
+    return tryDeterministicStructureFix(sourceHtml, html, { lineBreakFixes: false }) ?? html;
 };
 
 export type AutoResolveHtmlStructureOptions = {
