@@ -3219,11 +3219,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 debug("refreshWebview: failed to resolve username from authApi", error);
             }
 
-        // Build milestone index for paginated loading
-        const milestoneIndex = document.buildMilestoneIndex(
-            this.CELLS_PER_PAGE,
-            this.MAX_SUBDIVISION_LENGTH
-        );
+            // Build milestone index for paginated loading
+            const milestoneIndex = document.buildMilestoneIndex(
+                this.CELLS_PER_PAGE,
+                this.MAX_SUBDIVISION_LENGTH
+            );
 
             // Update database with milestone indices (fire-and-forget, don't block webview update)
             document.updateCellMilestoneIndices().catch((error) => {
@@ -3291,14 +3291,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
             }
 
-        // Get first page of cells for the initial milestone
-        const initialCells = document.getCellsForMilestone(
-            initialMilestoneIndex,
-            initialSubsectionIndex,
-            this.CELLS_PER_PAGE,
-            this.MAX_SUBDIVISION_LENGTH
-        );
-        const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
+            // Get first page of cells for the initial milestone
+            const initialCells = document.getCellsForMilestone(
+                initialMilestoneIndex,
+                initialSubsectionIndex,
+                this.CELLS_PER_PAGE,
+                this.MAX_SUBDIVISION_LENGTH
+            );
+            const processedInitialCells = this.mergeRangesAndProcess(initialCells, this.isCorrectionEditorMode, isSourceText);
 
             // Build source cell map for the initial cells only
             const initialSourceCellMap: Record<string, SourceCellMapEntry> = {};
@@ -3308,35 +3308,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     initialSourceCellMap[cellId] = document._sourceCellMap[cellId];
                 }
             }
-        }
-        const enrichedInitialSourceCellMap = await enrichSourceCellMapWithTimestamps(
-            document,
-            initialSourceCellMap
-        );
-
-        // Schedule updates to wait for webview ready signal
-        this.scheduleWebviewUpdate(document.uri.toString(), () => {
-            // Send paginated initial content with milestone index
-            this.postMessageToWebview(webviewPanel, {
-                type: "providerSendsInitialContentPaginated",
-                milestoneIndex: milestoneIndex,
-                cells: processedInitialCells,
-                currentMilestoneIndex: initialMilestoneIndex,
-                currentSubsectionIndex: initialSubsectionIndex,
-                isSourceText: isSourceText,
-                sourceCellMap: enrichedInitialSourceCellMap,
-                username: username,
-                validationCount: validationCount,
-                validationCountAudio: validationCountAudio,
-                useSubdivisionNumberLabels: this.USE_SUBDIVISION_NUMBER_LABELS,
-                enableMilestonePlacementEditing:
-                    this.ENABLE_MILESTONE_PLACEMENT_EDITING,
-            });
-
-            this.postMessageToWebview(webviewPanel, {
-                type: "providerUpdatesNotebookMetadataForWebview",
-                content: notebookData.metadata,
-            });
+            const enrichedInitialSourceCellMap = await enrichSourceCellMapWithTimestamps(
+                document,
+                initialSourceCellMap
+            );
 
             // Schedule updates to wait for webview ready signal
             this.scheduleWebviewUpdate(document.uri.toString(), () => {
@@ -3352,6 +3327,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     username: username,
                     validationCount: validationCount,
                     validationCountAudio: validationCountAudio,
+                    useSubdivisionNumberLabels: this.USE_SUBDIVISION_NUMBER_LABELS,
+                    enableMilestonePlacementEditing:
+                        this.ENABLE_MILESTONE_PLACEMENT_EDITING,
                 });
 
                 this.postMessageToWebview(webviewPanel, {
