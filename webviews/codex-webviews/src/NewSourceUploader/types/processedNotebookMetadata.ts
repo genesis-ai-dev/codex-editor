@@ -214,7 +214,11 @@ export interface BiblicaNotebookMetadata extends ProcessedNotebookMetadataBase {
     originalHash?: string;
     totalCells?: number;
     fileType?: "biblica" | string;
-    contentType?: "notes";
+    /**
+     * "notes" for study-note volumes; "frontBackMatter" for the verse-free volumes
+     * (contents, dictionary, timelines, maps, cover) whose text sits in layout styles.
+     */
+    contentType?: "notes" | "frontBackMatter";
 }
 
 export interface MaculaNotebookMetadata extends ProcessedNotebookMetadataBase {

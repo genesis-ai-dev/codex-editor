@@ -105,7 +105,10 @@ export async function exportDocxWithTranslations(
  * Handles three cell shapes:
  *  1. Table cells  – one Codex cell maps to multiple DOCX paragraphs (paragraphIndices[]).
  *  2. Split cells  – one DOCX paragraph was split into N Codex cells (segmentIndex present).
- *     The per-segment translations are joined in order before writing to the <w:p>.
+ *     The per-segment translations are joined in order before writing to the <w:p>. Segments
+ *     with no translation fall back to their original source text so untranslated portions of a
+ *     partially translated paragraph are preserved rather than dropped. A paragraph whose
+ *     segments are all untranslated produces no entry and is left byte-untouched.
  *  3. Normal cells – one Codex cell ↔ one DOCX paragraph (paragraphIndex only).
  */
 function collectTranslations(
@@ -113,16 +116,30 @@ function collectTranslations(
 ): Map<number, string> {
     console.log(`[Exporter] Processing ${codexCells.length} cells for translations`);
 
-    // Accumulate per-paragraph segments: paragraphIndex → sorted list of {segmentIndex, text}
-    const segmentsByParagraph = new Map<number, Array<{ segmentIndex: number; text: string }>>();
+    // Accumulate per-paragraph segments: paragraphIndex → list of {segmentIndex, text, source}.
+    // `text` is the (possibly empty) translation; `source` is the segment's original DOCX text.
+    // Keeping untranslated segments (empty `text`) lets us fall back to `source` so that a
+    // partially translated split paragraph preserves its untranslated portions instead of
+    // dropping them.
+    const segmentsByParagraph = new Map<number, Array<{ segmentIndex: number; text: string; source: string; }>>();
     // Table cells bypass the segment system entirely
     const tableTranslations = new Map<number, string>();
 
     for (const cell of codexCells) {
         const meta = cell.metadata;
 
+        // Skip cells that should not appear in export (same semantics as getActiveCells)
+        if (meta?.data?.merged || meta?.data?.deleted || meta?.data?.hidden) {
+            continue;
+        }
+        if (meta?.type === 'milestone') {
+            continue;
+        }
+
         const translated = removeHtmlTags(cell.value).trim();
-        if (!translated) continue;
+        // Original source text for this cell (plain text, not HTML) — used as the fallback
+        // for untranslated segments so we don't erase the original document content.
+        const source = String(meta?.data?.originalText ?? '').trim();
 
         const paragraphId = meta?.paragraphId;
         const paragraphIndex = meta?.paragraphIndex;
@@ -131,11 +148,16 @@ function collectTranslations(
 
         if (Array.isArray(paragraphIndices) && paragraphIndices.length > 0) {
             // Table-cell case: map lines of translation to each paragraph index.
+            // A fully-untranslated table cell is left byte-untouched (no map entries).
+            if (!translated) continue;
+            // Fall back to the matching original line so a partially-translated table cell
+            // doesn't blank the untranslated paragraphs.
+            const originalLines = String(meta?.data?.originalText ?? '').split(/\r?\n/);
             const parts = translated.split(/\r?\n/);
             for (let j = 0; j < paragraphIndices.length; j++) {
                 const idx = paragraphIndices[j];
                 if (typeof idx !== 'number') continue;
-                tableTranslations.set(idx, parts[j] ?? '');
+                tableTranslations.set(idx, parts[j] ?? originalLines[j] ?? '');
             }
             continue;
         }
@@ -163,15 +185,20 @@ function collectTranslations(
             // Unsplit paragraphs have no segmentIndex; treat them as the sole segment (index 0).
             segmentIndex: segmentIndex ?? 0,
             text: translated,
+            source,
         });
     }
 
-    // Build the final map: for split paragraphs, join segments in order.
+    // Build the final map: for split paragraphs, join segments in order, falling back to each
+    // segment's original source text when it has no translation.
     const translations = new Map<number, string>(tableTranslations);
 
     for (const [paraIdx, segments] of segmentsByParagraph) {
+        // Leave a fully-untranslated paragraph byte-untouched (no map entry). This preserves the
+        // existing correct behavior and avoids overwriting the original with source text.
+        if (!segments.some(s => s.text)) continue;
         segments.sort((a, b) => a.segmentIndex - b.segmentIndex);
-        const combined = segments.map(s => s.text).join(' ');
+        const combined = segments.map(s => s.text || s.source).join(' ');
         translations.set(paraIdx, combined);
     }
 

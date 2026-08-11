@@ -218,7 +218,7 @@ export function isExportableCell(cell: unknown): boolean {
         kind?: number;
         metadata?: {
             type?: string;
-            data?: { merged?: boolean; deleted?: boolean; };
+            data?: { merged?: boolean; deleted?: boolean; hidden?: boolean; };
         };
     } | undefined;
     if (!c) return false;
@@ -226,6 +226,7 @@ export function isExportableCell(cell: unknown): boolean {
     const data = c.metadata?.data;
     if (data?.merged) return false;
     if (data?.deleted) return false;
+    if (data?.hidden) return false;
     const type = c.metadata?.type;
     if (type === "paratext" || type === "milestone") return false;
     return true;
