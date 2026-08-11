@@ -82,7 +82,9 @@ describe("htmlStructureUtils", () => {
         });
 
         it("detects missing tags in target", () => {
-            const source = "text<br/>more text";
+            // Attributed breaks (e.g. InDesign's EOC markers) are structure;
+            // only bare <br>s are tolerated as user content.
+            const source = 'text<br class="idml-eoc" data-eoc="1"/>more text';
             const target = "text more text";
             const result = compareHtmlStructure(source, target);
             expect(result.isMatch).toBe(false);
@@ -101,7 +103,7 @@ describe("htmlStructureUtils", () => {
         });
 
         it("detects both missing and extra tags", () => {
-            const source = "<p>text<br/>more</p>";
+            const source = "<p>text <em>more</em></p>";
             const target = "<div>text more</div>";
             const result = compareHtmlStructure(source, target);
             expect(result.isMatch).toBe(false);
@@ -116,13 +118,11 @@ describe("htmlStructureUtils", () => {
             expect(result.errors[0]).toContain("order or nesting");
         });
 
-        it("handles multiple br tags", () => {
-            const source = "a<br/>b<br/>c";
-            const target = "a<br/>b c";
-            const result = compareHtmlStructure(source, target);
-            expect(result.isMatch).toBe(false);
-            expect(result.errors[0]).toContain("Missing tags");
-            expect(result.errors[0]).toContain("<br/>");
+        it("tolerates differing bare line-break counts", () => {
+            // Line breaks are user content, not structure — enforcement is for
+            // round-trip export, which bare <br>s don't affect.
+            expect(compareHtmlStructure("a<br/>b<br/>c", "a<br/>b c").isMatch).toBe(true);
+            expect(compareHtmlStructure("a b c", "a<br/>b c").isMatch).toBe(true);
         });
 
         it("ignores USFM bracket markers during comparison", () => {
@@ -233,10 +233,12 @@ describe("htmlStructureUtils", () => {
             expect(diff.isMatch).toBe(true);
         });
 
-        it("still flags paragraphs that contain text", () => {
+        it("still flags added structure inside extra paragraphs", () => {
+            // A bare paragraph split is tolerated (line-break tolerance), but
+            // new inline structure the source lacks must still flag.
             const diff = compareHtmlStructure(
                 "<p>Hello</p>",
-                "<p>Hola</p><p>mundo</p>"
+                "<p>Hola</p><p><em>extra</em></p>"
             );
             expect(diff.isMatch).toBe(false);
         });
@@ -404,13 +406,13 @@ describe("htmlStructureUtils", () => {
 
         it("returns null when unwrapping does not produce a match", () => {
             expect(
-                tryDeterministicStructureFix("<p>Hello</p><br/>", "<p><span>Hola</span></p>")
+                tryDeterministicStructureFix("<p>Hello</p><em>x</em>", "<p><span>Hola</span></p>")
             ).toBeNull();
         });
 
         it("returns null when the mismatch is not span-related", () => {
             expect(
-                tryDeterministicStructureFix("<p>Hello</p><br/>", "<p>Hola</p>")
+                tryDeterministicStructureFix("<p>Hello</p><em>x</em>", "<p>Hola</p>")
             ).toBeNull();
         });
 
@@ -422,6 +424,80 @@ describe("htmlStructureUtils", () => {
                     "<p><span>Hola</span><span>mundo</span></p>"
                 )
             ).toBeNull();
+        });
+
+        it("never touches a target that only differs by line breaks", () => {
+            // Line-break differences are tolerated by the comparison, so no
+            // fix is attempted and the user's breaks survive untouched.
+            expect(
+                tryDeterministicStructureFix("<p>one two</p>", "<p>uno</p><p>dos</p>")
+            ).toBeNull();
+            expect(
+                tryDeterministicStructureFix("<p>Hello world</p>", "<p>Hola<br>mundo</p>")
+            ).toBeNull();
+        });
+
+        it("fixes wrapper artifacts without touching the target's line breaks", () => {
+            const fixed = tryDeterministicStructureFix(
+                "<p>Hello world</p>",
+                "<p><span>Hola<br>mundo</span></p>"
+            );
+            expect(fixed).toBe("<p>Hola<br>mundo</p>");
+        });
+    });
+
+    describe("compareHtmlStructure - line break tolerance", () => {
+        // Structure enforcement exists for round-trip export, which line
+        // breaks don't affect — users who need line breaks must be able to
+        // keep them without mismatch errors (and without a resolve stripping
+        // them).
+        it("tolerates a Shift+Enter line break in the translation", () => {
+            expect(
+                compareHtmlStructure("<p>Hello world</p>", "<p>Hola<br>mundo</p>").isMatch
+            ).toBe(true);
+        });
+
+        it("tolerates an Enter-split paragraph in the translation", () => {
+            expect(
+                compareHtmlStructure("<p>one two</p>", "<p>uno</p><p>dos</p>").isMatch
+            ).toBe(true);
+        });
+
+        it("tolerates a split of a styled paragraph", () => {
+            expect(
+                compareHtmlStructure(
+                    '<p style="line-height: 2">one two</p>',
+                    "<p>uno</p><p>dos</p>"
+                ).isMatch
+            ).toBe(true);
+        });
+
+        it("tolerates the source having breaks the translation lacks", () => {
+            expect(compareHtmlStructure("<p>a<br/>b</p>", "<p>ab</p>").isMatch).toBe(true);
+        });
+
+        it("tolerates a split combined with blank lines", () => {
+            expect(
+                compareHtmlStructure(
+                    "<p>one two</p>",
+                    "<p>uno</p><p><br></p><p>dos</p>"
+                ).isMatch
+            ).toBe(true);
+        });
+
+        it("still enforces attributed breaks (InDesign EOC markers)", () => {
+            expect(
+                compareHtmlStructure('a<br class="idml-eoc" data-eoc="1"/>b', "a b").isMatch
+            ).toBe(false);
+        });
+
+        it("still enforces real structural differences alongside breaks", () => {
+            expect(
+                compareHtmlStructure(
+                    "<p>Hello <em>world</em></p>",
+                    "<p>Hola<br>mundo</p>"
+                ).isMatch
+            ).toBe(false);
         });
     });
 

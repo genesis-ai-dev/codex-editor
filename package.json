@@ -215,6 +215,11 @@
                 "category": "Codex Extension"
             },
             {
+                "command": "codex-editor-extension.repairHtmlStructureArtifacts",
+                "title": "Repair HTML Structure Artifacts",
+                "category": "Codex Extension"
+            },
+            {
                 "title": "Start a new Project",
                 "shortTitle": "Start a new Project",
                 "command": "codex-editor-extension.initializeNewProject"
@@ -570,11 +575,6 @@
                         "type": "boolean",
                         "default": false,
                         "description": "Internal flag indicating the documentContext hoist migration has completed."
-                    },
-                    "codex-project-manager.htmlStructureArtifactsRepairCompleted": {
-                        "type": "boolean",
-                        "default": false,
-                        "description": "Internal flag indicating the HTML structure artifact repair migration has completed."
                     },
                     "codex-project-manager.projectName": {
                         "type": "string",

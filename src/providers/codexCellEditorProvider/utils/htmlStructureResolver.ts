@@ -156,6 +156,10 @@ export const getSourceCellContent = async (cellId: string): Promise<string | nul
  * source's wrappers and create a mismatch. This re-applies the deterministic
  * fixes (never an LLM call, never a text change) and returns the original
  * content untouched when no safe fix applies.
+ *
+ * Line breaks the user typed are never an issue here: the structure
+ * comparison tolerates them (enforcement exists for round-trip export, which
+ * line breaks don't affect), so they neither flag a mismatch nor get removed.
  */
 export const maybeRepairStructureDeterministically = async (
     cellId: string,

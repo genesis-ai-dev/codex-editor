@@ -139,7 +139,7 @@ suite("htmlStructureResolver", () => {
         });
 
         test("returns content unchanged when no deterministic fix applies", async () => {
-            executeCommandStub.resolves({ cellId: "cell-1", content: "<p>Hello</p><br/><p>World</p>" });
+            executeCommandStub.resolves({ cellId: "cell-1", content: "<p>Hello <em>World</em></p>" });
 
             const result = await maybeRepairStructureDeterministically(
                 "cell-1",
@@ -157,6 +157,30 @@ suite("htmlStructureResolver", () => {
             );
             assert.strictEqual(result, "");
             assert.strictEqual(executeCommandStub.callCount, 0);
+        });
+
+        test("never removes a user's Enter-split paragraph on save", async () => {
+            // Line breaks are user content, not structure: the comparison
+            // tolerates them (no mismatch label) and nothing ever strips them.
+            executeCommandStub.resolves({ cellId: "cell-1", content: "<p>one two</p>" });
+
+            const result = await maybeRepairStructureDeterministically(
+                "cell-1",
+                "<p>uno</p><p>dos</p>",
+                createMockDocument(true),
+            );
+            assert.strictEqual(result, "<p>uno</p><p>dos</p>");
+        });
+
+        test("never removes a user's Shift+Enter line break on save", async () => {
+            executeCommandStub.resolves({ cellId: "cell-1", content: "<p>Hello world</p>" });
+
+            const result = await maybeRepairStructureDeterministically(
+                "cell-1",
+                "<p>Hola<br>mundo</p>",
+                createMockDocument(true),
+            );
+            assert.strictEqual(result, "<p>Hola<br>mundo</p>");
         });
     });
 
@@ -213,9 +237,9 @@ suite("htmlStructureResolver", () => {
         });
 
         test("returns raw translation when LLM output fails verification", async () => {
-            executeCommandStub.resolves({ cellId: "GEN 1:1", content: "<p>Hello world</p><br/>" });
+            executeCommandStub.resolves({ cellId: "GEN 1:1", content: "<p>Hello <em>world</em></p>" });
             // LLM reverts to source-language text — must be rejected.
-            const resolveWithLLM = sinon.stub().resolves("<p>Hello world</p><br/>");
+            const resolveWithLLM = sinon.stub().resolves("<p>Hello <em>world</em></p>");
 
             const result = await maybeAutoResolveHtmlStructure(
                 "GEN 1:1",
@@ -232,13 +256,13 @@ suite("htmlStructureResolver", () => {
         });
 
         test("calls resolve when structures mismatch", async () => {
-            executeCommandStub.resolves({ cellId: "GEN 1:1", content: "<p>Hello</p><br/>" });
-            const resolveWithLLM = sinon.stub().resolves("<p>Hola</p><br/>");
+            executeCommandStub.resolves({ cellId: "GEN 1:1", content: "<p>Hello <em>world</em></p>" });
+            const resolveWithLLM = sinon.stub().resolves("<p>Hola <em>mundo</em></p>");
             const onResolving = sinon.stub();
 
             const result = await maybeAutoResolveHtmlStructure(
                 "GEN 1:1",
-                "<p>Hola</p>",
+                "<p>Hola mundo</p>",
                 createMockDocument(true),
                 {
                     config: mockConfig,
@@ -247,13 +271,13 @@ suite("htmlStructureResolver", () => {
                 },
             );
 
-            assert.strictEqual(result, "<p>Hola</p><br/>");
+            assert.strictEqual(result, "<p>Hola <em>mundo</em></p>");
             assert.strictEqual(resolveWithLLM.callCount, 1);
             assert.strictEqual(onResolving.callCount, 1);
         });
 
         test("returns raw translation when resolve throws", async () => {
-            executeCommandStub.resolves({ cellId: "GEN 1:1", content: "<p>Hello</p><br/>" });
+            executeCommandStub.resolves({ cellId: "GEN 1:1", content: "<p>Hello <em>world</em></p>" });
             const resolveWithLLM = sinon.stub().rejects(new Error("LLM failed"));
 
             const result = await maybeAutoResolveHtmlStructure(

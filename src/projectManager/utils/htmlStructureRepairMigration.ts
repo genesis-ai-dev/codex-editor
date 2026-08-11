@@ -15,8 +15,6 @@ function debug(...args: unknown[]): void {
     }
 }
 
-const MIGRATION_KEY = "htmlStructureArtifactsRepairCompleted";
-
 interface ValueEdit {
     editMap: readonly string[];
     value: unknown;
@@ -169,47 +167,43 @@ export const repairHtmlStructureForFile = async (
 };
 
 /**
- * One-shot per-workspace migration that repairs HTML-structure artifacts in
- * existing projects:
+ * Manually triggered repair of HTML-structure artifacts in existing projects:
  * - spurious bare `<span>` wrappers added around LLM translations, and
  * - translations that the old structure resolver overwrote with source text.
  *
- * Runs only on codex files with `enforceHtmlStructure` enabled. Every fix is
- * verified against the source cell's structure before being applied, and is
- * recorded as a MIGRATION edit in the cell's history.
+ * Deliberately NOT run automatically on activation — not all projects were
+ * affected, so the user opts in via the
+ * `codex-editor-extension.repairHtmlStructureArtifacts` command. It is safe to
+ * run repeatedly: only codex files with `enforceHtmlStructure` enabled are
+ * scanned, every fix is verified against the source cell's structure before
+ * being applied, and each change is recorded as a MIGRATION edit in the
+ * cell's history.
  */
-export const migration_repairHtmlStructureArtifacts = async (
-    context?: vscode.ExtensionContext
-): Promise<void> => {
+export const repairHtmlStructureArtifacts = async (): Promise<void> => {
     try {
         const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders || workspaceFolders.length === 0) return;
-
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        let hasMigrationRun = false;
-        try {
-            hasMigrationRun = config.get(MIGRATION_KEY, false);
-        } catch {
-            hasMigrationRun = !!context?.workspaceState.get<boolean>(MIGRATION_KEY);
-        }
-        if (hasMigrationRun) {
-            debug("HTML structure repair migration already completed, skipping");
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            vscode.window.showWarningMessage("Open a project before running the HTML structure repair.");
             return;
         }
 
-        const markCompleted = async () => {
-            try {
-                await config.update(MIGRATION_KEY, true, vscode.ConfigurationTarget.Workspace);
-            } catch {
-                await context?.workspaceState.update(MIGRATION_KEY, true);
-            }
-        };
+        const confirmed = await vscode.window.showInformationMessage(
+            "Repair HTML structure artifacts?",
+            {
+                modal: true,
+                detail:
+                    "Scans codex files that have structure enforcement enabled, removes spurious <span> wrappers left by older versions, and restores translations that were overwritten with source text. " +
+                    "Only verified fixes are applied, and every change is recorded in the cell's edit history.",
+            },
+            "Run Repair"
+        );
+        if (confirmed !== "Run Repair") return;
 
         const codexFiles = await vscode.workspace.findFiles(
             new vscode.RelativePattern(workspaceFolders[0], "**/*.codex")
         );
         if (codexFiles.length === 0) {
-            await markCompleted();
+            vscode.window.showInformationMessage("No codex files found in this project.");
             return;
         }
 
@@ -240,8 +234,6 @@ export const migration_repairHtmlStructureArtifacts = async (
             }
         );
 
-        await markCompleted();
-
         if (totalCellsRepaired > 0) {
             const restoredNote =
                 totalTranslationsRestored > 0
@@ -250,11 +242,16 @@ export const migration_repairHtmlStructureArtifacts = async (
             vscode.window.showInformationMessage(
                 `Repaired HTML structure in ${totalCellsRepaired} cell(s) across ${filesChanged} file(s)${restoredNote}.`
             );
+        } else {
+            vscode.window.showInformationMessage(
+                "No HTML structure artifacts found — nothing needed repair."
+            );
         }
         debug(
             `HTML structure repair completed: ${totalCellsRepaired} cells across ${filesChanged} files`
         );
     } catch (error) {
-        console.error("[HtmlStructureRepair] Migration failed:", error);
+        console.error("[HtmlStructureRepair] Repair failed:", error);
+        vscode.window.showErrorMessage("HTML structure repair failed. See the console for details.");
     }
 };
