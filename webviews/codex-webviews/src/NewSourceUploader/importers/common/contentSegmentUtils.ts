@@ -24,14 +24,133 @@ export function splitContentSegments(markedText: string): string[] {
 }
 
 /**
- * Extract every <Content> text value inside a ParagraphStyleRange block, in document order.
+ * Byte ranges of ParagraphStyleRange subtrees nested inside a paragraph block.
+ *
+ * InDesign puts tables inside the CharacterStyleRange of a host paragraph, and every table
+ * cell holds its own ParagraphStyleRange. Those nested paragraphs are addressed as separate
+ * paragraphs in their own right, so their <Content> slots must not be counted as, or
+ * overwritten by, the host paragraph's segments.
+ */
+function getNestedParagraphRanges(paragraphBlock: string): Array<{ start: number; end: number; }> {
+    const ranges: Array<{ start: number; end: number; }> = [];
+    const tagRegex = /<(\/?)ParagraphStyleRange\b[^>]*?(\/?)>/gi;
+    let depth = 0;
+    let nestedStart = -1;
+    let match: RegExpExecArray | null;
+
+    while ((match = tagRegex.exec(paragraphBlock)) !== null) {
+        const isClosing = match[1] === "/";
+        const isSelfClosing = match[2] === "/";
+
+        if (isSelfClosing) {
+            if (depth >= 1 && nestedStart < 0) {
+                ranges.push({ start: match.index, end: match.index + match[0].length });
+            }
+            continue;
+        }
+
+        if (isClosing) {
+            depth--;
+            if (depth === 1 && nestedStart >= 0) {
+                ranges.push({ start: nestedStart, end: match.index + match[0].length });
+                nestedStart = -1;
+            }
+            continue;
+        }
+
+        depth++;
+        // depth 1 is the block's own ParagraphStyleRange; anything deeper is nested.
+        if (depth === 2 && nestedStart < 0) {
+            nestedStart = match.index;
+        }
+    }
+
+    return ranges;
+}
+
+function isOffsetNested(offset: number, ranges: Array<{ start: number; end: number; }>): boolean {
+    return ranges.some((range) => offset >= range.start && offset < range.end);
+}
+
+/**
+ * Blank out nested paragraph subtrees, preserving length so offsets stay comparable to the
+ * original block. Lets the segment regexes below read only the host paragraph's own markup.
+ */
+function maskNestedParagraphs(paragraphBlock: string): string {
+    const ranges = getNestedParagraphRanges(paragraphBlock);
+    if (ranges.length === 0) {
+        return paragraphBlock;
+    }
+
+    let masked = paragraphBlock;
+    for (const { start, end } of ranges) {
+        masked = masked.slice(0, start) + " ".repeat(end - start) + masked.slice(end);
+    }
+    return masked;
+}
+
+/**
+ * InDesign writes its special characters as processing instructions inside the text itself,
+ * e.g. a table-of-contents line is <Content>Genesis<?ACE 8?>6</Content> where <?ACE 8?> is a
+ * right indent tab. They are markup rather than translatable text, so each marker becomes its
+ * own segment slot: the editor shows a tab in its place and export re-emits the original
+ * instruction verbatim, whatever the translator did to that slot.
+ */
+const ACE_MARKER_DISPLAY_TEXT = "\t";
+
+interface ContentPart {
+    /** Segment text: the decoded content, or the stand-in shown for a marker. */
+    text: string;
+    /** Source bytes of this slot, re-emitted verbatim when the slot is left alone. */
+    raw: string;
+    /** True for the instruction slots, which are never rewritten from cell text. */
+    isMarker: boolean;
+}
+
+/**
+ * Break one <Content> body into alternating text and marker slots. Empty text runs around a
+ * marker are dropped, so the same input always yields the same slot count on both the import
+ * and the export side.
+ */
+function splitContentInnerParts(inner: string): ContentPart[] {
+    const markerRegex = /<\?ACE\s+\d+\?>/gi;
+    if (!markerRegex.test(inner)) {
+        return [{ text: decodeXmlEntities(inner), raw: inner, isMarker: false }];
+    }
+    markerRegex.lastIndex = 0;
+
+    const parts: ContentPart[] = [];
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = markerRegex.exec(inner)) !== null) {
+        const before = inner.slice(lastIndex, match.index);
+        if (before.length > 0) {
+            parts.push({ text: decodeXmlEntities(before), raw: before, isMarker: false });
+        }
+        parts.push({ text: ACE_MARKER_DISPLAY_TEXT, raw: match[0], isMarker: true });
+        lastIndex = match.index + match[0].length;
+    }
+
+    const tail = inner.slice(lastIndex);
+    if (tail.length > 0) {
+        parts.push({ text: decodeXmlEntities(tail), raw: tail, isMarker: false });
+    }
+    return parts;
+}
+
+/**
+ * Extract every <Content> text value owned by a ParagraphStyleRange block, in document order.
+ * Content inside nested paragraphs (table cells) belongs to those paragraphs and is skipped.
  */
 export function extractContentSegmentsFromParagraphXml(paragraphBlock: string): string[] {
+    const ownBlock = maskNestedParagraphs(paragraphBlock);
     const segments: string[] = [];
     const contentRegex = /<Content>([\s\S]*?)<\/Content>/gi;
     let match: RegExpExecArray | null;
-    while ((match = contentRegex.exec(paragraphBlock)) !== null) {
-        segments.push(decodeXmlEntities(match[1] ?? ""));
+    while ((match = contentRegex.exec(ownBlock)) !== null) {
+        for (const part of splitContentInnerParts(match[1] ?? "")) {
+            segments.push(part.text);
+        }
     }
     return segments;
 }
@@ -50,18 +169,22 @@ export interface ContentSegmentStructure {
 export function extractContentSegmentStructureFromParagraphXml(
     paragraphBlock: string
 ): ContentSegmentStructure {
+    const ownBlock = maskNestedParagraphs(paragraphBlock);
     const segments: string[] = [];
     const breakBefore: boolean[] = [];
     let pendingBreak = false;
 
     const tokenRegex = /(<Content>[\s\S]*?<\/Content>)|(<Br\s*\/?>)/gi;
     let match: RegExpExecArray | null;
-    while ((match = tokenRegex.exec(paragraphBlock)) !== null) {
+    while ((match = tokenRegex.exec(ownBlock)) !== null) {
         if (match[1]) {
             const contentInner = /<Content>([\s\S]*?)<\/Content>/i.exec(match[1]);
-            segments.push(decodeXmlEntities(contentInner?.[1] ?? ""));
-            breakBefore.push(pendingBreak);
-            pendingBreak = false;
+            for (const part of splitContentInnerParts(contentInner?.[1] ?? "")) {
+                segments.push(part.text);
+                // Only the first slot of a <Content> can sit after a <Br />.
+                breakBefore.push(pendingBreak);
+                pendingBreak = false;
+            }
         } else if (match[2]) {
             pendingBreak = true;
         }
@@ -110,17 +233,21 @@ export function extractContentSegmentsFromParagraph(paragraph: IDMLParagraph): s
  * Extract one character style per <Content> node from paragraph XML (document order).
  */
 export function extractSegmentStylesFromParagraphXml(paragraphBlock: string): string[] {
+    const ownBlock = maskNestedParagraphs(paragraphBlock);
     const styles: string[] = [];
     const csrRegex =
         /<CharacterStyleRange\b[^>]*AppliedCharacterStyle="([^"]*)"[^>]*>([\s\S]*?)<\/CharacterStyleRange>/gi;
     let csrMatch: RegExpExecArray | null;
-    while ((csrMatch = csrRegex.exec(paragraphBlock)) !== null) {
+    while ((csrMatch = csrRegex.exec(ownBlock)) !== null) {
         const style = csrMatch[1] ?? "";
         const inner = csrMatch[2] ?? "";
         const contentRegex = /<Content>([\s\S]*?)<\/Content>/gi;
         let contentMatch: RegExpExecArray | null;
         while ((contentMatch = contentRegex.exec(inner)) !== null) {
-            styles.push(style);
+            const slotCount = splitContentInnerParts(contentMatch[1] ?? "").length;
+            for (let slot = 0; slot < slotCount; slot++) {
+                styles.push(style);
+            }
         }
     }
     return styles;
@@ -143,37 +270,70 @@ export function replaceParagraphContentBySegments(
             ? padSegmentArray(originalSegments, xmlOriginals.length, xmlOriginals)
             : xmlOriginals;
     const forceClear = new Set(forceClearSegmentIndexes ?? []);
+    const nestedRanges = getNestedParagraphRanges(paragraphBlock);
 
     let segmentIndex = 0;
-    return paragraphBlock.replace(/<Content>([\s\S]*?)<\/Content>/g, (match, oldInner: string) => {
-        const xmlOriginal = decodeXmlEntities(oldInner ?? "");
-        const slotOriginal = originals[segmentIndex] ?? xmlOriginal;
-        const translated =
-            segmentIndex < segments.length ? segments[segmentIndex] : undefined;
-        const currentIndex = segmentIndex;
-        segmentIndex += 1;
-
-        if (translated === undefined) {
+    return paragraphBlock.replace(/<Content>([\s\S]*?)<\/Content>/g, (match, oldInner: string, offset: number) => {
+        // Nested table-cell paragraphs are addressed separately; leave their slots untouched.
+        if (isOffsetNested(offset, nestedRanges)) {
             return match;
         }
 
-        if (forceClear.has(currentIndex)) {
-            if (translated === "" && xmlOriginal === "") {
-                return match;
+        const parts = splitContentInnerParts(oldInner ?? "");
+        const baseIndex = segmentIndex;
+        segmentIndex += parts.length;
+
+        let changed = false;
+        const rebuilt: string[] = [];
+
+        for (let partIndex = 0; partIndex < parts.length; partIndex++) {
+            const part = parts[partIndex];
+
+            // Marker slots are markup the translator never owns; restore them untouched.
+            if (part.isMarker) {
+                rebuilt.push(part.raw);
+                continue;
             }
-            return `<Content>${xmlEscape("")}</Content>`;
+
+            const currentIndex = baseIndex + partIndex;
+            const xmlOriginal = part.text;
+            const slotOriginal = originals[currentIndex] ?? xmlOriginal;
+            const translated =
+                currentIndex < segments.length ? segments[currentIndex] : undefined;
+
+            if (translated === undefined) {
+                rebuilt.push(part.raw);
+                continue;
+            }
+
+            if (forceClear.has(currentIndex)) {
+                if (!(translated === "" && xmlOriginal === "")) {
+                    changed = true;
+                }
+                rebuilt.push(xmlEscape(""));
+                continue;
+            }
+
+            // Empty slot with original text usually means a mapping failure — keep XML as-is.
+            if (translated.trim() === "" && slotOriginal.trim() !== "") {
+                rebuilt.push(part.raw);
+                continue;
+            }
+
+            if (translated === slotOriginal || translated === xmlOriginal) {
+                rebuilt.push(part.raw);
+                continue;
+            }
+
+            rebuilt.push(xmlEscape(translated));
+            changed = true;
         }
 
-        // Empty slot with original text usually means a mapping failure — keep XML as-is.
-        if (translated.trim() === "" && slotOriginal.trim() !== "") {
+        if (!changed) {
             return match;
         }
 
-        if (translated === slotOriginal || translated === xmlOriginal) {
-            return match;
-        }
-
-        return `<Content>${xmlEscape(translated)}</Content>`;
+        return `<Content>${rebuilt.join("")}</Content>`;
     });
 }
 
@@ -191,13 +351,13 @@ function padSegmentArray(
 }
 
 /**
- * Locate a top-level ParagraphStyleRange block by Self/id or by story order index.
+ * Locate a ParagraphStyleRange block by Self/id or by story order index.
  */
 export function findParagraphBlockInStoryXml(
     storyXml: string,
     options: { paragraphId?: string; paragraphOrder?: number }
 ): { block: string; start: number; end: number } | null {
-    const blocks = listTopLevelParagraphBlocks(storyXml);
+    const blocks = listParagraphBlocksInDocumentOrder(storyXml);
     if (options.paragraphId) {
         const escapedId = escapeRegExp(options.paragraphId);
         const idPattern = new RegExp(
@@ -261,86 +421,92 @@ export function applySegmentTranslationToParagraphBlock(
     );
 }
 
-function listTopLevelParagraphBlocks(
+/**
+ * Every ParagraphStyleRange block in the story, ordered by opening tag position.
+ *
+ * Nested paragraphs (table cells) are included so this order matches DOM
+ * getElementsByTagName("ParagraphStyleRange") — the order the parser numbers paragraphs by.
+ * Paragraph ranges carry no Self attribute in Biblica IDML, so this index is the only
+ * addressing available and both sides have to count identically.
+ */
+function listParagraphBlocksInDocumentOrder(
     storyXml: string
 ): Array<{ block: string; start: number; end: number; openTag: string }> {
-    const blocks: Array<{ block: string; start: number; end: number; openTag: string }> = [];
-    let depth = 0;
-    let currentStart = -1;
-    let currentOpenTag = "";
-    let inStory = false;
-    let storyDepth = 0;
+    const collect = (requireStoryWrapper: boolean) => {
+        const found: Array<{ block: string; start: number; end: number; openTag: string }> = [];
+        const openStack: Array<{ start: number; openTag: string }> = [];
+        let inStory = !requireStoryWrapper;
+        let storyDepth = 0;
 
-    const tagRegex = /<\/?(?:Story|ParagraphStyleRange)\b[^>]*>/gi;
-    let match: RegExpExecArray | null;
+        const tagRegex = /<(\/?)(Story|ParagraphStyleRange)\b[^>]*?(\/?)>/gi;
+        let match: RegExpExecArray | null;
 
-    while ((match = tagRegex.exec(storyXml)) !== null) {
-        const tag = match[0];
-        const tagName = tag.match(/<\/?(\w+)/)?.[1];
-        const isClosing = tag.startsWith("</");
-        const pos = match.index;
+        while ((match = tagRegex.exec(storyXml)) !== null) {
+            const tag = match[0];
+            const isClosing = match[1] === "/";
+            const tagName = match[2];
+            const isSelfClosing = match[3] === "/";
 
-        if (tagName === "Story") {
-            if (isClosing) {
-                storyDepth--;
-                if (storyDepth === 0) {
-                    inStory = false;
+            if (tagName === "Story") {
+                if (!requireStoryWrapper) {
+                    continue;
                 }
-            } else {
-                storyDepth++;
-                if (storyDepth === 1) {
+                if (isSelfClosing) {
+                    continue;
+                }
+                if (isClosing) {
+                    storyDepth--;
+                    if (storyDepth === 0) {
+                        inStory = false;
+                    }
+                } else {
+                    storyDepth++;
                     inStory = true;
-                    depth = 0;
                 }
+                continue;
             }
-            continue;
-        }
 
-        if (!inStory || tagName !== "ParagraphStyleRange") {
-            continue;
-        }
+            if (!inStory) {
+                continue;
+            }
 
-        if (isClosing) {
-            depth--;
-            if (depth === 0 && currentStart >= 0) {
-                const end = pos + tag.length;
-                blocks.push({
-                    block: storyXml.slice(currentStart, end),
-                    start: currentStart,
-                    end,
-                    openTag: currentOpenTag,
+            if (isSelfClosing) {
+                found.push({
+                    block: tag,
+                    start: match.index,
+                    end: match.index + tag.length,
+                    openTag: tag,
                 });
-                currentStart = -1;
-                currentOpenTag = "";
+                continue;
             }
-        } else if (depth === 0) {
-            currentStart = pos;
-            currentOpenTag = tag;
-            depth++;
-        } else {
-            depth++;
-        }
-    }
 
-    if (blocks.length > 0) {
-        return blocks;
+            if (isClosing) {
+                const open = openStack.pop();
+                if (open) {
+                    const end = match.index + tag.length;
+                    found.push({
+                        block: storyXml.slice(open.start, end),
+                        start: open.start,
+                        end,
+                        openTag: open.openTag,
+                    });
+                }
+                continue;
+            }
+
+            openStack.push({ start: match.index, openTag: tag });
+        }
+
+        return found.sort((a, b) => a.start - b.start);
+    };
+
+    const withinStory = collect(true);
+    if (withinStory.length > 0) {
+        return withinStory;
     }
 
     // Fallback when Story wrapper tags are absent from the XML fragment.
-    const flatRegex = /<ParagraphStyleRange\b[^>]*>[\s\S]*?<\/ParagraphStyleRange>/gi;
-    let flatMatch: RegExpExecArray | null;
-    while ((flatMatch = flatRegex.exec(storyXml)) !== null) {
-        const block = flatMatch[0];
-        const start = flatMatch.index;
-        blocks.push({
-            block,
-            start,
-            end: start + block.length,
-            openTag: block.match(/^<ParagraphStyleRange\b[^>]*>/i)?.[0] ?? "",
-        });
-    }
-
-    return blocks;
+    return collect(false);
 }
 
 function defaultXmlEscape(value: string): string {
