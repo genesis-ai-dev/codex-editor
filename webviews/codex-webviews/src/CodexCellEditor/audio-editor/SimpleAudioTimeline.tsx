@@ -14,6 +14,8 @@ interface SimpleAudioTimelineProps {
     insertTimeSec: number;
     zoom: number;
     minimumRangeSec: number;
+    /** Preview playback position in timeline seconds; null hides the playhead. */
+    playheadSec?: number | null;
     disabled?: boolean;
     onRangeChange: (range: AudioTrimRange) => void;
     onInsertTimeChange: (timeSec: number) => void;
@@ -73,6 +75,7 @@ export function SimpleAudioTimeline({
     insertTimeSec,
     zoom,
     minimumRangeSec,
+    playheadSec = null,
     disabled = false,
     onRangeChange,
     onInsertTimeChange,
@@ -265,6 +268,9 @@ export function SimpleAudioTimeline({
     return (
         <div className="space-y-1.5">
             <div ref={viewportRef} className="w-full overflow-x-auto rounded-md border border-[var(--vscode-panel-border)] bg-[var(--vscode-editor-background)]">
+                {/* Relative wrapper lets the playhead move as a cheap DOM overlay
+                    instead of forcing a full canvas redraw every animation frame. */}
+                <div className="relative" style={{ width: canvasWidth }}>
                 <canvas
                     ref={canvasRef}
                     className={`block select-none ${disabled ? "cursor-not-allowed opacity-60" : "cursor-ew-resize"}`}
@@ -293,6 +299,17 @@ export function SimpleAudioTimeline({
                         event.currentTarget.releasePointerCapture(event.pointerId);
                     }}
                 />
+                {typeof playheadSec === "number" && (
+                    <div
+                        className="pointer-events-none absolute w-0.5 bg-emerald-500"
+                        style={{
+                            left: Math.max(0, Math.min(canvasWidth - 2, playheadSec * pixelsPerSecond)),
+                            top: TRACK_TOP,
+                            height: TRACK_HEIGHT,
+                        }}
+                    />
+                )}
+                </div>
             </div>
             <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
                 <span>{mode === "range" ? "Drag the blue pointers or click the waveform · Ctrl + mouse wheel to zoom" : "Drag the orange pointer or click the waveform · Ctrl + mouse wheel to zoom"}</span>

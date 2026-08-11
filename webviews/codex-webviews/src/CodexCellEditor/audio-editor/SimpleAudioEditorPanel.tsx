@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FilePlus2, Loader2, Save, Scissors, Undo2, X, ZoomIn, ZoomOut } from "lucide-react";
+import { FilePlus2, Loader2, Play, Save, Scissors, Square, Undo2, X, ZoomIn, ZoomOut } from "lucide-react";
 import { estimateWavBytes, MAX_AUDIO_ATTACHMENT_BYTES } from "@sharedUtils";
 import type { EditorPostMessages } from "../../../../../types";
 import { Button } from "../../components/ui/button";
@@ -32,6 +32,7 @@ import {
 import { audioTooLongMessage, renderAudioClipsInBrowser } from "./browserAudioRenderer";
 import { SimpleAudioTimeline } from "./SimpleAudioTimeline";
 import { useAudioEditHistory } from "./useAudioEditHistory";
+import { useAudioTimelinePlayback } from "./useAudioTimelinePlayback";
 
 type SimpleEditMode = "delete" | "insert" | "keep";
 
@@ -81,6 +82,12 @@ export function SimpleAudioEditorPanel({
     const initialDraftRef = useRef(initialDraft);
     initialDraftRef.current = initialDraft;
     const { value: draft, commit, replace, reset, undo, canUndo } = useAudioEditHistory(initialDraft);
+    const {
+        isPlaying,
+        playheadSec,
+        play: playPreview,
+        stop: stopPreview,
+    } = useAudioTimelinePlayback(draft.clips);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const ownedUrlsRef = useRef<Set<string>>(new Set());
     const [mode, setMode] = useState<SimpleEditMode>("delete");
@@ -241,7 +248,21 @@ export function SimpleAudioEditorPanel({
         }
     };
 
+    const togglePreview = async () => {
+        if (isPlaying) {
+            stopPreview();
+            return;
+        }
+        try {
+            setError(null);
+            await playPreview(0);
+        } catch (playError) {
+            setError(playError instanceof Error ? playError.message : "Could not play the edited audio.");
+        }
+    };
+
     const saveNewVersion = async () => {
+        stopPreview();
         const requestId = makeId("browser-audio-edit-request");
         setPendingRequestId(requestId);
         setError(null);
@@ -309,6 +330,7 @@ export function SimpleAudioEditorPanel({
                 insertTimeSec={insertTimeSec}
                 zoom={zoom}
                 minimumRangeSec={minimumPointerGapSec}
+                playheadSec={playheadSec}
                 disabled={disabled}
                 onRangeChange={(nextRange) => setRange(normalizeAudioTrimRange(
                     [nextRange.startSec, nextRange.endSec],
@@ -370,6 +392,16 @@ export function SimpleAudioEditorPanel({
                         : `Insert at ${formatAudioEditTime(insertTimeSec)}`}
                 </span>
                 <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={disabled || durationSec <= 0}
+                        title={isPlaying ? "Stop the preview" : "Listen to the edited audio"}
+                        onClick={() => void togglePreview()}
+                    >
+                        {isPlaying ? <Square className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
+                        {isPlaying ? "Stop" : "Preview"}
+                    </Button>
                     {/* Delete accepts any positive-width selection; equal pointers contain no audio. */}
                     {mode === "delete" && <Button variant="destructive" size="sm" disabled={disabled || rangeDurationSec <= 0} onClick={deleteRange}>Delete selected audio</Button>}
                     {mode === "keep" && <Button size="sm" disabled={disabled || rangeDurationSec < MIN_AUDIO_CLIP_DURATION_SEC} onClick={keepRange}>Keep selected audio</Button>}

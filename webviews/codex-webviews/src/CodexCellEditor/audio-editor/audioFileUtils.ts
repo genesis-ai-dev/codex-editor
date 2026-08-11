@@ -11,6 +11,14 @@ export function audioFileExtension(fileName: string, mimeType: string): string {
     return "webm";
 }
 
+/** AudioContext constructor for this webview, if the runtime provides one. */
+export function getAudioContextClass(): typeof AudioContext | undefined {
+    return (
+        window.AudioContext ||
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    );
+}
+
 export interface DecodedAudioInfo {
     durationSec: number;
     sampleRate: number;
@@ -19,8 +27,7 @@ export interface DecodedAudioInfo {
 
 /** Decodes an inserted file to obtain its playable duration and format. */
 export async function decodeAudioInfo(audioBlob: Blob): Promise<DecodedAudioInfo> {
-    const AudioContextClass = window.AudioContext ||
-        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    const AudioContextClass = getAudioContextClass();
     if (!AudioContextClass) throw new Error("Audio decoding is not available.");
     const context = new AudioContextClass();
     try {

@@ -4,6 +4,7 @@ import {
     type AudioEditorClip,
     type AudioRenderFormat,
 } from "./audioEditModel";
+import { getAudioContextClass } from "./audioFileUtils";
 
 export interface BrowserAudioRenderResult {
     bytes: Uint8Array;
@@ -61,13 +62,6 @@ export function encodePcmWav(channelData: Float32Array[], sampleRate: number): U
         }
     }
     return new Uint8Array(output);
-}
-
-function getAudioContextClass(): typeof AudioContext | undefined {
-    return (
-        window.AudioContext ||
-        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-    );
 }
 
 function getOfflineAudioContextClass(): typeof OfflineAudioContext | undefined {
