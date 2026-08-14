@@ -2173,11 +2173,24 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 const config = vscode.workspace.getConfiguration("codex-project-manager");
                 const configKey =
                     command === "changeSourceLanguage" ? "sourceLanguage" : "targetLanguage";
+                const previousLanguage = config.get(configKey) as { tag?: string; } | undefined;
                 await config.update(configKey, data.language, vscode.ConfigurationTarget.Workspace);
                 await vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
                 vscode.window.showInformationMessage(
                     `${command === "changeSourceLanguage" ? "Source" : "Target"} language updated to ${data.language.refName}.`
                 );
+                if (previousLanguage?.tag !== data?.language?.tag) {
+                    try {
+                        await vscode.commands.executeCommand(
+                            "codex-editor-extension.promptSystemMessageReview",
+                            command === "changeSourceLanguage"
+                                ? "sourceLanguageChanged"
+                                : "targetLanguageChanged"
+                        );
+                    } catch (error) {
+                        console.warn("Failed to open system message review:", error);
+                    }
+                }
             } else {
                 await vscode.commands.executeCommand(`codex-project-manager.${command}`);
                 // After any project change command, show the Project Manager view

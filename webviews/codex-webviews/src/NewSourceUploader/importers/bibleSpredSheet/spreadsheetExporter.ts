@@ -20,6 +20,9 @@ export interface SpreadsheetCell {
             sourceColumnIndex?: number;
             originalContent?: string;
             globalReferences?: string[];
+            merged?: boolean;
+            deleted?: boolean;
+            hidden?: boolean;
         };
     };
 }
@@ -131,10 +134,15 @@ export function exportSpreadsheetWithTranslations(
 
     console.log(`[Spreadsheet Export] importerType: ${metadata.importerType}, delimiter: "${delimiter === '\t' ? 'TAB' : delimiter}"`);
 
-    // Build a map of rowIndex -> translation
+    // Build a map of rowIndex -> translation.
+    // Hidden/deleted/merged cells are skipped so their original row content is preserved.
     const translationsByRow = new Map<number, string>();
     for (const cell of cells) {
         const rowIndex = cell.metadata?.data?.rowIndex;
+        const data = cell.metadata?.data;
+        if (data?.merged || data?.deleted || data?.hidden) {
+            continue;
+        }
         const translation = stripHtmlTags(cell.value || '');
 
         if (typeof rowIndex === 'number' && translation) {
@@ -242,12 +250,18 @@ export function exportSpreadsheetWithTranslations(
         const cellData = cell.metadata?.data;
         const originalRowValues = cellData?.originalRowValues;
         const cellSourceColumnIndex = cellData?.sourceColumnIndex ?? sourceColumnIndex;
-        const translation = stripHtmlTags(cell.value || '');
+        const isInactive = !!(cellData?.merged || cellData?.deleted || cellData?.hidden);
+        // For inactive cells, keep the original row values (treat as untranslated)
+        const translation = isInactive ? '' : stripHtmlTags(cell.value || '');
 
         if (originalRowValues && originalRowValues.length > 0) {
             const rowValues = [...originalRowValues];
 
-            if (typeof cellSourceColumnIndex === 'number' && cellSourceColumnIndex < rowValues.length) {
+            if (
+                !isInactive &&
+                typeof cellSourceColumnIndex === 'number' &&
+                cellSourceColumnIndex < rowValues.length
+            ) {
                 if (translation) {
                     rowValues[cellSourceColumnIndex] = translation;
                 }
@@ -264,7 +278,7 @@ export function exportSpreadsheetWithTranslations(
             if (globalRefs.length > 0) {
                 simpleRow.push(escapeField(globalRefs.join('; '), delimiter));
             }
-            simpleRow.push(escapeField(translation || originalContent, delimiter));
+            simpleRow.push(escapeField((!isInactive && translation) || originalContent, delimiter));
 
             rows.push(simpleRow.join(delimiter));
         }

@@ -97,7 +97,10 @@ export async function promptForTargetLanguage(): Promise<ProjectDetails | undefi
 
     return new Promise<ProjectDetails | undefined>((resolve) => {
         quickPick.onDidAccept(() => {
-            const selection = quickPick.selectedItems[0];
+            // Fall back to the highlighted (active) item: when the user types a
+            // partial filter and presses Enter without arrowing, VS Code leaves
+            // `selectedItems` empty even though an item is visibly highlighted.
+            const selection = quickPick.selectedItems[0] ?? quickPick.activeItems[0];
             if (!selection) {
                 resolve(undefined);
                 return;
@@ -185,7 +188,10 @@ export async function promptForSourceLanguage(): Promise<ProjectDetails | undefi
 
     return new Promise<ProjectDetails | undefined>((resolve) => {
         quickPick.onDidAccept(() => {
-            const selection = quickPick.selectedItems[0];
+            // Fall back to the highlighted (active) item: when the user types a
+            // partial filter and presses Enter without arrowing, VS Code leaves
+            // `selectedItems` empty even though an item is visibly highlighted.
+            const selection = quickPick.selectedItems[0] ?? quickPick.activeItems[0];
             if (!selection) {
                 resolve(undefined);
                 return;
