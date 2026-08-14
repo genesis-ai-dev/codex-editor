@@ -15,6 +15,7 @@
 import * as vscode from "vscode";
 import * as dugiteGit from "../../../utils/dugiteGit";
 import { resolveConflictFiles } from "./resolvers";
+import { restoreContentFilesMissingWithoutTombstone } from "./fileDeletionGuard";
 import { getAuthApi } from "../../../extension";
 import { ConflictFile } from "./types";
 import { getFrontierVersionStatus } from "../../utils/versionChecks";
@@ -115,6 +116,28 @@ export async function stageAndCommitAllAndSync(
             return syncResult;
         }
 
+        // Deletion guard (issue #1116): the sync below stage-commits the whole
+        // working tree, so a tracked `.codex`/`.source` file missing from a stale
+        // tree would be committed — and propagated — as a deletion. Restore any
+        // such file from HEAD unless its deletion was intentionally recorded.
+        try {
+            const restoredFiles = await restoreContentFilesMissingWithoutTombstone(workspaceFolder);
+            if (restoredFiles.length > 0) {
+                console.warn(
+                    `[Sync] Restored ${restoredFiles.length} tracked file(s) missing from the working tree without a recorded deletion:`,
+                    restoredFiles
+                );
+                vscode.window.showWarningMessage(
+                    `${restoredFiles.length} translation file(s) were missing from your local project ` +
+                    `without a recorded deletion and were restored from your last sync to prevent data loss. ` +
+                    `To remove files permanently, delete them from the navigation panel.`
+                );
+            }
+        } catch (guardError) {
+            // The guard is best-effort; never block sync on it.
+            console.error("[Sync] File deletion guard failed:", guardError);
+        }
+
         const conflictsResponse = await authApi.syncChanges({ commitMessage });
         if (!conflictsResponse) {
             throw new Error("syncChanges returned an empty response — sync may not have completed");
@@ -191,6 +214,23 @@ export async function stageAndCommitAllAndSync(
             }
 
             const { resolved: resolvedFiles, failed: failedConflicts } = await resolveConflictFiles(conflicts, workspaceFolder);
+
+            // Reconcile with actual resolutions: a conflict flagged isDeleted may
+            // have been restored by the deletion guard. Downstream consumers treat
+            // deletedFiles as gone (e.g. closing their open editors), so restored
+            // files must be reported as changed instead.
+            const restoredPaths = new Set(
+                resolvedFiles
+                    .filter((f) => f.resolution === "created" || f.resolution === "modified")
+                    .map((f) => f.filepath)
+            );
+            const stillDeleted = syncResult.deletedFiles.filter((fp) => !restoredPaths.has(fp));
+            for (const fp of syncResult.deletedFiles) {
+                if (restoredPaths.has(fp)) {
+                    syncResult.changedFiles.push(fp);
+                }
+            }
+            syncResult.deletedFiles = stillDeleted;
 
             if (failedConflicts.length > 0) {
                 const failedList = failedConflicts
