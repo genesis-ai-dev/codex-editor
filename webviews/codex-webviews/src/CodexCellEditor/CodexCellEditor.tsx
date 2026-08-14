@@ -3189,7 +3189,9 @@ const CodexCellEditor: React.FC = () => {
         ],
     );
 
-    const showResolveAllButton = !isSourceText && (metadata?.enforceHtmlStructure ?? false);
+    // Only offer batch resolve when the currently loaded section actually has mismatches.
+    const showResolveAllButton =
+        !isSourceText && (metadata?.enforceHtmlStructure ?? false) && mismatchedCellIds.length > 0;
 
     const handleMetadataChange = (key: string, value: string) => {
         setMetadata((prev) => {

@@ -68,6 +68,7 @@ import {
     migration_addImporterTypeToMetadata,
     migration_hoistDocumentContextToNotebookMetadata,
 } from "./projectManager/utils/migrationUtils";
+import { repairHtmlStructureArtifacts } from "./projectManager/utils/htmlStructureRepairMigration";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 import { initializeAudioExtractor } from "./utils/audioExtractor";
@@ -1096,6 +1097,12 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor.openCodexMigrationTool", () =>
             openCodexMigrationTool(context)
+        )
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.repairHtmlStructureArtifacts",
+            repairHtmlStructureArtifacts
         )
     );
     let toolsStatusProvider: MissingToolsWarningProvider | undefined;
