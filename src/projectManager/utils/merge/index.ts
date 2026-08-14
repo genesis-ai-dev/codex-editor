@@ -19,6 +19,10 @@ import { getAuthApi } from "../../../extension";
 import { ConflictFile } from "./types";
 import { getFrontierVersionStatus } from "../../utils/versionChecks";
 import { migration_recoverTempFilesAndMergeDuplicates } from "../migrationUtils";
+import {
+    checkForEmptiedCodexFiles,
+    notifyEmptiedCodexFilesBlockedSync,
+} from "../syncSafetyGuard";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -113,6 +117,24 @@ export async function stageAndCommitAllAndSync(
         } catch (error) {
             vscode.window.showErrorMessage("This project is not set up for syncing. Please re-open the project and try again.");
             return syncResult;
+        }
+
+        // Safety gate (issue #1119): refuse to commit/push a working tree in
+        // which a previously-translated `.codex` file has lost all its cells.
+        // Guard errors themselves must never block a sync.
+        try {
+            const emptiedFiles = await checkForEmptiedCodexFiles(workspaceFolder);
+            if (emptiedFiles.length > 0) {
+                console.error(
+                    "[Sync] Blocked: these .codex files had cells at HEAD but are empty/unparseable in the working tree:",
+                    emptiedFiles
+                );
+                // Fire-and-forget: don't stall the sync promise on the toast.
+                void notifyEmptiedCodexFilesBlockedSync(workspaceFolder, emptiedFiles);
+                return syncResult;
+            }
+        } catch (guardError) {
+            console.warn("[Sync] Emptied-codex-file guard failed (sync continues):", guardError);
         }
 
         const conflictsResponse = await authApi.syncChanges({ commitMessage });

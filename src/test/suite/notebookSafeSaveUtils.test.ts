@@ -1,7 +1,11 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
+import * as os from "os";
+import * as path from "path";
+import { promises as nodeFs } from "fs";
 import sinon from "sinon";
 import {
+    atomicWriteUriText,
     atomicWriteUriTextWithFs,
     readExistingFileOrThrowWithFs,
     type NotebookFs,
@@ -165,6 +169,70 @@ suite("notebookSafeSaveUtils", () => {
         assert.strictEqual(deleteStub.callCount, 0, "delete should not be called on direct write");
         const [writeUriArg] = writeStub.firstCall.args;
         assert.strictEqual(writeUriArg.toString(), uri.toString(), "writeFile should target original uri");
+    });
+
+    // Issue #1119: for local file: URIs the write must go through a temp file
+    // + rename so an existing target is replaced atomically — a concurrent
+    // reader can never observe truncated/partial content.
+    suite("atomicWriteUriText local (file:) path", () => {
+        let tmpDir: string;
+
+        setup(async () => {
+            tmpDir = await nodeFs.mkdtemp(path.join(os.tmpdir(), "codex-atomic-write-"));
+        });
+
+        teardown(async () => {
+            await nodeFs.rm(tmpDir, { recursive: true, force: true });
+        });
+
+        test("creates a new file with the exact content", async () => {
+            const target = path.join(tmpDir, "new-file.codex");
+            await atomicWriteUriText(vscode.Uri.file(target), '{"cells":[]}');
+            assert.strictEqual(await nodeFs.readFile(target, "utf-8"), '{"cells":[]}');
+        });
+
+        test("replaces an existing file's content and leaves no temp files behind", async () => {
+            const target = path.join(tmpDir, "existing-file.codex");
+            await nodeFs.writeFile(target, "old content", "utf-8");
+
+            await atomicWriteUriText(vscode.Uri.file(target), "new content");
+
+            assert.strictEqual(await nodeFs.readFile(target, "utf-8"), "new content");
+            const leftovers = (await nodeFs.readdir(tmpDir)).filter((name) =>
+                name.includes(".tmp-")
+            );
+            assert.deepStrictEqual(leftovers, [], "no temp files should remain");
+        });
+
+        test("keeps the previous content intact when the write cannot complete", async () => {
+            const target = path.join(tmpDir, "protected-file.codex");
+            await nodeFs.writeFile(target, "precious content", "utf-8");
+            // Make the directory read-only so the temp file cannot be created.
+            await nodeFs.chmod(tmpDir, 0o500);
+            try {
+                await assert.rejects(() =>
+                    atomicWriteUriText(vscode.Uri.file(target), "replacement")
+                );
+            } finally {
+                await nodeFs.chmod(tmpDir, 0o700);
+            }
+            assert.strictEqual(await nodeFs.readFile(target, "utf-8"), "precious content");
+        });
+
+        test("many sequential overwrites always leave complete content", async () => {
+            const target = path.join(tmpDir, "hammered-file.codex");
+            const payload = (i: number) =>
+                JSON.stringify({ cells: [{ value: `revision ${i}`.repeat(100) }] });
+            await atomicWriteUriText(vscode.Uri.file(target), payload(0));
+
+            for (let i = 1; i <= 25; i++) {
+                await atomicWriteUriText(vscode.Uri.file(target), payload(i));
+                const onDisk = await nodeFs.readFile(target, "utf-8");
+                // Every observation must be one of the complete payloads.
+                assert.doesNotThrow(() => JSON.parse(onDisk));
+            }
+            assert.strictEqual(await nodeFs.readFile(target, "utf-8"), payload(25));
+        });
     });
 });
 

@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { randomUUID } from "crypto";
+import { promises as nodeFs } from "fs";
 import path from "path";
 
 export type NotebookFs = Pick<
@@ -56,9 +57,67 @@ export async function readUriTextWithFs(fs: NotebookFs, uri: vscode.Uri): Promis
 /**
  * Atomically write UTF-8 text to a URI using a temp file + rename-overwrite.
  * This reduces the risk of partial/empty writes if the process crashes mid-write.
+ *
+ * Local `file:` URIs go through Node's fs so the rename is a true atomic
+ * replace even when the target exists — a concurrent reader can never observe
+ * a truncated/partial file (see issue #1119, where a mid-write read of a
+ * `.codex` file was mistaken for an empty notebook and written back over the
+ * real content). `vscode.workspace.fs.rename(..., { overwrite: true })` cannot
+ * be used for this: on some providers it momentarily deletes the target, so
+ * the vscode-fs fallback below keeps the plain-write behavior for existing
+ * targets on non-file schemes.
  */
 export async function atomicWriteUriText(uri: vscode.Uri, text: string): Promise<void> {
+    if (uri.scheme === "file") {
+        await atomicWriteLocalFileText(uri.fsPath, text);
+        return;
+    }
     await atomicWriteUriTextWithFs(vscode.workspace.fs, uri, text);
+}
+
+async function atomicWriteLocalFileText(fsPath: string, text: string): Promise<void> {
+    const tmpPath = path.join(
+        path.dirname(fsPath),
+        `${path.basename(fsPath)}.tmp-${Date.now()}-${randomUUID()}`
+    );
+
+    try {
+        const handle = await nodeFs.open(tmpPath, "w");
+        try {
+            await handle.writeFile(text, "utf-8");
+            // Flush to disk before the rename so a crash can never leave the
+            // target pointing at partially-flushed content.
+            await handle.sync();
+        } finally {
+            await handle.close();
+        }
+
+        // POSIX rename atomically replaces the target. On Windows this maps to
+        // MoveFileEx(MOVEFILE_REPLACE_EXISTING), which can transiently fail with
+        // EPERM/EACCES if another process (e.g. antivirus) holds the target, so
+        // retry briefly before giving up.
+        let lastRenameError: unknown;
+        for (const delayMs of [0, 10, 50, 250]) {
+            if (delayMs > 0) {
+                await new Promise((resolve) => setTimeout(resolve, delayMs));
+            }
+            try {
+                await nodeFs.rename(tmpPath, fsPath);
+                return;
+            } catch (renameError) {
+                lastRenameError = renameError;
+            }
+        }
+        throw lastRenameError;
+    } catch (error) {
+        // Best-effort cleanup; the target file has not been touched.
+        try {
+            await nodeFs.unlink(tmpPath);
+        } catch {
+            // Temp file may never have been created.
+        }
+        throw error;
+    }
 }
 
 export async function atomicWriteUriTextWithFs(
