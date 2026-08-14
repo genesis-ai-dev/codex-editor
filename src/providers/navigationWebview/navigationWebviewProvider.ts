@@ -1555,12 +1555,24 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
         }
     }
 
+    /**
+     * Workspace-relative POSIX path for a deleted file. Recorded alongside the
+     * absolute path so deletion tombstones match on every team member's machine
+     * (used by the sync deletion guard, issue #1116).
+     */
+    private toWorkspaceRelativePath(workspaceFolder: vscode.Uri, filePath: string): string {
+        return path
+            .relative(workspaceFolder.fsPath, filePath)
+            .replace(/\\/g, "/");
+    }
+
     private async recordFileDeletionToEditHistory(filePath: string, label: string): Promise<void> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceFolder) return;
 
         try {
             const author = await this.getCurrentUser();
+            const relPath = this.toWorkspaceRelativePath(workspaceFolder, filePath);
             await MetadataManager.safeUpdateMetadata(
                 workspaceFolder,
                 (metadata: { edits?: unknown[]; }) => {
@@ -1568,7 +1580,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     addProjectMetadataEdit(
                         metadata,
                         EditMapUtils.deletedFile(),
-                        { filePath, label },
+                        { filePath, relPath, label },
                         author
                     );
                     return metadata;
@@ -1589,6 +1601,10 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
         try {
             const author = await this.getCurrentUser();
+            const deletedFilesWithRelPaths = deletedFiles.map((file) => ({
+                ...file,
+                relPath: this.toWorkspaceRelativePath(workspaceFolder, file.filePath),
+            }));
             await MetadataManager.safeUpdateMetadata(
                 workspaceFolder,
                 (metadata: { edits?: unknown[]; }) => {
@@ -1596,7 +1612,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     addProjectMetadataEdit(
                         metadata,
                         EditMapUtils.deletedCorpusMarker(),
-                        { corpusMarker, deletedFiles },
+                        { corpusMarker, deletedFiles: deletedFilesWithRelPaths },
                         author
                     );
                     return metadata;
