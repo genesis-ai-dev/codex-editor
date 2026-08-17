@@ -204,7 +204,16 @@ suite("notebookSafeSaveUtils", () => {
             assert.deepStrictEqual(leftovers, [], "no temp files should remain");
         });
 
-        test("keeps the previous content intact when the write cannot complete", async () => {
+        test("keeps the previous content intact when the write cannot complete", async function () {
+            if (process.platform === "win32") {
+                // chmod cannot make a directory read-only on Windows: Node maps
+                // the mode onto FILE_ATTRIBUTE_READONLY, which does not block
+                // creating files inside the directory, so this failure
+                // injection only exists on POSIX. The mocked
+                // atomicWriteUriTextWithFs tests above cover the failure paths
+                // on all platforms.
+                this.skip();
+            }
             const target = path.join(tmpDir, "protected-file.codex");
             await nodeFs.writeFile(target, "precious content", "utf-8");
             // Make the directory read-only so the temp file cannot be created.
@@ -219,7 +228,11 @@ suite("notebookSafeSaveUtils", () => {
             assert.strictEqual(await nodeFs.readFile(target, "utf-8"), "precious content");
         });
 
-        test("many sequential overwrites always leave complete content", async () => {
+        test("many sequential overwrites always leave complete content", async function () {
+            // Every write fsyncs before its rename — that durability barrier is
+            // part of what's under test — and on Windows CI each flush is slow
+            // enough that 26 of them exceed mocha's default 2s budget.
+            this.timeout(20000);
             const target = path.join(tmpDir, "hammered-file.codex");
             const payload = (i: number) =>
                 JSON.stringify({ cells: [{ value: `revision ${i}`.repeat(100) }] });
