@@ -85,15 +85,21 @@ describe("htmlStructureUtils", () => {
         });
 
         it("detects missing tags in target", () => {
-            // Attributed breaks (e.g. InDesign's EOC markers) are structure;
-            // only bare <br>s are tolerated as user content.
-            const source = 'text<br class="idml-eoc" data-eoc="1"/>more text';
+            const source = "text <em>more</em> text";
             const target = "text more text";
             const result = compareHtmlStructure(source, target);
             expect(result.isMatch).toBe(false);
             expect(result.errors).toHaveLength(1);
             expect(result.errors[0]).toContain("Missing tags");
-            expect(result.errors[0]).toContain("<br/>");
+            expect(result.errors[0]).toContain("<em>");
+        });
+
+        it("summarizes repeated missing tags instead of listing each one", () => {
+            const source = "<p><em>a</em><em>b</em><em>c</em></p>";
+            const target = "<p>abc</p>";
+            const result = compareHtmlStructure(source, target);
+            expect(result.isMatch).toBe(false);
+            expect(result.errors[0]).toBe("Missing tags: 3× <em>, 3× </em>");
         });
 
         it("detects extra tags in target", () => {
@@ -144,6 +150,21 @@ describe("htmlStructureUtils", () => {
                 '<strong data-tag="bd">tučný text</strong> and <em data-tag="it">kurzíva</em>';
             const result = compareHtmlStructure(source, target);
             expect(result.isMatch).toBe(true);
+        });
+
+        it("does not flag InDesign segment/EOC markup a translator cannot type", () => {
+            const source =
+                '<p class="indesign-paragraph" data-segment-count="3">' +
+                '<span class="idml-segment" data-segment-index="0">Hello</span>' +
+                '<span class="idml-eoc" data-eoc="1" aria-hidden="true"></span>' +
+                '<span class="idml-segment" data-segment-index="1">ʼ</span>' +
+                '<br class="idml-eoc" data-eoc="1" />' +
+                '<span class="idml-segment" data-segment-index="2">world</span>' +
+                "</p>";
+            expect(compareHtmlStructure(source, "<p>hey</p>").isMatch).toBe(true);
+            expect(
+                compareHtmlStructure(source, "<p>line one</p><p>line two</p>").isMatch
+            ).toBe(true);
         });
 
         it("does not flag untranslated or merge-spacer-only cells", () => {
@@ -532,10 +553,10 @@ describe("htmlStructureUtils", () => {
             ).toBe(true);
         });
 
-        it("still enforces attributed breaks (InDesign EOC markers)", () => {
+        it("tolerates InDesign EOC breaks like other line breaks", () => {
             expect(
                 compareHtmlStructure('a<br class="idml-eoc" data-eoc="1"/>b', "a b").isMatch
-            ).toBe(false);
+            ).toBe(true);
         });
 
         it("still enforces real structural differences alongside breaks", () => {

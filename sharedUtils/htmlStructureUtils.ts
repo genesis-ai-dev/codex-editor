@@ -75,6 +75,45 @@ const stripEmptyParagraphs = (html: string): string =>
 const stripEmptyBareSpans = (html: string): string =>
     (html || "").replace(/<span>(?:\s|&nbsp;)*<\/span>/gi, "");
 
+const attrsLookLike = (attrs: string, token: RegExp): boolean => token.test(attrs);
+
+/**
+ * Drop InDesign editor-only markup that a translator cannot type and that
+ * export already restores from `idmlStructure` metadata:
+ * - empty `idml-eoc` glue spans,
+ * - attributed EOC `<br>`s (same role as a user line break),
+ * - `idml-segment` character-style runs (apostrophes, etc.).
+ * Semantic spans (`data-tag`, inline styles) are left intact.
+ */
+const stripIdmlInternalMarkup = (html: string): string => {
+    let result = (html || "")
+        .replace(/<span\b([^>]*)>\s*<\/span>/gi, (full, attrs: string) =>
+            attrsLookLike(attrs, /\bidml-eoc\b|\bdata-eoc=/) ? "" : full
+        )
+        .replace(/<br\b([^>]*)\/?>/gi, (full, attrs: string) =>
+            attrsLookLike(attrs, /\bidml-eoc\b|\bdata-eoc=/) ? " " : full
+        );
+
+    let previous = "";
+    while (previous !== result) {
+        previous = result;
+        result = result.replace(/<span\b([^>]*)>([\s\S]*?)<\/span>/gi, (full, attrs: string, inner: string) =>
+            attrsLookLike(attrs, /\bidml-segment\b|\bdata-segment-index=/) ? inner : full
+        );
+    }
+    return result;
+};
+
+const summarizeTagList = (tags: string[]): string => {
+    const counts = new Map<string, number>();
+    for (const tag of tags) {
+        counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+        .map(([tag, count]) => (count > 1 ? `${count}× ${tag}` : tag))
+        .join(", ");
+};
+
 /**
  * Extract normalized plain text from an HTML fragment. Used to detect when a
  * "resolved" translation actually reverted to the source-language text, and
@@ -129,16 +168,16 @@ export const joinMergedCellHtml = (previousHtml: string, currentHtml: string): s
  * exists for round-trip export fidelity, and line breaks are user content
  * that neither exporter's mapping depends on — so differences a line break
  * creates must never surface as mismatch errors (or worse, get stripped by a
- * resolve). Four normalizations, applied to both sides:
+ * resolve). Applied to both sides:
  * - empty paragraphs (blank lines) are dropped,
+ * - InDesign segment/EOC markup is dropped (export uses cell metadata),
  * - empty bare `<span>` spacers from cell merge are dropped,
- * - bare `<br>` tags are dropped (attributed breaks such as InDesign's
- *   `<br class="idml-eoc">` still count as structure),
+ * - bare `<br>` tags are dropped,
  * - adjacent bare-paragraph boundaries are collapsed, so a paragraph the
  *   user split with Enter still compares as one block.
  */
 const normalizeForStructureComparison = (html: string): string =>
-    stripEmptyBareSpans(stripEmptyParagraphs(html))
+    stripEmptyBareSpans(stripIdmlInternalMarkup(stripEmptyParagraphs(html)))
         .replace(/<br\s*\/?>/gi, " ")
         .replace(/<\/p>\s*<p>/gi, " ");
 
@@ -164,10 +203,10 @@ export const compareHtmlStructure = (
     const missingInTarget = tagDifference(sourceTags, targetTags);
     const extraInTarget = tagDifference(targetTags, sourceTags);
     if (missingInTarget.length > 0) {
-        errors.push(`Missing tags: ${missingInTarget.join(", ")}`);
+        errors.push(`Missing tags: ${summarizeTagList(missingInTarget)}`);
     }
     if (extraInTarget.length > 0) {
-        errors.push(`Extra tags: ${extraInTarget.join(", ")}`);
+        errors.push(`Extra tags: ${summarizeTagList(extraInTarget)}`);
     }
     if (errors.length === 0 && sourceSkeleton !== targetSkeleton) {
         errors.push("Tag order or nesting differs from source");
