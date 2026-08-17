@@ -53,6 +53,12 @@ export interface EditorProps {
     footnoteOffset?: number;
     pasteAsPlainText?: boolean;
     onCharacterCountChange?: (count: number) => void;
+    /**
+     * When true (projects with `enforceHtmlStructure`), saved content keeps its
+     * `<p>` tags instead of converting the first paragraph to a `<span>`, so the
+     * cell's HTML skeleton stays aligned with the source cell.
+     */
+    preserveParagraphStructure?: boolean;
 }
 
 // Fix the imports with correct typing
@@ -190,9 +196,13 @@ export interface EditorHandles {
 
 /**
  * Processes Quill content for saving, converting first paragraph to span
- * and preserving subsequent paragraphs
+ * and preserving subsequent paragraphs.
+ *
+ * When `preserveParagraphs` is true (projects with `enforceHtmlStructure`),
+ * paragraphs are kept as `<p>` tags so the saved HTML skeleton matches the
+ * source cell instead of being rewritten to the span-first cell convention.
  */
-function processQuillContentForSaving(htmlContent: string): string {
+function processQuillContentForSaving(htmlContent: string, preserveParagraphs = false): string {
     if (!htmlContent || htmlContent.trim() === "") {
         return "";
     }
@@ -218,6 +228,16 @@ function processQuillContentForSaving(htmlContent: string): string {
             // Also remove the selection class in case it persists
             htmlMarker.classList.remove("footnote-selected");
         });
+
+        if (preserveParagraphs) {
+            // Keep the content exactly as the user wrote it (including empty
+            // paragraphs from Enter presses); the structure comparison ignores
+            // empty paragraphs, so they don't cause mismatch warnings.
+            const hasRealContent = (tempDiv.textContent ?? "").trim().length > 0;
+            const result = hasRealContent ? tempDiv.innerHTML : "";
+            debug("[processQuillContentForSaving] Preserving paragraphs, result:", result);
+            return result;
+        }
 
         // Get all paragraph elements
         const paragraphs = tempDiv.querySelectorAll("p");
@@ -273,6 +293,10 @@ function processQuillContentForSaving(htmlContent: string): string {
         // Enhanced fallback using regex
         const cleaned = htmlContent.trim();
         debug("[processQuillContentForSaving] Fallback processing:", cleaned);
+
+        if (preserveParagraphs) {
+            return cleaned;
+        }
 
         // Count paragraphs using regex
         const paragraphMatches = cleaned.match(/<p[^>]*>[\s\S]*?<\/p>/g);
@@ -345,6 +369,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const quillRef = useRef<Quill | null>(null);
     const editorRef = useRef<HTMLDivElement>(null);
     const pasteAsPlainTextRef = useRef(props.pasteAsPlainText ?? false);
+    const preserveParagraphsRef = useRef(props.preserveParagraphStructure ?? false);
 
     const [currentAuthor, setCurrentAuthor] = useState<string>(
         (window as any).initialData?.userInfo?.username || "anonymous"
@@ -468,6 +493,10 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         pasteAsPlainTextRef.current = props.pasteAsPlainText ?? false;
     }, [props.pasteAsPlainText]);
 
+    useEffect(() => {
+        preserveParagraphsRef.current = props.preserveParagraphStructure ?? false;
+    }, [props.preserveParagraphStructure]);
+
     // Initialize Quill editor
     useEffect(() => {
         if (editorRef.current && !quillRef.current) {
@@ -568,7 +597,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         const contentIsEmpty = isQuillEmpty(quillRef.current);
                         const finalContent = contentIsEmpty
                             ? ""
-                            : processQuillContentForSaving(getCleanedHtml(content));
+                            : processQuillContentForSaving(getCleanedHtml(content), preserveParagraphsRef.current);
 
                         debug("Paste finalContent", { finalContent, contentIsEmpty });
 
@@ -957,7 +986,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         const contentIsEmpty = isQuillEmpty(quill);
                         const finalContent = contentIsEmpty
                             ? ""
-                            : processQuillContentForSaving(getCleanedHtml(content));
+                            : processQuillContentForSaving(getCleanedHtml(content), preserveParagraphsRef.current);
                         props.onChange({
                             html: finalContent,
                         });
@@ -1010,7 +1039,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         const contentIsEmpty = isQuillEmpty(quill);
                         const finalContent = contentIsEmpty
                             ? ""
-                            : processQuillContentForSaving(getCleanedHtml(content));
+                            : processQuillContentForSaving(getCleanedHtml(content), preserveParagraphsRef.current);
 
                         debug("finalContent", { finalContent, contentIsEmpty });
 
@@ -1123,7 +1152,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         const contentIsEmpty = isQuillEmpty(quill);
                         const finalContent = contentIsEmpty
                             ? ""
-                            : processQuillContentForSaving(getCleanedHtml(quill.root.innerHTML));
+                            : processQuillContentForSaving(getCleanedHtml(quill.root.innerHTML), preserveParagraphsRef.current);
                         props.onChange?.({ html: finalContent });
 
                         // Mark as dirty to ensure save button appears
