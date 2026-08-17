@@ -28,6 +28,8 @@ import {
 } from "./transientSyncError";
 import {
     checkForEmptiedCodexFiles,
+    repairEmptiedCodexFiles,
+    notifyEmptiedCodexFilesRestored,
     notifyEmptiedCodexFilesBlockedSync,
 } from "../syncSafetyGuard";
 
@@ -148,19 +150,34 @@ export async function stageAndCommitAllAndSync(
             console.error("[Sync] File deletion guard failed:", guardError);
         }
 
-        // Safety gate (issue #1119): refuse to commit/push a working tree in
-        // which a previously-translated `.codex` file has lost all its cells.
-        // Guard errors themselves must never block a sync.
+        // Safety gate (issue #1119): a previously-translated `.codex` file that
+        // has lost all its cells must never be committed and pushed. Repair it
+        // from HEAD and carry on rather than halting — `syncChanges` pulls as
+        // well as pushes, so blocking would also cut this user off from their
+        // team's incoming work. Matches the deletion guard's repair-and-continue
+        // posture above. Guard errors themselves must never block a sync.
         try {
             const emptiedFiles = await checkForEmptiedCodexFiles(workspaceFolder);
             if (emptiedFiles.length > 0) {
-                console.error(
-                    "[Sync] Blocked: these .codex files had cells at HEAD but are empty/unparseable in the working tree:",
+                console.warn(
+                    "[Sync] These .codex files had cells at HEAD but are empty/unparseable in the working tree:",
                     emptiedFiles
                 );
-                // Fire-and-forget: don't stall the sync promise on the toast.
-                void notifyEmptiedCodexFilesBlockedSync(workspaceFolder, emptiedFiles);
-                return syncResult;
+                const { restored, unrepaired } = await repairEmptiedCodexFiles(
+                    workspaceFolder,
+                    emptiedFiles
+                );
+                if (restored.length > 0) {
+                    console.warn(`[Sync] Restored ${restored.length} emptied .codex file(s) from HEAD:`, restored);
+                    notifyEmptiedCodexFilesRestored(restored);
+                }
+                // Only a file we could NOT repair still justifies stopping:
+                // committing it would broadcast the data loss to the team.
+                if (unrepaired.length > 0) {
+                    console.error("[Sync] Blocked: could not restore emptied .codex file(s):", unrepaired);
+                    notifyEmptiedCodexFilesBlockedSync(unrepaired);
+                    return syncResult;
+                }
             }
         } catch (guardError) {
             console.warn("[Sync] Emptied-codex-file guard failed (sync continues):", guardError);
