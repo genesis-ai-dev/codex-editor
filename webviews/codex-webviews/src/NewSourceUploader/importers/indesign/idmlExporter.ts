@@ -651,6 +651,10 @@ export async function exportIdmlRoundtrip(
         const meta: any = cell.metadata;
         const isText = cell.kind === 2 && meta?.type === "text";
         if (!isText) continue;
+        // Soft-deleted cells (e.g. retired by a re-import) keep their content
+        // and stale paragraph coordinates — exporting them would write old
+        // translations into the wrong paragraphs.
+        if (meta?.data?.deleted === true) continue;
 
         const translatedHtml = getTranslatedHtml(cell);
         const translated = removeHtmlTags(translatedHtml).trim();
