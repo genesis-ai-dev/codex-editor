@@ -9,6 +9,9 @@ import {
     rewrapWithSourceWrappers,
     tryDeterministicStructureFix,
     extractPlainTextFromHtml,
+    isEmptyOrPlaceholderHtml,
+    joinMergedCellHtml,
+    MERGE_CELL_SEPARATOR,
     type HtmlStructureDiff,
 } from "../../../../../sharedUtils/htmlStructureUtils";
 
@@ -141,6 +144,50 @@ describe("htmlStructureUtils", () => {
                 '<strong data-tag="bd">tučný text</strong> and <em data-tag="it">kurzíva</em>';
             const result = compareHtmlStructure(source, target);
             expect(result.isMatch).toBe(true);
+        });
+
+        it("does not flag untranslated or merge-spacer-only cells", () => {
+            const source =
+                '<p class="indesign-paragraph"><span class="idml-segment">MAT</span></p>';
+            expect(compareHtmlStructure(source, "").isMatch).toBe(true);
+            expect(compareHtmlStructure(source, "<span>&nbsp;</span>").isMatch).toBe(true);
+            expect(compareHtmlStructure(source, "<p>&nbsp;</p>").isMatch).toBe(true);
+        });
+
+        it("ignores the merge spacer between otherwise matching paragraphs", () => {
+            expect(
+                compareHtmlStructure(
+                    "<p>Hello</p><span>&nbsp;</span><p>world</p>",
+                    "<p>Hola</p><p>mundo</p>"
+                ).isMatch
+            ).toBe(true);
+        });
+    });
+
+    describe("joinMergedCellHtml", () => {
+        it("keeps two blank cells empty instead of inserting a spacer", () => {
+            expect(joinMergedCellHtml("", "")).toBe("");
+            expect(joinMergedCellHtml("<span>&nbsp;</span>", "")).toBe("");
+            expect(joinMergedCellHtml("", "<span>&nbsp;</span>")).toBe("");
+        });
+
+        it("joins two translated cells with the merge spacer", () => {
+            expect(joinMergedCellHtml("<p>Hello</p>", "<p>world</p>")).toBe(
+                `<p>Hello</p>${MERGE_CELL_SEPARATOR}<p>world</p>`
+            );
+        });
+
+        it("keeps the non-empty side when the other is blank", () => {
+            expect(joinMergedCellHtml("<p>Hello</p>", "")).toBe("<p>Hello</p>");
+            expect(joinMergedCellHtml("", "<p>world</p>")).toBe("<p>world</p>");
+        });
+    });
+
+    describe("isEmptyOrPlaceholderHtml", () => {
+        it("treats blank and nbsp-only markup as empty", () => {
+            expect(isEmptyOrPlaceholderHtml("")).toBe(true);
+            expect(isEmptyOrPlaceholderHtml("<span>&nbsp;</span>")).toBe(true);
+            expect(isEmptyOrPlaceholderHtml("<p>Hello</p>")).toBe(false);
         });
     });
 

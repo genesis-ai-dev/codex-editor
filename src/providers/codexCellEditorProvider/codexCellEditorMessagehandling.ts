@@ -37,6 +37,7 @@ import {
     type SourceCellMapEntry,
 } from "./utils/sourceCellTimestampsUtils";
 import { MAX_AUDIO_ATTACHMENT_BYTES } from "../../../sharedUtils";
+import { joinMergedCellHtml } from "../../../sharedUtils/htmlStructureUtils";
 import { transcodeWavToOpusWebm } from "../../utils/audioProcessor";
 
 // Enable debug logging if needed
@@ -5888,8 +5889,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 } as any);
             }
 
-            // 1. Concatenate content and create merged edit
-            const mergedContent = previousContent + "<span>&nbsp;</span>" + currentContent;
+            // 1. Concatenate content and create merged edit.
+            // Empty cells stay empty — a spacer-only result would look like
+            // translated content and fail HTML structure enforcement.
+            const mergedContent = joinMergedCellHtml(previousContent, currentContent);
             const mergeEdit: EditHistory = {
                 editMap: EditMapUtils.value(),
                 value: mergedContent,
