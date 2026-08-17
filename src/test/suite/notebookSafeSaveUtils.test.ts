@@ -205,20 +205,30 @@ suite("notebookSafeSaveUtils", () => {
         });
 
         test("keeps the previous content intact when the write cannot complete", async function () {
-            if (process.platform === "win32") {
-                // chmod cannot make a directory read-only on Windows: Node maps
-                // the mode onto FILE_ATTRIBUTE_READONLY, which does not block
-                // creating files inside the directory, so this failure
-                // injection only exists on POSIX. The mocked
-                // atomicWriteUriTextWithFs tests above cover the failure paths
-                // on all platforms.
-                this.skip();
-            }
             const target = path.join(tmpDir, "protected-file.codex");
             await nodeFs.writeFile(target, "precious content", "utf-8");
             // Make the directory read-only so the temp file cannot be created.
             await nodeFs.chmod(tmpDir, 0o500);
             try {
+                // Probe whether the read-only mode is actually enforced before
+                // relying on it. It is not on Windows (chmod maps to
+                // FILE_ATTRIBUTE_READONLY, which does not block creating files
+                // inside a directory) or as root (POSIX modes do not apply) —
+                // and platform constants cannot be trusted here because the
+                // test bundle shims `process` with process/browser, where
+                // process.platform is "browser" on every OS. The mocked
+                // atomicWriteUriTextWithFs tests above cover the failure paths
+                // everywhere.
+                let readOnlyEnforced = false;
+                try {
+                    await nodeFs.writeFile(path.join(tmpDir, "probe.tmp"), "x", "utf-8");
+                } catch {
+                    readOnlyEnforced = true;
+                }
+                if (!readOnlyEnforced) {
+                    this.skip();
+                }
+
                 await assert.rejects(() =>
                     atomicWriteUriText(vscode.Uri.file(target), "replacement")
                 );
