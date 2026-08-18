@@ -1719,6 +1719,12 @@ function getWebviewContent(
                                         </div>
                                     </div>
                                 </div>
+                                <div class="format-section-suboption" id="usfmOptions" style="display: none;" data-option="usfm">
+                                    <label class="format-option-toggle" id="usfmParatextHeadingsToggle">
+                                        <input type="checkbox" id="usfmParatextHeadingsCb">
+                                        Export paratext cells as section headings (\\s1)
+                                    </label>
+                                </div>
                             </div>
                             <!-- Subtitle options -->
                             <div class="format-section" id="subtitle-section" data-option="subtitles">
@@ -4144,7 +4150,7 @@ function getWebviewContent(
                             option.classList.add('selected');
                             selectedFormat = option.dataset.format;
                             const usfmOptions = document.getElementById('usfmOptions');
-                            if (usfmOptions) usfmOptions.style.display = selectedFormat === 'usfm' ? 'block' : 'none';
+                            if (usfmOptions) usfmOptions.style.display = (selectedFormat === 'usfm' || selectedFormat === 'usfm-no-validate') ? 'block' : 'none';
 
                             checkTextSelectionMismatch();
 
@@ -4251,6 +4257,10 @@ function getWebviewContent(
                     if (formatToSend === 'usfm-no-validate') {
                         formatToSend = 'usfm';
                         options.skipValidation = true;
+                    }
+                    if (formatToSend === 'usfm') {
+                        const paratextHeadingsCb = document.getElementById('usfmParatextHeadingsCb');
+                        if (paratextHeadingsCb && paratextHeadingsCb.checked) options.paratextAsHeadings = true;
                     }
                     if (selectedAudioMode) {
                         options.includeAudio = true;

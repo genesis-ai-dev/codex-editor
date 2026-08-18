@@ -3,31 +3,9 @@ import { basename } from "path";
 import * as grammar from "usfm-grammar";
 import { CodexCellTypes } from "../../types/enums";
 import { readCodexNotebookFromUri, getActiveCells, isContentCellType } from "./exportHandlerUtils";
+import { buildUsfmBody } from "./usfmBodyBuilder";
 import type { ExportOptions } from "./exportHandler";
 import type { ExportProgressReporter } from "./exportProgress";
-
-/** Verse ref regex: "1TH 1:1", "GEN 1:1", etc. */
-const VERSE_REF_REGEX = /\b[A-Z0-9]{2,4}\s+\d+:\d+\b/;
-
-/**
- * Gets the verse reference for a cell, from globalReferences (preferred) or metadata.id (legacy).
- * Returns null if no verse-ref format found.
- */
-function getVerseRefForCell(cell: { metadata?: any; }): string | null {
-    const meta = cell.metadata as any;
-    const globalRefs = meta?.data?.globalReferences;
-    if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
-        const ref = globalRefs[0];
-        if (typeof ref === "string" && VERSE_REF_REGEX.test(ref)) {
-            return ref;
-        }
-    }
-    const id = meta?.id;
-    if (typeof id === "string" && VERSE_REF_REGEX.test(id)) {
-        return id;
-    }
-    return null;
-}
 
 const DEBUG = false;
 function debug(...args: any[]) {
@@ -108,58 +86,6 @@ const bookCodeToName: Record<string, string> = {
 function getFullBookName(bookCode: string): string {
     const upperCode = bookCode.toUpperCase();
     return bookCodeToName[upperCode] || bookCode;
-}
-
-function convertHtmlToUsfm(html: string): string {
-    if (!html) return "";
-
-    let content = html;
-
-    content = content.replace(/<h2>(.*?)<\/h2>/gi, "\\s1 $1");
-    content = content.replace(/<h3>(.*?)<\/h3>/gi, "\\s2 $1");
-    content = content.replace(/<h4>(.*?)<\/h4>/gi, "\\s3 $1");
-    content = content.replace(/<em>(.*?)<\/em>/gi, "\\em $1\\em*");
-    content = content.replace(/<i>(.*?)<\/i>/gi, "\\it $1\\it*");
-    content = content.replace(/<strong>(.*?)<\/strong>/gi, "\\bd $1\\bd*");
-    content = content.replace(/<b>(.*?)<\/b>/gi, "\\bd $1\\bd*");
-    content = content.replace(/<u>(.*?)<\/u>/gi, "\\ul $1\\ul*");
-    content = content.replace(/<sup>(.*?)<\/sup>/gi, "\\sup $1\\sup*");
-    content = content.replace(/<sub>(.*?)<\/sub>/gi, "\\sub $1\\sub*");
-
-    content = content.replace(/<ul>(.*?)<\/ul>/gis, (match, listContent) => {
-        const items = listContent.match(/<li>(.*?)<\/li>/gis);
-        if (!items) return match;
-        return items
-            .map((item: string) => "\\li " + item.replace(/<\/?li>/gi, "").trim())
-            .join("\n");
-    });
-
-    content = content.replace(/<ol>(.*?)<\/ol>/gis, (match, listContent) => {
-        const items = listContent.match(/<li>(.*?)<\/li>/gis);
-        if (!items) return match;
-        return items
-            .map(
-                (item: string, index: number) =>
-                    `\\li${index + 1} ` + item.replace(/<\/?li>/gi, "").trim()
-            )
-            .join("\n");
-    });
-
-    // Strip bracket-format footnotes (literal angle brackets) before HTML tag cleanup
-    content = content.replace(/<([^>]*\\[^>]*)>/g, "$1");
-
-    content = content.replace(/<[^>]*>/g, "");
-    content = content.replace(/&nbsp;/g, " ");
-    content = content.replace(/&lt;/g, "<");
-    content = content.replace(/&gt;/g, ">");
-    content = content.replace(/&amp;/g, "&");
-    content = content.replace(/&quot;/g, '"');
-    content = content.replace(/&apos;/g, "'");
-
-    // Strip entity-encoded bracket-format footnotes too
-    content = content.replace(/<([^>]*\\[^>]*)>/g, "$1");
-
-    return content;
 }
 
 export async function exportCodexContentAsUsfm(
@@ -274,12 +200,6 @@ export async function exportCodexContentAsUsfm(
 
                 let usfmContent = "";
                 const fullBookName = getFullBookName(bookCode);
-                let verseCount = 0;
-                let hasVerses = false;
-                let currentChapter = 0;
-                let chapterContent = "";
-                let lastChapter = "";
-                let isFirstChapter = true;
 
                 usfmContent += `\\id ${bookCode} EN\n`;
                 usfmContent += `\\rem Exported from Codex Translation Editor v${extensionVersion}\n`;
@@ -305,147 +225,10 @@ export async function exportCodexContentAsUsfm(
 
                 totalCells += relevantCells.length;
 
-                const chapterCells: { [key: string]: number; } = {};
-                for (const cell of relevantCells) {
-                    const cellMetadata = cell.metadata;
-                    const cellContent = cell.value.trim();
-
-                    if (
-                        cellMetadata.type ===
-                        CodexCellTypes.PARATEXT &&
-                        cellContent.startsWith("<h1>")
-                    ) {
-                        const chapterTitle = cellContent
-                            .replace(/<\/?h1>/g, "")
-                            .trim();
-                        const chapterMatch = chapterTitle.match(
-                            /Chapter (\d+)/i
-                        );
-                        if (chapterMatch) {
-                            const chapterNum = parseInt(
-                                chapterMatch[1],
-                                10
-                            );
-                            chapterCells[cellMetadata.id] =
-                                chapterNum;
-                        }
-                    } else if (
-                        isContentCellType(cellMetadata.type)
-                    ) {
-                        const verseRef = getVerseRefForCell(cell);
-                        if (verseRef) {
-                            const chapterMatch =
-                                verseRef.match(/\s(\d+):/);
-                            if (chapterMatch) {
-                                const chapterNum = parseInt(
-                                    chapterMatch[1],
-                                    10
-                                );
-                                if (
-                                    !lastChapter ||
-                                    chapterNum > parseInt(
-                                        lastChapter,
-                                        10
-                                    )
-                                ) {
-                                    if (
-                                        !Object.values(
-                                            chapterCells
-                                        ).includes(chapterNum)
-                                    ) {
-                                        chapterCells[
-                                            `auto_${chapterNum}`
-                                        ] = chapterNum;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                for (const cell of relevantCells) {
-                    const cellMetadata = cell.metadata;
-                    let cellContent = cell.value.trim();
-
-                    cellContent = convertHtmlToUsfm(cellContent);
-
-                    if (
-                        cellMetadata.type ===
-                        CodexCellTypes.PARATEXT
-                    ) {
-                        if (cellContent.startsWith("Chapter ")) {
-                            const chapterMatch = cellContent.match(
-                                /Chapter (\d+)/i
-                            );
-                            if (chapterMatch) {
-                                if (lastChapter !== "") {
-                                    usfmContent += chapterContent;
-                                } else if (isFirstChapter) {
-                                    isFirstChapter = false;
-                                }
-
-                                const chapterNum = parseInt(
-                                    chapterMatch[1],
-                                    10
-                                );
-                                currentChapter = chapterNum;
-                                lastChapter =
-                                    chapterNum.toString();
-                                chapterContent = `\\c ${chapterNum}\n\\p\n`;
-                            } else {
-                                chapterContent += `\\p ${cellContent}\n`;
-                            }
-                        } else {
-                            chapterContent += `\\p ${cellContent}\n`;
-                        }
-                    } else if (
-                        isContentCellType(cellMetadata.type)
-                    ) {
-                        const verseRef = getVerseRefForCell(cell);
-                        if (verseRef) {
-                            const chapterMatch =
-                                verseRef.match(/\s(\d+):/);
-                            const verseMatch = verseRef.match(/\d+$/);
-
-                            if (chapterMatch && verseMatch) {
-                                const chapterNum = parseInt(
-                                    chapterMatch[1],
-                                    10
-                                );
-
-                                if (chapterNum !== currentChapter) {
-                                    if (chapterContent) {
-                                        usfmContent += chapterContent;
-                                    }
-
-                                    currentChapter = chapterNum;
-                                    lastChapter = chapterNum.toString();
-                                    chapterContent = `\\c ${chapterNum}\n\\p\n`;
-                                    isFirstChapter = false;
-                                }
-
-                                if (
-                                    lastChapter === "" &&
-                                    isFirstChapter
-                                ) {
-                                    lastChapter = "1";
-                                    currentChapter = 1;
-                                    chapterContent = `\\c 1\n\\p\n`;
-                                    isFirstChapter = false;
-                                }
-
-                                const verseNumber = verseMatch[0];
-                                chapterContent += `\\v ${verseNumber} ${cellContent}\n`;
-                                verseCount++;
-                                hasVerses = true;
-                            }
-                        }
-                    }
-                }
-
-                if (chapterContent) {
-                    usfmContent += chapterContent;
-                }
+                const { body, verseCount, hasVerses } = buildUsfmBody(relevantCells, {
+                    paratextAsHeadings: options?.paratextAsHeadings,
+                });
+                usfmContent += body;
 
                 usfmContent =
                     usfmContent.replace(/\n{2,}/g, "\n").trim() + "\n";
