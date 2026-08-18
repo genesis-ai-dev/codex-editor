@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { basename } from "path";
 import * as grammar from "usfm-grammar";
 import { CodexCellTypes } from "../../types/enums";
-import { readCodexNotebookFromUri, getActiveCells, isContentCellType } from "./exportHandlerUtils";
+import { readCodexNotebookFromUri, getActiveCells, isContentCellType, getVerseMarkerForCell } from "./exportHandlerUtils";
 import type { ExportOptions } from "./exportHandler";
 import type { ExportProgressReporter } from "./exportProgress";
 
@@ -405,9 +405,9 @@ export async function exportCodexContentAsUsfm(
                         if (verseRef) {
                             const chapterMatch =
                                 verseRef.match(/\s(\d+):/);
-                            const verseMatch = verseRef.match(/\d+$/);
+                            const verseMarker = getVerseMarkerForCell(cell, verseRef);
 
-                            if (chapterMatch && verseMatch) {
+                            if (chapterMatch && verseMarker) {
                                 const chapterNum = parseInt(
                                     chapterMatch[1],
                                     10
@@ -434,8 +434,7 @@ export async function exportCodexContentAsUsfm(
                                     isFirstChapter = false;
                                 }
 
-                                const verseNumber = verseMatch[0];
-                                chapterContent += `\\v ${verseNumber} ${cellContent}\n`;
+                                chapterContent += `\\v ${verseMarker} ${cellContent}\n`;
                                 verseCount++;
                                 hasVerses = true;
                             }
