@@ -718,9 +718,16 @@ export async function sendMilestoneRefreshToWebview(
             sourceCellMap
         );
 
-        const authApi = await provider.getAuthApi();
-        const userInfo = await authApi?.getUserInfo();
-        const username = userInfo?.username || "anonymous";
+        let username = "anonymous";
+        try {
+            const authApi = await provider.getAuthApi();
+            if (authApi && typeof authApi.getUserInfo === "function") {
+                const userInfo = await authApi.getUserInfo();
+                username = userInfo?.username || "anonymous";
+            }
+        } catch (error) {
+            debug("sendMilestoneRefreshToWebview: failed to resolve username from authApi", error);
+        }
 
         const rev = provider.getDocumentRevision(docUri);
         const useSubdivisionNumberLabels = config.get(
@@ -762,7 +769,14 @@ export async function sendMilestoneRefreshToWebview(
         });
         debug(`[sendMilestoneRefreshToWebview] Sent updated milestone index and refreshCurrentPage for milestone ${currentPosition.milestoneIndex}, subsection ${currentPosition.subsectionIndex}`);
     } else {
-        provider.refreshWebview(webviewPanel, document);
+        // Don't remount the webview HTML — that resets scroll to the top of the file.
+        // The webview already knows its current page; ask it to reload those cells.
+        const rev = provider.getDocumentRevision(docUri);
+        safePostMessageToPanel(webviewPanel, {
+            type: "refreshCurrentPage",
+            rev,
+        });
+        debug("[sendMilestoneRefreshToWebview] No tracked position; sent refreshCurrentPage so the webview keeps its place");
     }
 }
 
@@ -4564,8 +4578,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 vscode.window.showWarningMessage("Could not fully undo the merge — no project folder found.");
             }
 
-            // Refresh the webview to show the updated state
-            provider.refreshWebview(webviewPanel, document);
+            // Refresh in place so unmerge doesn't jump the editor to the top
+            await sendMilestoneRefreshToWebview(document, webviewPanel, provider);
 
         } catch (error) {
             console.error("Error canceling merge for cell:", cellId, error);
@@ -5813,7 +5827,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 webviewPanel,
                 provider,
                 updateWebview: () => {
-                    provider.refreshWebview(webviewPanel, document);
+                    sendMilestoneRefreshToWebview(document, webviewPanel, provider).catch((error) => {
+                        console.warn("[confirmCellMerge] Failed to refresh webview after merge:", error);
+                    });
                 }
             });
 
@@ -6318,8 +6334,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             debug(`Successfully merged cell ${currentCellId} with ${previousCellId}`);
 
-            // Refresh the webview content
-            provider.refreshWebview(webviewPanel, document);
+            // Refresh in place so the source/target editor keeps its chapter and
+            // scroll position. refreshWebview() remounts the HTML and jumps to the top.
+            await sendMilestoneRefreshToWebview(document, webviewPanel, provider);
 
         } catch (error) {
             console.error("Error merging cells:", error);

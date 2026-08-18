@@ -3724,7 +3724,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 mergeEvent,
                 panelForMerge,
                 documentForMerge,
-                async () => await this.refreshWebview(panelForMerge, documentForMerge),
+                async () => await sendMilestoneRefreshToWebview(documentForMerge, panelForMerge, this),
                 this
             );
 
@@ -3850,10 +3850,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             debug(`Successfully unmerged cell ${cellIdToUnmerge} in ${isSourceToTarget ? 'target' : 'source'} file ${targetFileName}`);
 
-            // Refresh the target webview if it's open
+            // Refresh the target webview if it's open, in place so it doesn't jump to the top
             const targetPanel = this.webviewPanels.get(targetDocumentUri);
             if (targetPanel) {
-                await this.refreshWebview(targetPanel, targetDocument);
+                await sendMilestoneRefreshToWebview(targetDocument, targetPanel, this);
             }
 
             vscode.window.showInformationMessage(
