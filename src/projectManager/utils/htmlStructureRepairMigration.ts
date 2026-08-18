@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import { CodexContentSerializer } from "@/serializer";
 import { EditMapUtils } from "@/utils/editMapUtils";
+import { atomicWriteUriText } from "@/utils/notebookSafeSaveUtils";
 import { EditType, CodexCellTypes } from "../../../types/enums";
 import {
     extractPlainTextFromHtml,
@@ -158,7 +159,11 @@ export const repairHtmlStructureForFile = async (
         if (cellsRepaired === 0) return noChange;
 
         const updatedContent = await serializer.serializeNotebook(notebookData, token);
-        await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+        // Atomic write (issue #1119): this migration rewrites whole `.codex`
+        // files at startup, while the indexer and metadata manager are reading
+        // the same files. A plain writeFile truncates the target first, so a
+        // concurrent reader can observe a partial notebook.
+        await atomicWriteUriText(fileUri, new TextDecoder("utf-8").decode(updatedContent));
         return { changed: true, cellsRepaired, translationsRestored };
     } catch (error) {
         console.error(`[HtmlStructureRepair] Error repairing ${fileUri.fsPath}:`, error);

@@ -52,14 +52,31 @@ export async function readSourceAndTargetFiles(): Promise<{
     await metadataManager.loadMetadata();
 
     const serializer = new CodexContentSerializer();
-    const sourceFiles = await Promise.all(
-        sourceUris.map((uri) => readFile(uri, metadataManager, serializer))
-    );
-    const targetFiles = await Promise.all(
-        targetUris.map((uri) => readFile(uri, metadataManager, serializer))
-    );
+    const sourceFiles = await readFilesSkippingUnreadable(sourceUris, metadataManager, serializer);
+    const targetFiles = await readFilesSkippingUnreadable(targetUris, metadataManager, serializer);
 
     return { sourceFiles, targetFiles };
+}
+
+/**
+ * Reads many notebook files, skipping any that cannot be read or parsed.
+ * A single corrupt/mid-write file must not abort indexing of every other file
+ * (and must never be treated as an empty notebook — see issue #1119).
+ */
+async function readFilesSkippingUnreadable(
+    uris: vscode.Uri[],
+    metadataManager: NotebookMetadataManager,
+    serializer: CodexContentSerializer
+): Promise<FileData[]> {
+    const results = await Promise.all(
+        uris.map((uri) =>
+            readFile(uri, metadataManager, serializer).catch((error) => {
+                console.error(`Skipping unreadable notebook file: ${uri.fsPath}`, error);
+                return null;
+            })
+        )
+    );
+    return results.filter((file): file is FileData => file !== null);
 }
 
 async function readFile(
@@ -122,9 +139,5 @@ export async function getTargetFilesContent(): Promise<FileData[]> {
     await metadataManager.loadMetadata();
 
     const serializer = new CodexContentSerializer();
-    const targetFiles = await Promise.all(
-        targetUris.map((uri) => readFile(uri, metadataManager, serializer))
-    );
-
-    return targetFiles;
+    return readFilesSkippingUnreadable(targetUris, metadataManager, serializer);
 }

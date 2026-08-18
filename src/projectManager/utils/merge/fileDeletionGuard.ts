@@ -17,6 +17,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as dugiteGit from "../../../utils/dugiteGit";
+import { atomicWriteUriText } from "../../../utils/notebookSafeSaveUtils";
 
 export interface DeletionTombstone {
     /** Path as recorded at deletion time (may be absolute from another machine). */
@@ -222,7 +223,17 @@ export async function restoreContentFilesMissingWithoutTombstone(
                 vscode.Uri.file(workspaceDir),
                 ...normalizePath(filepath).split("/")
             );
-            await vscode.workspace.fs.writeFile(target, blob);
+            // The file is missing from the working tree, so its parent
+            // directory may be gone too. `atomicWriteUriText` writes a temp
+            // file beside the target and does not create directories.
+            await vscode.workspace.fs.createDirectory(
+                target.with({ path: target.path.slice(0, target.path.lastIndexOf("/")) })
+            );
+            // Atomic write (issue #1119): this restore runs immediately before
+            // the sync stages the working tree, so a reader must never catch a
+            // half-written `.codex`/`.source` file. Both covered types are
+            // UTF-8 JSON, so decoding here is lossless.
+            await atomicWriteUriText(target, blob.toString("utf-8"));
             restored.push(filepath);
         } catch (error) {
             console.error(
