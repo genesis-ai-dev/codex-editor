@@ -2723,6 +2723,83 @@ suite("CodexCellEditorProvider Test Suite", () => {
         }
     });
 
+    test("sequential mergeMatchingCellsInTargetFile calls keep applying to the live target document", async function () {
+        this.timeout(20000);
+        const provider = new CodexCellEditorProvider(context);
+
+        const wsDir = path.join(os.tmpdir(), `ws-seq-merge-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+        const wsUri = vscode.Uri.file(wsDir);
+        await vscode.workspace.fs.createDirectory(wsUri);
+
+        const baseFile = `seq-merge-${Date.now()}.source`;
+        const sourceUri = vscode.Uri.file(path.join(wsDir, ".project", "sourceTexts", baseFile));
+        const targetUri = vscode.Uri.file(path.join(wsDir, "files", "target", baseFile.replace(".source", ".codex")));
+
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(sourceUri.fsPath)));
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(targetUri.fsPath)));
+
+        const baseline = JSON.parse(JSON.stringify(codexSubtitleContent));
+        const labeledCells = (baseline.cells as any[]).filter((c: any) => c?.metadata?.type === "text").slice(0, 3);
+        assert.ok(labeledCells.length >= 3, "Mock notebook should have at least 3 text cells");
+        labeledCells[0].metadata.cellLabel = "9";
+        labeledCells[1].metadata.cellLabel = "10";
+        labeledCells[2].metadata.cellLabel = "11";
+        await vscode.workspace.fs.writeFile(sourceUri, Buffer.from(JSON.stringify(baseline, null, 2)));
+        await vscode.workspace.fs.writeFile(targetUri, Buffer.from(JSON.stringify(baseline, null, 2)));
+
+        const sourceDoc = await provider.openCustomDocument(sourceUri, { backupId: undefined }, new vscode.CancellationTokenSource().token);
+        const targetDoc = await provider.openCustomDocument(targetUri, { backupId: undefined }, new vscode.CancellationTokenSource().token);
+        const sourcePanel = createMockWebviewPanel().panel;
+        const targetPanel = createMockWebviewPanel().panel;
+        await provider.resolveCustomEditor(sourceDoc, sourcePanel, new vscode.CancellationTokenSource().token);
+        await provider.resolveCustomEditor(targetDoc, targetPanel, new vscode.CancellationTokenSource().token);
+
+        const cellA = labeledCells[0].metadata.id as string;
+        const cellB = labeledCells[1].metadata.id as string;
+        const cellC = labeledCells[2].metadata.id as string;
+        const workspaceFolder: vscode.WorkspaceFolder = { uri: wsUri, name: "tmp", index: 0 } as vscode.WorkspaceFolder;
+
+        const originalExec = vscode.commands.executeCommand;
+        // @ts-expect-error test stub
+        vscode.commands.executeCommand = async (command: string, ...args: any[]) => {
+            if (command === "vscode.openWith") {
+                return undefined;
+            }
+            return originalExec(command, ...args);
+        };
+
+        try {
+            await provider.mergeMatchingCellsInTargetFile(cellB, cellA, sourceUri.toString(), workspaceFolder);
+
+            const afterFirstOpen = await provider.openCustomDocument(
+                targetUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            assert.strictEqual(
+                afterFirstOpen,
+                targetDoc,
+                "After the first target merge save, openCustomDocument must return the live editor instance, not a disk reload"
+            );
+
+            await provider.mergeMatchingCellsInTargetFile(cellC, cellA, sourceUri.toString(), workspaceFolder);
+
+            const liveTarget = JSON.parse((targetDoc as any).getText());
+            const parent = (liveTarget.cells || []).find((c: any) => c?.metadata?.id === cellA);
+            const childB = (liveTarget.cells || []).find((c: any) => c?.metadata?.id === cellB);
+            const childC = (liveTarget.cells || []).find((c: any) => c?.metadata?.id === cellC);
+            assert.ok(parent && childB && childC, "Live target should still contain all three cells");
+            assert.strictEqual(parent.metadata?.cellLabel, "9-10-11", "Sequential merges should accumulate the parent label on the live target document");
+            assert.strictEqual(!!childB.metadata?.data?.merged, true, "First merged child should stay marked merged");
+            assert.strictEqual(!!childC.metadata?.data?.merged, true, "Second merged child should be marked merged without a window reload");
+        } finally {
+            vscode.commands.executeCommand = originalExec;
+            await deleteIfExists(sourceUri);
+            await deleteIfExists(targetUri);
+            try { await vscode.workspace.fs.delete(wsUri, { recursive: true }); } catch { /* ignore */ }
+        }
+    });
+
     test("LLM completion records an LLM_GENERATION edit in edit history", async () => {
         const provider = new CodexCellEditorProvider(context);
         const document = await provider.openCustomDocument(
@@ -3598,6 +3675,10 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const serializer = new CodexContentSerializer();
             const content = await serializer.serializeNotebook(notebookData, new vscode.CancellationTokenSource().token);
             await vscode.workspace.fs.writeFile(tempUri, content);
+
+            // Give the filesystem a chance to bump mtime so openCustomDocument
+            // reloads from disk instead of returning the pre-write cached instance.
+            await sleep(20);
 
             // Reload document
             const reloadedDoc = await provider.openCustomDocument(

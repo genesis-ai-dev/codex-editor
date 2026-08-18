@@ -221,6 +221,10 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
         await vscode.workspace.fs.writeFile(localOursUri, Buffer.from(JSON.stringify(oursParsed1, null, 2)));
         await vscode.workspace.fs.writeFile(localTheirsUri, Buffer.from(JSON.stringify(theirsParsed1, null, 2)));
 
+        // Give the filesystem a chance to bump mtime so the documents reload
+        // with the persisted selectionTimestamp rather than the dirty in-memory copies.
+        await sleep(20);
+
         // Reload documents to reflect persisted selectionTimestamp
         const oursDocReloaded = await provider.openCustomDocument(
             localOursUri,
