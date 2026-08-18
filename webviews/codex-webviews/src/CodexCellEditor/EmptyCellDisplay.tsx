@@ -90,6 +90,7 @@ const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
         <div
             ref={contentRef}
             className="empty-cell-display"
+            data-cell-id={cellMarkers[0]}
             onClick={() => openCellById(cellMarkers[0], "")}
             style={{
                 whiteSpace: "normal", // Allow text to wrap

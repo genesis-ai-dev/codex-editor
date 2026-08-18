@@ -5127,9 +5127,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         this.isCorrectionEditorMode = !this.isCorrectionEditorMode;
         debug("Correction editor mode toggled:", this.isCorrectionEditorMode);
 
-        // Removed bulk preservation of original content to avoid mass edits on toggle
-
-        // Broadcast the change to all webviews
+        // Broadcast the change to all webviews so React state updates without a remount
         this.webviewPanels.forEach((panel) => {
             this.postMessageToWebview(panel, {
                 type: "correctionEditorModeChanged",
@@ -5137,18 +5135,26 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             });
         });
 
-        // Refresh all open webviews so hidden/merged cells are shown or filtered correctly
+        // Re-process cells (merged/hidden visibility) in place so source and target
+        // keep their chapter and scroll position. refreshWebview() remounts HTML and
+        // jumps to the top; doing that only for currentDocument also remounted the
+        // other pane when focus shifted mid-loop.
         for (const [docUri, panel] of this.webviewPanels) {
-            if (this.currentDocument && docUri === this.currentDocument.uri.toString()) {
-                await this.refreshWebview(panel, this.currentDocument);
+            const document = this.documents.get(docUri);
+            if (document) {
+                await sendMilestoneRefreshToWebview(document, panel, this);
             } else {
                 const rev = this.getDocumentRevision(docUri);
                 const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
                 safePostMessageToPanel(panel, {
                     type: "refreshCurrentPage",
                     rev,
-                    milestoneIndex: currentPosition?.milestoneIndex ?? 0,
-                    subsectionIndex: currentPosition?.subsectionIndex ?? 0,
+                    ...(currentPosition
+                        ? {
+                            milestoneIndex: currentPosition.milestoneIndex,
+                            subsectionIndex: currentPosition.subsectionIndex,
+                        }
+                        : {}),
                 });
             }
         }

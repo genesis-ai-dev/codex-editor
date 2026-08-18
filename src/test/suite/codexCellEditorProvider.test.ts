@@ -4852,7 +4852,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 // Track all postMessage calls
                 const postMessageCalls: any[] = [];
                 let webviewHtml = "";
-                let messageCallback: ((message: any) => Promise<void> | void) | null = null;
 
                 const webviewPanel = {
                     webview: {
@@ -4865,9 +4864,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
                         options: { enableScripts: true },
                         asWebviewUri: (uri: vscode.Uri) => uri,
                         cspSource: "https://example.com",
-                        onDidReceiveMessage: (callback: (message: any) => void) => {
-                            // Store the callback so we can invoke it to trigger markWebviewReady
-                            messageCallback = callback;
+                        onDidReceiveMessage: (_callback: (message: any) => void) => {
                             return { dispose: () => { } };
                         },
                         postMessage: (message: any) => {
@@ -4912,64 +4909,40 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     "correctionEditorModeChanged should have enabled: true"
                 );
 
-                // Verify that the HTML contains isCorrectionEditorMode: true
-                // The HTML is set during refreshWebview which is called after toggleCorrectionEditorMode
+                // Toggle must refresh cells in place (so merged/hidden visibility updates)
+                // without remounting the webview HTML, which would jump the editor to the top.
+                const refreshMessage = postMessageCalls.find(
+                    (msg) =>
+                        msg.type === "providerSendsInitialContentPaginated" ||
+                        msg.type === "refreshCurrentPage"
+                );
                 assert.ok(
-                    webviewHtml.includes("isCorrectionEditorMode: true"),
-                    "HTML should contain isCorrectionEditorMode: true when source editing mode is on"
+                    refreshMessage,
+                    `in-place cell refresh should be sent after toggle (found messages: ${postMessageCalls.map((m) => m.type).join(", ")})`
                 );
 
-                // Simulate webview-ready message to trigger pending updates
-                // refreshWebview resets the webview ready state, so scheduled messages won't be sent
-                // until the webview reports ready
-                // Call the actual message callback that was registered during resolveCustomEditor
-                // This will trigger markWebviewReady which executes the scheduled messages
-                if (messageCallback) {
-                    await (messageCallback as (message: any) => Promise<void> | void)({ command: 'webviewReady' });
-                }
-
-                // Wait for scheduled messages to be sent with polling/retries
-                // CI environments may be slower, so we poll with exponential backoff
-                // With milestone-based pagination, the provider sends providerSendsInitialContentPaginated
-                let initialContentMessage = postMessageCalls.find(
+                const paginatedContent = postMessageCalls.find(
                     (msg) => msg.type === "providerSendsInitialContentPaginated"
                 );
-                let attempts = 0;
-                const maxAttempts = 20;
-                while (!initialContentMessage && attempts < maxAttempts) {
-                    await sleep(50 * (attempts + 1)); // Exponential backoff: 50ms, 100ms, 150ms...
-                    initialContentMessage = postMessageCalls.find(
-                        (msg) => msg.type === "providerSendsInitialContentPaginated"
+                if (paginatedContent) {
+                    assert.strictEqual(
+                        paginatedContent.isSourceText,
+                        true,
+                        "isSourceText should be true for source files"
                     );
-                    attempts++;
+
+                    const cellContent = paginatedContent.cells || [];
+                    assert.ok(
+                        Array.isArray(cellContent) && cellContent.length >= 2,
+                        "Source file should have at least 2 cells for merge buttons to appear (merge buttons only show on non-first cells)"
+                    );
+
+                    const secondCell = cellContent[1];
+                    assert.ok(
+                        secondCell && !secondCell.merged,
+                        "Second cell should exist and not be merged for merge button to appear"
+                    );
                 }
-
-                // Verify that providerSendsInitialContentPaginated message is sent with isSourceText: true
-                // This ensures the webview knows it's displaying source text, which is required for merge buttons
-                assert.ok(
-                    initialContentMessage,
-                    `providerSendsInitialContentPaginated message should be sent after refresh (attempted ${attempts} times, found messages: ${postMessageCalls.map(m => m.type).join(', ')})`
-                );
-                assert.strictEqual(
-                    initialContentMessage.isSourceText,
-                    true,
-                    "isSourceText should be true for source files"
-                );
-
-                // Verify that we have multiple cells (merge buttons only show on non-first cells)
-                // With milestone-based pagination, cells are in the 'cells' property, not 'content'
-                const cellContent = initialContentMessage.cells || [];
-                assert.ok(
-                    Array.isArray(cellContent) && cellContent.length >= 2,
-                    "Source file should have at least 2 cells for merge buttons to appear (merge buttons only show on non-first cells)"
-                );
-
-                // Verify that the second cell is not merged (merged cells show cancel merge button, not merge button)
-                const secondCell = cellContent[1];
-                assert.ok(
-                    secondCell && !secondCell.merged,
-                    "Second cell should exist and not be merged for merge button to appear"
-                );
 
                 document.dispose();
             } finally {
@@ -5199,6 +5172,13 @@ suite("CodexCellEditorProvider Test Suite", () => {
     });
 
     suite("refreshWebviewsForFiles", () => {
+        const findInPlaceRefresh = (messages: any[]) =>
+            messages.find(
+                (msg) =>
+                    msg.type === "providerSendsInitialContentPaginated" ||
+                    msg.type === "refreshCurrentPage"
+            );
+
         // Skip: URI encoding differences between test environment and production
         // The function works correctly in production with actual sync operations
         test.skip("refreshWebviewsForFiles sends refreshCurrentPage to matching webview", async function () {
@@ -5236,10 +5216,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // Wait for async operations to complete (revert() may trigger other messages)
             await sleep(200);
 
-            // Verify refreshCurrentPage message was sent
-            // Note: revert() may trigger other messages, but refreshCurrentPage should be among them
-            const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
-            assert.ok(refreshMessage, "refreshCurrentPage message should have been posted");
+            // Verify an in-place refresh was sent
+            const refreshMessage = findInPlaceRefresh(postedMessages);
+            assert.ok(refreshMessage, "in-place cell refresh should have been posted");
 
             document.dispose();
         });
@@ -5322,10 +5301,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // Wait for async operations to complete (revert() may trigger other messages)
             await sleep(200);
 
-            // Verify refreshCurrentPage message was sent (only for .codex file)
-            // Note: revert() may trigger other messages, but refreshCurrentPage should be among them
-            const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
-            assert.ok(refreshMessage, "refreshCurrentPage message should have been posted for .codex file");
+            // Verify an in-place refresh was sent (only for .codex file)
+            const refreshMessage = findInPlaceRefresh(postedMessages);
+            assert.ok(refreshMessage, "in-place cell refresh should have been posted for .codex file");
 
             document.dispose();
         });
@@ -5383,7 +5361,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 panel,
                 new vscode.CancellationTokenSource().token
             );
-            // Simulate webview ready so currentMilestoneSubsectionMap gets set (required for sendMilestoneRefreshToWebview to send refreshCurrentPage)
+            // Simulate webview ready so currentMilestoneSubsectionMap gets set (required for sendMilestoneRefreshToWebview)
             await onDidReceiveMessageRef.current?.({ command: "webviewReady" });
             await sleep(50);
             postedMessages.length = 0;
@@ -5392,8 +5370,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
             await provider.refreshWebviewsForFiles([document.uri.toString()]);
             await sleep(200);
 
-            const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
-            assert.ok(refreshMessage, "refreshCurrentPage should be sent for .codex with default options");
+            const refreshMessage = findInPlaceRefresh(postedMessages);
+            assert.ok(refreshMessage, "in-place cell refresh should be sent for .codex with default options");
 
             document.dispose();
         });
@@ -5432,8 +5410,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 await provider.refreshWebviewsForFiles([document.uri.toString()]);
                 await sleep(200);
 
-                const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
-                assert.ok(refreshMessage, "refreshCurrentPage should be sent for .source with default options");
+                const refreshMessage = findInPlaceRefresh(postedMessages);
+                assert.ok(refreshMessage, "in-place cell refresh should be sent for .source with default options");
 
                 document.dispose();
             } finally {
@@ -5483,8 +5461,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 await provider.refreshWebviewsForFiles([document.uri.toString()]);
                 await sleep(200);
 
-                const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
-                assert.ok(refreshMessage, "refreshCurrentPage message should have been posted");
+                const refreshMessage = findInPlaceRefresh(postedMessages);
+                assert.ok(refreshMessage, "in-place cell refresh should have been posted");
 
                 document.dispose();
             } finally {
@@ -5546,8 +5524,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
             await provider.refreshWebviewsForFiles([fsPathFromKey]);
             await sleep(200);
 
-            const refreshMessage = postedMessages.find((msg) => msg.type === "refreshCurrentPage");
-            assert.ok(refreshMessage, "refreshCurrentPage message should have been posted");
+            const refreshMessage = findInPlaceRefresh(postedMessages);
+            assert.ok(refreshMessage, "in-place cell refresh should have been posted");
 
             assert.ok(revertSpy.called, "Expected document.revert() to be called before refresh");
 

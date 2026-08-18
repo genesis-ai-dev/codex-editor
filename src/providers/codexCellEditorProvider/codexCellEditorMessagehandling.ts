@@ -676,8 +676,10 @@ interface MessageHandlerContext {
 }
 
 /**
- * Sends updated milestone index and current cells to the webview so milestone edits appear immediately.
- * Used after updateMilestoneValue, by refreshWebviewAfterMilestoneEdits, and by refreshWebviewsForFiles.
+ * Sends updated milestone index and current cells to the webview so milestone
+ * edits appear immediately, without remounting HTML or re-requesting the page
+ * (either of which would jump scroll). Used after updateMilestoneValue, by
+ * refreshWebviewAfterMilestoneEdits, and by refreshWebviewsForFiles.
  */
 export async function sendMilestoneRefreshToWebview(
     document: CodexCellDocument,
@@ -759,15 +761,10 @@ export async function sendMilestoneRefreshToWebview(
             enableMilestonePlacementEditing,
             force: true,
         });
-
-        safePostMessageToPanel(webviewPanel, {
-            type: "refreshCurrentPage",
-            rev,
-            milestoneIndex: currentPosition.milestoneIndex,
-            subsectionIndex: currentPosition.subsectionIndex,
-            force: true,
-        });
-        debug(`[sendMilestoneRefreshToWebview] Sent updated milestone index and refreshCurrentPage for milestone ${currentPosition.milestoneIndex}, subsection ${currentPosition.subsectionIndex}`);
+        // Do not also send refreshCurrentPage: that clears cell caches and
+        // re-requests the same page, which remounts the list and jumps scroll
+        // to the top of the chapter. The paginated payload already has the cells.
+        debug(`[sendMilestoneRefreshToWebview] Sent updated milestone index for milestone ${currentPosition.milestoneIndex}, subsection ${currentPosition.subsectionIndex}`);
     } else {
         // Don't remount the webview HTML — that resets scroll to the top of the file.
         // The webview already knows its current page; ask it to reload those cells.
