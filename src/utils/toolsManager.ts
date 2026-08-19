@@ -241,7 +241,7 @@ export function getToolsEligibleForOptimization(result: ToolCheckResult): Optimi
         eligible.push("git");
     }
     if (
-        result.nativePlatformSupported.ffmpeg &&
+        !result.platformUnsupported.ffmpeg &&
         audioMode !== "force-builtin" &&
         (!result.ffmpeg || audioMode === "builtin")
     ) {
