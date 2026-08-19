@@ -152,7 +152,7 @@ describe("htmlStructureUtils", () => {
             expect(result.isMatch).toBe(true);
         });
 
-        it("does not flag InDesign segment/EOC markup a translator cannot type", () => {
+        it("flags missing InDesign segment/EOC markup in the translation", () => {
             const source =
                 '<p class="indesign-paragraph" data-segment-count="3">' +
                 '<span class="idml-segment" data-segment-index="0">Hello</span>' +
@@ -161,10 +161,13 @@ describe("htmlStructureUtils", () => {
                 '<br class="idml-eoc" data-eoc="1" />' +
                 '<span class="idml-segment" data-segment-index="2">world</span>' +
                 "</p>";
-            expect(compareHtmlStructure(source, "<p>hey</p>").isMatch).toBe(true);
+            const result = compareHtmlStructure(source, "<p>hey</p>");
+            expect(result.isMatch).toBe(false);
+            expect(result.errors[0]).toContain("Missing tags");
+            expect(result.errors[0]).toContain("<span>");
             expect(
                 compareHtmlStructure(source, "<p>line one</p><p>line two</p>").isMatch
-            ).toBe(true);
+            ).toBe(false);
         });
 
         it("does not flag untranslated or merge-spacer-only cells", () => {
@@ -553,10 +556,10 @@ describe("htmlStructureUtils", () => {
             ).toBe(true);
         });
 
-        it("tolerates InDesign EOC breaks like other line breaks", () => {
+        it("still enforces attributed InDesign EOC breaks", () => {
             expect(
                 compareHtmlStructure('a<br class="idml-eoc" data-eoc="1"/>b', "a b").isMatch
-            ).toBe(true);
+            ).toBe(false);
         });
 
         it("still enforces real structural differences alongside breaks", () => {

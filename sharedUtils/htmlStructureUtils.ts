@@ -75,35 +75,6 @@ const stripEmptyParagraphs = (html: string): string =>
 const stripEmptyBareSpans = (html: string): string =>
     (html || "").replace(/<span>(?:\s|&nbsp;)*<\/span>/gi, "");
 
-const attrsLookLike = (attrs: string, token: RegExp): boolean => token.test(attrs);
-
-/**
- * Drop InDesign editor-only markup that a translator cannot type and that
- * export already restores from `idmlStructure` metadata:
- * - empty `idml-eoc` glue spans,
- * - attributed EOC `<br>`s (same role as a user line break),
- * - `idml-segment` character-style runs (apostrophes, etc.).
- * Semantic spans (`data-tag`, inline styles) are left intact.
- */
-const stripIdmlInternalMarkup = (html: string): string => {
-    let result = (html || "")
-        .replace(/<span\b([^>]*)>\s*<\/span>/gi, (full, attrs: string) =>
-            attrsLookLike(attrs, /\bidml-eoc\b|\bdata-eoc=/) ? "" : full
-        )
-        .replace(/<br\b([^>]*)\/?>/gi, (full, attrs: string) =>
-            attrsLookLike(attrs, /\bidml-eoc\b|\bdata-eoc=/) ? " " : full
-        );
-
-    let previous = "";
-    while (previous !== result) {
-        previous = result;
-        result = result.replace(/<span\b([^>]*)>([\s\S]*?)<\/span>/gi, (full, attrs: string, inner: string) =>
-            attrsLookLike(attrs, /\bidml-segment\b|\bdata-segment-index=/) ? inner : full
-        );
-    }
-    return result;
-};
-
 const summarizeTagList = (tags: string[]): string => {
     const counts = new Map<string, number>();
     for (const tag of tags) {
@@ -164,20 +135,18 @@ export const joinMergedCellHtml = (previousHtml: string, currentHtml: string): s
 };
 
 /**
- * Normalize an HTML fragment for structure comparison. Structure enforcement
- * exists for round-trip export fidelity, and line breaks are user content
- * that neither exporter's mapping depends on — so differences a line break
- * creates must never surface as mismatch errors (or worse, get stripped by a
- * resolve). Applied to both sides:
+ * Normalize an HTML fragment for structure comparison. User line breaks are
+ * allowed (Enter / Shift+Enter); InDesign spans, EOC markers, and other
+ * real tags are still enforced. Applied to both sides:
  * - empty paragraphs (blank lines) are dropped,
- * - InDesign segment/EOC markup is dropped (export uses cell metadata),
  * - empty bare `<span>` spacers from cell merge are dropped,
- * - bare `<br>` tags are dropped,
+ * - bare `<br>` tags are dropped (attributed breaks such as InDesign's
+ *   `<br class="idml-eoc">` still count as structure),
  * - adjacent bare-paragraph boundaries are collapsed, so a paragraph the
  *   user split with Enter still compares as one block.
  */
 const normalizeForStructureComparison = (html: string): string =>
-    stripEmptyBareSpans(stripIdmlInternalMarkup(stripEmptyParagraphs(html)))
+    stripEmptyBareSpans(stripEmptyParagraphs(html))
         .replace(/<br\s*\/?>/gi, " ")
         .replace(/<\/p>\s*<p>/gi, " ");
 
