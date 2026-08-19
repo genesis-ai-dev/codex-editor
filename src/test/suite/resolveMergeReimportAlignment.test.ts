@@ -235,6 +235,43 @@ suite("resolveCodexCustomMerge — re-import content alignment (#1079)", () => {
         assert.strictEqual(milestones.length, 2, "a genuinely new chapter milestone is added");
     });
 
+    test("a user-created milestone in an incremental sync (shared ids) is inserted, never folded", async () => {
+        // Issue #936 interaction: a subdivision promoted to a milestone named
+        // "Part 2" arrives as a their-only cell whose label ends in "2". In a
+        // normal sync (both sides share cell ids) it must NOT be folded into
+        // the existing "Matthew 2" chapter milestone by the #1079 alignment.
+        const ours = [
+            milestoneCell("Matthew 2", "ms-chapter-2"),
+            cueCell({ id: "shared-cue", start: 10, end: 12, value: "<span>translated</span>", edits: [valueEdit("<span>translated</span>", 1000)] }),
+        ];
+        const theirs = [
+            milestoneCell("Matthew 2", "ms-chapter-2"), // same id — normal merge
+            cueCell({ id: "shared-cue", start: 10, end: 12, value: "<span>translated</span>", edits: [valueEdit("<span>translated</span>", 1000)] }),
+            milestoneCell("Part 2"), // promoted subdivision, fresh id
+        ];
+
+        const merged = JSON.parse(await resolveCodexCustomMerge(notebook(ours), notebook(theirs)));
+        const milestones = merged.cells.filter((c: any) => c.metadata?.type === "milestone");
+        assert.strictEqual(milestones.length, 2, "the promoted milestone is a distinct new cell");
+        const chapter = milestones.find((c: any) => c.metadata.id === "ms-chapter-2");
+        assert.strictEqual(chapter.value, "Matthew 2", "the chapter milestone keeps its label");
+        assert.ok(
+            milestones.some((c: any) => c.value === "Part 2"),
+            "the promoted milestone survives with its own label"
+        );
+    });
+
+    test("digitless milestone labels never align, even in a re-import-shaped merge", async () => {
+        // Two users independently adding default-named milestones must not have
+        // them merged into one; a digitless label carries no chapter identity.
+        const ours = [milestoneCell("New milestone", "our-nm")];
+        const theirs = [milestoneCell("New milestone")];
+
+        const merged = JSON.parse(await resolveCodexCustomMerge(notebook(ours), notebook(theirs)));
+        const milestones = merged.cells.filter((c: any) => c.metadata?.type === "milestone");
+        assert.strictEqual(milestones.length, 2, "same default label must not cross-match");
+    });
+
     test("a re-imported bare-'1' milestone aligns with the long-form '<docName> 1' milestone", async () => {
         // the importer names milestones "1"; the milestone migration names them
         // "<docName> <chapter>" — the same chapter must align across formats
