@@ -2723,6 +2723,83 @@ suite("CodexCellEditorProvider Test Suite", () => {
         }
     });
 
+    test("sequential mergeMatchingCellsInTargetFile calls keep applying to the live target document", async function () {
+        this.timeout(20000);
+        const provider = new CodexCellEditorProvider(context);
+
+        const wsDir = path.join(os.tmpdir(), `ws-seq-merge-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+        const wsUri = vscode.Uri.file(wsDir);
+        await vscode.workspace.fs.createDirectory(wsUri);
+
+        const baseFile = `seq-merge-${Date.now()}.source`;
+        const sourceUri = vscode.Uri.file(path.join(wsDir, ".project", "sourceTexts", baseFile));
+        const targetUri = vscode.Uri.file(path.join(wsDir, "files", "target", baseFile.replace(".source", ".codex")));
+
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(sourceUri.fsPath)));
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(targetUri.fsPath)));
+
+        const baseline = JSON.parse(JSON.stringify(codexSubtitleContent));
+        const labeledCells = (baseline.cells as any[]).filter((c: any) => c?.metadata?.type === "text").slice(0, 3);
+        assert.ok(labeledCells.length >= 3, "Mock notebook should have at least 3 text cells");
+        labeledCells[0].metadata.cellLabel = "9";
+        labeledCells[1].metadata.cellLabel = "10";
+        labeledCells[2].metadata.cellLabel = "11";
+        await vscode.workspace.fs.writeFile(sourceUri, Buffer.from(JSON.stringify(baseline, null, 2)));
+        await vscode.workspace.fs.writeFile(targetUri, Buffer.from(JSON.stringify(baseline, null, 2)));
+
+        const sourceDoc = await provider.openCustomDocument(sourceUri, { backupId: undefined }, new vscode.CancellationTokenSource().token);
+        const targetDoc = await provider.openCustomDocument(targetUri, { backupId: undefined }, new vscode.CancellationTokenSource().token);
+        const sourcePanel = createMockWebviewPanel().panel;
+        const targetPanel = createMockWebviewPanel().panel;
+        await provider.resolveCustomEditor(sourceDoc, sourcePanel, new vscode.CancellationTokenSource().token);
+        await provider.resolveCustomEditor(targetDoc, targetPanel, new vscode.CancellationTokenSource().token);
+
+        const cellA = labeledCells[0].metadata.id as string;
+        const cellB = labeledCells[1].metadata.id as string;
+        const cellC = labeledCells[2].metadata.id as string;
+        const workspaceFolder: vscode.WorkspaceFolder = { uri: wsUri, name: "tmp", index: 0 } as vscode.WorkspaceFolder;
+
+        const originalExec = vscode.commands.executeCommand;
+        // @ts-expect-error test stub
+        vscode.commands.executeCommand = async (command: string, ...args: any[]) => {
+            if (command === "vscode.openWith") {
+                return undefined;
+            }
+            return originalExec(command, ...args);
+        };
+
+        try {
+            await provider.mergeMatchingCellsInTargetFile(cellB, cellA, sourceUri.toString(), workspaceFolder);
+
+            const afterFirstOpen = await provider.openCustomDocument(
+                targetUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+            assert.strictEqual(
+                afterFirstOpen,
+                targetDoc,
+                "After the first target merge save, openCustomDocument must return the live editor instance, not a disk reload"
+            );
+
+            await provider.mergeMatchingCellsInTargetFile(cellC, cellA, sourceUri.toString(), workspaceFolder);
+
+            const liveTarget = JSON.parse((targetDoc as any).getText());
+            const parent = (liveTarget.cells || []).find((c: any) => c?.metadata?.id === cellA);
+            const childB = (liveTarget.cells || []).find((c: any) => c?.metadata?.id === cellB);
+            const childC = (liveTarget.cells || []).find((c: any) => c?.metadata?.id === cellC);
+            assert.ok(parent && childB && childC, "Live target should still contain all three cells");
+            assert.strictEqual(parent.metadata?.cellLabel, "9-10-11", "Sequential merges should accumulate the parent label on the live target document");
+            assert.strictEqual(!!childB.metadata?.data?.merged, true, "First merged child should stay marked merged");
+            assert.strictEqual(!!childC.metadata?.data?.merged, true, "Second merged child should be marked merged without a window reload");
+        } finally {
+            vscode.commands.executeCommand = originalExec;
+            await deleteIfExists(sourceUri);
+            await deleteIfExists(targetUri);
+            try { await vscode.workspace.fs.delete(wsUri, { recursive: true }); } catch { /* ignore */ }
+        }
+    });
+
     test("LLM completion records an LLM_GENERATION edit in edit history", async () => {
         const provider = new CodexCellEditorProvider(context);
         const document = await provider.openCustomDocument(
@@ -3598,6 +3675,10 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const serializer = new CodexContentSerializer();
             const content = await serializer.serializeNotebook(notebookData, new vscode.CancellationTokenSource().token);
             await vscode.workspace.fs.writeFile(tempUri, content);
+
+            // Give the filesystem a chance to bump mtime so openCustomDocument
+            // reloads from disk instead of returning the pre-write cached instance.
+            await sleep(20);
 
             // Reload document
             const reloadedDoc = await provider.openCustomDocument(
@@ -4771,7 +4852,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 // Track all postMessage calls
                 const postMessageCalls: any[] = [];
                 let webviewHtml = "";
-                let messageCallback: ((message: any) => Promise<void> | void) | null = null;
 
                 const webviewPanel = {
                     webview: {
@@ -4784,9 +4864,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
                         options: { enableScripts: true },
                         asWebviewUri: (uri: vscode.Uri) => uri,
                         cspSource: "https://example.com",
-                        onDidReceiveMessage: (callback: (message: any) => void) => {
-                            // Store the callback so we can invoke it to trigger markWebviewReady
-                            messageCallback = callback;
+                        onDidReceiveMessage: (_callback: (message: any) => void) => {
                             return { dispose: () => { } };
                         },
                         postMessage: (message: any) => {
@@ -4831,64 +4909,40 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     "correctionEditorModeChanged should have enabled: true"
                 );
 
-                // Verify that the HTML contains isCorrectionEditorMode: true
-                // The HTML is set during refreshWebview which is called after toggleCorrectionEditorMode
+                // Toggle must refresh cells in place (so merged/hidden visibility updates)
+                // without remounting the webview HTML, which would jump the editor to the top.
+                const refreshMessage = postMessageCalls.find(
+                    (msg) =>
+                        msg.type === "providerSendsInitialContentPaginated" ||
+                        msg.type === "refreshCurrentPage"
+                );
                 assert.ok(
-                    webviewHtml.includes("isCorrectionEditorMode: true"),
-                    "HTML should contain isCorrectionEditorMode: true when source editing mode is on"
+                    refreshMessage,
+                    `in-place cell refresh should be sent after toggle (found messages: ${postMessageCalls.map((m) => m.type).join(", ")})`
                 );
 
-                // Simulate webview-ready message to trigger pending updates
-                // refreshWebview resets the webview ready state, so scheduled messages won't be sent
-                // until the webview reports ready
-                // Call the actual message callback that was registered during resolveCustomEditor
-                // This will trigger markWebviewReady which executes the scheduled messages
-                if (messageCallback) {
-                    await (messageCallback as (message: any) => Promise<void> | void)({ command: 'webviewReady' });
-                }
-
-                // Wait for scheduled messages to be sent with polling/retries
-                // CI environments may be slower, so we poll with exponential backoff
-                // With milestone-based pagination, the provider sends providerSendsInitialContentPaginated
-                let initialContentMessage = postMessageCalls.find(
+                const paginatedContent = postMessageCalls.find(
                     (msg) => msg.type === "providerSendsInitialContentPaginated"
                 );
-                let attempts = 0;
-                const maxAttempts = 20;
-                while (!initialContentMessage && attempts < maxAttempts) {
-                    await sleep(50 * (attempts + 1)); // Exponential backoff: 50ms, 100ms, 150ms...
-                    initialContentMessage = postMessageCalls.find(
-                        (msg) => msg.type === "providerSendsInitialContentPaginated"
+                if (paginatedContent) {
+                    assert.strictEqual(
+                        paginatedContent.isSourceText,
+                        true,
+                        "isSourceText should be true for source files"
                     );
-                    attempts++;
+
+                    const cellContent = paginatedContent.cells || [];
+                    assert.ok(
+                        Array.isArray(cellContent) && cellContent.length >= 2,
+                        "Source file should have at least 2 cells for merge buttons to appear (merge buttons only show on non-first cells)"
+                    );
+
+                    const secondCell = cellContent[1];
+                    assert.ok(
+                        secondCell && !secondCell.merged,
+                        "Second cell should exist and not be merged for merge button to appear"
+                    );
                 }
-
-                // Verify that providerSendsInitialContentPaginated message is sent with isSourceText: true
-                // This ensures the webview knows it's displaying source text, which is required for merge buttons
-                assert.ok(
-                    initialContentMessage,
-                    `providerSendsInitialContentPaginated message should be sent after refresh (attempted ${attempts} times, found messages: ${postMessageCalls.map(m => m.type).join(', ')})`
-                );
-                assert.strictEqual(
-                    initialContentMessage.isSourceText,
-                    true,
-                    "isSourceText should be true for source files"
-                );
-
-                // Verify that we have multiple cells (merge buttons only show on non-first cells)
-                // With milestone-based pagination, cells are in the 'cells' property, not 'content'
-                const cellContent = initialContentMessage.cells || [];
-                assert.ok(
-                    Array.isArray(cellContent) && cellContent.length >= 2,
-                    "Source file should have at least 2 cells for merge buttons to appear (merge buttons only show on non-first cells)"
-                );
-
-                // Verify that the second cell is not merged (merged cells show cancel merge button, not merge button)
-                const secondCell = cellContent[1];
-                assert.ok(
-                    secondCell && !secondCell.merged,
-                    "Second cell should exist and not be merged for merge button to appear"
-                );
 
                 document.dispose();
             } finally {
@@ -5118,6 +5172,13 @@ suite("CodexCellEditorProvider Test Suite", () => {
     });
 
     suite("refreshWebviewsForFiles", () => {
+        const findInPlaceRefresh = (messages: any[]) =>
+            messages.find(
+                (msg) =>
+                    msg.type === "providerSendsInitialContentPaginated" ||
+                    msg.type === "refreshCurrentPage"
+            );
+
         // Skip: URI encoding differences between test environment and production
         // The function works correctly in production with actual sync operations
         test.skip("refreshWebviewsForFiles sends refreshCurrentPage to matching webview", async function () {
@@ -5155,10 +5216,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // Wait for async operations to complete (revert() may trigger other messages)
             await sleep(200);
 
-            // Verify refreshCurrentPage message was sent
-            // Note: revert() may trigger other messages, but refreshCurrentPage should be among them
-            const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
-            assert.ok(refreshMessage, "refreshCurrentPage message should have been posted");
+            // Verify an in-place refresh was sent
+            const refreshMessage = findInPlaceRefresh(postedMessages);
+            assert.ok(refreshMessage, "in-place cell refresh should have been posted");
 
             document.dispose();
         });
@@ -5241,10 +5301,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // Wait for async operations to complete (revert() may trigger other messages)
             await sleep(200);
 
-            // Verify refreshCurrentPage message was sent (only for .codex file)
-            // Note: revert() may trigger other messages, but refreshCurrentPage should be among them
-            const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
-            assert.ok(refreshMessage, "refreshCurrentPage message should have been posted for .codex file");
+            // Verify an in-place refresh was sent (only for .codex file)
+            const refreshMessage = findInPlaceRefresh(postedMessages);
+            assert.ok(refreshMessage, "in-place cell refresh should have been posted for .codex file");
 
             document.dispose();
         });
@@ -5302,7 +5361,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 panel,
                 new vscode.CancellationTokenSource().token
             );
-            // Simulate webview ready so currentMilestoneSubsectionMap gets set (required for sendMilestoneRefreshToWebview to send refreshCurrentPage)
+            // Simulate webview ready so currentMilestoneSubsectionMap gets set (required for sendMilestoneRefreshToWebview)
             await onDidReceiveMessageRef.current?.({ command: "webviewReady" });
             await sleep(50);
             postedMessages.length = 0;
@@ -5311,8 +5370,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
             await provider.refreshWebviewsForFiles([document.uri.toString()]);
             await sleep(200);
 
-            const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
-            assert.ok(refreshMessage, "refreshCurrentPage should be sent for .codex with default options");
+            const refreshMessage = findInPlaceRefresh(postedMessages);
+            assert.ok(refreshMessage, "in-place cell refresh should be sent for .codex with default options");
 
             document.dispose();
         });
@@ -5351,8 +5410,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 await provider.refreshWebviewsForFiles([document.uri.toString()]);
                 await sleep(200);
 
-                const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
-                assert.ok(refreshMessage, "refreshCurrentPage should be sent for .source with default options");
+                const refreshMessage = findInPlaceRefresh(postedMessages);
+                assert.ok(refreshMessage, "in-place cell refresh should be sent for .source with default options");
 
                 document.dispose();
             } finally {
@@ -5402,8 +5461,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 await provider.refreshWebviewsForFiles([document.uri.toString()]);
                 await sleep(200);
 
-                const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
-                assert.ok(refreshMessage, "refreshCurrentPage message should have been posted");
+                const refreshMessage = findInPlaceRefresh(postedMessages);
+                assert.ok(refreshMessage, "in-place cell refresh should have been posted");
 
                 document.dispose();
             } finally {
@@ -5465,8 +5524,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
             await provider.refreshWebviewsForFiles([fsPathFromKey]);
             await sleep(200);
 
-            const refreshMessage = postedMessages.find((msg) => msg.type === "refreshCurrentPage");
-            assert.ok(refreshMessage, "refreshCurrentPage message should have been posted");
+            const refreshMessage = findInPlaceRefresh(postedMessages);
+            assert.ok(refreshMessage, "in-place cell refresh should have been posted");
 
             assert.ok(revertSpy.called, "Expected document.revert() to be called before refresh");
 

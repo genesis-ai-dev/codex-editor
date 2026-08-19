@@ -68,19 +68,85 @@ const stripEmptyParagraphs = (html: string): string =>
     (html || "").replace(/<p\b[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>/gi, "");
 
 /**
- * Normalize an HTML fragment for structure comparison. Structure enforcement
- * exists for round-trip export fidelity, and line breaks are user content
- * that neither exporter's mapping depends on — so differences a line break
- * creates must never surface as mismatch errors (or worse, get stripped by a
- * resolve). Three normalizations, applied to both sides:
+ * Drop attribute-less empty `<span>&nbsp;</span>` spacers (the join marker
+ * cell merge inserts between two cells). They are not round-trip structure.
+ * Spans with attributes are preserved.
+ */
+const stripEmptyBareSpans = (html: string): string =>
+    (html || "").replace(/<span>(?:\s|&nbsp;)*<\/span>/gi, "");
+
+const summarizeTagList = (tags: string[]): string => {
+    const counts = new Map<string, number>();
+    for (const tag of tags) {
+        counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+        .map(([tag, count]) => (count > 1 ? `${count}× ${tag}` : tag))
+        .join(", ");
+};
+
+/**
+ * Extract normalized plain text from an HTML fragment. Used to detect when a
+ * "resolved" translation actually reverted to the source-language text, and
+ * to treat untranslated/placeholder cells as empty for structure checks.
+ */
+export const extractPlainTextFromHtml = (html: string): string =>
+    (html || "")
+        .replace(/<[^>]*>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/\s+/g, " ")
+        .trim();
+
+/**
+ * Untranslated cells and merge-spacer-only cells are not translations.
+ * Flagging them as structure mismatches (and offering Resolve) is wrong:
+ * there is no translation yet, and Resolve cannot invent one without
+ * copying source-language text.
+ */
+export const isEmptyOrPlaceholderHtml = (html: string | undefined | null): boolean => {
+    if (!html) return true;
+    const text = extractPlainTextFromHtml(html).toLowerCase();
+    return text.length === 0 || text === "click to translate" || text === "no text";
+};
+
+/** Inserted between two non-empty cells when they are merged. */
+export const MERGE_CELL_SEPARATOR = "<span>&nbsp;</span>";
+
+/**
+ * Join two cell HTML fragments for a merge. Empty/placeholder cells stay
+ * empty so they are not mistaken for translated content (which would trip
+ * HTML structure enforcement). The spacer is only used when both sides
+ * have real text.
+ */
+export const joinMergedCellHtml = (previousHtml: string, currentHtml: string): string => {
+    const previousEmpty = isEmptyOrPlaceholderHtml(previousHtml);
+    const currentEmpty = isEmptyOrPlaceholderHtml(currentHtml);
+    if (!previousEmpty && !currentEmpty) {
+        return `${previousHtml}${MERGE_CELL_SEPARATOR}${currentHtml}`;
+    }
+    if (!previousEmpty) return previousHtml;
+    if (!currentEmpty) return currentHtml;
+    return "";
+};
+
+/**
+ * Normalize an HTML fragment for structure comparison. User line breaks are
+ * allowed (Enter / Shift+Enter); InDesign spans, EOC markers, and other
+ * real tags are still enforced. Applied to both sides:
  * - empty paragraphs (blank lines) are dropped,
+ * - empty bare `<span>` spacers from cell merge are dropped,
  * - bare `<br>` tags are dropped (attributed breaks such as InDesign's
  *   `<br class="idml-eoc">` still count as structure),
  * - adjacent bare-paragraph boundaries are collapsed, so a paragraph the
  *   user split with Enter still compares as one block.
  */
 const normalizeForStructureComparison = (html: string): string =>
-    stripEmptyParagraphs(html)
+    stripEmptyBareSpans(stripEmptyParagraphs(html))
         .replace(/<br\s*\/?>/gi, " ")
         .replace(/<\/p>\s*<p>/gi, " ");
 
@@ -88,6 +154,13 @@ export const compareHtmlStructure = (
     sourceHtml: string,
     targetHtml: string,
 ): HtmlStructureDiff => {
+    // Untranslated / spacer-only targets are not mismatches. Checking them
+    // would flag every empty cell against a paragraph-based source (IDML,
+    // docx) and make Resolve fail after merging two untranslated cells.
+    if (isEmptyOrPlaceholderHtml(targetHtml)) {
+        return { isMatch: true, errors: [] };
+    }
+
     const sourceSkeleton = extractHtmlSkeleton(normalizeForStructureComparison(sourceHtml));
     const targetSkeleton = extractHtmlSkeleton(normalizeForStructureComparison(targetHtml));
     if (sourceSkeleton === targetSkeleton) {
@@ -99,10 +172,10 @@ export const compareHtmlStructure = (
     const missingInTarget = tagDifference(sourceTags, targetTags);
     const extraInTarget = tagDifference(targetTags, sourceTags);
     if (missingInTarget.length > 0) {
-        errors.push(`Missing tags: ${missingInTarget.join(", ")}`);
+        errors.push(`Missing tags: ${summarizeTagList(missingInTarget)}`);
     }
     if (extraInTarget.length > 0) {
-        errors.push(`Extra tags: ${extraInTarget.join(", ")}`);
+        errors.push(`Extra tags: ${summarizeTagList(extraInTarget)}`);
     }
     if (errors.length === 0 && sourceSkeleton !== targetSkeleton) {
         errors.push("Tag order or nesting differs from source");
@@ -320,19 +393,3 @@ export const tryDeterministicStructureFix = (
     }
     return null;
 };
-
-/**
- * Extract normalized plain text from an HTML fragment. Used to detect when a
- * "resolved" translation actually reverted to the source-language text.
- */
-export const extractPlainTextFromHtml = (html: string): string =>
-    (html || "")
-        .replace(/<[^>]*>/g, " ")
-        .replace(/&nbsp;/g, " ")
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/\s+/g, " ")
-        .trim();
