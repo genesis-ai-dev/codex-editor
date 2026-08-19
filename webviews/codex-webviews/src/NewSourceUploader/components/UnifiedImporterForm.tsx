@@ -124,6 +124,7 @@ export const UnifiedImporterForm: React.FC<UnifiedImporterFormProps> = ({
     const [alignedCells, setAlignedCells] = useState<AlignedCell[] | null>(null);
     const [importedContent, setImportedContent] = useState<any[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const importInFlightRef = useRef(false);
 
     const { wizardContext, onTranslationComplete, alignContent } = importerProps;
     const isTranslationImport =
@@ -145,6 +146,7 @@ export const UnifiedImporterForm: React.FC<UnifiedImporterFormProps> = ({
             setResult(null);
             setAlignedCells(null);
             setImportedContent([]);
+            importInFlightRef.current = false;
 
             // Read preview from first file (skip binary / zip — avoids loading huge archives)
             if (showPreview) {
@@ -215,7 +217,8 @@ export const UnifiedImporterForm: React.FC<UnifiedImporterFormProps> = ({
     );
 
     const handleImport = useCallback(async () => {
-        if (files.length === 0) return;
+        if (files.length === 0 || importInFlightRef.current) return;
+        importInFlightRef.current = true;
 
         notifyImportStarted();
         setIsProcessing(true);
@@ -256,35 +259,30 @@ export const UnifiedImporterForm: React.FC<UnifiedImporterFormProps> = ({
                 );
                 setAlignedCells(aligned);
                 setIsAligning(false);
+                importInFlightRef.current = false;
+                setIsProcessing(false);
 
                 onProgress({
                     stage: "Complete",
                     message: "Alignment complete - review and confirm",
                     progress: 100,
                 });
+                return;
+            }
+
+            // Source import: write notebooks immediately and let the wizard
+            // replace this form with the importing progress view. Do not
+            // re-enable Finish Import — a second click re-parsed the file
+            // and then hit "already imported" against the first write.
+            if (onSourceImportComplete) {
+                await onSourceImportComplete(notebookResult);
             } else {
-                setTimeout(async () => {
-                    try {
-                        if (onSourceImportComplete) {
-                            await onSourceImportComplete(notebookResult);
-                        } else {
-                            await handleImportCompletion(
-                                notebookResult,
-                                importerProps
-                            );
-                        }
-                    } catch (err) {
-                        setError(
-                            err instanceof Error ? err.message : "Failed to complete import"
-                        );
-                        notifyImportEnded();
-                    }
-                }, 1500);
+                await handleImportCompletion(notebookResult, importerProps);
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
             notifyImportEnded();
-        } finally {
+            importInFlightRef.current = false;
             setIsProcessing(false);
         }
     }, [

@@ -5062,6 +5062,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             footnoteOffset={footnoteOffset}
                             pasteAsPlainText={pasteAsPlainText}
                             onCharacterCountChange={setCharacterCount}
+                            preserveParagraphStructure={metadata?.enforceHtmlStructure ?? false}
                         />
                     </div>
                 </div>
@@ -6086,6 +6087,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         return (
                                             <div className="space-y-4">
                                                 <AudioWaveformWithTranscription
+                                                    cellId={cellMarkers[0]}
+                                                    sourceAudioId={currentSelectedAudioId}
                                                     audioUrl={audioUrl || ""}
                                                     audioBlob={audioBlob}
                                                     transcription={savedTranscription}
@@ -6104,6 +6107,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     micUnavailable={micUnavailable}
                                                     noMicDetected={noMicDetected}
                                                     micPermissionDenied={micPermissionDenied}
+                                                    editDisabled={isCellLocked}
                                                     onShowRecorder={handleShowRecorder}
                                                     disabled={!audioBlob}
                                                     validationStatusProps={audioValidationIconProps}

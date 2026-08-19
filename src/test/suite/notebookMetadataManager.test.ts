@@ -800,4 +800,148 @@ suite("NotebookMetadataManager Test Suite", function () {
             );
         });
     });
+
+    /**
+     * Issue #1119 (Lingala S306): a mid-write/corrupt read of a .codex file
+     * used to deserialize into a silently-empty notebook, which loadMetadata's
+     * corpusMarker/fileDisplayName write-backs then persisted over the real
+     * file — erasing every cell. These tests pin the guard: loadMetadata must
+     * never write to a file whose content cannot be parsed.
+     */
+    suite("corrupt notebook write-back guard (issue #1119)", function () {
+        this.timeout(10000);
+
+        let workspaceFolder: vscode.WorkspaceFolder | undefined;
+        let tempFiles: vscode.Uri[] = [];
+
+        setup(async function () {
+            workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                return;
+            }
+            for (const parts of [
+                [".project"],
+                [".project", "sourceTexts"],
+                ["files"],
+                ["files", "target"],
+            ]) {
+                try {
+                    await vscode.workspace.fs.createDirectory(
+                        vscode.Uri.joinPath(workspaceFolder.uri, ...parts)
+                    );
+                } catch {
+                    // Directory might already exist
+                }
+            }
+        });
+
+        teardown(async () => {
+            for (const uri of tempFiles) {
+                try {
+                    await vscode.workspace.fs.delete(uri);
+                } catch {
+                    // Ignore cleanup errors
+                }
+            }
+            tempFiles = [];
+        });
+
+        async function writeNotebook(
+            fileName: string,
+            isSource: boolean,
+            metadata: Record<string, any>
+        ): Promise<vscode.Uri> {
+            if (!workspaceFolder) {
+                throw new Error("No workspace folder found");
+            }
+            const dir = isSource
+                ? vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts")
+                : vscode.Uri.joinPath(workspaceFolder.uri, "files", "target");
+            const fileUri = vscode.Uri.joinPath(dir, `${fileName}${isSource ? ".source" : ".codex"}`);
+            const content = JSON.stringify({
+                cells: [
+                    { kind: 2, value: "line one", languageId: "html", metadata: { id: `${fileName}-1` } },
+                    { kind: 2, value: "line two", languageId: "html", metadata: { id: `${fileName}-2` } },
+                ],
+                metadata: { id: fileName, originalName: fileName, edits: [], ...metadata },
+            });
+            await vscode.workspace.fs.writeFile(fileUri, new TextEncoder().encode(content));
+            tempFiles.push(fileUri);
+            return fileUri;
+        }
+
+        async function readRaw(uri: vscode.Uri): Promise<string> {
+            return new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
+        }
+
+        test("loadMetadata leaves a truncated .codex file untouched", async function () {
+            if (!workspaceFolder) {
+                this.skip();
+            }
+
+            const sourceUri = await writeNotebook("S306GUARD", true, {
+                corpusMarker: "subtitles",
+                fileDisplayName: "S306 Guard",
+            });
+            const codexUri = await writeNotebook("S306GUARD", false, {});
+
+            // Simulate a reader catching the file mid-write: truncated JSON.
+            const truncated = (await readRaw(codexUri)).slice(0, 120);
+            await vscode.workspace.fs.writeFile(codexUri, new TextEncoder().encode(truncated));
+
+            await manager.loadMetadata();
+
+            assert.strictEqual(
+                await readRaw(codexUri),
+                truncated,
+                "loadMetadata must not rewrite an unparseable .codex file"
+            );
+            // The healthy paired .source must still be a valid notebook with its cells.
+            const sourceAfter = JSON.parse(await readRaw(sourceUri));
+            assert.strictEqual(sourceAfter.cells.length, 2, "source file cells must be intact");
+        });
+
+        test("loadMetadata leaves a zero-byte .codex file untouched", async function () {
+            if (!workspaceFolder) {
+                this.skip();
+            }
+
+            await writeNotebook("S306EMPTY", true, {
+                corpusMarker: "subtitles",
+                fileDisplayName: "S306 Empty",
+            });
+            const codexUri = await writeNotebook("S306EMPTY", false, {});
+            await vscode.workspace.fs.writeFile(codexUri, new Uint8Array(0));
+
+            await manager.loadMetadata();
+
+            const after = await vscode.workspace.fs.readFile(codexUri);
+            assert.strictEqual(
+                after.byteLength,
+                0,
+                "loadMetadata must not fabricate content for an empty file — " +
+                "an empty read must never become a written 'empty notebook'"
+            );
+        });
+
+        test("repeated loadMetadata never reduces a healthy file's cell count", async function () {
+            if (!workspaceFolder) {
+                this.skip();
+            }
+
+            const codexUri = await writeNotebook("S306STABLE", false, {
+                corpusMarker: "subtitles",
+            });
+
+            for (let i = 0; i < 3; i++) {
+                await manager.loadMetadata();
+                const parsed = JSON.parse(await readRaw(codexUri));
+                assert.strictEqual(
+                    parsed.cells.length,
+                    2,
+                    `cell count changed after loadMetadata pass ${i + 1}`
+                );
+            }
+        });
+    });
 });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useContext, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useContext, useCallback } from "react";
 import Quill from "quill";
 import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import {
@@ -36,6 +36,11 @@ import "./TranslationAnimations.css";
 import { getVSCodeAPI } from "../shared/vscodeApi";
 import { Subsection, ProgressPercentages } from "../lib/types";
 import { buildSubsectionsForMilestone } from "./utils/subdivisionUtils";
+import {
+    captureScrollAnchor,
+    restoreScrollAnchor,
+    type ScrollAnchor,
+} from "./utils/scrollAnchorUtils";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { clearCachedAudio } from "../lib/audioCache";
@@ -402,6 +407,10 @@ const CodexCellEditor: React.FC = () => {
 
     // Track whether initial paginated content has been received (used to allow first content through stale guard)
     const hasReceivedInitialContentRef = useRef(false);
+
+    // Keep the first visible cell in place across in-place refreshes (merge, source-editing toggle)
+    const scrollableContentRef = useRef<HTMLDivElement>(null);
+    const pendingScrollAnchorRef = useRef<ScrollAnchor | null>(null);
 
     // Ref to store requestCellsForMilestone function so it can be used in message handlers
     const requestCellsForMilestoneRef = useRef<
@@ -1065,6 +1074,12 @@ const CodexCellEditor: React.FC = () => {
 
             // Handle correction editor mode changes from provider
             if (message.type === "correctionEditorModeChanged") {
+                // Hidden/merged cells appear or disappear in the list when this
+                // flag flips; pin the first visible cell so they don't shove the
+                // viewport back toward the top of the chapter.
+                pendingScrollAnchorRef.current = captureScrollAnchor(
+                    scrollableContentRef.current
+                );
                 setIsCorrectionEditorMode(message.enabled);
             }
 
@@ -1078,6 +1093,20 @@ const CodexCellEditor: React.FC = () => {
 
             // Handle current page refresh (e.g., when a paratext cell is added, after sync, or after migration)
             if (message.type === "refreshCurrentPage") {
+                // Pin the current viewport before we swap cells, so this
+                // in-place reload doesn't jump to the top of the chapter.
+                const forcedToDifferentPage =
+                    message.force === true &&
+                    typeof message.milestoneIndex === "number" &&
+                    typeof message.subsectionIndex === "number" &&
+                    (message.milestoneIndex !== currentMilestoneIndexRef.current ||
+                        message.subsectionIndex !== currentSubsectionIndexRef.current);
+                if (!forcedToDifferentPage && hasReceivedInitialContentRef.current) {
+                    pendingScrollAnchorRef.current = captureScrollAnchor(
+                        scrollableContentRef.current
+                    );
+                }
+
                 // After sync/migration, changes can occur in any cell range, not just the current page
                 // Clear ALL caches to ensure fresh data is loaded when navigating to any page
                 cellsCacheRef.current.clear();
@@ -1583,6 +1612,17 @@ const CodexCellEditor: React.FC = () => {
         []
     );
 
+    const captureScrollAnchorIfSamePage = (milestoneIdx: number, subsectionIdx: number) => {
+        if (
+            !hasReceivedInitialContentRef.current ||
+            currentMilestoneIndexRef.current !== milestoneIdx ||
+            currentSubsectionIndexRef.current !== subsectionIdx
+        ) {
+            return;
+        }
+        pendingScrollAnchorRef.current = captureScrollAnchor(scrollableContentRef.current);
+    };
+
     useVSCodeMessageHandler({
         setContent: (
             content: QuillCellContent[],
@@ -2030,7 +2070,17 @@ const CodexCellEditor: React.FC = () => {
                 // drop any in-flight navigation request so it doesn't reapply
                 // the pre-edit position over the new state.
                 latestRequestRef.current = null;
+                // Other pages may still have pre-edit cells; drop them so later
+                // navigation isn't stale. The current page is re-cached below.
+                cellsCacheRef.current.clear();
+                loadedPagesRef.current.clear();
+                milestoneCellsCacheRef.current.clear();
+                progressCacheRef.current.clear();
             }
+
+            // Pin the first visible cell before swapping the list so merge /
+            // source-editing-toggle refreshes don't jump to the top of the chapter.
+            captureScrollAnchorIfSamePage(currentMilestoneIdx, currentSubsectionIdx);
 
             // Mark that we've received initial content so subsequent messages go through the stale guard
             hasReceivedInitialContentRef.current = true;
@@ -2369,6 +2419,30 @@ const CodexCellEditor: React.FC = () => {
     useEffect(() => {
         requestCellsForMilestoneRef.current = requestCellsForMilestone;
     }, [requestCellsForMilestone]);
+
+    // Restore the pre-refresh viewport after in-place cell list updates.
+    // Runs before paint so the user never sees the chapter-top jump.
+    // Keep the anchor briefly so a follow-up cells payload (after toggling
+    // source-editing mode) can re-pin before we drop it.
+    useLayoutEffect(() => {
+        const anchor = pendingScrollAnchorRef.current;
+        if (!anchor) {
+            return;
+        }
+        restoreScrollAnchor(scrollableContentRef.current, anchor);
+        const frame = requestAnimationFrame(() => {
+            restoreScrollAnchor(scrollableContentRef.current, anchor);
+        });
+        const timeoutId = window.setTimeout(() => {
+            if (pendingScrollAnchorRef.current === anchor) {
+                pendingScrollAnchorRef.current = null;
+            }
+        }, 200);
+        return () => {
+            cancelAnimationFrame(frame);
+            window.clearTimeout(timeoutId);
+        };
+    }, [translationUnits, isCorrectionEditorMode]);
 
     // Handle pending scroll to cell after page loads (for jumpToCell with pagination)
     // We track translationUnits changes because cached pages update translationUnits
@@ -3189,7 +3263,9 @@ const CodexCellEditor: React.FC = () => {
         ],
     );
 
-    const showResolveAllButton = !isSourceText && (metadata?.enforceHtmlStructure ?? false);
+    // Only offer batch resolve when the currently loaded section actually has mismatches.
+    const showResolveAllButton =
+        !isSourceText && (metadata?.enforceHtmlStructure ?? false) && mismatchedCellIds.length > 0;
 
     const handleMetadataChange = (key: string, value: string) => {
         setMetadata((prev) => {
@@ -4053,6 +4129,7 @@ const CodexCellEditor: React.FC = () => {
                     </div>
                 )}
                 <div
+                    ref={scrollableContentRef}
                     className="scrollable-content"
                     style={{ height: `calc(100vh - ${headerHeight}px)`, overflowY: "auto" }}
                 >

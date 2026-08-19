@@ -251,6 +251,8 @@ export enum CodexExportFormat {
 
 export interface ExportOptions {
     skipValidation?: boolean;
+    /** USFM: export unformatted paratext cells as \s1 section headings instead of \p paragraphs. */
+    paratextAsHeadings?: boolean;
     removeIds?: boolean;
     includeAudio?: boolean;
     includeTimestamps?: boolean;

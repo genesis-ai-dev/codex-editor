@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { basename } from "path";
 import { CodexCellTypes } from "../../types/enums";
-import { readCodexNotebookFromUri, getActiveCells, isContentCellType } from "./exportHandlerUtils";
+import { readCodexNotebookFromUri, getActiveCells, isContentCellType, getVerseMarkerForCell } from "./exportHandlerUtils";
 import type { ExportOptions } from "./exportHandler";
 import type { ExportProgressReporter } from "./exportProgress";
 
@@ -222,10 +222,9 @@ export async function exportCodexContentAsHtml(
                                 const verseRef = getVerseRefForCell(cell);
                                 if (verseRef) {
                                     const chapterMatch = verseRef.match(/\s(\d+):/);
-                                    const verseMatch = verseRef.match(/\d+$/);
-                                    if (chapterMatch && verseMatch) {
+                                    const verseMarker = getVerseMarkerForCell(cell, verseRef);
+                                    if (chapterMatch && verseMarker) {
                                         const chapterNum = chapterMatch[1];
-                                        const verseNumber = verseMatch[0];
                                         if (!chapters[chapterNum]) {
                                             chapters[chapterNum] = `
                                             <div class="chapter">
@@ -233,7 +232,7 @@ export async function exportCodexContentAsHtml(
                                         }
                                         chapters[chapterNum] += `
                                             <div class="verse" x-type="verse" x-verse-ref="${verseRef}">
-                                                <span class="verse-number">${verseNumber}</span>
+                                                <span class="verse-number">${verseMarker}</span>
                                                 ${cellContent}
                                             </div>`;
                                         totalVerses++;
