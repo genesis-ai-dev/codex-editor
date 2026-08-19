@@ -18,6 +18,7 @@
 import * as vscode from "vscode";
 import * as dugiteGit from "../../../utils/dugiteGit";
 import { ConflictFile } from "./types";
+import { TransientSyncError } from "./transientSyncError";
 
 /** Git operations the synthesis needs; injectable for tests. */
 export interface ConflictSynthesisGitOps {
@@ -144,4 +145,84 @@ export async function synthesizeConflictsForPaths(
     }
 
     return { synthesized, unsynthesizable };
+}
+
+export interface ConflictListInvariantOptions {
+    /** The conflict list frontier produced. */
+    conflicts: Array<{ filepath?: string; }>;
+    /** conflictsResponse.remoteChangedFilePaths (or allChangedFilePaths fallback). */
+    changedPaths: unknown;
+    /** Current sync attempt (the outer retry layer caps at 2 retries). */
+    retryCount: number;
+    workspaceDir: string;
+    /**
+     * Sink for the self-heal log entry (defaults to console.warn). Injectable
+     * because the extension host defines console methods as non-writable, so
+     * tests cannot intercept the global.
+     */
+    log?: (message: string, ...args: unknown[]) => void;
+}
+
+/**
+ * Enforces the #991 invariant: every remote-changed file must appear in the
+ * conflict list, or the merge commit would silently drop it. Both sides are
+ * normalized before comparing so a formatting mismatch (separators, "./",
+ * Unicode form) can't fake a violation.
+ *
+ * Returns the ConflictFile entries to append to the conflict list — empty when
+ * the invariant holds. On early attempts a mismatch throws TransientSyncError
+ * so the retry layer refetches; on the final attempt the missing paths are
+ * synthesized from local git state instead (see synthesizeConflictsForPaths),
+ * so a persistent upstream mismatch degrades to a normal merge rather than a
+ * permanent sync outage. Paths that cannot be synthesized still throw.
+ */
+export async function enforceConflictListInvariant(
+    options: ConflictListInvariantOptions,
+    gitOps: ConflictSynthesisGitOps = dugiteGit
+): Promise<ConflictFile[]> {
+    const { conflicts, changedPaths, retryCount, workspaceDir } = options;
+    const log = options.log ?? console.warn;
+
+    if (!Array.isArray(changedPaths) || changedPaths.length === 0) return [];
+
+    const conflictPaths = new Set(
+        conflicts
+            .map((c) => c?.filepath)
+            .filter((p): p is string => typeof p === "string")
+            .map(normalizeSyncPath)
+    );
+    const missingFromConflicts = changedPaths
+        .filter((p): p is string => typeof p === "string" && p.length > 0)
+        .filter((p) => !conflictPaths.has(normalizeSyncPath(p)));
+    if (missingFromConflicts.length === 0) return [];
+
+    const describeMissing = (paths: string[]) => {
+        const sample = paths.slice(0, 5).join(", ");
+        const extra = paths.length > 5 ? ` (+${paths.length - 5} more)` : "";
+        return `${sample}${extra}`;
+    };
+
+    if (retryCount < 2) {
+        throw new TransientSyncError(
+            `${missingFromConflicts.length} remote-changed file(s) were not in the conflict list. Missing: ${describeMissing(missingFromConflicts)}`,
+            missingFromConflicts
+        );
+    }
+
+    const { synthesized, unsynthesizable } = await synthesizeConflictsForPaths(
+        workspaceDir,
+        missingFromConflicts,
+        gitOps
+    );
+    if (unsynthesizable.length > 0) {
+        throw new TransientSyncError(
+            `${unsynthesizable.length} remote-changed file(s) were not in the conflict list and could not be recovered from the fetched remote. Missing: ${describeMissing(unsynthesizable)}`,
+            unsynthesizable
+        );
+    }
+    log(
+        `[Sync] Conflict-list invariant self-heal: merging ${synthesized.length} remote-changed file(s) the conflict list missed:`,
+        synthesized.map((c) => c.filepath)
+    );
+    return synthesized;
 }

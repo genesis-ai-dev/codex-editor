@@ -261,6 +261,69 @@ suite("resolveCodexCustomMerge — re-import content alignment (#1079)", () => {
         );
     });
 
+    test("promote-subdivision-then-sync: both milestones keep their own labels and subdivisions", async () => {
+        // Full #936 regression scenario: promoting a subdivision creates a new
+        // milestone carrying its own subdivision placements. After the merge,
+        // the original chapter milestone and the promoted milestone must both
+        // exist, each with its own label and metadata.data.subdivisions.
+        const chapterMilestone = (subdivisions: string[]) => ({
+            kind: 2,
+            languageId: "html",
+            value: "Matthew 2",
+            metadata: {
+                type: "milestone",
+                id: "ms-chapter-2",
+                data: { subdivisions, subdivisionNames: { [subdivisions[0]]: "First half" } },
+                edits: [],
+            },
+        });
+        const promotedMilestone = {
+            kind: 2,
+            languageId: "html",
+            value: "Part 2",
+            metadata: {
+                type: "milestone",
+                id: freshId(),
+                data: { subdivisions: ["cue-x"], subdivisionNames: { "cue-x": "Promoted section" } },
+                edits: [],
+            },
+        };
+        const ours = [
+            chapterMilestone(["cue-a", "cue-b"]),
+            cueCell({ id: "shared-cue", start: 10, end: 12, value: "<span>translated</span>", edits: [valueEdit("<span>translated</span>", 1000)] }),
+        ];
+        const theirs = [
+            chapterMilestone(["cue-a", "cue-b"]),
+            cueCell({ id: "shared-cue", start: 10, end: 12, value: "<span>translated</span>", edits: [valueEdit("<span>translated</span>", 1000)] }),
+            promotedMilestone,
+        ];
+
+        const merged = JSON.parse(await resolveCodexCustomMerge(notebook(ours), notebook(theirs)));
+        const milestones = merged.cells.filter((c: any) => c.metadata?.type === "milestone");
+        assert.strictEqual(milestones.length, 2, "both milestones exist post-merge");
+
+        const chapter = milestones.find((c: any) => c.metadata.id === "ms-chapter-2");
+        assert.strictEqual(chapter.value, "Matthew 2", "chapter milestone keeps its label");
+        assert.deepStrictEqual(
+            chapter.metadata.data.subdivisions,
+            ["cue-a", "cue-b"],
+            "chapter milestone keeps its own subdivisions"
+        );
+
+        const promoted = milestones.find((c: any) => c.value === "Part 2");
+        assert.ok(promoted, "promoted milestone survives with its label");
+        assert.deepStrictEqual(
+            promoted.metadata.data.subdivisions,
+            ["cue-x"],
+            "promoted milestone keeps its own subdivisions"
+        );
+        assert.deepStrictEqual(
+            promoted.metadata.data.subdivisionNames,
+            { "cue-x": "Promoted section" },
+            "promoted milestone keeps its own subdivision names"
+        );
+    });
+
     test("digitless milestone labels never align, even in a re-import-shaped merge", async () => {
         // Two users independently adding default-named milestones must not have
         // them merged into one; a digitless label carries no chapter identity.

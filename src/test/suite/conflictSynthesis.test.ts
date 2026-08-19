@@ -6,9 +6,11 @@ import * as os from "os";
 import {
     normalizeSyncPath,
     synthesizeConflictsForPaths,
+    enforceConflictListInvariant,
     ConflictSynthesisGitOps,
 } from "../../projectManager/utils/merge/conflictSynthesis";
 import { resolveConflictFiles } from "../../projectManager/utils/merge/resolvers";
+import { TransientSyncError } from "../../projectManager/utils/merge/transientSyncError";
 
 async function makeTempWorkspace(): Promise<string> {
     const dir = path.join(
@@ -246,5 +248,164 @@ suite("conflictSynthesis - synthesizeConflictsForPaths", () => {
         );
         const merged = JSON.parse(new TextDecoder().decode(mergedBytes));
         assert.strictEqual(merged.cells[0].value, "<span>newer remote</span>");
+    });
+});
+
+suite("conflictSynthesis - enforceConflictListInvariant", () => {
+    let workspaceDir: string;
+
+    setup(async () => {
+        workspaceDir = await makeTempWorkspace();
+    });
+
+    teardown(async () => {
+        await removeDir(workspaceDir);
+    });
+
+    // The extension host defines console methods as non-writable, so the log
+    // emission is verified through the injectable `log` option instead.
+
+    test("returns no entries when every remote-changed path is in the conflict list", async () => {
+        const result = await enforceConflictListInvariant(
+            {
+                conflicts: [{ filepath: "files/target/EP.codex" }],
+                changedPaths: ["files/target/EP.codex"],
+                retryCount: 0,
+                workspaceDir,
+            },
+            fakeGitOps([], {})
+        );
+        assert.deepStrictEqual(result, []);
+    });
+
+    test("path formatting differences are not violations (separators, ./, Unicode form)", async () => {
+        const result = await enforceConflictListInvariant(
+            {
+                conflicts: [
+                    { filepath: "files/target/EP.codex" },
+                    { filepath: "files/target/Genèse.codex".normalize("NFC") },
+                ],
+                changedPaths: [
+                    ".\\files\\target\\EP.codex",
+                    "files/target/Genèse.codex".normalize("NFD"),
+                ],
+                retryCount: 0,
+                workspaceDir,
+            },
+            fakeGitOps([], {})
+        );
+        assert.deepStrictEqual(result, []);
+    });
+
+    test("throws TransientSyncError on early attempts so the retry layer refetches", async () => {
+        for (const retryCount of [0, 1]) {
+            await assert.rejects(
+                enforceConflictListInvariant(
+                    {
+                        conflicts: [],
+                        changedPaths: ["files/target/MISSING.codex"],
+                        retryCount,
+                        workspaceDir,
+                    },
+                    fakeGitOps(["FETCH_HEAD"], {
+                        "FETCH_HEAD:files/target/MISSING.codex": "remote-content",
+                    })
+                ),
+                (error: unknown) =>
+                    error instanceof TransientSyncError &&
+                    error.message.includes("files/target/MISSING.codex")
+            );
+        }
+    });
+
+    test("self-heals on the final attempt: synthesizes the missing paths and logs the event", async () => {
+        const warns: any[][] = [];
+        const result = await enforceConflictListInvariant(
+            {
+                conflicts: [],
+                changedPaths: ["files/target/MISSING.codex"],
+                retryCount: 2,
+                workspaceDir,
+                log: (...args: unknown[]) => {
+                    warns.push(args);
+                },
+            },
+            fakeGitOps(["FETCH_HEAD"], {
+                "FETCH_HEAD:files/target/MISSING.codex": "remote-content",
+                "HEAD:files/target/MISSING.codex": "head-content",
+            })
+        );
+
+        assert.strictEqual(result.length, 1);
+        assert.strictEqual(result[0].filepath, "files/target/MISSING.codex");
+        assert.strictEqual(result[0].theirs, "remote-content");
+        assert.strictEqual(result[0].ours, "head-content");
+        assert.ok(
+            warns.some((args) => String(args[0]).includes("invariant self-heal")),
+            "the self-heal must emit a log entry"
+        );
+    });
+
+    test("keeps failing loudly on the final attempt for paths that cannot be synthesized", async () => {
+        await assert.rejects(
+            enforceConflictListInvariant(
+                {
+                    conflicts: [],
+                    changedPaths: ["files/target/UNREADABLE.codex"],
+                    retryCount: 2,
+                    workspaceDir,
+                },
+                fakeGitOps(["FETCH_HEAD"], {})
+            ),
+            (error: unknown) =>
+                error instanceof TransientSyncError &&
+                error.message.includes("could not be recovered") &&
+                error.message.includes("files/target/UNREADABLE.codex")
+        );
+    });
+
+    test("integration: a persistent mismatch self-heals end-to-end — the missing file lands merged on disk", async () => {
+        // Simulates the frontier response shape on the final attempt: a
+        // remote-changed .codex absent from the conflict list on every attempt.
+        // The invariant must synthesize it, and the normal resolvers must leave
+        // the merged content on disk — which is exactly what the subsequent
+        // sync commit stages.
+        const ourContent = notebookWithEdit("<span>older local</span>", 1000);
+        const theirContent = notebookWithEdit("<span>newer remote</span>", 2000);
+        await writeFileText(workspaceDir, "files/target/EP.codex", ourContent);
+
+        const warns: any[][] = [];
+        const synthesized = await enforceConflictListInvariant(
+            {
+                conflicts: [],
+                changedPaths: ["files/target/EP.codex"],
+                retryCount: 2,
+                workspaceDir,
+                log: (...args: unknown[]) => {
+                    warns.push(args);
+                },
+            },
+            fakeGitOps(["FETCH_HEAD"], {
+                "FETCH_HEAD:files/target/EP.codex": theirContent,
+                "HEAD:files/target/EP.codex": ourContent,
+            })
+        );
+
+        const { resolved, failed } = await resolveConflictFiles(synthesized, workspaceDir);
+
+        assert.deepStrictEqual(failed, []);
+        assert.deepStrictEqual(resolved, [
+            { filepath: "files/target/EP.codex", resolution: "modified" },
+        ]);
+        const mergedBytes = await vscode.workspace.fs.readFile(
+            vscode.Uri.file(path.join(workspaceDir, "files/target/EP.codex"))
+        );
+        const merged = JSON.parse(new TextDecoder().decode(mergedBytes));
+        assert.strictEqual(
+            merged.cells[0].value,
+            "<span>newer remote</span>",
+            "the remote-changed file is merged, not dropped"
+        );
+        assert.ok(warns.some((args) => String(args[0]).includes("invariant self-heal")));
     });
 });

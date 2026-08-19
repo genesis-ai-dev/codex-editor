@@ -386,6 +386,102 @@ suite("fileDeletionGuard - pre-sync restore guard", () => {
         assert.strictEqual(await fileExists(workspaceDir, "files/target/EP206.codex"), false);
     });
 
+    test("integration: delete → re-import same filename → stale-worktree sync → file survives everywhere", async () => {
+        // The full #1116-reopened story. Machine A deleted MAT.codex through the
+        // app (tombstone at T1=5000), the book was later re-imported under the
+        // SAME filename, and the re-imported content was synced (HEAD carries
+        // edits at T2=9000 > T1).
+        const reimportedContent = makeNotebookContent(9000);
+        await writeFileText(
+            workspaceDir,
+            "metadata.json",
+            makeMetadataContent([deletedFileEdit("files/target/MAT.codex", 5000)])
+        );
+
+        // Leg 1 — machine B has a stale/damaged worktree missing the re-imported
+        // file. The pre-sync guard must treat the old tombstone as stale and
+        // restore the file instead of committing a deletion.
+        const gitOps = fakeGitOps(
+            [["files/target/MAT.codex", 1, 0, 0]],
+            { "files/target/MAT.codex": reimportedContent }
+        );
+        const restored = await restoreContentFilesMissingWithoutTombstone(workspaceDir, gitOps);
+        assert.deepStrictEqual(restored, ["files/target/MAT.codex"]);
+        assert.strictEqual(
+            await readFileText(workspaceDir, "files/target/MAT.codex"),
+            reimportedContent
+        );
+
+        // Leg 2 — a machine that somehow already committed the deletion syncs
+        // against a teammate's surviving re-imported copy: the delete-vs-modify
+        // resolver must restore the file (tombstone older than surviving edits),
+        // so the deletion cannot propagate.
+        await vscode.workspace.fs.delete(
+            vscode.Uri.file(path.join(workspaceDir, "files/target/MAT.codex"))
+        );
+        const conflict: ConflictFile = {
+            filepath: "files/target/MAT.codex",
+            ours: "",
+            theirs: reimportedContent,
+            base: makeNotebookContent(1000),
+            isDeleted: true,
+            isNew: false,
+        };
+        const { resolved, failed } = await resolveConflictFiles([conflict], workspaceDir);
+        assert.deepStrictEqual(failed, []);
+        assert.deepStrictEqual(resolved, [
+            { filepath: "files/target/MAT.codex", resolution: "created" },
+        ]);
+        assert.strictEqual(
+            await readFileText(workspaceDir, "files/target/MAT.codex"),
+            reimportedContent
+        );
+    });
+
+    test("race window: a sync landing mid-corpus-delete preserves the deletion (tombstone-first state)", async () => {
+        // With tombstone-first ordering, a sync that starts between the first
+        // file deletion and flow completion observes: corpus tombstone recorded
+        // for ALL intended files (timestamp now, newer than any HEAD content
+        // activity), some files already deleted, some still present. The guard
+        // must leave the deleted files deleted and not touch the rest.
+        const now = Date.now();
+        await writeFileText(
+            workspaceDir,
+            "metadata.json",
+            makeMetadataContent([
+                {
+                    editMap: ["deletedCorpusMarker"],
+                    value: {
+                        corpusMarker: "EP",
+                        deletedFiles: [
+                            { filePath: "/abs/files/target/EP1.codex", relPath: "files/target/EP1.codex", label: "EP1" },
+                            { filePath: "/abs/files/target/EP2.codex", relPath: "files/target/EP2.codex", label: "EP2" },
+                        ],
+                    },
+                    timestamp: now,
+                    type: "user-edit",
+                    author: "reviewer",
+                },
+            ])
+        );
+
+        // Mid-flow: EP1 already deleted, EP2 still present.
+        await writeFileText(workspaceDir, "files/target/EP2.codex", makeNotebookContent(1000));
+        const gitOps = fakeGitOps(
+            [
+                ["files/target/EP1.codex", 1, 0, 0],
+                ["files/target/EP2.codex", 1, 1, 1],
+            ],
+            { "files/target/EP1.codex": makeNotebookContent(1000) }
+        );
+
+        const restored = await restoreContentFilesMissingWithoutTombstone(workspaceDir, gitOps);
+
+        assert.deepStrictEqual(restored, [], "the in-progress deletion must not be undone");
+        assert.strictEqual(await fileExists(workspaceDir, "files/target/EP1.codex"), false);
+        assert.strictEqual(await fileExists(workspaceDir, "files/target/EP2.codex"), true);
+    });
+
     test("does nothing when no tracked content files are missing", async () => {
         const gitOps = fakeGitOps([["files/target/EP205.codex", 1, 1, 1]], {});
         const restored = await restoreContentFilesMissingWithoutTombstone(workspaceDir, gitOps);
