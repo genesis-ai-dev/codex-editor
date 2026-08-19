@@ -32,6 +32,7 @@ import {
     notifyEmptiedCodexFilesRestored,
     notifyEmptiedCodexFilesBlockedSync,
 } from "../syncSafetyGuard";
+import { normalizeSyncPath, synthesizeConflictsForPaths } from "./conflictSynthesis";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -197,20 +198,32 @@ export async function stageAndCommitAllAndSync(
             return syncResult;
         }
 
-        // Diagnostic: every remote-changed file MUST appear in the conflict list.
-        // If it doesn't, something dropped silently between Frontier's existence
-        // classification and the conflict list it produced — proceeding would
-        // create a merge commit missing those files. Throw a TransientSyncError
-        // so the retry layer below can re-run sync (which refetches via
-        // fetchOrigin) before bothering the user.
+        // Invariant (issue #991): every remote-changed file MUST appear in the
+        // conflict list. If it doesn't, something dropped silently between
+        // Frontier's existence classification and the conflict list it produced
+        // — proceeding would create a merge commit missing those files. On
+        // early attempts, throw a TransientSyncError so the retry layer below
+        // can re-run sync (which refetches via fetchOrigin) before bothering
+        // the user. On the FINAL attempt, a persistent mismatch (upstream path
+        // classification bug, version skew) must not leave sync permanently
+        // failing — the user could neither push nor pull — so self-heal by
+        // synthesizing conflict entries for the missing paths from local git
+        // state and letting them flow through the normal resolvers. That still
+        // upholds the invariant's guarantee: the merged result includes the
+        // files. Paths that can't be synthesized keep failing loudly.
         //
         // Unlike the old diagnostic, this checks ALL paths, not just `.codex`,
         // because the gan-ji-an regression involved .webm pointer files too.
+        // Both sides are normalized before comparing so a formatting mismatch
+        // (backslashes, leading "./", Unicode form) can't fake a violation.
         const conflictsArr = Array.isArray(conflictsResponse?.conflicts)
             ? (conflictsResponse.conflicts as Array<{ filepath?: string; }>)
             : [];
         const conflictPaths = new Set(
-            conflictsArr.map((c) => c?.filepath).filter((p): p is string => typeof p === "string")
+            conflictsArr
+                .map((c) => c?.filepath)
+                .filter((p): p is string => typeof p === "string")
+                .map(normalizeSyncPath)
         );
 
         const remoteChanged = conflictsResponse?.remoteChangedFilePaths;
@@ -218,20 +231,41 @@ export async function stageAndCommitAllAndSync(
         const changedList: unknown =
             Array.isArray(remoteChanged) ? remoteChanged : Array.isArray(allChanged) ? allChanged : [];
 
+        const synthesizedConflicts: ConflictFile[] = [];
         if (Array.isArray(changedList) && changedList.length > 0) {
             const changedPaths = changedList.filter(
                 (p): p is string => typeof p === "string" && p.length > 0
             );
-            const missingFromConflicts = changedPaths.filter((p) => !conflictPaths.has(p));
+            const missingFromConflicts = changedPaths.filter(
+                (p) => !conflictPaths.has(normalizeSyncPath(p))
+            );
             if (missingFromConflicts.length > 0) {
-                const sample = missingFromConflicts.slice(0, 5).join(", ");
-                const extra = missingFromConflicts.length > 5
-                    ? ` (+${missingFromConflicts.length - 5} more)`
-                    : "";
-                throw new TransientSyncError(
-                    `${missingFromConflicts.length} remote-changed file(s) were not in the conflict list. Missing: ${sample}${extra}`,
+                const describeMissing = (paths: string[]) => {
+                    const sample = paths.slice(0, 5).join(", ");
+                    const extra = paths.length > 5 ? ` (+${paths.length - 5} more)` : "";
+                    return `${sample}${extra}`;
+                };
+                if (retryCount < 2) {
+                    throw new TransientSyncError(
+                        `${missingFromConflicts.length} remote-changed file(s) were not in the conflict list. Missing: ${describeMissing(missingFromConflicts)}`,
+                        missingFromConflicts
+                    );
+                }
+                const { synthesized, unsynthesizable } = await synthesizeConflictsForPaths(
+                    workspaceFolder,
                     missingFromConflicts
                 );
+                if (unsynthesizable.length > 0) {
+                    throw new TransientSyncError(
+                        `${unsynthesizable.length} remote-changed file(s) were not in the conflict list and could not be recovered from the fetched remote. Missing: ${describeMissing(unsynthesizable)}`,
+                        unsynthesizable
+                    );
+                }
+                console.warn(
+                    `[Sync] Conflict-list invariant self-heal: merging ${synthesized.length} remote-changed file(s) the conflict list missed:`,
+                    synthesized.map((c) => c.filepath)
+                );
+                synthesizedConflicts.push(...synthesized);
             }
         }
 
@@ -240,8 +274,8 @@ export async function stageAndCommitAllAndSync(
             syncResult.uploadedLfsFiles = conflictsResponse.uploadedLfsFiles;
         }
 
-        if (conflictsResponse?.hasConflicts) {
-            const conflicts = conflictsResponse.conflicts || [];
+        if (conflictsResponse?.hasConflicts || synthesizedConflicts.length > 0) {
+            const conflicts = [...(conflictsResponse.conflicts || []), ...synthesizedConflicts];
             debug(`🔧 Processing ${conflicts.length} file conflicts from git sync...`);
 
             // Track which files are being modified
