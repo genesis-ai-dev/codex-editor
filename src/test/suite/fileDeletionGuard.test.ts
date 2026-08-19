@@ -177,6 +177,35 @@ suite("fileDeletionGuard - helpers", () => {
         assert.strictEqual(findTombstoneTimestamp(tombstones, "files/target/EP207.codex"), undefined);
     });
 
+    test("findTombstoneTimestamp: modern relPath tombstones never match by bare basename", () => {
+        // A tombstone recorded for one path must not cover a different file
+        // that merely shares its filename (delete-then-reimport-same-name).
+        const tombstones = collectDeletionTombstones(
+            makeMetadataContent([deletedFileEdit("files/target/old/EP206.codex", 5000)])
+        );
+        assert.strictEqual(
+            findTombstoneTimestamp(tombstones, "files/target/EP206.codex"),
+            undefined
+        );
+    });
+
+    test("findTombstoneTimestamp: legacy tombstones without relPath still match by basename", () => {
+        // Old builds recorded only an absolute machine-local path; when the
+        // layout differs so the suffix rule fails, basename is the fallback.
+        const legacy = collectDeletionTombstones(
+            makeMetadataContent([
+                {
+                    editMap: ["deletedFile"],
+                    value: { filePath: "D:\\stuff\\EP206.codex", label: "E" },
+                    timestamp: 6000,
+                    type: "user-edit",
+                    author: "reviewer",
+                },
+            ])
+        );
+        assert.strictEqual(findTombstoneTimestamp(legacy, "files/target/EP206.codex"), 6000);
+    });
+
     test("findTombstoneTimestamp matches a .source file via its paired .codex tombstone", () => {
         const tombstones = collectDeletionTombstones(
             makeMetadataContent([deletedFileEdit("files/target/EP206.codex", 5000)])
@@ -316,6 +345,45 @@ suite("fileDeletionGuard - pre-sync restore guard", () => {
             false
         );
         assert.strictEqual(await fileExists(workspaceDir, "files/target/EP207.codex"), true);
+    });
+
+    test("restores a re-created file whose HEAD edits are newer than a stale tombstone", async () => {
+        // Delete-then-reimport-same-name: the old tombstone (5000) predates the
+        // re-imported file's content activity at HEAD (9000), so the guard must
+        // treat the tombstone as stale and restore the file.
+        await writeFileText(
+            workspaceDir,
+            "metadata.json",
+            makeMetadataContent([deletedFileEdit("files/target/EP206.codex", 5000)])
+        );
+
+        const gitOps = fakeGitOps(
+            [["files/target/EP206.codex", 1, 0, 0]],
+            { "files/target/EP206.codex": makeNotebookContent(9000) }
+        );
+
+        const restored = await restoreContentFilesMissingWithoutTombstone(workspaceDir, gitOps);
+
+        assert.deepStrictEqual(restored, ["files/target/EP206.codex"]);
+        assert.strictEqual(await fileExists(workspaceDir, "files/target/EP206.codex"), true);
+    });
+
+    test("keeps a file deleted when the tombstone is newer than its HEAD content activity", async () => {
+        await writeFileText(
+            workspaceDir,
+            "metadata.json",
+            makeMetadataContent([deletedFileEdit("files/target/EP206.codex", 9999)])
+        );
+
+        const gitOps = fakeGitOps(
+            [["files/target/EP206.codex", 1, 0, 0]],
+            { "files/target/EP206.codex": makeNotebookContent(1000) }
+        );
+
+        const restored = await restoreContentFilesMissingWithoutTombstone(workspaceDir, gitOps);
+
+        assert.deepStrictEqual(restored, []);
+        assert.strictEqual(await fileExists(workspaceDir, "files/target/EP206.codex"), false);
     });
 
     test("does nothing when no tracked content files are missing", async () => {
