@@ -221,6 +221,83 @@ let notebookMetadataManager: NotebookMetadataManager;
 let authApi: FrontierAPI | undefined;
 let savedTabLayout: any[] = [];
 const TAB_LAYOUT_KEY = "codexEditor.tabLayout";
+const FALLBACK_NOTICE_STATE_KEY = "codex.fallbackToolsNotice";
+const FALLBACK_NOTICE_DISMISSALS = 5;
+
+interface FallbackNoticeState {
+    fallbackSignature: string;
+    dismissalsRemaining: number;
+}
+
+async function prepareFallbackToolsNotice(
+    context: vscode.ExtensionContext,
+    toolCheckResult: Awaited<ReturnType<typeof checkTools>>,
+    projectLoadedSuccessfully: boolean,
+): Promise<string | null> {
+    if (!projectLoadedSuccessfully) {
+        return null;
+    }
+
+    const notice = getFallbackToolsNotice(toolCheckResult);
+    const storageLocation = context.globalStorageUri.fsPath;
+    const previousState = context.globalState.get<FallbackNoticeState>(FALLBACK_NOTICE_STATE_KEY);
+
+    if (!notice) {
+        await context.globalState.update(FALLBACK_NOTICE_STATE_KEY, undefined);
+        console.info(
+            `[FallbackToolsNotice] Cleared ${FALLBACK_NOTICE_STATE_KEY} in globalState ` +
+            `(global storage: ${storageLocation})`,
+        );
+        return null;
+    }
+
+    if (previousState?.fallbackSignature !== notice) {
+        const resetState: FallbackNoticeState = {
+            fallbackSignature: notice,
+            dismissalsRemaining: 0,
+        };
+        await context.globalState.update(FALLBACK_NOTICE_STATE_KEY, resetState);
+        console.info(
+            `[FallbackToolsNotice] Stored ${FALLBACK_NOTICE_STATE_KEY} in globalState ` +
+            `(global storage: ${storageLocation}): ${JSON.stringify(resetState)}`,
+        );
+        return notice;
+    }
+
+    if (previousState.dismissalsRemaining > 0) {
+        const nextState: FallbackNoticeState = {
+            ...previousState,
+            dismissalsRemaining: previousState.dismissalsRemaining - 1,
+        };
+        await context.globalState.update(FALLBACK_NOTICE_STATE_KEY, nextState);
+        console.info(
+            `[FallbackToolsNotice] Suppressed notice; stored ${FALLBACK_NOTICE_STATE_KEY} ` +
+            `(global storage: ${storageLocation}): ${JSON.stringify(nextState)}`,
+        );
+        return null;
+    }
+
+    console.info(
+        `[FallbackToolsNotice] Showing notice; stored ${FALLBACK_NOTICE_STATE_KEY} ` +
+        `(global storage: ${storageLocation}): ${JSON.stringify(previousState)}`,
+    );
+    return notice;
+}
+
+async function snoozeFallbackNotice(
+    context: vscode.ExtensionContext,
+    notice: string,
+): Promise<void> {
+    const state: FallbackNoticeState = {
+        fallbackSignature: notice,
+        dismissalsRemaining: FALLBACK_NOTICE_DISMISSALS,
+    };
+    await context.globalState.update(FALLBACK_NOTICE_STATE_KEY, state);
+    console.info(
+        `[FallbackToolsNotice] Snoozed for ${FALLBACK_NOTICE_DISMISSALS} restarts; stored ${FALLBACK_NOTICE_STATE_KEY} ` +
+        `(global storage: ${context.globalStorageUri.fsPath}): ${JSON.stringify(state)}`,
+    );
+}
 
 // Helper to save tab layout and persist to globalState
 async function saveTabLayout(context: vscode.ExtensionContext) {
@@ -965,11 +1042,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
         console.info(summaryMessage);
 
-        // Execute post-activation tasks
-        const postActivationStart = globalThis.performance.now();
-
-        await executeCommandsAfter(context, getFallbackToolsNotice(toolCheckResult));
-
         // Only run migrations in actual Codex projects — they write completion flags
         // to .vscode/settings.json even when no project files exist
         if (metadataExists) {
@@ -1009,6 +1081,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // After migrations complete, trigger sync directly
         // (All migrations have finished executing since they're awaited sequentially)
+        let projectLoadedSuccessfully = false;
         try {
             const hasCodexProject = await checkIfProjectIsInitialized();
             if (hasCodexProject) {
@@ -1070,11 +1143,19 @@ export async function activate(context: vscode.ExtensionContext) {
                         }
                     }
                 }
+                projectLoadedSuccessfully = true;
             }
         } catch (error) {
             console.error("❌ [POST-MIGRATIONS] Error triggering sync after migrations:", error);
         }
 
+        const fallbackToolsNotice = await prepareFallbackToolsNotice(
+            context,
+            toolCheckResult,
+            projectLoadedSuccessfully,
+        );
+        const postActivationStart = globalThis.performance.now();
+        await executeCommandsAfter(context, fallbackToolsNotice);
         trackTiming("Running Post-activation Tasks", postActivationStart);
 
         // Register update commands and check for updates (non-blocking)
@@ -1507,14 +1588,16 @@ async function executeCommandsAfter(
 
         if (fallbackToolsNotice) {
             console.info("[Extension] Showing fallback tools startup notice:", fallbackToolsNotice);
-            void vscode.window.showWarningMessage(
+            void Promise.resolve(vscode.window.showWarningMessage(
                 fallbackToolsNotice,
-                "View Tools Status",
-            ).then((choice) => {
-                if (choice === "View Tools Status") {
-                    return vscode.commands.executeCommand("codex-editor.openToolsStatus");
+                "Don't show for 5 restarts",
+                "Dismiss",
+            )).then(async (choice) => {
+                if (choice === "Don't show for 5 restarts") {
+                    await snoozeFallbackNotice(context, fallbackToolsNotice);
                 }
-                return undefined;
+            }).catch((error: unknown) => {
+                console.warn("[FallbackToolsNotice] Could not save dismissal state:", error);
             });
         }
 
