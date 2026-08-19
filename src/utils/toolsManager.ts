@@ -106,6 +106,95 @@ export function getUnavailableTools(result: ToolCheckResult): string[] {
 }
 
 /**
+ * Format a short human-readable list with "and" before the final item.
+ */
+function formatToolList(labels: string[]): string {
+    if (labels.length < 2) {
+        return labels[0] ?? "";
+    }
+    if (labels.length === 2) {
+        return `${labels[0]} and ${labels[1]}`;
+    }
+    return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
+}
+
+/**
+ * Returns a startup notice when any feature is running on its fallback
+ * implementation instead of its native tool, including the reason when
+ * known and the practical limitation for each feature.
+ */
+export function getFallbackToolsNotice(result: ToolCheckResult): string | null {
+    const tools = [
+        {
+            label: "Search",
+            nativeAvailable: result.nativeSqliteAvailable,
+            mode: getSqliteToolMode(),
+            unsupported: result.platformUnsupported.sqlite,
+            impact: "Search may be slower",
+        },
+        {
+            label: "Sync",
+            nativeAvailable: result.nativeGitAvailable,
+            mode: getGitToolMode(),
+            unsupported: result.platformUnsupported.git,
+            impact: "Sync may be limited",
+        },
+        {
+            label: "Audio",
+            nativeAvailable: result.ffmpeg,
+            mode: getAudioToolMode(),
+            unsupported: result.platformUnsupported.ffmpeg,
+            impact: "Audio is WAV-only",
+        },
+    ];
+    const fallbackTools = tools.filter(
+        ({ nativeAvailable, mode }) =>
+            !nativeAvailable || mode === "builtin" || mode === "force-builtin",
+    );
+
+    if (fallbackTools.length === 0) {
+        return null;
+    }
+
+    const fallbackLabels = formatToolList(fallbackTools.map(({ label }) => label));
+    const impactNotice = formatToolList(fallbackTools.map(({ impact }) => impact));
+    const reasonNotices = [
+        {
+            labels: fallbackTools
+                .filter(({ unsupported }) => unsupported)
+                .map(({ label }) => label),
+            message: (labels: string[]) =>
+                `Native ${formatToolList(labels)} tools aren't supported on this platform.`,
+        },
+        {
+            labels: fallbackTools
+                .filter(({ nativeAvailable, unsupported }) => !nativeAvailable && !unsupported)
+                .map(({ label }) => label),
+            message: (labels: string[]) =>
+                `Native ${formatToolList(labels)} tools aren't available.`,
+        },
+        {
+            labels: fallbackTools
+                .filter(({ nativeAvailable, mode }) => nativeAvailable && mode === "builtin")
+                .map(({ label }) => label),
+            message: (labels: string[]) =>
+                `Fallback mode is selected for ${formatToolList(labels)}.`,
+        },
+        {
+            labels: fallbackTools
+                .filter(({ nativeAvailable, mode }) => nativeAvailable && mode === "force-builtin")
+                .map(({ label }) => label),
+            message: (labels: string[]) =>
+                `Fallback mode is required for ${formatToolList(labels)}.`,
+        },
+    ]
+        .filter(({ labels }) => labels.length > 0)
+        .map(({ labels, message }) => message(labels));
+
+    return `Fallback active for ${fallbackLabels}. ${impactNotice}. ${reasonNotices.join(" ")}`;
+}
+
+/**
  * Permanently mark FFmpeg as required. Once set, it stays set forever.
  * On subsequent startups the tool will be checked and downloaded if missing.
  */

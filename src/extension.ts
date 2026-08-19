@@ -73,7 +73,7 @@ import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 import { initializeAudioExtractor } from "./utils/audioExtractor";
 import { initializeAudioExporter } from "./exportHandler/audioExporter";
-import { checkTools, getUnavailableTools } from "./utils/toolsManager";
+import { checkTools, getFallbackToolsNotice, getUnavailableTools } from "./utils/toolsManager";
 import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteToolMode, getAudioToolMode } from "./utils/toolPreferences";
 import { downloadFFmpeg } from "./utils/ffmpegManager";
 import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
@@ -968,7 +968,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Execute post-activation tasks
         const postActivationStart = globalThis.performance.now();
 
-        await executeCommandsAfter(context);
+        await executeCommandsAfter(context, getFallbackToolsNotice(toolCheckResult));
 
         // Only run migrations in actual Codex projects — they write completion flags
         // to .vscode/settings.json even when no project files exist
@@ -1468,7 +1468,8 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
 }
 
 async function executeCommandsAfter(
-    context: vscode.ExtensionContext
+    context: vscode.ExtensionContext,
+    fallbackToolsNotice: string | null,
 ) {
     try {
         // Update splash screen for post-activation tasks
@@ -1503,6 +1504,19 @@ async function executeCommandsAfter(
             .update("workbench.editor.showTabs", "multiple", true);
         // Restore tab layout after splash screen closes
         await restoreTabLayout(context);
+
+        if (fallbackToolsNotice) {
+            console.info("[Extension] Showing fallback tools startup notice:", fallbackToolsNotice);
+            void vscode.window.showWarningMessage(
+                fallbackToolsNotice,
+                "View Tools Status",
+            ).then((choice) => {
+                if (choice === "View Tools Status") {
+                    return vscode.commands.executeCommand("codex-editor.openToolsStatus");
+                }
+                return undefined;
+            });
+        }
 
         // Check if we need to show the welcome view after initialization
         await showWelcomeViewIfNeeded();
