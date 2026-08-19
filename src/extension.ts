@@ -73,7 +73,13 @@ import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 import { initializeAudioExtractor } from "./utils/audioExtractor";
 import { initializeAudioExporter } from "./exportHandler/audioExporter";
-import { checkTools, getFallbackToolsNotice, getUnavailableTools } from "./utils/toolsManager";
+import {
+    checkTools,
+    getFallbackToolsNotice,
+    getToolsEligibleForOptimization,
+    getUnavailableTools,
+    type OptimizedToolKey,
+} from "./utils/toolsManager";
 import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteToolMode, getAudioToolMode } from "./utils/toolPreferences";
 import { downloadFFmpeg } from "./utils/ffmpegManager";
 import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
@@ -296,6 +302,45 @@ async function snoozeFallbackNotice(
     console.info(
         `[FallbackToolsNotice] Snoozed for ${FALLBACK_NOTICE_DISMISSALS} restarts; stored ${FALLBACK_NOTICE_STATE_KEY} ` +
         `(global storage: ${context.globalStorageUri.fsPath}): ${JSON.stringify(state)}`,
+    );
+}
+
+async function applyOptimizedTools(
+    context: vscode.ExtensionContext,
+    tools: OptimizedToolKey[],
+): Promise<void> {
+    if (tools.length === 0) {
+        return;
+    }
+
+    const { enableOptimizedTools } = await import("./utils/optimizedToolsManager");
+    const result = await enableOptimizedTools(context, getAuthApi(), tools);
+    const getToolLabel = (tool: OptimizedToolKey): string => ({
+        sqlite: "Search",
+        git: "Sync",
+        ffmpeg: "Audio",
+    }[tool]);
+    const enabled = result.enabled.map(getToolLabel).join(", ");
+    const failed = result.failed
+        .map(({ tool, reason }) => `${getToolLabel(tool)} (${reason})`)
+        .join(", ");
+
+    if (result.failed.length === 0 && result.enabled.length > 0) {
+        vscode.window.showInformationMessage(
+            `Optimized tools enabled for ${enabled}.`,
+        );
+        return;
+    }
+
+    if (result.enabled.length > 0) {
+        vscode.window.showWarningMessage(
+            `Optimized tools enabled for ${enabled}; could not enable ${failed}.`,
+        );
+        return;
+    }
+
+    vscode.window.showErrorMessage(
+        `Could not enable optimized tools: ${failed}.`,
     );
 }
 
@@ -755,6 +800,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 nativeSqliteAvailable: false,
                 ffmpeg: false,
                 platformUnsupported: { git: false, sqlite: false, ffmpeg: false },
+                nativePlatformSupported: { git: false, sqlite: false, ffmpeg: false },
             };
             unavailableTools = getUnavailableTools(toolCheckResult);
         }
@@ -1154,8 +1200,10 @@ export async function activate(context: vscode.ExtensionContext) {
             toolCheckResult,
             projectLoadedSuccessfully,
         );
+        const optimizedToolKeys = getToolsEligibleForOptimization(toolCheckResult)
+            .filter((tool) => tool !== "git" || !!getAuthApi()?.retryGitBinaryDownload);
         const postActivationStart = globalThis.performance.now();
-        await executeCommandsAfter(context, fallbackToolsNotice);
+        await executeCommandsAfter(context, fallbackToolsNotice, optimizedToolKeys);
         trackTiming("Running Post-activation Tasks", postActivationStart);
 
         // Register update commands and check for updates (non-blocking)
@@ -1551,6 +1599,7 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
 async function executeCommandsAfter(
     context: vscode.ExtensionContext,
     fallbackToolsNotice: string | null,
+    optimizedToolKeys: OptimizedToolKey[],
 ) {
     try {
         // Update splash screen for post-activation tasks
@@ -1588,16 +1637,26 @@ async function executeCommandsAfter(
 
         if (fallbackToolsNotice) {
             console.info("[Extension] Showing fallback tools startup notice:", fallbackToolsNotice);
-            void Promise.resolve(vscode.window.showWarningMessage(
-                fallbackToolsNotice,
-                "Don't show for 5 restarts",
-                "Dismiss",
-            )).then(async (choice) => {
-                if (choice === "Don't show for 5 restarts") {
+            const warningMessage = optimizedToolKeys.length > 0
+                ? vscode.window.showWarningMessage(
+                    fallbackToolsNotice,
+                    "Use Optimized Tools",
+                    "Don't show for 5 restarts",
+                    "Dismiss",
+                )
+                : vscode.window.showWarningMessage(
+                    fallbackToolsNotice,
+                    "Don't show for 5 restarts",
+                    "Dismiss",
+                );
+            void Promise.resolve(warningMessage).then(async (choice) => {
+                if (choice === "Use Optimized Tools") {
+                    await applyOptimizedTools(context, optimizedToolKeys);
+                } else if (choice === "Don't show for 5 restarts") {
                     await snoozeFallbackNotice(context, fallbackToolsNotice);
                 }
             }).catch((error: unknown) => {
-                console.warn("[FallbackToolsNotice] Could not save dismissal state:", error);
+                console.warn("[FallbackToolsNotice] Could not process notification action:", error);
             });
         }
 

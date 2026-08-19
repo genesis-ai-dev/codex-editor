@@ -5,7 +5,11 @@ import * as fs from "fs";
 import { isNativeSqliteReady } from "./nativeSqlite";
 import { isDatabaseReady } from "./sqliteDatabaseFactory";
 import { getAudioToolMode, getGitToolMode, getSqliteToolMode } from "./toolPreferences";
-import { getFfmpegBinaryPath, isFfmpegNativelySupported } from "./ffmpegManager";
+import {
+    getFfmpegBinaryPath,
+    isFfmpegNativeAssetSupported,
+    isFfmpegNativelySupported,
+} from "./ffmpegManager";
 import { isSqliteNativelySupported } from "./sqliteNativeBinaryManager";
 import type { FrontierAPI } from "../../webviews/codex-webviews/src/StartupFlow/types";
 
@@ -21,12 +25,17 @@ export interface ToolCheckResult {
     nativeSqliteAvailable: boolean;
     ffmpeg: boolean;
     /**
-     * Per-tool flag set to true when the CURRENT OS/arch has no prebuilt
-     * native asset available. On these platforms the "Download and install"
-     * action is a guaranteed no-op, so the UI should render "Not available
-     * on this platform" instead of a download button.
+     * Per-tool flag set to true when the CURRENT OS/arch has no usable
+     * compatible asset available. On these platforms the "Download and
+     * install" action is a guaranteed no-op.
      */
     platformUnsupported: {
+        git: boolean;
+        sqlite: boolean;
+        ffmpeg: boolean;
+    };
+    /** True only when a directly matching native asset exists for the OS/arch. */
+    nativePlatformSupported: {
         git: boolean;
         sqlite: boolean;
         ffmpeg: boolean;
@@ -76,6 +85,11 @@ export async function checkTools(
         sqlite: !isSqliteNativelySupported(),
         ffmpeg: !isFfmpegNativelySupported(),
     };
+    const nativePlatformSupported = {
+        git: frontierApi?.isGitBinaryNativelySupported?.() !== false,
+        sqlite: isSqliteNativelySupported(),
+        ffmpeg: isFfmpegNativeAssetSupported(),
+    };
 
     return {
         git,
@@ -84,6 +98,7 @@ export async function checkTools(
         nativeSqliteAvailable,
         ffmpeg,
         platformUnsupported,
+        nativePlatformSupported,
     };
 }
 
@@ -130,6 +145,7 @@ export function getFallbackToolsNotice(result: ToolCheckResult): string | null {
             nativeAvailable: result.nativeSqliteAvailable,
             mode: getSqliteToolMode(),
             unsupported: result.platformUnsupported.sqlite,
+            nativePlatformSupported: result.nativePlatformSupported.sqlite,
             impact: "Search may be slower",
         },
         {
@@ -137,6 +153,7 @@ export function getFallbackToolsNotice(result: ToolCheckResult): string | null {
             nativeAvailable: result.nativeGitAvailable,
             mode: getGitToolMode(),
             unsupported: result.platformUnsupported.git,
+            nativePlatformSupported: result.nativePlatformSupported.git,
             impact: "Sync may be limited",
         },
         {
@@ -144,6 +161,7 @@ export function getFallbackToolsNotice(result: ToolCheckResult): string | null {
             nativeAvailable: result.ffmpeg,
             mode: getAudioToolMode(),
             unsupported: result.platformUnsupported.ffmpeg,
+            nativePlatformSupported: result.nativePlatformSupported.ffmpeg,
             impact: "Audio is WAV-only",
         },
     ];
@@ -161,14 +179,16 @@ export function getFallbackToolsNotice(result: ToolCheckResult): string | null {
     const reasonNotices = [
         {
             labels: fallbackTools
-                .filter(({ unsupported }) => unsupported)
+                .filter(({ unsupported, nativePlatformSupported }) =>
+                    unsupported || !nativePlatformSupported)
                 .map(({ label }) => label),
             message: (labels: string[]) =>
-                `Optimized ${formatToolList(labels)} tools aren't supported on this device.`,
+                `Optimized ${formatToolList(labels)} tools aren't available natively on this device.`,
         },
         {
             labels: fallbackTools
-                .filter(({ nativeAvailable, unsupported }) => !nativeAvailable && !unsupported)
+                .filter(({ nativeAvailable, unsupported, nativePlatformSupported }) =>
+                    !nativeAvailable && !unsupported && nativePlatformSupported)
                 .map(({ label }) => label),
             message: (labels: string[]) =>
                 `Optimized ${formatToolList(labels)} tools aren't available.`,
@@ -185,13 +205,49 @@ export function getFallbackToolsNotice(result: ToolCheckResult): string | null {
                 .filter(({ nativeAvailable, mode }) => nativeAvailable && mode === "force-builtin")
                 .map(({ label }) => label),
             message: (labels: string[]) =>
-                `Compatibility mode is required for ${formatToolList(labels)}.`,
+                `Compatibility mode is locked for ${formatToolList(labels)}.`,
         },
     ]
         .filter(({ labels }) => labels.length > 0)
         .map(({ labels, message }) => message(labels));
 
     return `Compatibility mode active for ${fallbackLabels}. ${impactNotice}. ${reasonNotices.join(" ")}`;
+}
+
+export type OptimizedToolKey = "sqlite" | "git" | "ffmpeg";
+
+/**
+ * Return tools that can be switched to an optimized native implementation.
+ * Unsupported platforms and force-builtin preferences are deliberately
+ * excluded because the action cannot change those states.
+ */
+export function getToolsEligibleForOptimization(result: ToolCheckResult): OptimizedToolKey[] {
+    const eligible: OptimizedToolKey[] = [];
+    const sqliteMode = getSqliteToolMode();
+    const gitMode = getGitToolMode();
+    const audioMode = getAudioToolMode();
+    if (
+        result.nativePlatformSupported.sqlite &&
+        sqliteMode !== "force-builtin" &&
+        (!result.nativeSqliteAvailable || sqliteMode === "builtin")
+    ) {
+        eligible.push("sqlite");
+    }
+    if (
+        result.nativePlatformSupported.git &&
+        gitMode !== "force-builtin" &&
+        (!result.nativeGitAvailable || gitMode === "builtin")
+    ) {
+        eligible.push("git");
+    }
+    if (
+        result.nativePlatformSupported.ffmpeg &&
+        audioMode !== "force-builtin" &&
+        (!result.ffmpeg || audioMode === "builtin")
+    ) {
+        eligible.push("ffmpeg");
+    }
+    return eligible;
 }
 
 /**
