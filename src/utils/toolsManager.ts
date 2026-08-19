@@ -164,34 +164,34 @@ export function getFallbackToolsNotice(result: ToolCheckResult): string | null {
                 .filter(({ unsupported }) => unsupported)
                 .map(({ label }) => label),
             message: (labels: string[]) =>
-                `Native ${formatToolList(labels)} tools aren't supported on this platform.`,
+                `Optimized ${formatToolList(labels)} tools aren't supported on this device.`,
         },
         {
             labels: fallbackTools
                 .filter(({ nativeAvailable, unsupported }) => !nativeAvailable && !unsupported)
                 .map(({ label }) => label),
             message: (labels: string[]) =>
-                `Native ${formatToolList(labels)} tools aren't available.`,
+                `Optimized ${formatToolList(labels)} tools aren't available.`,
         },
         {
             labels: fallbackTools
                 .filter(({ nativeAvailable, mode }) => nativeAvailable && mode === "builtin")
                 .map(({ label }) => label),
             message: (labels: string[]) =>
-                `Fallback mode is selected for ${formatToolList(labels)}.`,
+                `Compatibility mode is selected for ${formatToolList(labels)}.`,
         },
         {
             labels: fallbackTools
                 .filter(({ nativeAvailable, mode }) => nativeAvailable && mode === "force-builtin")
                 .map(({ label }) => label),
             message: (labels: string[]) =>
-                `Fallback mode is required for ${formatToolList(labels)}.`,
+                `Compatibility mode is required for ${formatToolList(labels)}.`,
         },
     ]
         .filter(({ labels }) => labels.length > 0)
         .map(({ labels, message }) => message(labels));
 
-    return `Fallback active for ${fallbackLabels}. ${impactNotice}. ${reasonNotices.join(" ")}`;
+    return `Compatibility mode active for ${fallbackLabels}. ${impactNotice}. ${reasonNotices.join(" ")}`;
 }
 
 /**
