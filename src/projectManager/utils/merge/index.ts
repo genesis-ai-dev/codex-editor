@@ -32,6 +32,7 @@ import {
     notifyEmptiedCodexFilesRestored,
     notifyEmptiedCodexFilesBlockedSync,
 } from "../syncSafetyGuard";
+import { enforceConflictListInvariant } from "./conflictSynthesis";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -197,51 +198,39 @@ export async function stageAndCommitAllAndSync(
             return syncResult;
         }
 
-        // Diagnostic: every remote-changed file MUST appear in the conflict list.
-        // If it doesn't, something dropped silently between Frontier's existence
-        // classification and the conflict list it produced — proceeding would
-        // create a merge commit missing those files. Throw a TransientSyncError
-        // so the retry layer below can re-run sync (which refetches via
-        // fetchOrigin) before bothering the user.
-        //
-        // Unlike the old diagnostic, this checks ALL paths, not just `.codex`,
-        // because the gan-ji-an regression involved .webm pointer files too.
+        // Invariant (issue #991): every remote-changed file MUST appear in the
+        // conflict list — proceeding otherwise would create a merge commit
+        // missing those files. Unlike the old diagnostic, this checks ALL
+        // paths, not just `.codex`, because the gan-ji-an regression involved
+        // .webm pointer files too. On early attempts a mismatch throws a
+        // TransientSyncError so the retry layer below refetches; on the FINAL
+        // attempt the missing paths are synthesized from local git state and
+        // merged normally, so a persistent upstream mismatch degrades to a
+        // normal merge instead of a permanent sync outage. See
+        // enforceConflictListInvariant for the full decision logic.
         const conflictsArr = Array.isArray(conflictsResponse?.conflicts)
             ? (conflictsResponse.conflicts as Array<{ filepath?: string; }>)
             : [];
-        const conflictPaths = new Set(
-            conflictsArr.map((c) => c?.filepath).filter((p): p is string => typeof p === "string")
-        );
-
         const remoteChanged = conflictsResponse?.remoteChangedFilePaths;
         const allChanged = conflictsResponse?.allChangedFilePaths;
-        const changedList: unknown =
-            Array.isArray(remoteChanged) ? remoteChanged : Array.isArray(allChanged) ? allChanged : [];
-
-        if (Array.isArray(changedList) && changedList.length > 0) {
-            const changedPaths = changedList.filter(
-                (p): p is string => typeof p === "string" && p.length > 0
-            );
-            const missingFromConflicts = changedPaths.filter((p) => !conflictPaths.has(p));
-            if (missingFromConflicts.length > 0) {
-                const sample = missingFromConflicts.slice(0, 5).join(", ");
-                const extra = missingFromConflicts.length > 5
-                    ? ` (+${missingFromConflicts.length - 5} more)`
-                    : "";
-                throw new TransientSyncError(
-                    `${missingFromConflicts.length} remote-changed file(s) were not in the conflict list. Missing: ${sample}${extra}`,
-                    missingFromConflicts
-                );
-            }
-        }
+        const synthesizedConflicts: ConflictFile[] = await enforceConflictListInvariant({
+            conflicts: conflictsArr,
+            changedPaths: Array.isArray(remoteChanged)
+                ? remoteChanged
+                : Array.isArray(allChanged)
+                    ? allChanged
+                    : [],
+            retryCount,
+            workspaceDir: workspaceFolder,
+        });
 
         // Capture uploaded LFS files from the sync operation
         if (conflictsResponse?.uploadedLfsFiles) {
             syncResult.uploadedLfsFiles = conflictsResponse.uploadedLfsFiles;
         }
 
-        if (conflictsResponse?.hasConflicts) {
-            const conflicts = conflictsResponse.conflicts || [];
+        if (conflictsResponse?.hasConflicts || synthesizedConflicts.length > 0) {
+            const conflicts = [...(conflictsResponse.conflicts || []), ...synthesizedConflicts];
             debug(`🔧 Processing ${conflicts.length} file conflicts from git sync...`);
 
             // Track which files are being modified

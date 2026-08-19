@@ -212,9 +212,23 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                             console.warn(`[Navigation] Could not read codex metadata for original file cleanup: ${err}`);
                         }
 
+                        // Record the deletion tombstone BEFORE deleting so a
+                        // concurrently starting sync can never observe the file
+                        // missing without a tombstone and restore it from HEAD
+                        // (issue #1116 guard race). Withdrawn below on failure.
+                        let tombstoneRecordedAt: number | undefined;
+                        if (message.type === "codexDocument") {
+                            tombstoneRecordedAt = await this.recordFileDeletionToEditHistory(
+                                normalizedPath,
+                                message.label
+                            );
+                        }
+
                         // Delete the codex file
+                        let codexDeleted = false;
                         try {
                             await vscode.workspace.fs.delete(codexUri);
+                            codexDeleted = true;
                             deletedFiles.push(`${message.label}.codex`);
                         } catch (error) {
                             console.error("Error deleting codex file:", error);
@@ -279,9 +293,14 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                             }
                         }
 
-                        // Record single file deletion to project edit history
-                        if (deletedFiles.length > 0 && message.type === "codexDocument") {
-                            await this.recordFileDeletionToEditHistory(normalizedPath, message.label);
+                        // The codex file is the tombstone's subject; if its
+                        // deletion failed the file still exists, so withdraw
+                        // the tombstone recorded above.
+                        if (tombstoneRecordedAt !== undefined && !codexDeleted) {
+                            await this.removeFileDeletionFromEditHistory(
+                                normalizedPath,
+                                tombstoneRecordedAt
+                            );
                         }
 
                         // Show appropriate message based on results
@@ -1566,13 +1585,25 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             .replace(/\\/g, "/");
     }
 
-    private async recordFileDeletionToEditHistory(filePath: string, label: string): Promise<void> {
+    /**
+     * Records a deletion tombstone. Called BEFORE the file is deleted so a
+     * concurrently starting sync can never observe the file missing without a
+     * tombstone and restore it from HEAD (issue #1116 guard race). Returns a
+     * timestamp lower bound identifying the recorded edit so the caller can
+     * withdraw it if the deletion then fails; undefined when nothing was
+     * recorded.
+     */
+    private async recordFileDeletionToEditHistory(
+        filePath: string,
+        label: string
+    ): Promise<number | undefined> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
-        if (!workspaceFolder) return;
+        if (!workspaceFolder) return undefined;
 
         try {
             const author = await this.getCurrentUser();
             const relPath = this.toWorkspaceRelativePath(workspaceFolder, filePath);
+            const recordedAtOrAfter = Date.now();
             await MetadataManager.safeUpdateMetadata(
                 workspaceFolder,
                 (metadata: { edits?: unknown[]; }) => {
@@ -1587,17 +1618,66 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 },
                 { author }
             );
+            return recordedAtOrAfter;
         } catch (err) {
             console.warn(`[Navigation] Could not record file deletion to edit history: ${err}`);
+            return undefined;
         }
     }
 
-    private async recordCorpusDeletionToEditHistory(
-        corpusMarker: string,
-        deletedFiles: Array<{ filePath: string; label: string; }>
+    /**
+     * Withdraws a deletion tombstone recorded by recordFileDeletionToEditHistory
+     * when the deletion itself failed — the file still exists, and a leftover
+     * tombstone would mark any future disappearance as intentional.
+     */
+    private async removeFileDeletionFromEditHistory(
+        filePath: string,
+        recordedAtOrAfter: number
     ): Promise<void> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceFolder) return;
+
+        try {
+            const author = await this.getCurrentUser();
+            const relPath = this.toWorkspaceRelativePath(workspaceFolder, filePath);
+            await MetadataManager.safeUpdateMetadata(
+                workspaceFolder,
+                (metadata: { edits?: any[]; }) => {
+                    if (Array.isArray(metadata.edits)) {
+                        metadata.edits = metadata.edits.filter(
+                            (edit: any) =>
+                                !(
+                                    Array.isArray(edit?.editMap) &&
+                                    edit.editMap.length === 1 &&
+                                    edit.editMap[0] === EditMapUtils.deletedFile()[0] &&
+                                    edit?.value?.relPath === relPath &&
+                                    typeof edit?.timestamp === "number" &&
+                                    edit.timestamp >= recordedAtOrAfter
+                                )
+                        );
+                    }
+                    return metadata;
+                },
+                { author }
+            );
+        } catch (err) {
+            console.warn(`[Navigation] Could not withdraw file deletion tombstone: ${err}`);
+        }
+    }
+
+    /**
+     * Records a corpus deletion tombstone covering the given files. Called
+     * BEFORE any file is deleted (issue #1116 guard race — see
+     * recordFileDeletionToEditHistory). Returns a timestamp lower bound
+     * identifying the recorded edit for reconciliation; undefined when nothing
+     * was recorded.
+     */
+    private async recordCorpusDeletionToEditHistory(
+        corpusMarker: string,
+        deletedFiles: Array<{ filePath: string; label: string; }>
+    ): Promise<number | undefined> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) return undefined;
 
         try {
             const author = await this.getCurrentUser();
@@ -1605,6 +1685,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 ...file,
                 relPath: this.toWorkspaceRelativePath(workspaceFolder, file.filePath),
             }));
+            const recordedAtOrAfter = Date.now();
             await MetadataManager.safeUpdateMetadata(
                 workspaceFolder,
                 (metadata: { edits?: unknown[]; }) => {
@@ -1619,8 +1700,64 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 },
                 { author }
             );
+            return recordedAtOrAfter;
         } catch (err) {
             console.warn(`[Navigation] Could not record corpus deletion to edit history: ${err}`);
+            return undefined;
+        }
+    }
+
+    /**
+     * Narrows a pre-recorded corpus deletion tombstone to the files that were
+     * actually deleted, or withdraws it entirely when none were. Files whose
+     * deletion failed still exist, and leaving them tombstoned would mark any
+     * future disappearance as intentional.
+     */
+    private async reconcileCorpusDeletionInEditHistory(
+        corpusMarker: string,
+        recordedAtOrAfter: number,
+        actuallyDeletedFiles: Array<{ filePath: string; label: string; }>
+    ): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) return;
+
+        try {
+            const author = await this.getCurrentUser();
+            const survivingEntries = actuallyDeletedFiles.map((file) => ({
+                ...file,
+                relPath: this.toWorkspaceRelativePath(workspaceFolder, file.filePath),
+            }));
+            const isTargetEdit = (edit: any) =>
+                Array.isArray(edit?.editMap) &&
+                edit.editMap.length === 1 &&
+                edit.editMap[0] === EditMapUtils.deletedCorpusMarker()[0] &&
+                edit?.value?.corpusMarker === corpusMarker &&
+                typeof edit?.timestamp === "number" &&
+                edit.timestamp >= recordedAtOrAfter;
+
+            await MetadataManager.safeUpdateMetadata(
+                workspaceFolder,
+                (metadata: { edits?: any[]; }) => {
+                    if (Array.isArray(metadata.edits)) {
+                        if (survivingEntries.length === 0) {
+                            metadata.edits = metadata.edits.filter((edit: any) => !isTargetEdit(edit));
+                        } else {
+                            for (const edit of metadata.edits) {
+                                if (isTargetEdit(edit)) {
+                                    edit.value = {
+                                        ...edit.value,
+                                        deletedFiles: survivingEntries,
+                                    };
+                                }
+                            }
+                        }
+                    }
+                    return metadata;
+                },
+                { author }
+            );
+        } catch (err) {
+            console.warn(`[Navigation] Could not reconcile corpus deletion tombstone: ${err}`);
         }
     }
 
@@ -1664,6 +1801,18 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
         const allDeletedFiles: Array<{ filePath: string; label: string; }> = [];
         const errors: string[] = [];
+
+        // Record the corpus tombstone for every intended file BEFORE deleting
+        // anything, so a concurrently starting sync can never observe files
+        // missing without tombstones and restore them from HEAD (issue #1116
+        // guard race). Reconciled below to the files actually deleted.
+        const tombstoneRecordedAt = await this.recordCorpusDeletionToEditHistory(
+            corpusLabel,
+            children.map((child) => ({
+                filePath: (child.uri as string).replace(/\\/g, "/"),
+                label: child.label,
+            }))
+        );
 
         await vscode.window.withProgress(
             {
@@ -1751,9 +1900,14 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             }
         );
 
-        // Record folder and all deleted files to edit history
-        if (allDeletedFiles.length > 0) {
-            await this.recordCorpusDeletionToEditHistory(corpusLabel, allDeletedFiles);
+        // Narrow the pre-recorded tombstone to the files actually deleted
+        // (files whose deletion failed still exist and must not stay covered).
+        if (tombstoneRecordedAt !== undefined && allDeletedFiles.length < children.length) {
+            await this.reconcileCorpusDeletionInEditHistory(
+                corpusLabel,
+                tombstoneRecordedAt,
+                allDeletedFiles
+            );
         }
 
         if (allDeletedFiles.length > 0 && errors.length === 0) {
