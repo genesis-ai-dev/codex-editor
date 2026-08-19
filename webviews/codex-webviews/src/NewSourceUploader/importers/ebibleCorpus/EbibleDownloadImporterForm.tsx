@@ -327,6 +327,7 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
     const handleSelectTranslation = useCallback((translation: EbibleTranslation) => {
         setSelectedTranslation(translation);
         setError(null);
+        importInFlightRef.current = false;
     }, []);
 
     const handleDownload = useCallback(async () => {
@@ -463,6 +464,7 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
         } catch (err) {
             setError(err instanceof Error ? err.message : "Download failed");
             setIsProcessing(false);
+            importInFlightRef.current = false;
             notifyImportEnded();
         }
     }, [selectedTranslation, props]);
