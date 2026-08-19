@@ -1,5 +1,5 @@
 import { CodexCellTypes } from "../../types/enums";
-import { isContentCellType } from "./exportHandlerUtils";
+import { isContentCellType, getVerseMarkerForCell } from "./exportHandlerUtils";
 
 /** Verse ref regex: "1TH 1:1", "GEN 1:1", etc. */
 const VERSE_REF_REGEX = /\b[A-Z0-9]{2,4}\s+\d+:\d+\b/;
@@ -225,8 +225,8 @@ export function buildUsfmBody(
             if (!verseRef) continue;
 
             const chapterNum = getChapterFromVerseRef(verseRef);
-            const verseMatch = verseRef.match(/\d+$/);
-            if (chapterNum === null || !verseMatch) continue;
+            const verseMarker = getVerseMarkerForCell(cell, verseRef);
+            if (chapterNum === null || !verseMarker) continue;
 
             if (chapterNum !== currentChapter) {
                 openChapter(chapterNum);
@@ -235,7 +235,7 @@ export function buildUsfmBody(
                 openChapter(1);
             }
 
-            chapterContent += `\\v ${verseMatch[0]} ${cellContent}\n`;
+            chapterContent += `\\v ${verseMarker} ${cellContent}\n`;
             verseCount++;
             hasVerses = true;
         }

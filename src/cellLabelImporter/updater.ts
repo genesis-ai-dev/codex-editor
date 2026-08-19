@@ -34,14 +34,28 @@ export async function updateCellLabels(labels: CellLabelData[]): Promise<void> {
         `[updateCellLabels] Updating ${labelsByFile.size} files with ${labels.length} total labels`
     );
 
-    // Now update each file with a fresh read immediately before write
+    // Now update each file with a fresh read immediately before write.
+    // Per-file failures (e.g. an unparseable notebook) must not abort the
+    // rest of the batch.
+    const failedFiles: string[] = [];
     for (const [fileUriString, fileLabels] of labelsByFile.entries()) {
         const uri = vscode.Uri.file(fileUriString);
-        await saveNotebookFileWithLabels(uri, fileLabels);
+        try {
+            await saveNotebookFileWithLabels(uri, fileLabels);
+        } catch (error) {
+            console.error(`[updateCellLabels] Skipping ${fileUriString}:`, error);
+            failedFiles.push(fileUriString);
+        }
     }
 
     // Also update corresponding target files (codex files)
     await updateCorrespondingTargetFiles(labelsByFile);
+
+    if (failedFiles.length > 0) {
+        throw new Error(
+            `Failed to update cell labels in ${failedFiles.length} file(s): ${failedFiles.join(", ")}`
+        );
+    }
 }
 
 /**
@@ -72,7 +86,14 @@ async function updateCorrespondingTargetFiles(
             console.log(
                 `[updateCellLabels] Updating corresponding target file: ${targetFile.uri.fsPath}`
             );
-            await saveNotebookFileWithLabels(targetFile.uri, fileLabels);
+            try {
+                await saveNotebookFileWithLabels(targetFile.uri, fileLabels);
+            } catch (error) {
+                console.error(
+                    `[updateCellLabels] Skipping target file ${targetFile.uri.fsPath}:`,
+                    error
+                );
+            }
         }
     }
 }

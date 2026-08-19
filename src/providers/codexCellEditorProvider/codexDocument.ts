@@ -140,6 +140,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         try {
             this._documentData = JSON.parse(initialContent);
+            if (!Array.isArray(this._documentData?.cells)) {
+                throw new Error("notebook JSON has no cells array");
+            }
             this._edits = [];
             // Seed the "last written" content with the on-disk text we just
             // loaded. As long as no concurrent writer touches the file, the
@@ -155,24 +158,21 @@ export class CodexCellDocument implements vscode.CustomDocument {
             this.initializeValidatedByArrays();
 
             // Initialize metadata.edits array if it doesn't exist (backward compatibility)
-            if (!this._documentData.metadata.edits) {
+            // (missing metadata itself is tolerated and backfilled below)
+            if (this._documentData.metadata && !this._documentData.metadata.edits) {
                 this._documentData.metadata.edits = [];
             }
         } catch (error) {
+            // NEVER fall back to an empty document here: an empty
+            // _documentData that later saves would overwrite the real file
+            // with zero cells (issue #1119). Unparseable content usually means
+            // the read caught the file mid-write — fail the open instead.
             console.error("Error parsing document content:", error);
-            this._documentData = {
-                cells: [],
-                metadata: {
-                    id: "",
-                    originalName: "",
-                    sourceFsPath: undefined,
-                    codexFsPath: undefined,
-                    navigation: [],
-                    sourceCreatedAt: new Date().toISOString(),
-                    corpusMarker: "",
-                },
-            };
-            this._edits = [];
+            throw new Error(
+                `Cannot open ${uri.fsPath}: content is not a valid Codex notebook. ` +
+                `The file may be corrupted or was read mid-write — try reopening it. ` +
+                `(${error instanceof Error ? error.message : String(error)})`
+            );
         }
 
         if (!this._documentData.metadata) {
@@ -243,13 +243,25 @@ export class CodexCellDocument implements vscode.CustomDocument {
         token: vscode.CancellationToken
     ): Promise<CodexCellDocument> {
         const dataFile = backupId ? vscode.Uri.parse(backupId) : uri;
-        const fileData = await vscode.workspace.fs.readFile(dataFile);
-
-        // Properly decode the Uint8Array to a string
         const decoder = new TextDecoder("utf-8");
-        const initialContent = decoder.decode(fileData);
 
-        return new CodexCellDocument(uri, initialContent);
+        // A read can catch the file mid-write (git checkout, background
+        // writers). Re-read a couple of times before surfacing the failure so
+        // a transient race doesn't block opening the editor.
+        let lastError: unknown;
+        for (const delayMs of [0, 50, 250]) {
+            if (delayMs > 0) {
+                await new Promise((resolve) => setTimeout(resolve, delayMs));
+            }
+            const fileData = await vscode.workspace.fs.readFile(dataFile);
+            const initialContent = decoder.decode(fileData);
+            try {
+                return new CodexCellDocument(uri, initialContent);
+            } catch (error) {
+                lastError = error;
+            }
+        }
+        throw lastError;
     }
 
     private static async readFile(uri: vscode.Uri): Promise<string> {
@@ -987,7 +999,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public async revert(cancellation?: vscode.CancellationToken): Promise<void> {
         const diskContent = await vscode.workspace.fs.readFile(this.uri);
         const diskText = diskContent.toString();
-        this._documentData = JSON.parse(diskText);
+        // Parse BEFORE touching state: a corrupt/mid-write read must fail the
+        // revert and keep the in-memory document intact (issue #1119).
+        const parsed = JSON.parse(diskText);
+        if (!Array.isArray(parsed?.cells)) {
+            throw new Error(
+                `Cannot revert ${this.uri.fsPath}: on-disk content is not a valid Codex notebook`
+            );
+        }
+        this._documentData = parsed;
         // Invalidate milestone index cache since document was reverted from disk
         this.invalidateMilestoneIndexCache();
         this._edits = [];
