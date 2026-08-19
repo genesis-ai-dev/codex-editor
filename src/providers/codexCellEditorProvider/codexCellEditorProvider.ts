@@ -684,9 +684,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         openContext: { backupId?: string; },
         _token: vscode.CancellationToken
     ): Promise<CodexCellDocument> {
-        // Check if document is already open
-        const existingDoc = this.documents.get(uri.toString());
+        // Check if document is already open (exact URI, then fsPath for Uri.file vs joinPath)
+        const existingDoc = this.documents.get(uri.toString())
+            ?? this.findLiveEditorForUri(uri).document;
         if (existingDoc) {
+            // Never replace a document that a webview is bound to. Reloading
+            // from disk here created a detached instance after source-side
+            // cell merges saved the target, so later merges persisted but the
+            // live target editor kept showing only the first merge until a
+            // window reload. Dirty documents without a live editor still
+            // reload when mtime is newer so tests (and callers) that write
+            // then reopen pick up the on-disk state.
+            const hasLiveWebview = !!this.findLiveEditorForUri(existingDoc.uri).panel;
+            if (hasLiveWebview) {
+                return existingDoc;
+            }
             // Check if file has changed on disk (for test scenarios where file is modified externally)
             try {
                 const fileStat = await vscode.workspace.fs.stat(uri);
@@ -2252,6 +2264,41 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     /**
+     * Finds the live editor (document + panel) for `uri`, matching on URI
+     * string first and falling back to normalized fsPath so `Uri.file` vs
+     * `Uri.joinPath` lookups still hit the instance the webview is bound to.
+     */
+    private findLiveEditorForUri(uri: vscode.Uri): {
+        document: CodexCellDocument | undefined;
+        panel: vscode.WebviewPanel | undefined;
+    } {
+        const exactKey = uri.toString();
+        const exactPanel = this.webviewPanels.get(exactKey);
+        const exactDoc = this.documents.get(exactKey);
+        if (exactPanel && exactDoc) {
+            return { document: exactDoc, panel: exactPanel };
+        }
+
+        const normalized = path.normalize(uri.fsPath);
+        for (const [key, panel] of this.webviewPanels.entries()) {
+            const doc = this.documents.get(key);
+            const candidatePath = doc?.uri.fsPath ?? vscode.Uri.parse(key).fsPath;
+            if (path.normalize(candidatePath) === normalized) {
+                return { document: doc, panel };
+            }
+        }
+        for (const [key, doc] of this.documents.entries()) {
+            if (path.normalize(doc.uri.fsPath) === normalized) {
+                return { document: doc, panel: this.webviewPanels.get(key) ?? exactPanel };
+            }
+        }
+        if (exactPanel || exactDoc) {
+            return { document: exactDoc, panel: exactPanel };
+        }
+        return { document: undefined, panel: undefined };
+    }
+
+    /**
      * Returns an open `CodexCellDocument` for `uri` when one is already backing
      * a webview panel; otherwise opens a fresh instance via
      * `openCustomDocument`. Callers receive a document they can mutate and save
@@ -2261,6 +2308,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         uri: vscode.Uri
     ): Promise<CodexCellDocument> {
         const uriString = uri.toString();
+        const live = this.findLiveEditorForUri(uri);
+        if (live.document && live.panel) {
+            return live.document;
+        }
         for (const [panelUri] of this.webviewPanels.entries()) {
             if (this.isMatchingFilePair(uriString, panelUri) && panelUri === uriString) {
                 // Reuse the document backing the open panel. openCustomDocument
@@ -3615,94 +3666,65 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         debug("Merging matching cells in target file:", { cellIdOfCellToMerge, cellIdOfTargetCell, uri });
 
         try {
-            // 1. Construct target file path
             const normalizedPath = uri.replace(/\\/g, "/");
             const baseFileName = path.basename(normalizedPath);
             const targetFileName = baseFileName.replace(".source", ".codex");
-
-            // 2. Open or find the target document if it is not already open
             const targetPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "target", targetFileName);
-            const sourcePath = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts", baseFileName);
 
+            // Reuse the document already backing the open target editor. Re-opening
+            // the pair (and reloading from disk after the previous merge saved)
+            // used to create a detached instance, so later merges persisted but
+            // the live target webview kept showing only the first merge until reload.
+            let { document: targetDocument, panel: targetPanel } = this.findLiveEditorForUri(targetPath);
 
-            // Open the source file in the left-most group (ViewColumn.One)
-            await vscode.commands.executeCommand(
-                "vscode.openWith",
-                sourcePath,
-                "codex.cellEditor",
-                { viewColumn: vscode.ViewColumn.One }
-            );
-
-            // Wait for source webview to be ready before opening target
-            const sourceReady = await this.waitForWebviewReady(sourcePath.toString(), 3000);
-            if (!sourceReady) {
-                debug("Source webview not ready, opening target anyway");
-            }
-
-            // Open the codex file in the right-most group (ViewColumn.Two)
-            await vscode.commands.executeCommand(
-                "vscode.openWith",
-                targetPath,
-                "codex.cellEditor",
-                { viewColumn: vscode.ViewColumn.Two }
-            );
-            // Find the target document instance
-            let targetDocument: CodexCellDocument | undefined;
-
-            // Check if the target document is already open in our webview panels
-            const targetDocumentUri = targetPath.toString();
-            for (const [panelUri, panel] of this.webviewPanels.entries()) {
-                if (this.isMatchingFilePair(targetDocumentUri, panelUri)) {
-                    // Try to get the document from the provider's current document or create it
-                    targetDocument = await this.openCustomDocument(
-                        vscode.Uri.parse(panelUri),
-                        {},
-                        new vscode.CancellationTokenSource().token
-                    );
-                    break;
-                }
+            if (!targetPanel || !targetDocument) {
+                await vscode.commands.executeCommand(
+                    "vscode.openWith",
+                    targetPath,
+                    "codex.cellEditor",
+                    { viewColumn: vscode.ViewColumn.Two }
+                );
+                const liveEditor = this.findLiveEditorForUri(targetPath);
+                targetPanel = liveEditor.panel;
+                targetDocument = liveEditor.document;
             }
 
             if (!targetDocument) {
-                // If not found in panels, create a new document instance
-                targetDocument = await this.openCustomDocument(
-                    targetPath,
-                    {},
-                    new vscode.CancellationTokenSource().token
-                );
+                targetDocument = await this.getOrOpenDocumentForUri(targetPath);
             }
 
-            // 3. Get the content from both cells
-            const currentCellContent = this.currentDocument?.getCellContent(cellIdOfCellToMerge);
-            const targetCellContent = targetDocument.getCellContent(cellIdOfTargetCell);
+            const currentCellContent = targetDocument.getCellContent(cellIdOfCellToMerge);
+            const previousCellContent = targetDocument.getCellContent(cellIdOfTargetCell);
 
-            if (!currentCellContent || !targetCellContent) {
+            if (!currentCellContent || !previousCellContent) {
                 throw new Error("Could not find one or both cells for merge operation");
             }
 
-            // 4. Use the existing mergeCellWithPrevious command
-            const targetPanel = this.webviewPanels.get(targetDocumentUri);
+            if (!targetPanel) {
+                targetPanel = this.getWebviewPanelForUri(targetDocument.uri);
+            }
             if (!targetPanel) {
                 throw new Error("Could not find target webview panel");
             }
 
-            // Create a merge event to reuse existing handler
+            const panelForMerge = targetPanel;
+            const documentForMerge = targetDocument;
+
             const mergeEvent: EditorPostMessages = {
                 command: "mergeCellWithPrevious" as const,
                 content: {
                     currentCellId: cellIdOfCellToMerge,
                     previousCellId: cellIdOfTargetCell,
                     currentContent: currentCellContent.cellContent || "",
-                    previousContent: targetCellContent.cellContent || ""
-                }
+                    previousContent: previousCellContent.cellContent || "",
+                },
             };
 
-            // Call the existing merge handler directly
             await handleMessages(
                 mergeEvent,
-                targetPanel,
-                targetDocument,
-                async () => await this.refreshWebview(targetPanel, targetDocument),
+                panelForMerge,
+                documentForMerge,
+                async () => await sendMilestoneRefreshToWebview(documentForMerge, panelForMerge, this),
                 this
             );
 
@@ -3828,10 +3850,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             debug(`Successfully unmerged cell ${cellIdToUnmerge} in ${isSourceToTarget ? 'target' : 'source'} file ${targetFileName}`);
 
-            // Refresh the target webview if it's open
+            // Refresh the target webview if it's open, in place so it doesn't jump to the top
             const targetPanel = this.webviewPanels.get(targetDocumentUri);
             if (targetPanel) {
-                await this.refreshWebview(targetPanel, targetDocument);
+                await sendMilestoneRefreshToWebview(targetDocument, targetPanel, this);
             }
 
             vscode.window.showInformationMessage(
@@ -5105,9 +5127,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         this.isCorrectionEditorMode = !this.isCorrectionEditorMode;
         debug("Correction editor mode toggled:", this.isCorrectionEditorMode);
 
-        // Removed bulk preservation of original content to avoid mass edits on toggle
-
-        // Broadcast the change to all webviews
+        // Broadcast the change to all webviews so React state updates without a remount
         this.webviewPanels.forEach((panel) => {
             this.postMessageToWebview(panel, {
                 type: "correctionEditorModeChanged",
@@ -5115,18 +5135,26 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             });
         });
 
-        // Refresh all open webviews so hidden/merged cells are shown or filtered correctly
+        // Re-process cells (merged/hidden visibility) in place so source and target
+        // keep their chapter and scroll position. refreshWebview() remounts HTML and
+        // jumps to the top; doing that only for currentDocument also remounted the
+        // other pane when focus shifted mid-loop.
         for (const [docUri, panel] of this.webviewPanels) {
-            if (this.currentDocument && docUri === this.currentDocument.uri.toString()) {
-                await this.refreshWebview(panel, this.currentDocument);
+            const document = this.documents.get(docUri);
+            if (document) {
+                await sendMilestoneRefreshToWebview(document, panel, this);
             } else {
                 const rev = this.getDocumentRevision(docUri);
                 const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
                 safePostMessageToPanel(panel, {
                     type: "refreshCurrentPage",
                     rev,
-                    milestoneIndex: currentPosition?.milestoneIndex ?? 0,
-                    subsectionIndex: currentPosition?.subsectionIndex ?? 0,
+                    ...(currentPosition
+                        ? {
+                            milestoneIndex: currentPosition.milestoneIndex,
+                            subsectionIndex: currentPosition.subsectionIndex,
+                        }
+                        : {}),
                 });
             }
         }

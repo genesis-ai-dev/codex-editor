@@ -37,6 +37,7 @@ import {
     type SourceCellMapEntry,
 } from "./utils/sourceCellTimestampsUtils";
 import { MAX_AUDIO_ATTACHMENT_BYTES } from "../../../sharedUtils";
+import { joinMergedCellHtml } from "../../../sharedUtils/htmlStructureUtils";
 import { transcodeWavToOpusWebm } from "../../utils/audioProcessor";
 
 // Enable debug logging if needed
@@ -675,8 +676,10 @@ interface MessageHandlerContext {
 }
 
 /**
- * Sends updated milestone index and current cells to the webview so milestone edits appear immediately.
- * Used after updateMilestoneValue, by refreshWebviewAfterMilestoneEdits, and by refreshWebviewsForFiles.
+ * Sends updated milestone index and current cells to the webview so milestone
+ * edits appear immediately, without remounting HTML or re-requesting the page
+ * (either of which would jump scroll). Used after updateMilestoneValue, by
+ * refreshWebviewAfterMilestoneEdits, and by refreshWebviewsForFiles.
  */
 export async function sendMilestoneRefreshToWebview(
     document: CodexCellDocument,
@@ -717,9 +720,16 @@ export async function sendMilestoneRefreshToWebview(
             sourceCellMap
         );
 
-        const authApi = await provider.getAuthApi();
-        const userInfo = await authApi?.getUserInfo();
-        const username = userInfo?.username || "anonymous";
+        let username = "anonymous";
+        try {
+            const authApi = await provider.getAuthApi();
+            if (authApi && typeof authApi.getUserInfo === "function") {
+                const userInfo = await authApi.getUserInfo();
+                username = userInfo?.username || "anonymous";
+            }
+        } catch (error) {
+            debug("sendMilestoneRefreshToWebview: failed to resolve username from authApi", error);
+        }
 
         const rev = provider.getDocumentRevision(docUri);
         const useSubdivisionNumberLabels = config.get(
@@ -751,17 +761,19 @@ export async function sendMilestoneRefreshToWebview(
             enableMilestonePlacementEditing,
             force: true,
         });
-
+        // Do not also send refreshCurrentPage: that clears cell caches and
+        // re-requests the same page, which remounts the list and jumps scroll
+        // to the top of the chapter. The paginated payload already has the cells.
+        debug(`[sendMilestoneRefreshToWebview] Sent updated milestone index for milestone ${currentPosition.milestoneIndex}, subsection ${currentPosition.subsectionIndex}`);
+    } else {
+        // Don't remount the webview HTML — that resets scroll to the top of the file.
+        // The webview already knows its current page; ask it to reload those cells.
+        const rev = provider.getDocumentRevision(docUri);
         safePostMessageToPanel(webviewPanel, {
             type: "refreshCurrentPage",
             rev,
-            milestoneIndex: currentPosition.milestoneIndex,
-            subsectionIndex: currentPosition.subsectionIndex,
-            force: true,
         });
-        debug(`[sendMilestoneRefreshToWebview] Sent updated milestone index and refreshCurrentPage for milestone ${currentPosition.milestoneIndex}, subsection ${currentPosition.subsectionIndex}`);
-    } else {
-        provider.refreshWebview(webviewPanel, document);
+        debug("[sendMilestoneRefreshToWebview] No tracked position; sent refreshCurrentPage so the webview keeps its place");
     }
 }
 
@@ -4563,8 +4575,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 vscode.window.showWarningMessage("Could not fully undo the merge — no project folder found.");
             }
 
-            // Refresh the webview to show the updated state
-            provider.refreshWebview(webviewPanel, document);
+            // Refresh in place so unmerge doesn't jump the editor to the top
+            await sendMilestoneRefreshToWebview(document, webviewPanel, provider);
 
         } catch (error) {
             console.error("Error canceling merge for cell:", cellId, error);
@@ -5812,7 +5824,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 webviewPanel,
                 provider,
                 updateWebview: () => {
-                    provider.refreshWebview(webviewPanel, document);
+                    sendMilestoneRefreshToWebview(document, webviewPanel, provider).catch((error) => {
+                        console.warn("[confirmCellMerge] Failed to refresh webview after merge:", error);
+                    });
                 }
             });
 
@@ -5888,8 +5902,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 } as any);
             }
 
-            // 1. Concatenate content and create merged edit
-            const mergedContent = previousContent + "<span>&nbsp;</span>" + currentContent;
+            // 1. Concatenate content and create merged edit.
+            // Empty cells stay empty — a spacer-only result would look like
+            // translated content and fail HTML structure enforcement.
+            const mergedContent = joinMergedCellHtml(previousContent, currentContent);
             const mergeEdit: EditHistory = {
                 editMap: EditMapUtils.value(),
                 value: mergedContent,
@@ -6315,8 +6331,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             debug(`Successfully merged cell ${currentCellId} with ${previousCellId}`);
 
-            // Refresh the webview content
-            provider.refreshWebview(webviewPanel, document);
+            // Refresh in place so the source/target editor keeps its chapter and
+            // scroll position. refreshWebview() remounts the HTML and jumps to the top.
+            await sendMilestoneRefreshToWebview(document, webviewPanel, provider);
 
         } catch (error) {
             console.error("Error merging cells:", error);
