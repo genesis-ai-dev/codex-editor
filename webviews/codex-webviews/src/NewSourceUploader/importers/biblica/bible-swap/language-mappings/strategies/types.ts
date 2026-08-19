@@ -17,6 +17,7 @@ export type BibleSwapMappedLanguageId =
     | "french"
     | "hindi"
     | "marathi"
+    | "arabic"
     | "ukrainian";
 
 export type BibleSwapLanguageId = "any" | BibleSwapMappedLanguageId;

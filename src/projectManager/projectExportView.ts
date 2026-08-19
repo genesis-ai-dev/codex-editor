@@ -636,7 +636,7 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                         panel,
                         {
                             command: "bibleSwapCompatibility",
-                            error: `Failed to analyze Bible IDML: ${messageText}`,
+                            error: `Bible Swap analysis failed: ${messageText}`,
                         },
                         "ProjectExport"
                     );

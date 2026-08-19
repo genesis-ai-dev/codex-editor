@@ -1,5 +1,6 @@
 import type { BibleSwapLanguageId, BibleSwapLanguageStrategy } from "./types";
 import { anyLanguageStrategy } from "./any";
+import { arabicStrategy } from "./arabic";
 import { frenchStrategy } from "./french";
 import { hindiStrategy } from "./hindi";
 import { marathiStrategy } from "./marathi";
@@ -14,6 +15,7 @@ export const LANGUAGE_STRATEGIES: readonly BibleSwapLanguageStrategy[] = [
     frenchStrategy,
     hindiStrategy,
     marathiStrategy,
+    arabicStrategy,
     ukrainianStrategy,
 ];
 
@@ -37,6 +39,7 @@ export function isMappedBibleSwapLanguageId(
 
 export {
     anyLanguageStrategy,
+    arabicStrategy,
     frenchStrategy,
     hindiStrategy,
     marathiStrategy,

@@ -36,11 +36,13 @@ describe("language registry", () => {
             "french",
             "hindi",
             "marathi",
+            "arabic",
             "ukrainian",
         ]);
         expect(isMappedBibleSwapLanguage("french")).toBe(true);
         expect(isMappedBibleSwapLanguage("hindi")).toBe(true);
         expect(isMappedBibleSwapLanguage("marathi")).toBe(true);
+        expect(isMappedBibleSwapLanguage("arabic")).toBe(true);
         expect(isMappedBibleSwapLanguage("ukrainian")).toBe(true);
         expect(isMappedBibleSwapLanguage(ANY_BIBLE_SWAP_LANGUAGE)).toBe(false);
     });
@@ -49,6 +51,30 @@ describe("language registry", () => {
         expect(studyVolumeFromFileName("JOS-EST.idml")).toBe("JOS-EST");
         expect(studyVolumeFromFileName("jos-est.codex")).toBe("JOS-EST");
         expect(studyVolumeFromFileName("C:\\files\\MAT-JOHN.idml")).toBe("MAT-JOHN");
+    });
+
+    it("strips importer tags, notebook uuids, and dedup counters", () => {
+        // Stored originals from the Biblica importer.
+        expect(studyVolumeFromFileName("JOS-EST-biblica.idml")).toBe("JOS-EST");
+        expect(studyVolumeFromFileName("GEN-DEU-biblica.idml")).toBe("GEN-DEU");
+        expect(studyVolumeFromFileName("mat-john-biblica.idml")).toBe("MAT-JOHN");
+        // Dedup counter added on a file-name clash.
+        expect(studyVolumeFromFileName("JOB-SNG (1).idml")).toBe("JOB-SNG");
+        expect(studyVolumeFromFileName("MAT-JOHN (1).idml")).toBe("MAT-JOHN");
+        // Notebook names.
+        expect(studyVolumeFromFileName("JOS-EST-notes.codex")).toBe("JOS-EST");
+        expect(
+            studyVolumeFromFileName("ISA-MAL-313c6d48-60a1-43c3-bf02-5ac01575c5d1.codex")
+        ).toBe("ISA-MAL");
+        expect(
+            studyVolumeFromFileName("MAT-JOHN-1-babcfc68-c64f-4052-85aa-8c8391924f9b.codex")
+        ).toBe("MAT-JOHN");
+    });
+
+    it("passes unrecognised names through instead of guessing a volume", () => {
+        expect(studyVolumeFromFileName("SOMETHING-ELSE.idml")).toBe("SOMETHING-ELSE");
+        // A different volume must not be matched by a shared prefix word.
+        expect(studyVolumeFromFileName("JOS-ESTHER-EXTRA.idml")).toBe("JOS-ESTHER-EXTRA");
     });
 });
 

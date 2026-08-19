@@ -21,6 +21,7 @@ import type {
     VersificationPlanStats,
 } from "../versificationPlan";
 import {
+    ALL_STUDY_VOLUMES,
     getBibleSwapLanguageStrategy,
     isMappedBibleSwapLanguageId,
     LANGUAGE_STRATEGIES,
@@ -29,6 +30,7 @@ import {
 } from "./strategies";
 
 export {
+    ALL_STUDY_VOLUMES,
     getBibleSwapLanguageStrategy,
     isMappedBibleSwapLanguageId,
     LANGUAGE_STRATEGIES,
@@ -40,7 +42,6 @@ export type {
     BibleSwapMappedLanguageId,
     StudyVolumeId,
 } from "./strategies";
-export { ALL_STUDY_VOLUMES } from "./strategies";
 
 /** Language choices offered in the export UI. "any" = analyze at export time. */
 export interface BibleSwapLanguageOption {
@@ -65,10 +66,30 @@ export function isMappedBibleSwapLanguage(language: string | undefined): boolean
     return isMappedBibleSwapLanguageId(language);
 }
 
-/** `JOS-EST.idml` / `JOS-EST.codex` / `JOS-EST` → `JOS-EST`. */
+/**
+ * Study volume id for a study file name: `JOS-EST.idml` → `JOS-EST`.
+ *
+ * Stored originals and notebooks carry suffixes the volume id does not:
+ * importer tags (`JOS-EST-biblica.idml`, `GEN-DEU-notes.codex`), notebook uuids
+ * (`ISA-MAL-313c6d48-….codex`) and dedup counters (`JOB-SNG (1).idml`, added by
+ * `saveOriginalFileWithDeduplication` on a name clash). Resolving against the
+ * known volumes keeps those on the shipped mapping instead of dropping them to
+ * analyze-at-export. Unrecognised names pass through unchanged.
+ */
 export function studyVolumeFromFileName(fileName: string): string {
-    const base = fileName.replace(/^.*[\\/]/, "");
-    return base.replace(/\.(idml|codex)$/i, "").toUpperCase();
+    const base = fileName
+        .replace(/^.*[\\/]/, "")
+        .replace(/\.(idml|codex|source)$/i, "")
+        .toUpperCase();
+    const known = [...ALL_STUDY_VOLUMES]
+        .sort((a, b) => b.length - a.length)
+        .find(
+            (volume) =>
+                base === volume ||
+                base.startsWith(`${volume}-`) ||
+                base.startsWith(`${volume} `)
+        );
+    return known ?? base;
 }
 
 /**

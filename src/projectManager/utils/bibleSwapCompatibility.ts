@@ -112,10 +112,13 @@ async function readLargestStoryXml(zip: LoadedIdmlZip): Promise<string | null> {
     return file.async("text");
 }
 
-async function loadStoryXmlFromIdmlBytes(data: Uint8Array): Promise<string> {
+async function loadStoryXmlFromIdmlBytes(
+    data: Uint8Array,
+    fileLabel: string
+): Promise<string> {
     if (data.length < 4 || data[0] !== 0x50 || data[1] !== 0x4b) {
         throw new Error(
-            "Selected file is not a valid IDML (ZIP) archive. Expected a .idml file."
+            `"${fileLabel}" is not a valid IDML (ZIP) archive. Expected a .idml file.`
         );
     }
     // `vscode.workspace.fs.readFile` returns a Node Buffer that is a *view* into
@@ -130,11 +133,22 @@ async function loadStoryXmlFromIdmlBytes(data: Uint8Array): Promise<string> {
         data.byteOffset === 0 && data.byteLength === data.buffer.byteLength
             ? data
             : new Uint8Array(data);
-    const zip = await JSZip.loadAsync(bytes);
+    let zip: LoadedIdmlZip;
+    try {
+        zip = await JSZip.loadAsync(bytes);
+    } catch (err) {
+        // A stored original whose bytes were mangled (e.g. written through a
+        // text encoding) still starts with "PK" but has an unreadable central
+        // directory, so name the file or the user cannot tell which one to fix.
+        throw new Error(
+            `"${fileLabel}" (${data.length} bytes) could not be read as an IDML archive: ` +
+            `${err instanceof Error ? err.message : String(err)}`
+        );
+    }
     const storyXml = await readLargestStoryXml(zip);
     if (!storyXml) {
         throw new Error(
-            "No Stories/*.xml entries found inside the IDML. The file may be empty or corrupted."
+            `No Stories/*.xml entries found inside "${fileLabel}". The file may be empty or corrupted.`
         );
     }
     return storyXml;
@@ -142,7 +156,7 @@ async function loadStoryXmlFromIdmlBytes(data: Uint8Array): Promise<string> {
 
 async function loadStoryXmlFromIdmlUri(uri: vscode.Uri): Promise<string> {
     const data = await vscode.workspace.fs.readFile(uri);
-    return loadStoryXmlFromIdmlBytes(data);
+    return loadStoryXmlFromIdmlBytes(data, basename(uri.fsPath));
 }
 
 function mergeCompatIndexes(indexes: CompatVerseIndex[]): Map<string, Set<string>> {
@@ -186,7 +200,7 @@ async function loadStudyStoryXmlFromCodexFile(
         );
         const data = await vscode.workspace.fs.readFile(originalUri);
         if (data.length < 4 || data[0] !== 0x50 || data[1] !== 0x4b) return null;
-        return loadStoryXmlFromIdmlBytes(data);
+        return loadStoryXmlFromIdmlBytes(data, originalFileName);
     } catch (err) {
         console.warn(
             `[BibleSwapCompatibility] Could not read original IDML for ${filePath}:`,
