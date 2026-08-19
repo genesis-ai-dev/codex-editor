@@ -1776,7 +1776,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         zIndex: 1000,
                         maxHeight: "80vh",
                         overflowY: "auto",
-                        width: "min(700px, calc(100vw - 40px))",
+                        width: "calc(100vw - 40px)",
                         boxSizing: "border-box",
                     }}
                 >
