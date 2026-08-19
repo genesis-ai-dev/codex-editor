@@ -220,6 +220,16 @@
                 "category": "Codex Extension"
             },
             {
+                "command": "codex-editor-extension.migrateBiblicaTranslations",
+                "title": "Migrate Biblica Translations Into Re-imported Notebooks",
+                "category": "Codex Extension"
+            },
+            {
+                "command": "codex-editor-extension.resolveHtmlStructureAcrossProject",
+                "title": "Resolve HTML Structure Mismatches In All Notebooks",
+                "category": "Codex Extension"
+            },
+            {
                 "title": "Start a new Project",
                 "shortTitle": "Start a new Project",
                 "command": "codex-editor-extension.initializeNewProject"

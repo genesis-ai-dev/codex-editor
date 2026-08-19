@@ -4,6 +4,7 @@ import {
     isBiblicaMajorSectionHeadingStyle,
     isBiblicaNoteSectionStyle,
     isBiblicaRunningHeadStyle,
+    isBiblicaScriptureHeadingStyle,
     isStructuralOnlyContent,
     splitSegmentsAtLineBreaks,
     getStructuralApostropheSegmentIndexes,
@@ -25,6 +26,15 @@ describe('biblicaImportUtils', () => {
         expect(isBiblicaMajorSectionHeadingStyle('ParagraphStyle/head%3acl')).toBe(false);
         expect(isBiblicaRunningHeadStyle('ParagraphStyle/meta%3arh')).toBe(true);
         expect(isBiblicaRunningHeadStyle('ParagraphStyle/text%3am')).toBe(false);
+    });
+
+    it('detects the scripture headings the Psalter relies on', () => {
+        for (const style of ['head%3acl', 'head%3ad_h', 'head%3asp', 'head%3aqa', 'head%3ams', 'head%3amr_h']) {
+            expect(isBiblicaScriptureHeadingStyle(`ParagraphStyle/${style}`)).toBe(true);
+        }
+        // Verse text and auto-generated running heads stay out.
+        expect(isBiblicaScriptureHeadingStyle('ParagraphStyle/text%3aq1')).toBe(false);
+        expect(isBiblicaScriptureHeadingStyle('ParagraphStyle/meta%3arh')).toBe(false);
     });
 
     it('recognises a front/back matter volume by the absence of verses', () => {

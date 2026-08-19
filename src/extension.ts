@@ -69,6 +69,8 @@ import {
     migration_hoistDocumentContextToNotebookMetadata,
 } from "./projectManager/utils/migrationUtils";
 import { repairHtmlStructureArtifacts } from "./projectManager/utils/htmlStructureRepairMigration";
+import { migrateBiblicaTranslationsCommand } from "./projectManager/utils/biblicaMigration/biblicaMigrationRunner";
+import { resolveHtmlStructureAcrossProjectCommand } from "./projectManager/utils/htmlStructureResolveAll";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 import { initializeAudioExtractor } from "./utils/audioExtractor";
@@ -1103,6 +1105,36 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "codex-editor-extension.repairHtmlStructureArtifacts",
             repairHtmlStructureArtifacts
+        )
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.migrateBiblicaTranslations",
+            async () => {
+                let author = "anonymous";
+                try {
+                    const userInfo = await getAuthApi()?.getUserInfo();
+                    author = userInfo?.username || author;
+                } catch {
+                    // Fall back to anonymous when not signed in.
+                }
+                await migrateBiblicaTranslationsCommand(author);
+            }
+        )
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.resolveHtmlStructureAcrossProject",
+            async () => {
+                let author = "anonymous";
+                try {
+                    const userInfo = await getAuthApi()?.getUserInfo();
+                    author = userInfo?.username || author;
+                } catch {
+                    // Fall back to anonymous when not signed in.
+                }
+                await resolveHtmlStructureAcrossProjectCommand(author);
+            }
         )
     );
     let toolsStatusProvider: MissingToolsWarningProvider | undefined;

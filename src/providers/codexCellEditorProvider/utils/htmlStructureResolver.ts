@@ -91,24 +91,21 @@ export type StructureResolveOutcome =
     | { status: "unresolved" };
 
 /**
- * Resolve a cell's structure mismatch. Tries a deterministic fix first (no
- * LLM); falls back to the LLM and verifies the result before returning it.
+ * Resolve a source/translation HTML pair. Tries a deterministic fix first
+ * (no LLM); falls back to the LLM and verifies the result before returning it.
  */
-export const resolveCellHtmlStructure = async (
-    cellId: string,
-    document: CodexCellDocument,
+export const resolveHtmlStructurePair = async (
+    sourceHtml: string,
+    targetHtml: string,
     config?: CompletionConfig,
+    callLLMOverride?: (
+        prompt: Array<{ role: "system" | "user"; content: string }>,
+        config: CompletionConfig,
+    ) => Promise<{ content: string }>,
 ): Promise<StructureResolveOutcome> => {
-    const sourceHtml = await getSourceCellContent(cellId);
-    if (!sourceHtml) {
+    if (!sourceHtml?.trim() || !targetHtml?.trim()) {
         return { status: "missing-content" };
     }
-
-    const targetCell = document.getCellContent(cellId);
-    if (!targetCell?.cellContent) {
-        return { status: "missing-content" };
-    }
-    const targetHtml = targetCell.cellContent;
 
     if (compareHtmlStructure(sourceHtml, targetHtml).isMatch) {
         return { status: "already-matched" };
@@ -126,16 +123,39 @@ export const resolveCellHtmlStructure = async (
             sourceHtml,
             targetHtml,
             completionConfig,
+            callLLMOverride,
         );
         const verified = verifyResolvedContent(sourceHtml, targetHtml, llmResult);
         if (verified !== null) {
             return { status: "resolved", content: verified, method: "llm" };
         }
     } catch (error) {
-        console.error("[resolveCellHtmlStructure] LLM resolve failed:", error);
+        console.error("[resolveHtmlStructurePair] LLM resolve failed:", error);
     }
 
     return { status: "unresolved" };
+};
+
+/**
+ * Resolve a cell's structure mismatch. Tries a deterministic fix first (no
+ * LLM); falls back to the LLM and verifies the result before returning it.
+ */
+export const resolveCellHtmlStructure = async (
+    cellId: string,
+    document: CodexCellDocument,
+    config?: CompletionConfig,
+): Promise<StructureResolveOutcome> => {
+    const sourceHtml = await getSourceCellContent(cellId);
+    if (!sourceHtml) {
+        return { status: "missing-content" };
+    }
+
+    const targetCell = document.getCellContent(cellId);
+    if (!targetCell?.cellContent) {
+        return { status: "missing-content" };
+    }
+
+    return resolveHtmlStructurePair(sourceHtml, targetCell.cellContent, config);
 };
 
 export const getSourceCellContent = async (cellId: string): Promise<string | null> => {
