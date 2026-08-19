@@ -281,6 +281,7 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
     const [error, setError] = useState<string | null>(null);
     const [showDetails, setShowDetails] = useState(false);
     const [result, setResult] = useState<NotebookPair | null>(null);
+    const importInFlightRef = useRef(false);
     const [alignedCells, setAlignedCells] = useState<AlignedCell[] | null>(null);
     const [importedContent, setImportedContent] = useState<ImportedContent[]>([]);
     const [targetCells, setTargetCells] = useState<any[]>([]);
@@ -333,7 +334,9 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
             setError("Please select a translation to download");
             return;
         }
+        if (importInFlightRef.current) return;
 
+        importInFlightRef.current = true;
         notifyImportStarted();
         setIsProcessing(true);
         setError(null);
@@ -434,17 +437,11 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
                     if (allNotebooks) {
                         const notebookPairs: NotebookPair[] = Object.values(allNotebooks);
 
-                        setTimeout(async () => {
-                            try {
-                                // For multi-file imports, pass all notebook pairs for batch import
-                                await handleImportCompletion(notebookPairs, props);
-                            } catch (err) {
-                                setError(
-                                    err instanceof Error ? err.message : "Failed to complete import"
-                                );
-                                notifyImportEnded();
-                            }
-                        }, 2000);
+                        // Complete immediately. Leaving the download form
+                        // visible during this delay allowed a second click to
+                        // submit the same books and trigger duplicate-import
+                        // detection.
+                        await handleImportCompletion(notebookPairs, props);
                     } else {
                         // Single notebook - use the translation helper
                         try {
