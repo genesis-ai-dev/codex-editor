@@ -106,6 +106,79 @@ suite("USFM export - paratext heading placement and markers", () => {
         );
     });
 
+    test("bold-formatted paratext keeps a paragraph marker with the option off (\\bd is not a paragraph opener)", () => {
+        const boldCell: UsfmExportCell = {
+            metadata: { type: "paratext", id: "parent:paratext-2-x" },
+            value: "<span><strong>Bold Heading</strong></span>",
+        };
+        const { body } = buildUsfmBody([
+            verseCell("MAT 1:1", "Alpha"),
+            boldCell,
+            verseCell("MAT 1:2", "Beta"),
+        ]);
+
+        assert.strictEqual(
+            body,
+            "\\c 1\n\\p\n\\v 1 Alpha\n\\p \\bd Bold Heading\\bd*\n\\v 2 Beta\n"
+        );
+    });
+
+    test("bold-formatted paratext exports as \\s1 with the option on, character markup nested inside", () => {
+        const boldCell: UsfmExportCell = {
+            metadata: { type: "paratext", id: "parent:paratext-3-x" },
+            value: "<span><strong>Bold Heading</strong></span>",
+        };
+        const { body } = buildUsfmBody(
+            [
+                verseCell("MAT 1:1", "Alpha"),
+                boldCell,
+                verseCell("MAT 1:2", "Beta"),
+            ],
+            { paratextAsHeadings: true }
+        );
+
+        assert.strictEqual(
+            body,
+            "\\c 1\n\\p\n\\v 1 Alpha\n\\s1 \\bd Bold Heading\\bd*\n\\p\n\\v 2 Beta\n"
+        );
+    });
+
+    test("\\sup-leading content is not a paragraph opener and is not classified as a heading", () => {
+        const supCell: UsfmExportCell = {
+            metadata: { type: "paratext", id: "parent:paratext-4-x" },
+            value: "<span><sup>2</sup> footnote text</span>",
+        };
+        const { body } = buildUsfmBody([
+            verseCell("MAT 1:1", "Alpha"),
+            supCell,
+            verseCell("MAT 1:2", "Beta"),
+        ]);
+
+        // \p prefix added, and no \p restart after (not a heading).
+        assert.strictEqual(
+            body,
+            "\\c 1\n\\p\n\\v 1 Alpha\n\\p \\sup 2\\sup* footnote text\n\\v 2 Beta\n"
+        );
+    });
+
+    test("literal paragraph-level markers in content pass through; \\sp is not a heading", () => {
+        const speakerCell: UsfmExportCell = {
+            metadata: { type: "paratext", id: "parent:paratext-5-x" },
+            value: "<span>\\sp Jesus</span>",
+        };
+        const { body } = buildUsfmBody([
+            verseCell("MAT 1:1", "Alpha"),
+            speakerCell,
+            verseCell("MAT 1:2", "Beta"),
+        ]);
+
+        // Passes through as-is, no \p restart (only \s markers are headings).
+        assert.strictEqual(
+            body,
+            "\\c 1\n\\p\n\\v 1 Alpha\n\\sp Jesus\n\\v 2 Beta\n"
+        );
+    });
+
     test("legacy 'Chapter N' paratext cells still open chapters without duplicate \\c markers", () => {
         const legacyChapterCell: UsfmExportCell = {
             metadata: { type: "paratext", id: "legacy-1" },
