@@ -471,6 +471,62 @@ async function restoreTabLayout(context: vscode.ExtensionContext) {
     await context.globalState.update(TAB_LAYOUT_KEY, undefined);
 }
 
+/**
+ * Begin preparing the optimized local tools as soon as the extension activates.
+ * This runs before project metadata, indexing, or synchronization is
+ * initialized. The individual tool setups are independent and can proceed in
+ * parallel, while each tool still falls back safely if its optimized asset
+ * cannot be used.
+ */
+async function prepareToolsBeforeWorkspace(context: vscode.ExtensionContext): Promise<void> {
+    const networkAvailable = await isOnline();
+    if (!networkAvailable) {
+        console.log("[Extension] Offline — will skip tool downloads and use cached binaries if available");
+    }
+
+    const prepareSqlite = async (): Promise<void> => {
+        const sqliteMode = getSqliteToolMode();
+        let nativeLoaded = false;
+        try {
+            const binaryPath = await ensureSqliteNativeBinary(context);
+            if (binaryPath) {
+                initNativeSqlite(binaryPath);
+                console.log("[SQLite] Native module initialized successfully");
+                nativeLoaded = true;
+            }
+        } catch (nativeError: unknown) {
+            const message = nativeError instanceof Error ? nativeError.message : String(nativeError);
+            console.warn("[SQLite] Failed to set up native binary:", message);
+        }
+
+        if (sqliteMode === "builtin" || !nativeLoaded) {
+            try {
+                await initFts5Sqlite(context);
+                const reason = sqliteMode === "builtin" ? "user preference" : "native unavailable";
+                console.log(`[SQLite] fts5-sql-bundle (WASM) initialized (${reason})`);
+            } catch (fallbackError: unknown) {
+                const message = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+                console.error("[SQLite] Failed to initialize fts5 fallback:", message);
+            }
+        }
+    };
+
+    const prepareAudio = async (): Promise<void> => {
+        try {
+            updateSplashScreenSync(0, "Setting up audio tools...");
+            await downloadFFmpeg(context);
+        } catch (error: unknown) {
+            if (!networkAvailable) {
+                console.log("[Extension] Offline — audio tools not cached locally, audio features unavailable until online");
+            } else {
+                console.error("[Extension] Error downloading audio tools:", error);
+            }
+        }
+    };
+
+    await Promise.all([prepareSqlite(), prepareAudio()]);
+}
+
 export async function activate(context: vscode.ExtensionContext) {
     const activationStart = globalThis.performance.now();
 
@@ -590,6 +646,10 @@ export async function activate(context: vscode.ExtensionContext) {
         console.error("Error showing splash screen:", error);
         // Continue with activation even if splash screen fails
     }
+
+    // Start optimized tool preparation immediately. It runs while the
+    // remaining activation work loads metadata and registers startup flow.
+    const toolsPreparedBeforeWorkspace = prepareToolsBeforeWorkspace(context);
 
     // Check for metadata.json early — this determines if we're in a Codex project
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -736,61 +796,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
         stepStart = trackTiming("Configuring Startup Workflow", startupStart);
 
-        // Check connectivity once so we can skip network-dependent downloads when offline.
-        const networkAvailable = await isOnline();
-        if (!networkAvailable) {
-            console.log("[Extension] Offline — will skip tool downloads and use cached binaries if available");
-        }
-
-        // Set up the SQLite backend.
-        // Always try to load the native binary (so it's available if the user
-        // toggles back to "auto").  Then, if the preference is "builtin" OR if
-        // native failed, also initialize fts5-sql-bundle so the active backend
-        // is ready to go.
-        const sqliteBinaryStart = globalThis.performance.now();
-        const sqliteMode = getSqliteToolMode();
-        let nativeLoaded = false;
-        try {
-            const binaryPath = await ensureSqliteNativeBinary(context);
-            if (binaryPath) {
-                initNativeSqlite(binaryPath);
-                console.log("[SQLite] Native module initialized successfully");
-                nativeLoaded = true;
-            }
-        } catch (nativeError: any) {
-            console.warn("[SQLite] Failed to set up native binary:", nativeError?.message || nativeError);
-        }
-
-        if (sqliteMode === "builtin" || !nativeLoaded) {
-            try {
-                await initFts5Sqlite(context);
-                const reason = sqliteMode === "builtin" ? "user preference" : "native unavailable";
-                console.log(`[SQLite] fts5-sql-bundle (WASM) initialized (${reason})`);
-            } catch (fallbackError: any) {
-                if (!nativeLoaded) {
-                    console.error("[SQLite] Both native and fts5 fallback failed:", fallbackError?.message || fallbackError);
-                } else {
-                    console.warn("[SQLite] fts5-sql-bundle init failed (native available as fallback):", fallbackError?.message || fallbackError);
-                }
-            }
-        }
-        stepStart = trackTiming("Setting up search tools", sqliteBinaryStart);
-
-        // Download FFmpeg if not already present.
-        // downloadFFmpeg checks local cache first, only
-        // hitting the network if the binary isn't present on disk.
-        const audioToolsStart = globalThis.performance.now();
-        try {
-            updateSplashScreenSync(0, "Setting up audio tools...");
-            await downloadFFmpeg(context);
-        } catch (error) {
-            if (!networkAvailable) {
-                console.log("[Extension] Offline — audio tools not cached locally, audio features unavailable until online");
-            } else {
-                console.error("[Extension] Error downloading audio tools:", error);
-            }
-        }
-        stepStart = trackTiming("Setting up audio tools", audioToolsStart);
+        // Do not initialize the workspace until optimized tool preparation
+        // has completed, so project sync and indexing use the selected backend.
+        const toolsStart = globalThis.performance.now();
+        await toolsPreparedBeforeWorkspace;
+        stepStart = trackTiming("Preparing optimized tools", toolsStart);
 
         // Run a fresh tool availability check after all download attempts
         const toolCheckStart = globalThis.performance.now();
