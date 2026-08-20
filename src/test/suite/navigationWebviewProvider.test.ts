@@ -775,3 +775,269 @@ suite("NavigationWebviewProvider Test Suite", () => {
     });
 });
 
+
+/**
+ * Tombstone-first ordering (issue #1116 guard race): the delete flows must
+ * record deletion tombstones BEFORE deleting files, so a sync starting inside
+ * the delete window can never observe missing-without-tombstone and resurrect
+ * the files — and must withdraw/narrow the tombstone when a deletion fails,
+ * so files that still exist never stay covered.
+ */
+suite("NavigationWebviewProvider - deletion tombstone ordering", () => {
+    let context: vscode.ExtensionContext;
+    let provider: NavigationWebviewProvider;
+    let workspaceFolder: vscode.WorkspaceFolder | undefined;
+    let metadataUri: vscode.Uri | undefined;
+    let originalMetadataBytes: Uint8Array | undefined;
+
+    const readMetadataText = async (): Promise<string> => {
+        const bytes = await vscode.workspace.fs.readFile(metadataUri!);
+        return new TextDecoder().decode(bytes);
+    };
+
+    suiteSetup(async () => {
+        workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) return;
+        metadataUri = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
+        try {
+            originalMetadataBytes = await vscode.workspace.fs.readFile(metadataUri);
+        } catch {
+            originalMetadataBytes = undefined;
+        }
+        await vscode.workspace.fs.createDirectory(
+            vscode.Uri.joinPath(workspaceFolder.uri, "files", "target")
+        );
+    });
+
+    setup(async () => {
+        if (!workspaceFolder || !metadataUri) return;
+        context = createMockExtensionContext();
+        provider = new NavigationWebviewProvider(context);
+        // Seed a minimal metadata.json so safeUpdateMetadata can read-modify-write.
+        await vscode.workspace.fs.writeFile(
+            metadataUri,
+            Buffer.from(JSON.stringify({ projectName: "TombstoneOrderTest", edits: [], meta: {} }))
+        );
+    });
+
+    suiteTeardown(async () => {
+        if (!metadataUri) return;
+        if (originalMetadataBytes) {
+            await vscode.workspace.fs.writeFile(metadataUri, originalMetadataBytes);
+        } else {
+            try {
+                await vscode.workspace.fs.delete(metadataUri);
+            } catch {
+                // nothing to restore
+            }
+        }
+    });
+
+    async function writeCodexFile(name: string): Promise<vscode.Uri> {
+        const uri = vscode.Uri.joinPath(workspaceFolder!.uri, "files", "target", `${name}.codex`);
+        await vscode.workspace.fs.writeFile(
+            uri,
+            Buffer.from(
+                JSON.stringify({
+                    cells: [{ kind: 2, languageId: "html", value: "x", metadata: { id: "c1", edits: [] } }],
+                    metadata: { id: name, edits: [] },
+                })
+            )
+        );
+        return uri;
+    }
+
+    test("deleteFile records the tombstone BEFORE the file is deleted", async function () {
+        if (!workspaceFolder) return;
+        const codexUri = await writeCodexFile("RACE1");
+        const normalizedPath = codexUri.fsPath.replace(/\\/g, "/");
+
+        const realDelete = vscode.workspace.fs.delete.bind(vscode.workspace.fs);
+        let tombstonePresentAtCodexDelete: boolean | undefined;
+        let deleteStub: sinon.SinonStub;
+        try {
+            deleteStub = sinon
+                .stub(vscode.workspace.fs, "delete")
+                .callsFake(async (uri: vscode.Uri, options?: any) => {
+                    if (uri.fsPath.replace(/\\/g, "/").endsWith("files/target/RACE1.codex")) {
+                        tombstonePresentAtCodexDelete = (await readMetadataText()).includes(
+                            "files/target/RACE1.codex"
+                        );
+                    }
+                    return realDelete(uri, options);
+                });
+        } catch {
+            // vscode.workspace.fs not stubbable in this host — cannot observe ordering
+            this.skip();
+            return;
+        }
+
+        const showInformationMessageStub = sinon.stub(vscode.window, "showInformationMessage");
+        const showWarningMessageStub = sinon.stub(vscode.window, "showWarningMessage");
+        const showErrorMessageStub = sinon.stub(vscode.window, "showErrorMessage");
+        const buildInitialDataStub = sinon.stub(provider as any, "buildInitialData").resolves();
+
+        try {
+            await (provider as any).handleMessage({
+                command: "deleteFile",
+                uri: normalizedPath,
+                label: "RACE1",
+                type: "codexDocument",
+            });
+
+            assert.strictEqual(
+                tombstonePresentAtCodexDelete,
+                true,
+                "the tombstone must already be in metadata.json when the file deletion starts"
+            );
+            let stillExists = true;
+            try {
+                await vscode.workspace.fs.stat(codexUri);
+            } catch {
+                stillExists = false;
+            }
+            assert.strictEqual(stillExists, false, "the codex file is deleted");
+            assert.ok(
+                (await readMetadataText()).includes("files/target/RACE1.codex"),
+                "the tombstone survives a successful deletion"
+            );
+        } finally {
+            deleteStub.restore();
+            showInformationMessageStub.restore();
+            showWarningMessageStub.restore();
+            showErrorMessageStub.restore();
+            buildInitialDataStub.restore();
+        }
+    });
+
+    test("deleteFile withdraws the tombstone when the deletion fails", async function () {
+        if (!workspaceFolder) return;
+        const codexUri = await writeCodexFile("RACE2");
+        const normalizedPath = codexUri.fsPath.replace(/\\/g, "/");
+
+        const realDelete = vscode.workspace.fs.delete.bind(vscode.workspace.fs);
+        let deleteStub: sinon.SinonStub;
+        try {
+            deleteStub = sinon
+                .stub(vscode.workspace.fs, "delete")
+                .callsFake(async (uri: vscode.Uri, options?: any) => {
+                    if (uri.fsPath.replace(/\\/g, "/").endsWith("files/target/RACE2.codex")) {
+                        throw new Error("simulated: file locked by another process");
+                    }
+                    return realDelete(uri, options);
+                });
+        } catch {
+            this.skip();
+            return;
+        }
+
+        const showInformationMessageStub = sinon.stub(vscode.window, "showInformationMessage");
+        const showWarningMessageStub = sinon.stub(vscode.window, "showWarningMessage");
+        const showErrorMessageStub = sinon.stub(vscode.window, "showErrorMessage");
+        const buildInitialDataStub = sinon.stub(provider as any, "buildInitialData").resolves();
+        const consoleErrorStub = sinon.stub(console, "error");
+
+        try {
+            await (provider as any).handleMessage({
+                command: "deleteFile",
+                uri: normalizedPath,
+                label: "RACE2",
+                type: "codexDocument",
+            });
+
+            assert.ok(
+                !(await readMetadataText()).includes("files/target/RACE2.codex"),
+                "a failed deletion must not leave its tombstone behind"
+            );
+        } finally {
+            deleteStub.restore();
+            showInformationMessageStub.restore();
+            showWarningMessageStub.restore();
+            showErrorMessageStub.restore();
+            buildInitialDataStub.restore();
+            consoleErrorStub.restore();
+            try {
+                await vscode.workspace.fs.delete(codexUri);
+            } catch {
+                // already gone
+            }
+        }
+    });
+
+    test("deleteCorpusMarker records all tombstones before the loop and narrows to actual deletions", async function () {
+        if (!workspaceFolder) return;
+        const corp1 = await writeCodexFile("CORP1");
+        const corp2 = await writeCodexFile("CORP2");
+
+        const realDelete = vscode.workspace.fs.delete.bind(vscode.workspace.fs);
+        let tombstonesPresentAtFirstDelete: { corp1: boolean; corp2: boolean } | undefined;
+        let deleteStub: sinon.SinonStub;
+        try {
+            deleteStub = sinon
+                .stub(vscode.workspace.fs, "delete")
+                .callsFake(async (uri: vscode.Uri, options?: any) => {
+                    const p = uri.fsPath.replace(/\\/g, "/");
+                    if (p.endsWith("files/target/CORP1.codex")) {
+                        const metaText = await readMetadataText();
+                        tombstonesPresentAtFirstDelete = {
+                            corp1: metaText.includes("files/target/CORP1.codex"),
+                            corp2: metaText.includes("files/target/CORP2.codex"),
+                        };
+                    }
+                    if (p.endsWith("files/target/CORP2.codex")) {
+                        throw new Error("simulated: file locked by another process");
+                    }
+                    return realDelete(uri, options);
+                });
+        } catch {
+            this.skip();
+            return;
+        }
+
+        const showInformationMessageStub = sinon.stub(vscode.window, "showInformationMessage");
+        const showWarningMessageStub = sinon.stub(vscode.window, "showWarningMessage");
+        const showErrorMessageStub = sinon.stub(vscode.window, "showErrorMessage");
+        const buildInitialDataStub = sinon.stub(provider as any, "buildInitialData").resolves();
+        const consoleErrorStub = sinon.stub(console, "error");
+
+        try {
+            await (provider as any).deleteCorpusMarker("EPCORP", "EP Corp", [
+                { uri: corp1.fsPath, label: "CORP1", type: "codexDocument" },
+                { uri: corp2.fsPath, label: "CORP2", type: "codexDocument" },
+            ]);
+
+            assert.deepStrictEqual(
+                tombstonesPresentAtFirstDelete,
+                { corp1: true, corp2: true },
+                "every intended file must be tombstoned before the first deletion starts"
+            );
+
+            const metadata = JSON.parse(await readMetadataText());
+            const corpusEdits = (metadata.edits || []).filter(
+                (e: any) =>
+                    Array.isArray(e?.editMap) &&
+                    e.editMap[0] === "deletedCorpusMarker" &&
+                    e?.value?.corpusMarker === "EPCORP"
+            );
+            assert.strictEqual(corpusEdits.length, 1, "one corpus tombstone edit remains");
+            const relPaths = corpusEdits[0].value.deletedFiles.map((f: any) => f.relPath);
+            assert.deepStrictEqual(
+                relPaths,
+                ["files/target/CORP1.codex"],
+                "the tombstone is narrowed to the files actually deleted"
+            );
+        } finally {
+            deleteStub.restore();
+            showInformationMessageStub.restore();
+            showWarningMessageStub.restore();
+            showErrorMessageStub.restore();
+            buildInitialDataStub.restore();
+            consoleErrorStub.restore();
+            try {
+                await vscode.workspace.fs.delete(corp2);
+            } catch {
+                // already gone
+            }
+        }
+    });
+});

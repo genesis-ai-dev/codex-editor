@@ -490,6 +490,24 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     }, [isEditingFootnoteInline]);
 
     useEffect(() => {
+        if (!showHistoryModal) return;
+
+        const handleHistoryModalKeyDown = (event: KeyboardEvent): void => {
+            if (event.key !== "Escape") return;
+
+            event.preventDefault();
+            event.stopPropagation();
+            setShowHistoryModal(false);
+        };
+
+        document.addEventListener("keydown", handleHistoryModalKeyDown, true);
+
+        return () => {
+            document.removeEventListener("keydown", handleHistoryModalKeyDown, true);
+        };
+    }, [showHistoryModal]);
+
+    useEffect(() => {
         pasteAsPlainTextRef.current = props.pasteAsPlainText ?? false;
     }, [props.pasteAsPlainText]);
 
@@ -1758,7 +1776,8 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         zIndex: 1000,
                         maxHeight: "80vh",
                         overflowY: "auto",
-                        minWidth: "300px",
+                        width: "calc(100vw - 40px)",
+                        boxSizing: "border-box",
                     }}
                 >
                     <div

@@ -7,8 +7,9 @@
  * records act as deletion tombstones:
  *
  * 1. Before sync commits local state, any tracked content file that is present
- *    in git HEAD but missing from the working tree WITHOUT a tombstone is
- *    restored from HEAD instead of being committed as a deletion.
+ *    in git HEAD but missing from the working tree WITHOUT a tombstone at
+ *    least as recent as the file's latest HEAD content activity is restored
+ *    from HEAD instead of being committed as a deletion.
  * 2. During conflict resolution, a delete-vs-modify conflict on a content file
  *    only resolves as "deleted" when a tombstone exists that is at least as
  *    recent as the surviving content's latest edit. Otherwise the surviving
@@ -101,10 +102,15 @@ export function collectDeletionTombstones(
  * path, or undefined when no tombstone matches (i.e. no intentional deletion
  * was ever recorded for it).
  *
- * Older builds recorded absolute machine-local paths, so matching falls back
- * from exact/suffix path comparison to basename comparison. A `.source` file
- * is matched via its paired `.codex` name — the delete flow removes the pair
- * together but only records the codex path.
+ * A `.source` file is matched via its paired `.codex` — the delete flow removes
+ * the pair together but only records the codex path.
+ *
+ * Bare-basename matching is a legacy accommodation only: older builds recorded
+ * just an absolute machine-local path (no relPath), which can't reliably
+ * suffix-match a workspace-relative path from another machine's layout.
+ * Tombstones written by current builds carry relPath and must match by
+ * exact/suffix path, so a file re-created under the same name after an old
+ * deletion can't inherit that deletion's tombstone.
  */
 export function findTombstoneTimestamp(
     tombstones: DeletionTombstone[],
@@ -115,6 +121,9 @@ export function findTombstoneTimestamp(
     const pairedCodexName = baseName.endsWith(".source")
         ? baseName.slice(0, -".source".length) + ".codex"
         : undefined;
+    // The pair lives at a fixed location, so modern (relPath-bearing)
+    // tombstones can match a .source path-aware via its codex twin.
+    const pairedCodexRelPath = pairedCodexName ? "files/target/" + pairedCodexName : undefined;
 
     let latest: number | undefined;
     for (const tombstone of tombstones) {
@@ -124,6 +133,13 @@ export function findTombstoneTimestamp(
         const matches = candidates.some((candidate) => {
             const recorded = normalizePath(candidate);
             if (recorded === normalized || recorded.endsWith("/" + normalized)) return true;
+            if (
+                pairedCodexRelPath &&
+                (recorded === pairedCodexRelPath || recorded.endsWith("/" + pairedCodexRelPath))
+            ) {
+                return true;
+            }
+            if (tombstone.relPath) return false; // modern tombstones never match by bare basename
             const recordedBase = path.posix.basename(recorded);
             return recordedBase === baseName || recordedBase === pairedCodexName;
         });
@@ -196,8 +212,12 @@ export interface DeletionGuardGitOps {
  * missing from the working tree without a deletion tombstone, and restores
  * them from HEAD so the upcoming stage-all commit cannot propagate the loss.
  *
- * Files covered by a tombstone are left deleted (intentional removals).
- * Returns the workspace-relative paths of the files it restored.
+ * A tombstone only covers a missing file when the deletion was recorded at or
+ * after the file's latest content activity at HEAD (the same rule the
+ * delete-vs-modify resolver applies). A file re-created under the same name
+ * after an old deletion carries newer edit timestamps, so a stale tombstone
+ * can't re-propagate the old deletion. Returns the workspace-relative paths
+ * of the files it restored.
  */
 export async function restoreContentFilesMissingWithoutTombstone(
     workspaceDir: string,
@@ -214,11 +234,15 @@ export async function restoreContentFilesMissingWithoutTombstone(
 
     const restored: string[] = [];
     for (const [filepath] of missingFiles) {
-        if (findTombstoneTimestamp(tombstones, filepath) !== undefined) {
-            continue; // Intentionally deleted through the app — let the deletion sync.
-        }
         try {
             const blob = await gitOps.readBlobAtRef(workspaceDir, "HEAD", filepath);
+            const tombstoneTimestamp = findTombstoneTimestamp(tombstones, filepath);
+            if (
+                tombstoneTimestamp !== undefined &&
+                tombstoneTimestamp >= getLatestContentTimestamp(blob.toString("utf-8"))
+            ) {
+                continue; // Intentionally deleted through the app — let the deletion sync.
+            }
             const target = vscode.Uri.joinPath(
                 vscode.Uri.file(workspaceDir),
                 ...normalizePath(filepath).split("/")

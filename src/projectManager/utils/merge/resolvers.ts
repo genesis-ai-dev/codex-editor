@@ -1241,6 +1241,9 @@ export async function resolveCodexCustomMerge(
             debugLog(`Mapped their cell with ID: ${cell.metadata.id}`);
         }
     });
+    // Same-id merges below remove entries from theirCellsMap, so capturing the
+    // initial size lets the re-import alignment measure id overlap afterwards.
+    const theirIdBearingCellCount = theirCellsMap.size;
 
     const resultCells: CustomNotebookCellData[] = [];
 
@@ -1276,7 +1279,14 @@ export async function resolveCodexCustomMerge(
     // "their-only" cells as new, align them to our cells by content identity:
     //   - a timed cell (subtitle cue) with the exact same (startTime, endTime) and
     //     cell type IS the same cue, re-imported under a fresh id;
-    //   - a milestone with the same chapter number IS the same section marker.
+    //   - a milestone with the same chapter number IS the same section marker —
+    //     but ONLY in a wholesale-re-import-shaped merge (zero id overlap between
+    //     the two sides, the #1079 signature). In a normal incremental sync most
+    //     ids match, and a their-only milestone there is a genuinely NEW milestone
+    //     from the milestone-editing feature (promote/add, issue #936) whose
+    //     user-chosen label ("Part 2") must not fold it into an existing chapter
+    //     milestone that happens to share its last number. Timed-cue alignment
+    //     stays unconditional: exact (startTime, endTime) keys are precise.
     // Aligned pairs merge into the our-side cell (our id is canonical; edit
     // histories union; the newest edit wins per field).
     //
@@ -1290,9 +1300,12 @@ export async function resolveCodexCustomMerge(
     // Anything ambiguous (several live our-cells share a key — e.g. an already-
     // damaged file) is also left to the insert path.
     if (theirCellsMap.size > 0) {
+        const sharedIdCount = theirIdBearingCellCount - theirCellsMap.size;
+        const isWholesaleReimportShape = sharedIdCount === 0;
         const contentKeyForCell = (cell: CustomNotebookCellData): string | null => {
             const md: any = cell.metadata || {};
             if (md.type === CodexCellTypes.MILESTONE) {
+                if (!isWholesaleReimportShape) return null;
                 const label = (cell.value || "").trim();
                 if (!label) return null;
                 // Milestone values come in two app-generated formats for the same
@@ -1301,9 +1314,11 @@ export async function resolveCodexCustomMerge(
                 // value — same rule as extractChapterNumberFromMilestoneValue in the
                 // webview) so a re-imported "1" aligns with an existing "<docName> 1"
                 // instead of inserting a duplicate section. Files with several
-                // same-numbered milestones fall into the ambiguity skip.
+                // same-numbered milestones fall into the ambiguity skip. Digitless
+                // labels never align: they carry no chapter identity, and two
+                // default-named user milestones ("New milestone") must not fold.
                 const chapterMatch = label.match(/(\d+)(?!.*\d)/);
-                return chapterMatch ? `milestone:${chapterMatch[1]}` : `milestone:${label}`;
+                return chapterMatch ? `milestone:${chapterMatch[1]}` : null;
             }
             const data = md.data || {};
             if (data.startTime != null && data.endTime != null) {

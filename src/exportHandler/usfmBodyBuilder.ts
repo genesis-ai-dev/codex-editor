@@ -7,6 +7,16 @@ const VERSE_REF_REGEX = /\b[A-Z0-9]{2,4}\s+\d+:\d+\b/;
 /** Section-heading markers: \s, \s1, \s2, ... (excludes \sp etc.) */
 const HEADING_MARKER_REGEX = /^\\s\d*$/;
 
+/**
+ * Paragraph-level markers that may open a paratext line as-is: headings
+ * (\s, \s1…), paragraphs (\p, \pc, \pm, \m, \mi), poetry (\q, \q1…), lists
+ * (\li, \li1…), descriptive titles (\d), section references (\r), speaker
+ * lines (\sp), and blank lines (\b). Character markers (\bd, \em, \it, \ul,
+ * \sup, \sub) are inline formatting, not paragraph openers — content leading
+ * with one still needs a paragraph marker prefix.
+ */
+const PARAGRAPH_MARKER_REGEX = /^\\(?:s\d*|p|q\d*|m|mi|li\d*|pc|pm|d|r|sp|b)\b/;
+
 /** Minimal cell shape the USFM body builder needs. */
 export interface UsfmExportCell {
     metadata?: any;
@@ -104,19 +114,25 @@ export function convertHtmlToUsfm(html: string): string {
 
 /**
  * Formats one paratext cell as a USFM line. Marker precedence:
- * 1. Explicit heading tags in the content (already converted to \s markers by convertHtmlToUsfm)
+ * 1. A paragraph-level marker already leading the content (heading tags convert
+ *    to \s markers via convertHtmlToUsfm; literal USFM in the cell also counts)
  * 2. The original USFM marker preserved in metadata by importers (e.g. \s, \q1)
  * 3. \s1 when the user opted in to exporting paratext cells as headings, otherwise \p
+ *
+ * Content leading with a *character* marker (\bd from <strong>, \em from <em>, …)
+ * deliberately falls through to 2/3: a character marker with no paragraph context
+ * is invalid USFM, so the line still gets its paragraph marker prefix.
  */
 function formatParatextCell(
     convertedContent: string,
     metadata: any,
     paratextAsHeadings: boolean
 ): { line: string; isHeading: boolean; } {
-    if (convertedContent.startsWith("\\")) {
+    if (PARAGRAPH_MARKER_REGEX.test(convertedContent)) {
+        const leadingMarker = convertedContent.match(/^\\[a-z]+\d*/)?.[0] ?? "";
         return {
             line: convertedContent,
-            isHeading: convertedContent.startsWith("\\s"),
+            isHeading: HEADING_MARKER_REGEX.test(leadingMarker),
         };
     }
     const marker =
