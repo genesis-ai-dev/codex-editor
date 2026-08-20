@@ -451,11 +451,12 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
         nativeAvailable: boolean,
         unsupported: boolean,
         nativePlatformSupported: boolean,
+        operational: boolean,
     ) => {
         const forced = isForced(mode);
         const usingBuiltIn = isBuiltinMode(mode) || !nativeAvailable;
         const severity: "ok" | "warning" | "error" =
-            !nativeAvailable && !forced ? "error"
+            !operational && !forced ? "error"
             : isBuiltinMode(mode) ? "warning"
             : "ok";
         const statusLabel =
@@ -464,8 +465,9 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
             : nativeAvailable && !usingBuiltIn && nativePlatformSupported ? "Installed and Running Optimized Tools"
             : nativeAvailable && !usingBuiltIn ? "Running Emulated Compatibility Tools"
             : nativeAvailable && usingBuiltIn ? "Installed and Running Compatibility Tools"
-            : nativePlatformSupported ? "Not Installed \u2013 Compatibility Tools Active"
-            : "Not Installed \u2013 Compatibility Tools Available";
+            : operational ? "Compatibility Tools Active"
+            : nativePlatformSupported ? "Optimized Tools Not Installed"
+            : "Compatibility Tools Unavailable";
         const toggleLabel =
             forced ? "Unlock Optimized Tools"
             : nativeAvailable && usingBuiltIn ? "Use Optimized Tools"
@@ -482,18 +484,21 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
         status.nativeSqliteAvailable,
         status.platformUnsupported.sqlite,
         status.nativePlatformSupported.sqlite,
+        status.sqlite,
     );
     const git = getToolState(
         gitToolMode,
         status.nativeGitAvailable,
         status.platformUnsupported.git,
         status.nativePlatformSupported.git,
+        status.git,
     );
     const audio = getToolState(
         audioToolMode,
         status.ffmpeg,
         status.platformUnsupported.ffmpeg,
         status.nativePlatformSupported.ffmpeg,
+        status.ffmpeg,
     );
 
     return (
