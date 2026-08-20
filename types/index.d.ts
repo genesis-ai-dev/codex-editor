@@ -2817,10 +2817,10 @@ export interface PlatformUnsupportedFlags {
 }
 
 export type MessagesToMissingToolsWarning =
-    | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; platformUnsupported?: PlatformUnsupportedFlags; }
-    | { command: "updateWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; platformUnsupported?: PlatformUnsupportedFlags; }
-    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; syncInProgress?: boolean; audioProcessingInProgress?: boolean; platformUnsupported?: PlatformUnsupportedFlags; }
-    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; platformUnsupported?: PlatformUnsupportedFlags; }
+    | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; platformUnsupported?: PlatformUnsupportedFlags; nativePlatformSupported?: PlatformUnsupportedFlags; }
+    | { command: "updateWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; platformUnsupported?: PlatformUnsupportedFlags; nativePlatformSupported?: PlatformUnsupportedFlags; }
+    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; syncInProgress?: boolean; audioProcessingInProgress?: boolean; platformUnsupported?: PlatformUnsupportedFlags; nativePlatformSupported?: PlatformUnsupportedFlags; }
+    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; platformUnsupported?: PlatformUnsupportedFlags; nativePlatformSupported?: PlatformUnsupportedFlags; }
     | { command: "audioModeChanged"; audioToolMode: AudioToolMode; ffmpeg: boolean; }
     | { command: "gitModeChanged"; gitToolMode: GitToolMode; git: boolean; nativeGitAvailable?: boolean; }
     | { command: "sqliteModeChanged"; sqliteToolMode: SqliteToolMode; sqlite: boolean; nativeSqliteAvailable?: boolean; }

@@ -80,7 +80,14 @@ import {
     getUnavailableTools,
     type OptimizedToolKey,
 } from "./utils/toolsManager";
-import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteToolMode, getAudioToolMode } from "./utils/toolPreferences";
+import {
+    initToolPreferences,
+    resetTemporaryBuiltinModesOnStartup,
+    setNativeGitAvailable,
+    getGitToolMode,
+    getSqliteToolMode,
+    getAudioToolMode,
+} from "./utils/toolPreferences";
 import { downloadFFmpeg } from "./utils/ffmpegManager";
 import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
@@ -477,6 +484,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     initToolPreferences(context);
+    await resetTemporaryBuiltinModesOnStartup();
 
     // Clear the stream-only video session cache (stored outside the project) so
     // "Loaded" videos re-stream after a reload, like the in-memory audio cache.

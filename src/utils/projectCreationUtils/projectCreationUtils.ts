@@ -3,7 +3,6 @@ import * as path from "path";
 import * as semver from "semver";
 import { initializeProjectMetadataAndGit, syncMetadataToConfiguration, isValidCodexProject, generateProjectId, ProjectDetails, sanitizeProjectName, extractProjectIdFromFolderName, validateProjectNameCharacters } from "../../projectManager/utils/projectUtils";
 import { getCodexProjectsDirectory } from "../projectLocationUtils";
-import { openFolderWithToolModeHandoff } from "../toolPreferences";
 
 /**
  * Checks if a folder or any of its parent folders is a Codex project
@@ -54,14 +53,14 @@ export async function createNewWorkspaceAndProject(context?: vscode.ExtensionCon
     }
 
     const projectName = sanitizeProjectName(projectNameInput);
-    
+
     // Check if user input already has a valid UUID suffix - if so, use it instead of generating new
     const existingUuid = extractProjectIdFromFolderName(projectName);
     const projectId = existingUuid || generateProjectId();
-    
+
     // Only append projectId if name doesn't already end with it
-    const fullProjectName = projectName.endsWith(`-${projectId}`) 
-        ? projectName 
+    const fullProjectName = projectName.endsWith(`-${projectId}`)
+        ? projectName
         : `${projectName}-${projectId}`;
 
     if (projectName !== projectNameInput) {
@@ -156,7 +155,7 @@ async function createProjectInNewFolder(folderNameOrProjectName: string, project
     const newFolderUri = vscode.Uri.joinPath(parentFolderUri[0], folderName);
     try {
         await vscode.workspace.fs.createDirectory(newFolderUri);
-        await openFolderWithToolModeHandoff(newFolderUri);
+        await vscode.commands.executeCommand("vscode.openFolder", newFolderUri);
 
         // NOTE: Do NOT call createNewProject here!
         // When the new window opens, the pending state mechanism in extension.ts
@@ -205,7 +204,7 @@ async function createProjectInExistingFolder() {
             return;
         }
 
-        await openFolderWithToolModeHandoff(folderUri[0]);
+        await vscode.commands.executeCommand("vscode.openFolder", folderUri[0]);
         await new Promise((resolve) => setTimeout(resolve, 1000));
         // Generate projectId for this flow (creating in existing folder)
         const projectId = generateProjectId();
@@ -285,7 +284,7 @@ export async function openProject(projectPath: string) {
             );
 
             // Open folder and wait for it to open
-            await openFolderWithToolModeHandoff(uri);
+            await vscode.commands.executeCommand("vscode.openFolder", uri);
 
             // Sync metadata values to configuration after folder is open
             // Note: This doesn't execute immediately as the above command opens a new window

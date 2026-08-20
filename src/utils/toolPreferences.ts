@@ -8,113 +8,25 @@ import { isNativeSqliteReady } from "./nativeSqlite";
 export type AudioToolMode = "auto" | "builtin" | "force-builtin";
 
 const AUDIO_TOOL_MODE_KEY = "toolPreferences.audioToolMode";
-const SQLITE_TOOL_MODE_KEY = "toolPreferences.sqliteToolMode";
-const SESSION_OVERRIDES_KEY = "toolPreferences.sessionOverrides";
-const PROJECT_HANDOFF_KEY = "toolPreferences.projectHandoff";
 
 let cachedContext: vscode.ExtensionContext | undefined;
-type SessionToolOverrides = Partial<{
-    audio: "builtin";
-    git: "builtin";
-    sqlite: "builtin";
-}>;
-interface StoredSessionOverrides {
-    sessionId: string;
-    overrides: SessionToolOverrides;
-}
-interface ProjectToolHandoff {
-    sourceSessionId: string;
-    targetPath: string;
-    createdAt: number;
-    overrides: SessionToolOverrides;
-}
-let sessionOverrides: SessionToolOverrides = {};
-
-const persistSessionOverrides = async (): Promise<void> => {
-    if (!cachedContext) {
-        return;
-    }
-    if (Object.keys(sessionOverrides).length === 0) {
-        await cachedContext.globalState.update(SESSION_OVERRIDES_KEY, undefined);
-        return;
-    }
-    const state: StoredSessionOverrides = {
-        sessionId: vscode.env.sessionId,
-        overrides: sessionOverrides,
-    };
-    await cachedContext.globalState.update(SESSION_OVERRIDES_KEY, state);
-};
 
 export const initToolPreferences = (context: vscode.ExtensionContext): void => {
     cachedContext = context;
-    sessionOverrides = {};
-
-    const stored = context.globalState.get<StoredSessionOverrides>(SESSION_OVERRIDES_KEY);
-    const handoff = context.globalState.get<ProjectToolHandoff>(PROJECT_HANDOFF_KEY);
-    const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-
-    if (
-        handoff &&
-        Date.now() - handoff.createdAt < 120_000 &&
-        handoff.targetPath === workspacePath &&
-        handoff.sourceSessionId !== vscode.env.sessionId
-    ) {
-        sessionOverrides = { ...handoff.overrides };
-        void context.globalState.update(PROJECT_HANDOFF_KEY, undefined);
-        void persistSessionOverrides();
-    } else if (stored?.sessionId === vscode.env.sessionId) {
-        sessionOverrides = { ...stored.overrides };
-    } else {
-        void context.globalState.update(SESSION_OVERRIDES_KEY, undefined);
-        void context.globalState.update(PROJECT_HANDOFF_KEY, undefined);
-    }
-
-    // Migrate the old persistent "builtin" preference into this session only.
-    const persistedAudioMode = context.globalState.get<AudioToolMode>(AUDIO_TOOL_MODE_KEY);
-    if (!sessionOverrides.audio && persistedAudioMode === "builtin") {
-        sessionOverrides.audio = "builtin";
-        void context.globalState.update(AUDIO_TOOL_MODE_KEY, "auto");
-    }
-    const persistedSqliteMode = context.globalState.get<SqliteToolMode>(SQLITE_TOOL_MODE_KEY);
-    if (!sessionOverrides.sqlite && persistedSqliteMode === "builtin") {
-        sessionOverrides.sqlite = "builtin";
-        void context.globalState.update(SQLITE_TOOL_MODE_KEY, "auto");
-    }
-    const persistedGitMode = vscode.workspace
-        .getConfiguration("codex-editor")
-        .get<GitToolMode>("gitBackendMode");
-    if (!sessionOverrides.git && persistedGitMode === "builtin") {
-        sessionOverrides.git = "builtin";
-        void vscode.workspace
-            .getConfiguration("codex-editor")
-            .update("gitBackendMode", "auto", vscode.ConfigurationTarget.Global);
-    }
-    void persistSessionOverrides();
 };
 
 export const getAudioToolMode = (): AudioToolMode => {
     if (!cachedContext) {
         return "auto";
     }
-    const persisted = cachedContext.globalState.get<AudioToolMode>(AUDIO_TOOL_MODE_KEY) ?? "auto";
-    if (persisted === "force-builtin") {
-        return persisted;
-    }
-    return sessionOverrides.audio ?? "auto";
+    return cachedContext.globalState.get<AudioToolMode>(AUDIO_TOOL_MODE_KEY) ?? "auto";
 };
 
 export const setAudioToolMode = async (mode: AudioToolMode): Promise<void> => {
     if (!cachedContext) {
         return;
     }
-    if (mode === "builtin") {
-        sessionOverrides.audio = mode;
-        await cachedContext.globalState.update(AUDIO_TOOL_MODE_KEY, "auto");
-    } else {
-        delete sessionOverrides.audio;
-        await cachedContext.globalState.update(AUDIO_TOOL_MODE_KEY, mode);
-    }
-    await persistSessionOverrides();
+    await cachedContext.globalState.update(AUDIO_TOOL_MODE_KEY, mode);
 };
 
 /**
@@ -145,28 +57,16 @@ let _nativeGitAvailable = false;
  * so they always agree on which git backend to use.
  */
 export const getGitToolMode = (): GitToolMode => {
-    const persisted = vscode.workspace
+    const mode = vscode.workspace
         .getConfiguration("codex-editor")
         .get<GitToolMode>("gitBackendMode");
-    if (persisted === "force-builtin") {
-        return persisted;
-    }
-    return sessionOverrides.git ?? "auto";
+    return mode ?? "auto";
 };
 
 export const setGitToolMode = async (mode: GitToolMode): Promise<void> => {
-    if (mode === "builtin") {
-        sessionOverrides.git = mode;
-        await vscode.workspace
-            .getConfiguration("codex-editor")
-            .update("gitBackendMode", "auto", vscode.ConfigurationTarget.Global);
-    } else {
-        delete sessionOverrides.git;
-        await vscode.workspace
-            .getConfiguration("codex-editor")
-            .update("gitBackendMode", mode, vscode.ConfigurationTarget.Global);
-    }
-    await persistSessionOverrides();
+    await vscode.workspace
+        .getConfiguration("codex-editor")
+        .update("gitBackendMode", mode, vscode.ConfigurationTarget.Global);
 };
 
 export const setNativeGitAvailable = (available: boolean): void => {
@@ -199,55 +99,37 @@ export const shouldUseNativeGit = (): boolean => {
 
 export type SqliteToolMode = "auto" | "builtin" | "force-builtin";
 
+const SQLITE_TOOL_MODE_KEY = "toolPreferences.sqliteToolMode";
+
 export const getSqliteToolMode = (): SqliteToolMode => {
     if (!cachedContext) {
         return "auto";
     }
-    const persisted = cachedContext.globalState.get<SqliteToolMode>(SQLITE_TOOL_MODE_KEY) ?? "auto";
-    if (persisted === "force-builtin") {
-        return persisted;
-    }
-    return sessionOverrides.sqlite ?? "auto";
+    return cachedContext.globalState.get<SqliteToolMode>(SQLITE_TOOL_MODE_KEY) ?? "auto";
 };
 
 export const setSqliteToolMode = async (mode: SqliteToolMode): Promise<void> => {
     if (!cachedContext) {
         return;
     }
-    if (mode === "builtin") {
-        sessionOverrides.sqlite = mode;
-        await cachedContext.globalState.update(SQLITE_TOOL_MODE_KEY, "auto");
-    } else {
-        delete sessionOverrides.sqlite;
-        await cachedContext.globalState.update(SQLITE_TOOL_MODE_KEY, mode);
-    }
-    await persistSessionOverrides();
+    await cachedContext.globalState.update(SQLITE_TOOL_MODE_KEY, mode);
 };
 
 /**
- * Preserve a temporary compatibility choice when Codex intentionally opens
- * another project window. A normal application restart has no handoff marker,
- * so the choice expires with the previous editor session.
+ * "builtin" is a session-level compatibility choice. On the next extension
+ * activation, retry optimized tools unless the user explicitly selected the
+ * persistent "force-builtin" lock.
  */
-export const markProjectToolModeHandoff = async (targetUri: vscode.Uri): Promise<void> => {
-    if (!cachedContext || Object.keys(sessionOverrides).length === 0) {
-        return;
+export const resetTemporaryBuiltinModesOnStartup = async (): Promise<void> => {
+    if (getAudioToolMode() === "builtin") {
+        await setAudioToolMode("auto");
     }
-    const handoff: ProjectToolHandoff = {
-        sourceSessionId: vscode.env.sessionId,
-        targetPath: targetUri.fsPath,
-        createdAt: Date.now(),
-        overrides: { ...sessionOverrides },
-    };
-    await cachedContext.globalState.update(PROJECT_HANDOFF_KEY, handoff);
-};
-
-export const openFolderWithToolModeHandoff = async (
-    targetUri: vscode.Uri,
-    newWindow?: boolean,
-): Promise<void> => {
-    await markProjectToolModeHandoff(targetUri);
-    await vscode.commands.executeCommand("vscode.openFolder", targetUri, newWindow);
+    if (getGitToolMode() === "builtin") {
+        await setGitToolMode("auto");
+    }
+    if (getSqliteToolMode() === "builtin") {
+        await setSqliteToolMode("auto");
+    }
 };
 
 /**

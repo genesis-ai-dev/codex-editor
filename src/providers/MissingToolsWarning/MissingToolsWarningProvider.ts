@@ -504,6 +504,7 @@ export class MissingToolsWarningProvider {
             gitToolMode: getGitToolMode(),
             sqliteToolMode: getSqliteToolMode(),
             platformUnsupported: updated.platformUnsupported,
+            nativePlatformSupported: updated.nativePlatformSupported,
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
     }
@@ -651,6 +652,7 @@ export class MissingToolsWarningProvider {
             nativeSqliteAvailable: result.nativeSqliteAvailable,
             ffmpeg: result.ffmpeg,
             platformUnsupported: result.platformUnsupported,
+            nativePlatformSupported: result.nativePlatformSupported,
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
     }
@@ -668,6 +670,7 @@ export class MissingToolsWarningProvider {
             gitToolMode: getGitToolMode(),
             sqliteToolMode: getSqliteToolMode(),
             platformUnsupported: result.platformUnsupported,
+            nativePlatformSupported: result.nativePlatformSupported,
             ...flags,
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
@@ -693,6 +696,7 @@ export class MissingToolsWarningProvider {
             nativeSqliteAvailable: result.nativeSqliteAvailable,
             ffmpeg: result.ffmpeg,
             platformUnsupported: result.platformUnsupported,
+            nativePlatformSupported: result.nativePlatformSupported,
             mode,
         };
 
