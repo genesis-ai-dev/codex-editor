@@ -2210,6 +2210,14 @@ export async function resolveMetadataJsonConflict(conflict: ConflictFile): Promi
 
         // 2. Generic 3-Way Merge for the rest of the file
         // This ensures we don't lose other metadata changes from remote
+
+        // A blank or key-less `theirs` means the remote blob could not be read
+        // (e.g. an incomplete fetch swallowed upstream), not that every field
+        // was deleted remotely — a real metadata.json always has keys. Disarm
+        // the remote-deletion rule so absences fall back to keeping ours.
+        const theirsIsTrustworthy =
+            (conflict.theirs || "").trim().length > 0 && Object.keys(theirs).length > 0;
+
         const mergeObjects = (baseObj: any, ourObj: any, theirObj: any, path: string[] = []): any => {
             // Use local if not object (or array)
             if (typeof ourObj !== 'object' || ourObj === null || Array.isArray(ourObj)) {
@@ -2260,7 +2268,8 @@ export async function resolveMetadataJsonConflict(conflict: ConflictFile): Promi
                 // If ours didn't change it since base, honor the deletion by leaving the
                 // key out entirely — before the object recursion below, which would
                 // otherwise rebuild a deleted object piece by piece from ours (#1105).
-                if (tVal === undefined && bVal !== undefined && JSON.stringify(oVal) === JSON.stringify(bVal)) {
+                if (theirsIsTrustworthy && tVal === undefined && bVal !== undefined && JSON.stringify(oVal) === JSON.stringify(bVal)) {
+                    debugLog(`[Metadata Merge] Honoring remote deletion of ${[...path, key].join(".")}`);
                     continue;
                 }
 

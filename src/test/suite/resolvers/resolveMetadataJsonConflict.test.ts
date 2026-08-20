@@ -164,4 +164,31 @@ suite("Resolver unit: resolveMetadataJsonConflict — remote deletions (#1105)",
         assert.strictEqual(result.meta.generator.softwareVersion, "0.22.1",
             "machine B's own local change still merges normally");
     });
+
+    test("theirs is an empty string (unreadable remote blob) → ours is kept, nothing treated as deleted", async () => {
+        // frontier-authentication swallows readBlobAtRef failures, so an
+        // incomplete fetch can produce theirs: "" with isDeleted: false. That
+        // must not read as "the remote deleted every field".
+        const base = baseMetadata();
+        const ours = baseMetadata();
+
+        const conflict = makeConflict(base, ours, {});
+        conflict.theirs = "";
+        const result = JSON.parse(await resolveMetadataJsonConflict(conflict));
+
+        assert.strictEqual(result.projectName, "Test Project");
+        assert.deepStrictEqual(result.meta.pinnedExtensions, pins,
+            "an unreadable remote must not wipe locally-unchanged fields");
+    });
+
+    test("theirs is an empty object → ours is kept, nothing treated as deleted", async () => {
+        const base = baseMetadata();
+        const ours = baseMetadata();
+
+        const result = JSON.parse(await resolveMetadataJsonConflict(makeConflict(base, ours, {})));
+
+        assert.strictEqual(result.projectName, "Test Project");
+        assert.deepStrictEqual(result.meta.pinnedExtensions, pins,
+            "a key-less remote file means 'could not read', not 'deleted everything'");
+    });
 });
