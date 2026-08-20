@@ -20,7 +20,7 @@
     "activationEvents": [
         "onCustomEditor:newSourceUploaderProvider-scheme",
         "onCustomEditor:startupFlowProvider-scheme",
-        "*"
+        "onStartupFinished"
     ],
     "main": "./out/extension.js",
     "permissions": [
