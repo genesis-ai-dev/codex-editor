@@ -165,9 +165,12 @@ export function getFallbackToolsNotice(result: ToolCheckResult): string | null {
             impact: "Audio is WAV-only",
         },
     ];
+    // A user-selected or administratively locked compatibility mode is
+    // intentional. Only report compatibility that is active unexpectedly
+    // because the optimized implementation is unavailable.
     const fallbackTools = tools.filter(
         ({ nativeAvailable, mode }) =>
-            !nativeAvailable || mode === "builtin" || mode === "force-builtin",
+            !nativeAvailable && mode !== "builtin" && mode !== "force-builtin",
     );
 
     if (fallbackTools.length === 0) {
@@ -192,20 +195,6 @@ export function getFallbackToolsNotice(result: ToolCheckResult): string | null {
                 .map(({ label }) => label),
             message: (labels: string[]) =>
                 `Optimized ${formatToolList(labels)} tools aren't available.`,
-        },
-        {
-            labels: fallbackTools
-                .filter(({ nativeAvailable, mode }) => nativeAvailable && mode === "builtin")
-                .map(({ label }) => label),
-            message: (labels: string[]) =>
-                `Compatibility mode is selected for ${formatToolList(labels)}.`,
-        },
-        {
-            labels: fallbackTools
-                .filter(({ nativeAvailable, mode }) => nativeAvailable && mode === "force-builtin")
-                .map(({ label }) => label),
-            message: (labels: string[]) =>
-                `Compatibility mode is locked for ${formatToolList(labels)}.`,
         },
     ]
         .filter(({ labels }) => labels.length > 0)

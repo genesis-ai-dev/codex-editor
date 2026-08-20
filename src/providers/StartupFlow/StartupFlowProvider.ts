@@ -30,6 +30,7 @@ import { performProjectSwap } from "./performProjectSwap";
 import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
 import archiver from "archiver";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
+import { openFolderWithToolModeHandoff } from "../../utils/toolPreferences";
 
 import { safePostMessageToPanel, safeIsVisible, safeSetHtml, safeSetOptions } from "../../utils/webviewUtils";
 import * as path from "path";
@@ -1183,7 +1184,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     title: "Select Project Folder",
                 });
                 if (result && result[0]) {
-                    await vscode.commands.executeCommand("vscode.openFolder", result[0]);
+                    await openFolderWithToolModeHandoff(result[0]);
                 }
                 break;
             }
@@ -1205,7 +1206,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     if (folderName) {
                         const projectPath = vscode.Uri.joinPath(result[0], folderName);
                         await vscode.workspace.fs.createDirectory(projectPath);
-                        await vscode.commands.executeCommand("vscode.openFolder", projectPath);
+                        await openFolderWithToolModeHandoff(projectPath);
                     }
                 }
                 break;
@@ -2135,7 +2136,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                     // Open the project directly
                     const projectUri = vscode.Uri.file(projectPath);
-                    await vscode.commands.executeCommand("vscode.openFolder", projectUri);
+                    await openFolderWithToolModeHandoff(projectUri);
 
                 } catch (error) {
                     console.error("Error opening project:", error);
@@ -3704,7 +3705,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     debugLog(`Successfully changed media strategy to "${mediaStrategy}"`);
                     // Open the project after applying strategy
                     try {
-                        await vscode.commands.executeCommand("vscode.openFolder", projectUri);
+                        await openFolderWithToolModeHandoff(projectUri);
                     } catch (openErr) {
                         debugLog("Failed to open project after strategy change", openErr);
                     }
@@ -4037,7 +4038,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                         // 8. Open the project
                         progress.report({ message: "Opening project..." });
-                        await vscode.commands.executeCommand("vscode.openFolder", newProjectUri);
+                        await openFolderWithToolModeHandoff(newProjectUri);
                     });
 
                 } catch (error) {
@@ -5243,7 +5244,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 console.error("Failed to set update flags:", flagErr);
             }
         }
-        await vscode.commands.executeCommand("vscode.openFolder", updatedUri, false);
+        await openFolderWithToolModeHandoff(updatedUri, false);
         return;
     }
 

@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { ProjectUserVersionEntry } from "@types";
 import { addProjectMetadataEdit } from "./editMapUtils";
+import { openFolderWithToolModeHandoff } from "./toolPreferences";
 
 /**
  * Simple metadata manager for reading and writing metadata.json.
@@ -307,7 +308,7 @@ export class MetadataManager {
             await this.waitForPendingWrites(undefined, 10000);
         }
 
-        await vscode.commands.executeCommand("vscode.openFolder", targetUri, newWindow);
+        await openFolderWithToolModeHandoff(targetUri, newWindow);
     }
 
     /**
