@@ -154,7 +154,7 @@ export function getFallbackToolsNotice(result: ToolCheckResult): string | null {
             mode: getGitToolMode(),
             unsupported: result.platformUnsupported.git,
             nativePlatformSupported: result.nativePlatformSupported.git,
-            impact: "Sync may be limited",
+            impact: "Sync may be slower and can make synchronized project files grow larger for everyone",
         },
         {
             label: "Audio",
@@ -168,9 +168,9 @@ export function getFallbackToolsNotice(result: ToolCheckResult): string | null {
         },
     ];
     const fallbackTools = tools.filter(
-        ({ nativeAvailable, mode, nativePlatformSupported }) =>
+        ({ nativeAvailable, mode }) =>
             mode !== "force-builtin"
-            && (!nativeAvailable || mode === "builtin" || !nativePlatformSupported),
+            && (!nativeAvailable || mode === "builtin"),
     );
 
     if (fallbackTools.length === 0) {

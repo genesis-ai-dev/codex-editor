@@ -235,7 +235,7 @@ let authApi: FrontierAPI | undefined;
 let savedTabLayout: any[] = [];
 const TAB_LAYOUT_KEY = "codexEditor.tabLayout";
 const FALLBACK_NOTICE_STATE_KEY = "codex.fallbackToolsNotice";
-const FALLBACK_NOTICE_DISMISSALS = 5;
+const FALLBACK_NOTICE_DISMISSALS = 10;
 
 interface FallbackNoticeState {
     fallbackSignature: string;
@@ -1646,18 +1646,18 @@ async function executeCommandsAfter(
                 ? vscode.window.showWarningMessage(
                     fallbackToolsNotice,
                     "Use Optimized Tools",
-                    "Don't show for 5 restarts",
+                    "Don't show for 10 restarts",
                     "Dismiss",
                 )
                 : vscode.window.showWarningMessage(
                     fallbackToolsNotice,
-                    "Don't show for 5 restarts",
+                    "Don't show for 10 restarts",
                     "Dismiss",
                 );
             void Promise.resolve(warningMessage).then(async (choice) => {
                 if (choice === "Use Optimized Tools") {
                     await applyOptimizedTools(context, optimizedToolKeys);
-                } else if (choice === "Don't show for 5 restarts") {
+                } else if (choice === "Don't show for 10 restarts") {
                     await snoozeFallbackNotice(context, fallbackToolsNotice);
                 }
             }).catch((error: unknown) => {

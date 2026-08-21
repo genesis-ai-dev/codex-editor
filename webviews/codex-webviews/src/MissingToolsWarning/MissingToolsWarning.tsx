@@ -443,7 +443,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
         && !isBuiltinMode(sqliteToolMode)
         && status.nativeGitAvailable && status.nativePlatformSupported.git
         && !isBuiltinMode(gitToolMode)
-        && status.ffmpeg && status.nativePlatformSupported.ffmpeg
+        && status.ffmpeg
         && !isBuiltinMode(audioToolMode);
 
     const getToolState = (
@@ -462,8 +462,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
         const statusLabel =
             unsupported ? "Not available on this platform"
             : forced ? "Fallback Tools (locked)"
-            : nativeAvailable && !usingBuiltIn && nativePlatformSupported ? "Installed and Running Native Tools"
-            : nativeAvailable && !usingBuiltIn ? "Running Emulated Fallback Tools"
+            : nativeAvailable && !usingBuiltIn ? "Installed and Running Native Tools"
             : nativeAvailable && usingBuiltIn ? "Installed and Running Fallback Tools"
             : operational ? "Fallback Tools Active"
             : nativePlatformSupported ? "Native Tools Not Installed"
@@ -474,7 +473,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
             : nativeAvailable ? "Use Fallback Tools"
             : undefined;
         const showDownload = !forced && !nativeAvailable && !unsupported;
-        const showToggle = forced || nativeAvailable;
+        const showToggle = !unsupported && (forced || nativeAvailable);
 
         return { forced, usingBuiltIn, severity, statusLabel, toggleLabel, showDownload, showToggle };
     };
@@ -577,8 +576,6 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         description={
                             status.platformUnsupported.ffmpeg
                                 ? "Native audio tools are not available on this device. Codex is using fallback tools with limited format support (.wav only)."
-                                : status.ffmpeg && !status.nativePlatformSupported.ffmpeg
-                                    ? "Audio tools are emulating x64 on ARM64."
                                 : audio.usingBuiltIn
                                     ? TOOL_INFO.ffmpeg.descriptions.limited
                                     : TOOL_INFO.ffmpeg.descriptions.available
