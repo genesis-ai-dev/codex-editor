@@ -130,7 +130,31 @@ function formatToolList(labels: string[]): string {
     if (labels.length === 2) {
         return `${labels[0]} and ${labels[1]}`;
     }
-    return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
+    return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+}
+
+function getToolImpactNotice(labels: string[]): string {
+    const notices: string[] = [];
+    const hasSearch = labels.includes("Search");
+    const hasSync = labels.includes("Sync");
+
+    if (hasSearch && hasSync) {
+        notices.push(
+            "Search and Sync may be slower, and Sync may make synchronized project files grow larger for everyone on the project",
+        );
+    } else if (hasSearch) {
+        notices.push("Search may be slower");
+    } else if (hasSync) {
+        notices.push(
+            "Sync may be slower and may make synchronized project files grow larger for everyone on the project",
+        );
+    }
+
+    if (labels.includes("Audio")) {
+        notices.push("Audio is limited to WAV format");
+    }
+
+    return `${notices.join(". ")}.`;
 }
 
 /**
@@ -146,7 +170,6 @@ export function getFallbackToolsNotice(result: ToolCheckResult): string | null {
             mode: getSqliteToolMode(),
             unsupported: result.platformUnsupported.sqlite,
             nativePlatformSupported: result.nativePlatformSupported.sqlite,
-            impact: "Search may be slower",
         },
         {
             label: "Sync",
@@ -154,7 +177,6 @@ export function getFallbackToolsNotice(result: ToolCheckResult): string | null {
             mode: getGitToolMode(),
             unsupported: result.platformUnsupported.git,
             nativePlatformSupported: result.nativePlatformSupported.git,
-            impact: "Sync may be slower and can make synchronized project files grow larger for everyone",
         },
         {
             label: "Audio",
@@ -162,9 +184,6 @@ export function getFallbackToolsNotice(result: ToolCheckResult): string | null {
             mode: getAudioToolMode(),
             unsupported: result.platformUnsupported.ffmpeg,
             nativePlatformSupported: result.nativePlatformSupported.ffmpeg,
-            impact: result.nativePlatformSupported.ffmpeg
-                ? "Audio may be limited"
-                : "Audio is running through x64 emulation",
         },
     ];
     const fallbackTools = tools.filter(
@@ -177,8 +196,7 @@ export function getFallbackToolsNotice(result: ToolCheckResult): string | null {
         return null;
     }
 
-    const fallbackLabels = formatToolList(fallbackTools.map(({ label }) => label));
-    const impactNotice = formatToolList(fallbackTools.map(({ impact }) => impact));
+    const impactNotice = getToolImpactNotice(fallbackTools.map(({ label }) => label));
     const reasonNotices = [
         {
             labels: fallbackTools
@@ -207,7 +225,7 @@ export function getFallbackToolsNotice(result: ToolCheckResult): string | null {
         .filter(({ labels }) => labels.length > 0)
         .map(({ labels, message }) => message(labels));
 
-    return `Compatibility mode active for ${fallbackLabels}. ${impactNotice}. ${reasonNotices.join(" ")}`;
+    return `${impactNotice} ${reasonNotices.join(" ")}`;
 }
 
 export type OptimizedToolKey = "sqlite" | "git" | "ffmpeg";
