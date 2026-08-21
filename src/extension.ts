@@ -89,6 +89,7 @@ import {
     getAudioToolMode,
 } from "./utils/toolPreferences";
 import { downloadFFmpeg } from "./utils/ffmpegManager";
+import { updateNativeToolStatus } from "./utils/nativeToolStatus";
 import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
 // markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
@@ -813,6 +814,18 @@ export async function activate(context: vscode.ExtensionContext) {
             unavailableTools = getUnavailableTools(toolCheckResult);
         }
         stepStart = trackTiming("Checking tool availability", toolCheckStart);
+
+        if (metadataExists && workspaceFolders?.[0]) {
+            try {
+                await updateNativeToolStatus(
+                    workspaceFolders[0].uri,
+                    toolCheckResult,
+                    authApi,
+                );
+            } catch (error) {
+                console.warn("[Extension] Could not update native tool status in metadata:", error);
+            }
+        }
 
         const toolState = (nativeAvailable: boolean, mode: string): string => {
             const forced = mode === "force-builtin";

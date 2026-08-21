@@ -210,6 +210,13 @@ export class MetadataManager {
                 };
             }
 
+            // Avoid rewriting metadata.json when an update function detects
+            // no semantic change. This is important for status snapshots,
+            // which are checked on every project open.
+            if (JSON.stringify(originalMetadata) === jsonContent) {
+                return { success: true, metadata: updatedMetadata };
+            }
+
             // Step 4: Direct write - simple, like every other file
             const encoded = new TextEncoder().encode(jsonContent);
             await vscode.workspace.fs.writeFile(metadataPath, encoded);

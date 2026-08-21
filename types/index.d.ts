@@ -1307,6 +1307,14 @@ type ProjectUserVersionEntry = {
     updatedAt: number;
 };
 
+export type NativeToolKey = "search" | "sync" | "audio";
+
+export type NativeToolStatusEntry = {
+    username: string;
+    timestamp: number;
+    nonNative: NativeToolKey[];
+};
+
 /* This is the project metadata that is saved in the metadata.json file */
 type ProjectMetadata = {
     projectName?: string;
@@ -1350,6 +1358,7 @@ type ProjectMetadata = {
         /** List of users that should be forced to restore/update their project when opening */
         initiateRemoteUpdatingFor?: RemoteUpdatingEntry[];
         abbreviation?: string;
+        nativeToolStatus?: NativeToolStatusEntry[];
         /** Project swap information for swapping to a new Git repository */
         projectSwap?: ProjectSwapInfo;
     };

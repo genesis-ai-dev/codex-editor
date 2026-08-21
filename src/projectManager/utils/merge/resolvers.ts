@@ -15,6 +15,7 @@ import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory, ProjectUserVersionEntry } from "../../../../types/index.d";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
+import { normalizeNativeToolStatusEntries } from "../../../utils/nativeToolStatus";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
 import { formatJsonForNotebookFile } from "../../../utils/notebookFileFormattingUtils";
 import { ORPHANED_PROJECT_FILES } from "../../../utils/fileUtils";
@@ -1954,6 +1955,25 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
                         // Top-level field (e.g., ["projectName"], ["languages"])
                         const field = path[0];
                         metadata[field] = value;
+                    } else if (
+                        path.length === 3
+                        && path[0] === "meta"
+                        && path[1] === "nativeToolStatus"
+                    ) {
+                        const username = path[2];
+                        const currentEntries = normalizeNativeToolStatusEntries(
+                            metadata.meta?.nativeToolStatus,
+                        );
+                        if (value && typeof value === "object") {
+                            const nextEntries = normalizeNativeToolStatusEntries([
+                                ...currentEntries.filter((entry) => entry.username !== username),
+                                { ...(value as Record<string, unknown>), username },
+                            ]);
+                            metadata.meta = {
+                                ...(metadata.meta || {}),
+                                nativeToolStatus: nextEntries,
+                            };
+                        }
                     } else if (path.length === 2 && path[0] === "meta") {
                         // Meta field edit (e.g., ["meta", "validationCount"], ["meta", "generator"])
                         if (!metadata.meta) {

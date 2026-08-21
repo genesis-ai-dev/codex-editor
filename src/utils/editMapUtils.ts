@@ -29,6 +29,7 @@ type ProjectNameEditMap = ["projectName"];
 type MetaGeneratorEditMap = ["meta", "generator"];
 type MetaEditMap = ["meta"];
 type MetaFieldEditMap = ["meta", string];
+type NativeToolStatusEditMap = ["meta", "nativeToolStatus", string];
 type LanguagesEditMap = ["languages"];
 type DeletedCorpusMarkerEditMap = ["deletedCorpusMarker"];
 type DeletedFileEditMap = ["deletedFile"];
@@ -160,6 +161,10 @@ export const EditMapUtils = {
 
     metaField(field: string): readonly ["meta", string] {
         return ["meta", field];
+    },
+
+    nativeToolStatus(username: string): NativeToolStatusEditMap {
+        return ["meta", "nativeToolStatus", username];
     },
 
     languages(): LanguagesEditMap {
@@ -335,20 +340,19 @@ export function addProjectMetadataEdit(
     metadata: { edits?: any[]; },
     editMap: readonly string[],
     value: any,
-    author: string
+    author: string,
+    timestamp: number = Date.now(),
 ): void {
     // Initialize edits array if it doesn't exist
     if (!metadata.edits) {
         metadata.edits = [];
     }
 
-    const currentTimestamp = Date.now();
-
     // Create the new edit entry
     const newEdit = {
         editMap,
         value,
-        timestamp: currentTimestamp,
+        timestamp,
         type: EditType.USER_EDIT,
         author,
     };
