@@ -1480,211 +1480,211 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             debugLog("Skipping update check (offline open requested)");
                         }
                         if (!skipUpdateCheck) {
-                        debugLog("Checking remote update requirement for project:", projectPath);
-                        const { checkRemoteProjectRequirements } = await import("../../utils/remoteUpdatingManager");
-                        // Pass true for bypassCache to ensure we verify connectivity before deciding to update
-                        const remoteResult = await checkRemoteProjectRequirements(projectPath, undefined, true);
-                        remoteProjectRequirements = remoteResult;
-                        // Capture the remote metadata for version checks (available since remote was fetched)
-                        fetchedRemoteMetadata = (remoteResult as { remoteMetadata?: typeof fetchedRemoteMetadata; }).remoteMetadata;
+                            debugLog("Checking remote update requirement for project:", projectPath);
+                            const { checkRemoteProjectRequirements } = await import("../../utils/remoteUpdatingManager");
+                            // Pass true for bypassCache to ensure we verify connectivity before deciding to update
+                            const remoteResult = await checkRemoteProjectRequirements(projectPath, undefined, true);
+                            remoteProjectRequirements = remoteResult;
+                            // Capture the remote metadata for version checks (available since remote was fetched)
+                            fetchedRemoteMetadata = (remoteResult as { remoteMetadata?: typeof fetchedRemoteMetadata; }).remoteMetadata;
 
-                        if (remoteProjectRequirements.updateRequired) {
-                            debugLog("Remote update required for user:", remoteProjectRequirements.currentUsername);
-                            try {
-                                await markPendingUpdateRequired(vscode.Uri.file(projectPath), "Remote requirement");
-                            } catch (e) {
-                                debugLog("Failed to persist pending update flag", e);
-                            }
-                            shouldUpdate = true;
-                            updatingReason = "Remote requirement";
-                        } else {
-                            debugLog("No remote update required:", remoteProjectRequirements?.updateReason);
-                            const projectUri = vscode.Uri.file(projectPath);
-
-                            // 1. Check for an in-progress update (backup/clone state)
-                            const hasLocalPending = await this.hasPendingLocalUpdate(projectPath);
-                            if (hasLocalPending) {
-                                debugLog("Local update state present; continuing update even though remote no longer requires it");
+                            if (remoteProjectRequirements.updateRequired) {
+                                debugLog("Remote update required for user:", remoteProjectRequirements.currentUsername);
                                 try {
-                                    await markPendingUpdateRequired(projectUri, "Local pending update");
+                                    await markPendingUpdateRequired(vscode.Uri.file(projectPath), "Remote requirement");
                                 } catch (e) {
-                                    debugLog("Failed to persist pending update flag for local pending state", e);
+                                    debugLog("Failed to persist pending update flag", e);
                                 }
                                 shouldUpdate = true;
-                                updatingReason = "Local pending update";
-                            }
+                                updatingReason = "Remote requirement";
+                            } else {
+                                debugLog("No remote update required:", remoteProjectRequirements?.updateReason);
+                                const projectUri = vscode.Uri.file(projectPath);
 
-                            // 2. Check pendingUpdate sticky flag – does NOT need a username
-                            if (!shouldUpdate) {
-                                try {
-                                    const localSettings = await readLocalProjectSettings(projectUri);
-                                    if (localSettings.pendingUpdate?.required) {
-                                        debugLog("pendingUpdate sticky flag set in localProjectSettings, triggering update");
-                                        shouldUpdate = true;
-                                        updatingReason = "Pending update (local flag)";
-                                    }
-                                } catch (e) {
-                                    debugLog("Error reading localProjectSettings for pendingUpdate check", e);
-                                }
-                            }
-
-                            // 3. Check local metadata.json entries (requires username)
-                            if (!shouldUpdate) {
-                                let currentUsername = remoteProjectRequirements?.currentUsername;
-                                if (!currentUsername) {
+                                // 1. Check for an in-progress update (backup/clone state)
+                                const hasLocalPending = await this.hasPendingLocalUpdate(projectPath);
+                                if (hasLocalPending) {
+                                    debugLog("Local update state present; continuing update even though remote no longer requires it");
                                     try {
-                                        const { getCurrentUsername } = await import("../../utils/remoteUpdatingManager");
-                                        currentUsername = (await getCurrentUsername()) ?? undefined;
-                                    } catch {
-                                        // non-fatal
+                                        await markPendingUpdateRequired(projectUri, "Local pending update");
+                                    } catch (e) {
+                                        debugLog("Failed to persist pending update flag for local pending state", e);
                                     }
+                                    shouldUpdate = true;
+                                    updatingReason = "Local pending update";
                                 }
 
-                                if (currentUsername) {
+                                // 2. Check pendingUpdate sticky flag – does NOT need a username
+                                if (!shouldUpdate) {
                                     try {
-                                        const metaResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
-                                        if (metaResult.success && metaResult.metadata) {
-                                            const { normalizeUpdateEntry, isEffectivelyCancelled } = await import("../../utils/remoteUpdatingManager");
-                                            const entries = (metaResult.metadata.meta?.initiateRemoteUpdatingFor ?? [])
-                                                .map((e: any) => normalizeUpdateEntry(e));
-                                            const hasActiveEntry = entries.some(
-                                                (e) => e.userToUpdate === currentUsername && !e.executed && !isEffectivelyCancelled(e)
-                                            );
-                                            if (hasActiveEntry) {
-                                                debugLog("Active update entry found in local metadata.json for user:", currentUsername);
-                                                try {
-                                                    await markPendingUpdateRequired(projectUri, "Detected from local metadata on open");
-                                                } catch (e) {
-                                                    debugLog("Failed to persist pending update flag from local metadata", e);
-                                                }
-                                                shouldUpdate = true;
-                                                updatingReason = "Local metadata requirement";
-                                            }
+                                        const localSettings = await readLocalProjectSettings(projectUri);
+                                        if (localSettings.pendingUpdate?.required) {
+                                            debugLog("pendingUpdate sticky flag set in localProjectSettings, triggering update");
+                                            shouldUpdate = true;
+                                            updatingReason = "Pending update (local flag)";
                                         }
                                     } catch (e) {
-                                        debugLog("Error checking local metadata entries", e);
+                                        debugLog("Error reading localProjectSettings for pendingUpdate check", e);
+                                    }
+                                }
+
+                                // 3. Check local metadata.json entries (requires username)
+                                if (!shouldUpdate) {
+                                    let currentUsername = remoteProjectRequirements?.currentUsername;
+                                    if (!currentUsername) {
+                                        try {
+                                            const { getCurrentUsername } = await import("../../utils/remoteUpdatingManager");
+                                            currentUsername = (await getCurrentUsername()) ?? undefined;
+                                        } catch {
+                                            // non-fatal
+                                        }
+                                    }
+
+                                    if (currentUsername) {
+                                        try {
+                                            const metaResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
+                                            if (metaResult.success && metaResult.metadata) {
+                                                const { normalizeUpdateEntry, isEffectivelyCancelled } = await import("../../utils/remoteUpdatingManager");
+                                                const entries = (metaResult.metadata.meta?.initiateRemoteUpdatingFor ?? [])
+                                                    .map((e: any) => normalizeUpdateEntry(e));
+                                                const hasActiveEntry = entries.some(
+                                                    (e) => e.userToUpdate === currentUsername && !e.executed && !isEffectivelyCancelled(e)
+                                                );
+                                                if (hasActiveEntry) {
+                                                    debugLog("Active update entry found in local metadata.json for user:", currentUsername);
+                                                    try {
+                                                        await markPendingUpdateRequired(projectUri, "Detected from local metadata on open");
+                                                    } catch (e) {
+                                                        debugLog("Failed to persist pending update flag from local metadata", e);
+                                                    }
+                                                    shouldUpdate = true;
+                                                    updatingReason = "Local metadata requirement";
+                                                }
+                                            }
+                                        } catch (e) {
+                                            debugLog("Error checking local metadata entries", e);
+                                        }
                                     }
                                 }
                             }
-                        }
-                        if (shouldUpdate) {
-                            // ── Version gate: block update if extensions are outdated ──
-                            // Checks both local and remote metadata requiredExtensions + REQUIRED_FRONTIER_VERSION
-                            try {
-                                const { ensureExtensionVersionsForSwapOrUpdate } = await import("../../utils/versionGate");
-                                const versionCheck = await ensureExtensionVersionsForSwapOrUpdate(projectPath, {
-                                    remoteMetadata: fetchedRemoteMetadata,
-                                    operationLabel: "To update the project",
-                                });
-                                if (!versionCheck.allowed) {
-                                    // Modal was already shown – abort the update (and opening)
+                            if (shouldUpdate) {
+                                // ── Version gate: block update if extensions are outdated ──
+                                // Checks both local and remote metadata requiredExtensions + REQUIRED_FRONTIER_VERSION
+                                try {
+                                    const { ensureExtensionVersionsForSwapOrUpdate } = await import("../../utils/versionGate");
+                                    const versionCheck = await ensureExtensionVersionsForSwapOrUpdate(projectPath, {
+                                        remoteMetadata: fetchedRemoteMetadata,
+                                        operationLabel: "To update the project",
+                                    });
+                                    if (!versionCheck.allowed) {
+                                        // Modal was already shown – abort the update (and opening)
+                                        return;
+                                    }
+                                } catch (versionErr) {
+                                    debugLog("Version check for update failed (non-fatal, allowing update):", versionErr);
+                                }
+
+                                const updateConfirmation = await vscode.window.showWarningMessage(
+                                    "Project Update Required\n\n" +
+                                    "An administrator has made changes that require updating your project. " +
+                                    "The project will be re-downloaded to apply the latest changes.\n\n" +
+                                    "Your local changes will be preserved and backed up.",
+                                    { modal: true },
+                                    "Update Project"
+                                );
+
+                                if (updateConfirmation !== "Update Project") {
+                                    debugLog("User declined project update from projects list");
+                                    this.safeSendMessage({
+                                        command: "project.openingInProgress",
+                                        projectPath,
+                                        opening: false,
+                                    } as any);
                                     return;
                                 }
-                            } catch (versionErr) {
-                                debugLog("Version check for update failed (non-fatal, allowing update):", versionErr);
-                            }
 
-                            const updateConfirmation = await vscode.window.showWarningMessage(
-                                "Project Update Required\n\n" +
-                                "An administrator has made changes that require updating your project. " +
-                                "The project will be re-downloaded to apply the latest changes.\n\n" +
-                                "Your local changes will be preserved and backed up.",
-                                { modal: true },
-                                "Update Project"
-                            );
+                                remoteUpdateWasPerformed = true;
 
-                            if (updateConfirmation !== "Update Project") {
-                                debugLog("User declined project update from projects list");
-                                this.safeSendMessage({
-                                    command: "project.openingInProgress",
-                                    projectPath,
-                                    opening: false,
-                                } as any);
-                                return;
-                            }
-
-                            remoteUpdateWasPerformed = true;
-
-                            // Inform webview that updating is starting (not opening)
-                            try {
-                                this.safeSendMessage({
-                                    command: "project.updatingInProgress",
-                                    projectPath,
-                                    updating: true,
-                                } as any);
-                            } catch (e) {
-                                // non-fatal
-                            }
-
-                            // Show notification and perform update
-                            await vscode.window.withProgress(
-                                {
-                                    location: vscode.ProgressLocation.Notification,
-                                    title: updatingReason === "Remote requirement"
-                                        ? "Project administrator requires update"
-                                        : "Continuing update",
-                                    cancellable: false,
-                                },
-                                async (progress) => {
-                                    progress.report({ message: "Updating project..." });
-
-                                    // Get project name for the update process
-                                    const projectName = projectPath.split(/[\\/]/).pop() || "project";
-
-                                    // Get git origin URL
-                                    const dugiteGitModule = await import("../../utils/dugiteGit");
-                                    const remotes = await dugiteGitModule.listRemotes(projectPath);
-                                    const origin = remotes.find((r) => r.remote === "origin");
-
-                                    if (!origin) {
-                                        throw new Error("No git origin found for project");
-                                    }
-
-                                    // Perform the update operation (suppress success message, we'll show it after opening)
-                                    // Username is passed so local flag can be set BEFORE window reload
-                                    await this.performProjectUpdate(
-                                        progress,
-                                        projectName,
+                                // Inform webview that updating is starting (not opening)
+                                try {
+                                    this.safeSendMessage({
+                                        command: "project.updatingInProgress",
                                         projectPath,
-                                        origin.url,
-                                        false, // Don't show success message yet
-                                        remoteProjectRequirements?.currentUsername || undefined // Pass username for local flag
-                                    );
-
-                                    // Update flags are now set INSIDE performProjectUpdate (before window reload)
-                                    // This ensures metadata.json has executed:true before sync runs on restart
-
-                                    // Clear pending update flag
-                                    try {
-                                        await clearPendingUpdate(vscode.Uri.file(projectPath));
-                                    } catch {
-                                        // Non-fatal error
-                                    }
-
-                                    progress.report({ message: "Opening project..." });
+                                        updating: true,
+                                    } as any);
+                                } catch (e) {
+                                    // non-fatal
                                 }
-                            );
 
-                            // Clear local pending flag after successful update run (even if remote no longer required it)
-                            try {
-                                await clearPendingUpdate(vscode.Uri.file(projectPath));
-                            } catch {
-                                // Non-fatal error
-                            }
+                                // Show notification and perform update
+                                await vscode.window.withProgress(
+                                    {
+                                        location: vscode.ProgressLocation.Notification,
+                                        title: updatingReason === "Remote requirement"
+                                            ? "Project administrator requires update"
+                                            : "Continuing update",
+                                        cancellable: false,
+                                    },
+                                    async (progress) => {
+                                        progress.report({ message: "Updating project..." });
 
-                            // Inform webview that update is complete
-                            try {
-                                this.safeSendMessage({
-                                    command: "project.updatingInProgress",
-                                    projectPath,
-                                    updating: false,
-                                } as any);
-                            } catch (e) {
-                                // non-fatal
+                                        // Get project name for the update process
+                                        const projectName = projectPath.split(/[\\/]/).pop() || "project";
+
+                                        // Get git origin URL
+                                        const dugiteGitModule = await import("../../utils/dugiteGit");
+                                        const remotes = await dugiteGitModule.listRemotes(projectPath);
+                                        const origin = remotes.find((r) => r.remote === "origin");
+
+                                        if (!origin) {
+                                            throw new Error("No git origin found for project");
+                                        }
+
+                                        // Perform the update operation (suppress success message, we'll show it after opening)
+                                        // Username is passed so local flag can be set BEFORE window reload
+                                        await this.performProjectUpdate(
+                                            progress,
+                                            projectName,
+                                            projectPath,
+                                            origin.url,
+                                            false, // Don't show success message yet
+                                            remoteProjectRequirements?.currentUsername || undefined // Pass username for local flag
+                                        );
+
+                                        // Update flags are now set INSIDE performProjectUpdate (before window reload)
+                                        // This ensures metadata.json has executed:true before sync runs on restart
+
+                                        // Clear pending update flag
+                                        try {
+                                            await clearPendingUpdate(vscode.Uri.file(projectPath));
+                                        } catch {
+                                            // Non-fatal error
+                                        }
+
+                                        progress.report({ message: "Opening project..." });
+                                    }
+                                );
+
+                                // Clear local pending flag after successful update run (even if remote no longer required it)
+                                try {
+                                    await clearPendingUpdate(vscode.Uri.file(projectPath));
+                                } catch {
+                                    // Non-fatal error
+                                }
+
+                                // Inform webview that update is complete
+                                try {
+                                    this.safeSendMessage({
+                                        command: "project.updatingInProgress",
+                                        projectPath,
+                                        updating: false,
+                                    } as any);
+                                } catch (e) {
+                                    // non-fatal
+                                }
+                            } else {
+                                debugLog("No remote updating required:", remoteProjectRequirements?.updateReason);
                             }
-                        } else {
-                            debugLog("No remote updating required:", remoteProjectRequirements?.updateReason);
-                        }
                         } // end if (!skipUpdateCheck)
                     } catch (updatingCheckErr) {
                         debugLog("Remote updating check failed:", updatingCheckErr);

@@ -20,7 +20,7 @@ interface ProjectMetadata {
             codexEditor?: string;
             frontierAuthentication?: string;
         };
-        pinnedExtensions?: Record<string, { version: string; url: string }>;
+        pinnedExtensions?: Record<string, { version: string; url: string; }>;
         [key: string]: unknown;
     };
     edits?: any[];
@@ -150,7 +150,7 @@ export class MetadataManager {
         workspaceUri: vscode.Uri,
         updateFunction: (metadata: T) => T | Promise<T>,
         options: MetadataUpdateOptions = {}
-    ): Promise<{ success: boolean; metadata?: T; error?: string }> {
+    ): Promise<{ success: boolean; metadata?: T; error?: string; }> {
         const key = workspaceUri.fsPath;
         const previousWrite = this.writeQueue.get(key) ?? Promise.resolve();
 
@@ -179,7 +179,7 @@ export class MetadataManager {
         workspaceUri: vscode.Uri,
         updateFunction: (metadata: T) => T | Promise<T>,
         options: MetadataUpdateOptions = {}
-    ): Promise<{ success: boolean; metadata?: T; error?: string }> {
+    ): Promise<{ success: boolean; metadata?: T; error?: string; }> {
         const metadataPath = vscode.Uri.joinPath(workspaceUri, "metadata.json");
 
         try {
@@ -210,6 +210,13 @@ export class MetadataManager {
                 };
             }
 
+            // Avoid rewriting metadata.json when an update function detects
+            // no semantic change. This is important for status snapshots,
+            // which are checked on every project open.
+            if (JSON.stringify(originalMetadata) === jsonContent) {
+                return { success: true, metadata: updatedMetadata };
+            }
+
             // Step 4: Direct write - simple, like every other file
             const encoded = new TextEncoder().encode(jsonContent);
             await vscode.workspace.fs.writeFile(metadataPath, encoded);
@@ -231,7 +238,7 @@ export class MetadataManager {
      */
     static async safeReadMetadata<T = ProjectMetadata>(
         workspaceUri: vscode.Uri
-    ): Promise<{ success: boolean; metadata?: T; error?: string }> {
+    ): Promise<{ success: boolean; metadata?: T; error?: string; }> {
         const pendingWrite = this.writeQueue.get(workspaceUri.fsPath);
         if (pendingWrite) {
             try {
@@ -250,7 +257,7 @@ export class MetadataManager {
      */
     private static async readMetadataFromDisk<T = ProjectMetadata>(
         workspaceUri: vscode.Uri
-    ): Promise<{ success: boolean; metadata?: T; error?: string }> {
+    ): Promise<{ success: boolean; metadata?: T; error?: string; }> {
         const metadataPath = vscode.Uri.joinPath(workspaceUri, "metadata.json");
 
         try {
@@ -352,7 +359,7 @@ export class MetadataManager {
             codexEditor?: string;
             frontierAuthentication?: string;
         }
-    ): Promise<{ success: boolean; error?: string }> {
+    ): Promise<{ success: boolean; error?: string; }> {
         const result = await this.safeUpdateMetadata<ProjectMetadata>(
             workspaceUri,
             async (metadata) => {
@@ -408,7 +415,7 @@ export class MetadataManager {
         workspaceUri: vscode.Uri
     ): Promise<{
         success: boolean;
-        versions?: { codexEditor?: string; frontierAuthentication?: string };
+        versions?: { codexEditor?: string; frontierAuthentication?: string; };
         error?: string;
     }> {
         const result = await this.safeReadMetadata<ProjectMetadata>(workspaceUri);
@@ -455,7 +462,7 @@ export class MetadataManager {
             }
 
             const existingVersions = result.metadata?.meta?.requiredExtensions || {};
-            const versionsToUpdate: { codexEditor?: string; frontierAuthentication?: string } = {};
+            const versionsToUpdate: { codexEditor?: string; frontierAuthentication?: string; } = {};
 
             // Suppress ratchet if a pin exists (the Conductor is in charge). Query the
             // Conductor for the authoritative pin set so we correctly suppress during
@@ -591,8 +598,8 @@ export class MetadataManager {
         }
 
         // Try to generate chatSystemMessage if it doesn't exist
-        let sourceLanguage: { refName: string } | undefined;
-        let targetLanguage: { refName: string } | undefined;
+        let sourceLanguage: { refName: string; } | undefined;
+        let targetLanguage: { refName: string; } | undefined;
 
         if (result.success && result.metadata) {
             const metadata = result.metadata as any;
@@ -603,8 +610,8 @@ export class MetadataManager {
         if (!sourceLanguage || !targetLanguage) {
             try {
                 const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
-                const configSourceLanguage = projectConfig.get("sourceLanguage") as { refName: string } | undefined;
-                const configTargetLanguage = projectConfig.get("targetLanguage") as { refName: string } | undefined;
+                const configSourceLanguage = projectConfig.get("sourceLanguage") as { refName: string; } | undefined;
+                const configTargetLanguage = projectConfig.get("targetLanguage") as { refName: string; } | undefined;
 
                 if (configSourceLanguage?.refName) {
                     sourceLanguage = configSourceLanguage;
@@ -647,7 +654,7 @@ export class MetadataManager {
         value: string,
         workspaceFolderUri?: vscode.Uri,
         author?: string
-    ): Promise<{ success: boolean; error?: string }> {
+    ): Promise<{ success: boolean; error?: string; }> {
         const workspaceFolder = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceFolder) {
             return { success: false, error: "No workspace folder found" };
@@ -716,7 +723,7 @@ export class MetadataManager {
         value: boolean,
         workspaceFolderUri?: vscode.Uri,
         author?: string
-    ): Promise<{ success: boolean; error?: string }> {
+    ): Promise<{ success: boolean; error?: string; }> {
         const workspaceFolder = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceFolder) {
             return { success: false, error: "No workspace folder found" };
@@ -768,7 +775,7 @@ export class MetadataManager {
      * Waits for any in-flight write before checking so we don't
      * incorrectly report an empty file mid-write.
      */
-    static async ensureMetadataIntegrity(workspaceUri: vscode.Uri): Promise<{ success: boolean; recovered?: boolean; error?: string }> {
+    static async ensureMetadataIntegrity(workspaceUri: vscode.Uri): Promise<{ success: boolean; recovered?: boolean; error?: string; }> {
         const pendingWrite = this.writeQueue.get(workspaceUri.fsPath);
         if (pendingWrite) {
             try {
@@ -811,7 +818,7 @@ export function registerMetadataCommands(context: vscode.ExtensionContext): void
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-editor.getMetadataExtensionVersions",
-            async (): Promise<{ success: boolean; versions?: { codexEditor?: string; frontierAuthentication?: string }; error?: string }> => {
+            async (): Promise<{ success: boolean; versions?: { codexEditor?: string; frontierAuthentication?: string; }; error?: string; }> => {
                 const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
                 if (!workspaceFolder) {
                     return { success: false, error: "No workspace folder open" };

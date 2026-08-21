@@ -127,6 +127,15 @@ export function isFfmpegNativelySupported(): boolean {
 }
 
 /**
+ * Returns true only when the current OS/architecture has a directly matching
+ * FFmpeg asset. A compatibility fallback, such as Windows ARM64 using the
+ * Windows x64 binary, does not count as native.
+ */
+export function isFfmpegNativeAssetSupported(): boolean {
+    return PLATFORM_MAP[`${process.platform}-${process.arch}`] !== undefined;
+}
+
+/**
  * Options for `downloadFFmpeg`.
  */
 export interface DownloadFFmpegOptions {
