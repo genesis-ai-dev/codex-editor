@@ -54,6 +54,35 @@ export function normalizeNativeToolStatusEntries(value: unknown): NativeToolStat
     );
 }
 
+export function normalizeNativeToolStatusHistory(value: unknown): NativeToolStatusEntry[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+
+    return value
+        .filter((rawEntry): rawEntry is Record<string, unknown> =>
+            !!rawEntry && typeof rawEntry === "object",
+        )
+        .map((rawEntry) => {
+            const username = typeof rawEntry.username === "string"
+                ? rawEntry.username.trim()
+                : "";
+            const timestamp = rawEntry.timestamp;
+            if (!username || typeof timestamp !== "number") {
+                return null;
+            }
+            return {
+                username,
+                timestamp,
+                nonNative: normalizeNonNativeTools(rawEntry.nonNative),
+            };
+        })
+        .filter((entry): entry is NativeToolStatusEntry => entry !== null)
+        .sort((left, right) =>
+            left.timestamp - right.timestamp || left.username.localeCompare(right.username),
+        );
+}
+
 export function mergeNativeToolStatusEntries(...values: unknown[]): NativeToolStatusEntry[] {
     const entriesByUsername = new Map<string, NativeToolStatusEntry>();
     for (const value of values) {
@@ -67,6 +96,22 @@ export function mergeNativeToolStatusEntries(...values: unknown[]): NativeToolSt
 
     return Array.from(entriesByUsername.values()).sort((left, right) =>
         left.username.localeCompare(right.username),
+    );
+}
+
+export function mergeNativeToolStatusHistory(...values: unknown[]): NativeToolStatusEntry[] {
+    const entriesByKey = new Map<string, NativeToolStatusEntry>();
+    for (const value of values) {
+        for (const entry of normalizeNativeToolStatusHistory(value)) {
+            const key = `${entry.username}:${entry.timestamp}`;
+            if (!entriesByKey.has(key)) {
+                entriesByKey.set(key, entry);
+            }
+        }
+    }
+
+    return Array.from(entriesByKey.values()).sort((left, right) =>
+        left.timestamp - right.timestamp || left.username.localeCompare(right.username),
     );
 }
 
@@ -112,6 +157,9 @@ export async function updateNativeToolStatus(
                 ? metadata.meta as Record<string, unknown>
                 : {};
             const currentEntries = normalizeNativeToolStatusEntries(currentMeta.nativeToolStatus);
+            const currentHistory = normalizeNativeToolStatusHistory(
+                currentMeta.nativeToolStatusHistory,
+            );
             const currentEntry = currentEntries.find((entry) => entry.username === username);
 
             if (currentEntry && sameToolList(currentEntry.nonNative, nextEntry.nonNative)) {
@@ -135,6 +183,10 @@ export async function updateNativeToolStatus(
             if (!("nativeToolStatus" in nextMeta)) {
                 nextMeta.nativeToolStatus = nextEntries;
             }
+            nextMeta.nativeToolStatusHistory = [
+                ...currentHistory,
+                nextEntry,
+            ];
             metadata.meta = nextMeta;
             changed = true;
             return metadata;

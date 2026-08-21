@@ -15,7 +15,10 @@ import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory, ProjectUserVersionEntry } from "../../../../types/index.d";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
-import { mergeNativeToolStatusEntries } from "../../../utils/nativeToolStatus";
+import {
+    mergeNativeToolStatusEntries,
+    mergeNativeToolStatusHistory,
+} from "../../../utils/nativeToolStatus";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
 import { formatJsonForNotebookFile } from "../../../utils/notebookFileFormattingUtils";
 import { ORPHANED_PROJECT_FILES } from "../../../utils/fileUtils";
@@ -2016,6 +2019,10 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             nativeToolStatus: mergeNativeToolStatusEntries(
                 ours.meta?.nativeToolStatus,
                 theirs.meta?.nativeToolStatus,
+            ),
+            nativeToolStatusHistory: mergeNativeToolStatusHistory(
+                ours.meta?.nativeToolStatusHistory,
+                theirs.meta?.nativeToolStatusHistory,
             ),
         };
 

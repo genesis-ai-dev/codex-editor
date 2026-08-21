@@ -1359,6 +1359,7 @@ type ProjectMetadata = {
         initiateRemoteUpdatingFor?: RemoteUpdatingEntry[];
         abbreviation?: string;
         nativeToolStatus?: NativeToolStatusEntry[];
+        nativeToolStatusHistory?: NativeToolStatusEntry[];
         /** Project swap information for swapping to a new Git repository */
         projectSwap?: ProjectSwapInfo;
     };
