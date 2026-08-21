@@ -365,9 +365,9 @@ const TOOL_INFO = {
         iconOk: "codicon-check",
         iconMissing: "codicon-error",
         descriptions: {
-            available: "Optimized search tools are installed and running.",
-            limited: "Compatibility tools are active. Optimized tools are installed but not selected.",
-            builtinActive: "Compatibility tools are active. Full functionality is available but may be slower.",
+            available: "Native search tools are installed and running.",
+            limited: "Fallback tools are active. Native tools are installed but not selected.",
+            builtinActive: "Fallback tools are active. Full functionality is available but may be slower.",
             missing: "The AI learning and search tools could not be set up. Projects cannot be opened or created without this component.",
         },
     },
@@ -376,9 +376,9 @@ const TOOL_INFO = {
         iconOk: "codicon-check",
         iconMissing: "codicon-warning",
         descriptions: {
-            available: "Optimized sync tools are active. Syncing and collaboration are fully operational.",
-            limited: "Compatibility sync tools are active. Optimized tools are installed but not selected.",
-            builtinActive: "Compatibility sync tools are active. Syncing and collaboration may be limited.",
+            available: "Native sync tools are active. Syncing and collaboration are fully operational.",
+            limited: "Fallback sync tools are active. Native tools are installed but not selected.",
+            builtinActive: "Fallback sync tools are active. Syncing and collaboration may be limited.",
         },
     },
     ffmpeg: {
@@ -386,9 +386,9 @@ const TOOL_INFO = {
         iconOk: "codicon-check",
         iconMissing: "codicon-warning",
         descriptions: {
-            available: "Optimized audio tools are active. Full audio format support is available for import/export.",
-            limited: "Compatibility audio tools are active (.wav format).",
-            missing: "Optimized audio tools could not be set up. Compatibility audio tools are active (.wav only).",
+            available: "Native audio tools are active. Full audio format support is available for import/export.",
+            limited: "Fallback audio tools are active (.wav format).",
+            missing: "Native audio tools could not be set up. Fallback audio tools are active (.wav only).",
         },
     },
 } as const;
@@ -461,17 +461,17 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
             : "ok";
         const statusLabel =
             unsupported ? "Not available on this platform"
-            : forced ? "Compatibility Tools (locked)"
-            : nativeAvailable && !usingBuiltIn && nativePlatformSupported ? "Installed and Running Optimized Tools"
-            : nativeAvailable && !usingBuiltIn ? "Running Emulated Compatibility Tools"
-            : nativeAvailable && usingBuiltIn ? "Installed and Running Compatibility Tools"
-            : operational ? "Compatibility Tools Active"
-            : nativePlatformSupported ? "Optimized Tools Not Installed"
-            : "Compatibility Tools Unavailable";
+            : forced ? "Fallback Tools (locked)"
+            : nativeAvailable && !usingBuiltIn && nativePlatformSupported ? "Installed and Running Native Tools"
+            : nativeAvailable && !usingBuiltIn ? "Running Emulated Fallback Tools"
+            : nativeAvailable && usingBuiltIn ? "Installed and Running Fallback Tools"
+            : operational ? "Fallback Tools Active"
+            : nativePlatformSupported ? "Native Tools Not Installed"
+            : "Fallback Tools Unavailable";
         const toggleLabel =
-            forced ? "Unlock Optimized Tools"
-            : nativeAvailable && usingBuiltIn ? "Use Optimized Tools"
-            : nativeAvailable ? "Use Compatibility Tools"
+            forced ? "Unlock Native Tools"
+            : nativeAvailable && usingBuiltIn ? "Use Native Tools"
+            : nativeAvailable ? "Use Fallback Tools"
             : undefined;
         const showDownload = !forced && !nativeAvailable && !unsupported;
         const showToggle = forced || nativeAvailable;
@@ -516,8 +516,8 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         style={{ color: "var(--muted-foreground)" }}
                     >
                         {allOk
-                            ? "All optimized tools are installed and running."
-                            : "Some optimized tools are not fully configured. Codex is using compatibility tools where needed."}
+                            ? "All native tools are installed and running."
+                            : "Some native tools are not fully configured. Codex is using fallback tools where needed."}
                     </p>
                 </div>
 
@@ -526,7 +526,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         title={TOOL_INFO.sqlite.name}
                         description={
                             status.platformUnsupported.sqlite
-                                ? "Optimized search tools are not available on this device. Codex is using compatibility tools."
+                                ? "Native search tools are not available on this device. Codex is using fallback tools."
                                 : sqlite.usingBuiltIn
                                     ? (status.sqlite ? TOOL_INFO.sqlite.descriptions.builtinActive : TOOL_INFO.sqlite.descriptions.missing)
                                     : TOOL_INFO.sqlite.descriptions.available
@@ -550,7 +550,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         title={TOOL_INFO.git.name}
                         description={
                             status.platformUnsupported.git
-                                ? "Optimized sync tools are not available on this device. Codex is using compatibility tools; syncing and collaboration may be limited."
+                                ? "Native sync tools are not available on this device. Codex is using fallback tools; syncing and collaboration may be limited."
                                 : git.usingBuiltIn
                                     ? TOOL_INFO.git.descriptions.builtinActive
                                     : TOOL_INFO.git.descriptions.available
@@ -576,7 +576,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         title={TOOL_INFO.ffmpeg.name}
                         description={
                             status.platformUnsupported.ffmpeg
-                                ? "Optimized audio tools are not available on this device. Codex is using compatibility tools with limited format support (.wav only)."
+                                ? "Native audio tools are not available on this device. Codex is using fallback tools with limited format support (.wav only)."
                                 : status.ffmpeg && !status.nativePlatformSupported.ffmpeg
                                     ? "Audio tools are emulating x64 on ARM64."
                                 : audio.usingBuiltIn
@@ -704,7 +704,7 @@ const WarningsView: React.FC<WarningsViewProps> = ({
                             icon="codicon-warning"
                             iconColor="var(--chart-4)"
                             title="Sync Tools"
-                            description="Optimized sync tools could not be set up. Compatibility sync tools are active, but syncing and collaboration features may be limited. Your work will be saved locally."
+                            description="Native sync tools could not be set up. Fallback sync tools are active, but syncing and collaboration features may be limited. Your work will be saved locally."
                             severity="warning"
                         />
                     )}
@@ -714,7 +714,7 @@ const WarningsView: React.FC<WarningsViewProps> = ({
                             icon="codicon-warning"
                             iconColor="var(--chart-4)"
                             title="Audio Tools"
-                            description="Optimized audio tools could not be set up. Compatibility audio tools are active with limited format support (.wav only)."
+                            description="Native audio tools could not be set up. Fallback audio tools are active with limited format support (.wav only)."
                             severity="warning"
                         />
                     )}
@@ -921,8 +921,8 @@ const StatusCard: React.FC<StatusCardProps> = ({
 
     const statusLabel = statusLabelOverride ?? (
         severity === "ok"
-            ? "Installed and Running Optimized Tools"
-            : "Not Installed \u2013 Running Compatibility Tools"
+            ? "Installed and Running Native Tools"
+            : "Not Installed \u2013 Running Fallback Tools"
     );
 
     return (
@@ -1013,8 +1013,8 @@ const StatusCard: React.FC<StatusCardProps> = ({
                                     <>
                                         <i className="codicon codicon-cloud-download mr-1.5" />
                                         {nativePlatformSupported
-                                            ? "Install Optimized Tools"
-                                            : "Install Compatibility Tools"}
+                                            ? "Install Native Tools"
+                                            : "Install Fallback Tools"}
                                     </>
                                 )}
                             </Button>
@@ -1073,7 +1073,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
                             className="h-7 text-xs"
                         >
                             <i className="codicon codicon-lock mr-1.5" />
-                            Lock Compatibility Mode
+                            Lock Fallback Mode
                         </Button>
                     )}
                 </div>
