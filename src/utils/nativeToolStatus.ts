@@ -1,7 +1,6 @@
 import type { NativeToolKey, NativeToolStatusEntry } from "../../types";
 import type { FrontierAPI } from "../../webviews/codex-webviews/src/StartupFlow/types";
 import { MetadataManager } from "./metadataManager";
-import { addProjectMetadataEdit, EditMapUtils } from "./editMapUtils";
 import type { ToolCheckResult } from "./toolsManager";
 import { getAudioToolMode, getGitToolMode, getSqliteToolMode } from "./toolPreferences";
 
@@ -47,6 +46,22 @@ export function normalizeNativeToolStatusEntries(value: unknown): NativeToolStat
         const existing = entriesByUsername.get(username);
         if (!existing || normalizedEntry.timestamp >= existing.timestamp) {
             entriesByUsername.set(username, normalizedEntry);
+        }
+    }
+
+    return Array.from(entriesByUsername.values()).sort((left, right) =>
+        left.username.localeCompare(right.username),
+    );
+}
+
+export function mergeNativeToolStatusEntries(...values: unknown[]): NativeToolStatusEntry[] {
+    const entriesByUsername = new Map<string, NativeToolStatusEntry>();
+    for (const value of values) {
+        for (const entry of normalizeNativeToolStatusEntries(value)) {
+            const existing = entriesByUsername.get(entry.username);
+            if (!existing || entry.timestamp > existing.timestamp) {
+                entriesByUsername.set(entry.username, entry);
+            }
         }
     }
 
@@ -121,13 +136,6 @@ export async function updateNativeToolStatus(
                 nextMeta.nativeToolStatus = nextEntries;
             }
             metadata.meta = nextMeta;
-            addProjectMetadataEdit(
-                metadata,
-                EditMapUtils.nativeToolStatus(username),
-                nextEntry,
-                username,
-                nextEntry.timestamp,
-            );
             changed = true;
             return metadata;
         },
