@@ -36,6 +36,9 @@ import {
     getSourceCellTimestamps,
     type SourceCellMapEntry,
 } from "./utils/sourceCellTimestampsUtils";
+import { MAX_AUDIO_ATTACHMENT_BYTES } from "../../../sharedUtils";
+import { joinMergedCellHtml } from "../../../sharedUtils/htmlStructureUtils";
+import { transcodeWavToOpusWebm } from "../../utils/audioProcessor";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -673,8 +676,10 @@ interface MessageHandlerContext {
 }
 
 /**
- * Sends updated milestone index and current cells to the webview so milestone edits appear immediately.
- * Used after updateMilestoneValue, by refreshWebviewAfterMilestoneEdits, and by refreshWebviewsForFiles.
+ * Sends updated milestone index and current cells to the webview so milestone
+ * edits appear immediately, without remounting HTML or re-requesting the page
+ * (either of which would jump scroll). Used after updateMilestoneValue, by
+ * refreshWebviewAfterMilestoneEdits, and by refreshWebviewsForFiles.
  */
 export async function sendMilestoneRefreshToWebview(
     document: CodexCellDocument,
@@ -715,9 +720,16 @@ export async function sendMilestoneRefreshToWebview(
             sourceCellMap
         );
 
-        const authApi = await provider.getAuthApi();
-        const userInfo = await authApi?.getUserInfo();
-        const username = userInfo?.username || "anonymous";
+        let username = "anonymous";
+        try {
+            const authApi = await provider.getAuthApi();
+            if (authApi && typeof authApi.getUserInfo === "function") {
+                const userInfo = await authApi.getUserInfo();
+                username = userInfo?.username || "anonymous";
+            }
+        } catch (error) {
+            debug("sendMilestoneRefreshToWebview: failed to resolve username from authApi", error);
+        }
 
         const rev = provider.getDocumentRevision(docUri);
         const useSubdivisionNumberLabels = config.get(
@@ -749,17 +761,19 @@ export async function sendMilestoneRefreshToWebview(
             enableMilestonePlacementEditing,
             force: true,
         });
-
+        // Do not also send refreshCurrentPage: that clears cell caches and
+        // re-requests the same page, which remounts the list and jumps scroll
+        // to the top of the chapter. The paginated payload already has the cells.
+        debug(`[sendMilestoneRefreshToWebview] Sent updated milestone index for milestone ${currentPosition.milestoneIndex}, subsection ${currentPosition.subsectionIndex}`);
+    } else {
+        // Don't remount the webview HTML — that resets scroll to the top of the file.
+        // The webview already knows its current page; ask it to reload those cells.
+        const rev = provider.getDocumentRevision(docUri);
         safePostMessageToPanel(webviewPanel, {
             type: "refreshCurrentPage",
             rev,
-            milestoneIndex: currentPosition.milestoneIndex,
-            subsectionIndex: currentPosition.subsectionIndex,
-            force: true,
         });
-        debug(`[sendMilestoneRefreshToWebview] Sent updated milestone index and refreshCurrentPage for milestone ${currentPosition.milestoneIndex}, subsection ${currentPosition.subsectionIndex}`);
-    } else {
-        provider.refreshWebview(webviewPanel, document);
+        debug("[sendMilestoneRefreshToWebview] No tracked position; sent refreshCurrentPage so the webview keeps its place");
     }
 }
 
@@ -2492,7 +2506,20 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
 
 
-        const finalContent = typedEvent.content.cellContent === "<span></span>" ? "" : typedEvent.content.cellContent;
+        let finalContent = typedEvent.content.cellContent === "<span></span>" ? "" : typedEvent.content.cellContent;
+
+        // Quill drops markup it has no registered format for (e.g. docx styled
+        // <p>/<span> wrappers), so re-align the saved content with the source
+        // structure. Deterministic-only; no-op unless the notebook has
+        // `enforceHtmlStructure` enabled and a safe fix applies.
+        if (!isSourceText && finalContent) {
+            try {
+                const { maybeRepairStructureDeterministically } = await import("./utils/htmlStructureResolver");
+                finalContent = await maybeRepairStructureDeterministically(cellId, finalContent, document);
+            } catch (error) {
+                console.error("[saveHtml] Structure repair failed:", error);
+            }
+        }
 
         // Search/replace originating from the FloatingSearchBar sets
         // `fromSearchReplace` on the payload. When present, we skip
@@ -2808,10 +2835,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         try {
             const { resolveCellHtmlStructure } = await import("./utils/htmlStructureResolver");
-            const resolved = await resolveCellHtmlStructure(cellId, document);
+            const outcome = await resolveCellHtmlStructure(cellId, document);
 
-            if (!resolved) {
-                vscode.window.showWarningMessage("Could not find source or target cell content to resolve structure.");
+            if (outcome.status !== "resolved") {
+                if (outcome.status === "missing-content") {
+                    vscode.window.showWarningMessage("Could not find source or target cell content to resolve structure.");
+                } else if (outcome.status === "unresolved") {
+                    vscode.window.showWarningMessage(
+                        "Could not automatically resolve the structure mismatch for this cell. Please fix it manually."
+                    );
+                }
                 provider.postMessageToWebview(webviewPanel, {
                     type: "providerSendsResolvedHtmlStructure",
                     content: { cellId, resolvedContent: "" },
@@ -2819,12 +2852,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 return;
             }
 
-            await document.updateCellContent(cellId, resolved, EditType.LLM_GENERATION);
+            await document.updateCellContent(cellId, outcome.content, EditType.LLM_GENERATION);
             await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerSendsResolvedHtmlStructure",
-                content: { cellId, resolvedContent: resolved },
+                content: { cellId, resolvedContent: outcome.content },
             });
         } catch (error) {
             console.error("[resolveHtmlStructure] Error:", error);
@@ -4266,7 +4299,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const contentToSave = attentionCheck ? attentionCheck.correctVariant : selectedContent;
         if (contentToSave && cellId) {
             try {
-                await document.updateCellContent(cellId, contentToSave, EditType.LLM_GENERATION);
+                // Align with the source cell's HTML structure (no-op unless the
+                // notebook has `enforceHtmlStructure` enabled).
+                const { maybeAutoResolveHtmlStructure } = await import("./utils/htmlStructureResolver");
+                const finalContent = await maybeAutoResolveHtmlStructure(cellId, contentToSave, document);
+                await document.updateCellContent(cellId, finalContent, EditType.LLM_GENERATION);
                 await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
             } catch (err) {
                 console.error(`[selectABTestVariant] Failed to persist variant for cell ${cellId}:`, err);
@@ -4538,8 +4575,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 vscode.window.showWarningMessage("Could not fully undo the merge — no project folder found.");
             }
 
-            // Refresh the webview to show the updated state
-            provider.refreshWebview(webviewPanel, document);
+            // Refresh in place so unmerge doesn't jump the editor to the top
+            await sendMilestoneRefreshToWebview(document, webviewPanel, provider);
 
         } catch (error) {
             console.error("Error canceling merge for cell:", cellId, error);
@@ -5169,10 +5206,34 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             if (!buffer || buffer.length === 0) {
                 throw new Error("Decoded audio is empty");
             }
-            // Enforce a reasonable max size (e.g., 50 MB) to avoid runaway writes
-            const MAX_BYTES = 50 * 1024 * 1024;
-            if (buffer.length > MAX_BYTES) {
+            // Same cap the webview audio editor budgets against before rendering.
+            if (buffer.length > MAX_AUDIO_ATTACHMENT_BYTES) {
                 throw new Error("Audio exceeds maximum allowed size (50 MB)");
+            }
+
+            // The audio editor sends uncompressed WAV. Store it as Opus/WebM
+            // (the recorder's format family) when FFmpeg is available; on any
+            // transcode failure the WAV is kept so saving never regresses.
+            let fileBuffer: Buffer = buffer;
+            let fileExt = safeExt;
+            let attachmentMetadata = typedEvent.content.metadata;
+            if (safeExt === "wav" && attachmentMetadata?.editOperation) {
+                const transcoded = await transcodeWavToOpusWebm(buffer);
+                if (transcoded) {
+                    fileBuffer = transcoded.bytes;
+                    fileExt = transcoded.fileExtension;
+                    attachmentMetadata = {
+                        ...attachmentMetadata,
+                        mimeType: transcoded.mimeType,
+                        sizeBytes: transcoded.bytes.length,
+                        sampleRate: transcoded.sampleRate,
+                        bitrateKbps: transcoded.bitrateKbps,
+                    };
+                    debug("Transcoded edited WAV to Opus/WebM", {
+                        wavBytes: buffer.length,
+                        webmBytes: transcoded.bytes.length,
+                    });
+                }
             }
 
             const pointersDir = path.join(
@@ -5193,7 +5254,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             await vscode.workspace.fs.createDirectory(vscode.Uri.file(pointersDir));
             await vscode.workspace.fs.createDirectory(vscode.Uri.file(filesDir));
 
-            const fileName = `${sanitizedAudioId}.${safeExt}`;
+            const fileName = `${sanitizedAudioId}.${fileExt}`;
             const pointersPath = path.join(pointersDir, fileName);
             const filesPath = path.join(filesDir, fileName);
 
@@ -5216,9 +5277,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             };
 
             // Write actual file (primary). Pointer write is best-effort.
-            await writeFileAtomically(filesPath, buffer);
+            await writeFileAtomically(filesPath, fileBuffer);
             try {
-                await writeFileAtomically(pointersPath, buffer);
+                await writeFileAtomically(pointersPath, fileBuffer);
             } catch (pointerErr) {
                 console.warn("Pointer write failed; proceeding with saved file only", pointerErr);
             }
@@ -5246,7 +5307,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 isDeleted: false,
                 createdBy: createdBy,
                 // Persist optional metadata if provided by client
-                ...(typedEvent.content.metadata ? { metadata: typedEvent.content.metadata } : {}),
+                ...(attachmentMetadata ? { metadata: attachmentMetadata } : {}),
             } as any);
 
             // Persist metadata update to the .codex/.source file before we show "saved" in the webview.
@@ -5377,7 +5438,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 } catch (e) {
                     console.warn("Failed to read freshly saved audio from disk; falling back to buffer", e);
                     try {
-                        base64Now = `data:${mimeNow};base64,${Buffer.from(buffer).toString('base64')}`;
+                        base64Now = `data:${mimeNow};base64,${Buffer.from(fileBuffer).toString('base64')}`;
                     } catch (fallbackErr) {
                         console.warn("Fallback to in-memory buffer failed", fallbackErr);
                     }
@@ -5763,7 +5824,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 webviewPanel,
                 provider,
                 updateWebview: () => {
-                    provider.refreshWebview(webviewPanel, document);
+                    sendMilestoneRefreshToWebview(document, webviewPanel, provider).catch((error) => {
+                        console.warn("[confirmCellMerge] Failed to refresh webview after merge:", error);
+                    });
                 }
             });
 
@@ -5839,8 +5902,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 } as any);
             }
 
-            // 1. Concatenate content and create merged edit
-            const mergedContent = previousContent + "<span>&nbsp;</span>" + currentContent;
+            // 1. Concatenate content and create merged edit.
+            // Empty cells stay empty — a spacer-only result would look like
+            // translated content and fail HTML structure enforcement.
+            const mergedContent = joinMergedCellHtml(previousContent, currentContent);
             const mergeEdit: EditHistory = {
                 editMap: EditMapUtils.value(),
                 value: mergedContent,
@@ -6266,8 +6331,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             debug(`Successfully merged cell ${currentCellId} with ${previousCellId}`);
 
-            // Refresh the webview content
-            provider.refreshWebview(webviewPanel, document);
+            // Refresh in place so the source/target editor keeps its chapter and
+            // scroll position. refreshWebview() remounts the HTML and jumps to the top.
+            await sendMilestoneRefreshToWebview(document, webviewPanel, provider);
 
         } catch (error) {
             console.error("Error merging cells:", error);
@@ -6642,9 +6708,19 @@ export const handleGlobalMessage = async (
         case "applyTranslation": {
             debug("applyTranslation message received", { event });
             if (provider.currentDocument && event.content.type === "cellAndText") {
-                provider.currentDocument.updateCellContent(
+                // Align with the source cell's HTML structure (no-op unless the
+                // notebook has `enforceHtmlStructure` enabled).
+                const { maybeAutoResolveHtmlStructure } = await import(
+                    "./utils/htmlStructureResolver"
+                );
+                const finalContent = await maybeAutoResolveHtmlStructure(
                     event.content.cellId,
                     event.content.text,
+                    provider.currentDocument
+                );
+                provider.currentDocument.updateCellContent(
+                    event.content.cellId,
+                    finalContent,
                     EditType.LLM_GENERATION
                 );
             }

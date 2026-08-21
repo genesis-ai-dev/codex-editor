@@ -415,6 +415,24 @@ interface EditHistoryEntry {
     author?: string;
 }
 
+/**
+ * Format and provenance metadata stored on audio attachments. Shared by
+ * `saveAudioAttachment` (webview → provider) and the attachment payloads the
+ * provider echoes back, so the two sides cannot drift apart.
+ */
+export interface AudioAttachmentMetadata {
+    mimeType?: string;
+    sizeBytes?: number;
+    sampleRate?: number; // Hz
+    channels?: number; // 1 = mono, 2 = stereo
+    durationSec?: number; // seconds (float)
+    bitrateKbps?: number; // approximate kbps
+    /** Attachment ID of the audio this version was edited from. */
+    derivedFromAudioId?: string;
+    editOperation?: "trim" | "timeline";
+    clipCount?: number;
+}
+
 export type EditorPostMessages =
     | { command: "updateCachedChapter"; content: number; }
     | { command: "updateCachedSubsection"; content: number; }
@@ -567,14 +585,7 @@ export type EditorPostMessages =
             audioData: string; // base64 encoded audio data
             audioId: string; // unique ID for the audio file
             fileExtension: string; // e.g., "webm", "wav", "mp3"
-            metadata?: {
-                mimeType?: string;
-                sizeBytes?: number;
-                sampleRate?: number; // Hz
-                channels?: number; // 1 = mono, 2 = stereo
-                durationSec?: number; // seconds (float)
-                bitrateKbps?: number; // approximate kbps
-            };
+            metadata?: AudioAttachmentMetadata;
         };
     }
     | {
@@ -2734,14 +2745,7 @@ type EditorReceiveMessages =
                     isMissing?: boolean;
                     validatedBy?: ValidationEntry[];
                     createdBy?: string;
-                    metadata?: {
-                        durationSec?: number;
-                        mimeType?: string;
-                        sizeBytes?: number;
-                        sampleRate?: number;
-                        channels?: number;
-                        bitrateKbps?: number;
-                    };
+                    metadata?: AudioAttachmentMetadata;
                 };
             }>;
             currentAttachmentId: string | null; // The ID of the currently selected/active attachment

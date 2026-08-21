@@ -166,6 +166,10 @@ suite("External file change - milestone index refresh", () => {
         );
 
         const pageRefreshes = messages.filter((m) => m.type === "refreshCurrentPage");
-        assert.ok(pageRefreshes.length >= 1, "Should still refresh the current page");
+        assert.strictEqual(
+            pageRefreshes.length,
+            0,
+            "Must not send a follow-up refreshCurrentPage; that reloads cells and jumps scroll"
+        );
     });
 });

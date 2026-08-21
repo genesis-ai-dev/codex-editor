@@ -9,6 +9,7 @@ import { CustomNotebookCellData, CustomNotebookMetadata } from "../../types";
 import { getWorkSpaceUri } from "./index";
 import { getCorpusMarkerForBook } from "../../sharedUtils/corpusUtils";
 import { extractUsfmCodeFromFilename, getBookDisplayName } from "./bookNameUtils";
+import { atomicWriteUriText } from "./notebookSafeSaveUtils";
 
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
@@ -78,6 +79,14 @@ export class NotebookMetadataManager {
     private lastLoadTime = 0;
     private readonly CACHE_TTL = 5000; // 5 seconds
     private context: vscode.ExtensionContext;
+
+    // Migration write-backs (corpusMarker/fileDisplayName) attempted this
+    // session, keyed by `path::field::value`. loadMetadata() runs constantly
+    // (TTL cache, post-sync rebuilds, menu refreshes); without this gate a
+    // persistent diff would re-trigger a whole-file rewrite on every reload.
+    // A changed target value (e.g. a user rename) produces a new key, so
+    // legitimate propagation is not blocked.
+    private attemptedMigrationWriteBacks = new Set<string>();
 
     private constructor(context: vscode.ExtensionContext, storageUri?: vscode.Uri) {
         this.storage = context.workspaceState;
@@ -307,36 +316,7 @@ export class NotebookMetadataManager {
                             hasChanges = true;
 
                             // Update the notebook file with the corrected metadata
-                            try {
-                                notebookData.metadata = {
-                                    ...notebookData.metadata,
-                                    corpusMarker: correctCorpusMarker,
-                                };
-
-                                // Convert CodexNotebookAsJSONData to vscode.NotebookData format for serialization
-                                const notebookDataForSerialization: vscode.NotebookData = {
-                                    cells: notebookData.cells.map((cell: CustomNotebookCellData) => {
-                                        const cellData = new vscode.NotebookCellData(
-                                            cell.kind,
-                                            cell.value,
-                                            cell.languageId || "plaintext"
-                                        );
-                                        cellData.metadata = cell.metadata || {};
-                                        return cellData;
-                                    }),
-                                    metadata: notebookData.metadata,
-                                };
-
-                                const serialized = await serializer.serializeNotebook(
-                                    notebookDataForSerialization,
-                                    new vscode.CancellationTokenSource().token
-                                );
-                                await vscode.workspace.fs.writeFile(file, serialized);
-                                debugLog(`Updated notebook file ${file.fsPath} with corrected corpusMarker`);
-                            } catch (error) {
-                                debugLog(`Error updating notebook file ${file.fsPath}:`, error);
-                                // Continue even if file update fails - metadata is still updated in memory
-                            }
+                            await this.updateCorpusMarkerInFile(file, notebookData, correctCorpusMarker);
                         }
                     }
 
@@ -510,6 +490,9 @@ export class NotebookMetadataManager {
      * @param displayNameToSet - The display name to set
      */
     private async updateFileDisplayNameInFile(fileUri: vscode.Uri, displayNameToSet: string): Promise<void> {
+        if (!this.shouldAttemptWriteBack(fileUri, "fileDisplayName", displayNameToSet)) {
+            return;
+        }
         try {
             const serializer = new CodexContentSerializer();
             const fileContent = await vscode.workspace.fs.readFile(fileUri);
@@ -520,13 +503,10 @@ export class NotebookMetadataManager {
                     new vscode.CancellationTokenSource().token
                 );
             } catch (error) {
-                debugLog("Error deserializing notebook, trying to parse as JSON:", error);
-                try {
-                    fileNotebookData = JSON.parse(new TextDecoder().decode(fileContent));
-                } catch (jsonError) {
-                    debugLog("Error parsing file as JSON:", jsonError);
-                    return;
-                }
+                // Unreadable/partial content — never treat it as an empty
+                // notebook and never write anything back (issue #1119).
+                debugLog("Error deserializing notebook, skipping fileDisplayName write:", error);
+                return;
             }
 
             const existingDisplayName = (fileNotebookData.metadata as CustomNotebookMetadata)?.fileDisplayName;
@@ -537,27 +517,7 @@ export class NotebookMetadataManager {
                     ...fileNotebookData.metadata,
                     fileDisplayName: displayNameToSet,
                 };
-
-                // Convert CodexNotebookAsJSONData to vscode.NotebookData format for serialization
-                const notebookDataForSerialization: vscode.NotebookData = {
-                    cells: fileNotebookData.cells.map((cell: CustomNotebookCellData) => {
-                        const cellData = new vscode.NotebookCellData(
-                            cell.kind,
-                            cell.value,
-                            cell.languageId || "plaintext"
-                        );
-                        cellData.metadata = cell.metadata || {};
-                        return cellData;
-                    }),
-                    metadata: fileNotebookData.metadata,
-                };
-
-                const serialized = await serializer.serializeNotebook(
-                    notebookDataForSerialization,
-                    new vscode.CancellationTokenSource().token
-                );
-                await vscode.workspace.fs.writeFile(fileUri, serialized);
-                debugLog(`Updated notebook file ${fileUri.fsPath} with fileDisplayName`);
+                await this.writeNotebookMetadataUpdate(fileUri, fileNotebookData, "fileDisplayName");
             }
         } catch (error) {
             debugLog(`Error updating notebook file ${fileUri.fsPath} with fileDisplayName:`, error);
@@ -572,37 +532,106 @@ export class NotebookMetadataManager {
      * @param corpusMarker - The corpus marker to set
      */
     private async updateCorpusMarkerInFile(fileUri: vscode.Uri, notebookData: any, corpusMarker: string): Promise<void> {
+        if (!this.shouldAttemptWriteBack(fileUri, "corpusMarker", corpusMarker)) {
+            return;
+        }
         try {
-            const serializer = new CodexContentSerializer();
             notebookData.metadata = {
                 ...notebookData.metadata,
                 corpusMarker: corpusMarker,
             };
-
-            // Convert CodexNotebookAsJSONData to vscode.NotebookData format for serialization
-            const notebookDataForSerialization: vscode.NotebookData = {
-                cells: notebookData.cells.map((cell: CustomNotebookCellData) => {
-                    const cellData = new vscode.NotebookCellData(
-                        cell.kind,
-                        cell.value,
-                        cell.languageId || "plaintext"
-                    );
-                    cellData.metadata = cell.metadata || {};
-                    return cellData;
-                }),
-                metadata: notebookData.metadata,
-            };
-
-            const serialized = await serializer.serializeNotebook(
-                notebookDataForSerialization,
-                new vscode.CancellationTokenSource().token
-            );
-            await vscode.workspace.fs.writeFile(fileUri, serialized);
-            debugLog(`Updated notebook file ${fileUri.fsPath} with corrected corpusMarker`);
+            await this.writeNotebookMetadataUpdate(fileUri, notebookData, "corpusMarker");
         } catch (error) {
             debugLog(`Error updating notebook file ${fileUri.fsPath}:`, error);
             // Continue even if file update fails - metadata is still updated in memory
         }
+    }
+
+    /**
+     * Records that a write-back for `field` → `value` on this file is being
+     * attempted, and returns false if it was already attempted this session.
+     */
+    private shouldAttemptWriteBack(fileUri: vscode.Uri, field: string, value: string): boolean {
+        const key = `${fileUri.fsPath}::${field}::${value}`;
+        if (this.attemptedMigrationWriteBacks.has(key)) {
+            return false;
+        }
+        this.attemptedMigrationWriteBacks.add(key);
+        return true;
+    }
+
+    /**
+     * Serializes and writes a metadata-only notebook update.
+     *
+     * These writers must never change the number of cells in a file: the data
+     * they hold was read from the file itself moments earlier, so any cell
+     * count mismatch with the current on-disk content means the read raced a
+     * concurrent write (or the file changed underneath us). Writing in that
+     * state is how issue #1119 erased every cell of a translated notebook —
+     * so the write is refused and the anomaly logged instead.
+     *
+     * @returns true if the file was written, false if the write was refused
+     */
+    private async writeNotebookMetadataUpdate(
+        fileUri: vscode.Uri,
+        notebookData: any,
+        describeChange: string
+    ): Promise<boolean> {
+        if (!Array.isArray(notebookData?.cells)) {
+            console.warn(
+                `[NotebookMetadataManager] Refusing to write ${describeChange} to ${fileUri.fsPath}: notebook data has no cells array`
+            );
+            return false;
+        }
+
+        // Re-read the on-disk file immediately before writing and require the
+        // cell count to match what we are about to write.
+        let onDiskCellCount: number;
+        try {
+            const onDiskContent = await vscode.workspace.fs.readFile(fileUri);
+            const onDisk = JSON.parse(new TextDecoder().decode(onDiskContent));
+            if (!Array.isArray(onDisk?.cells)) {
+                throw new Error("on-disk content has no cells array");
+            }
+            onDiskCellCount = onDisk.cells.length;
+        } catch (error) {
+            console.warn(
+                `[NotebookMetadataManager] Refusing to write ${describeChange} to ${fileUri.fsPath}: on-disk content is unreadable`,
+                error
+            );
+            return false;
+        }
+
+        if (notebookData.cells.length !== onDiskCellCount) {
+            console.warn(
+                `[NotebookMetadataManager] Refusing to write ${describeChange} to ${fileUri.fsPath}: ` +
+                `would change cell count from ${onDiskCellCount} to ${notebookData.cells.length}`
+            );
+            return false;
+        }
+
+        const serializer = new CodexContentSerializer();
+        // Convert CodexNotebookAsJSONData to vscode.NotebookData format for serialization
+        const notebookDataForSerialization: vscode.NotebookData = {
+            cells: notebookData.cells.map((cell: CustomNotebookCellData) => {
+                const cellData = new vscode.NotebookCellData(
+                    cell.kind,
+                    cell.value,
+                    cell.languageId || "plaintext"
+                );
+                cellData.metadata = cell.metadata || {};
+                return cellData;
+            }),
+            metadata: notebookData.metadata,
+        };
+
+        const serialized = await serializer.serializeNotebook(
+            notebookDataForSerialization,
+            new vscode.CancellationTokenSource().token
+        );
+        await atomicWriteUriText(fileUri, new TextDecoder("utf-8").decode(serialized));
+        debugLog(`Updated notebook file ${fileUri.fsPath} with ${describeChange}`);
+        return true;
     }
 
     /**

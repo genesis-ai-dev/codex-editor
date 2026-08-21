@@ -22,6 +22,14 @@ import {
     buildCellPositionContextMap,
     insertUniqueCellsPreservingRelativePositions,
 } from "./utils/positionPreservationUtils";
+import {
+    DeletionTombstone,
+    collectDeletionTombstones,
+    findTombstoneTimestamp,
+    getLatestContentTimestamp,
+    isTrackedContentFile,
+    readMetadataContent,
+} from "./fileDeletionGuard";
 import { reorderVerseRangeCells } from "./utils/verseRangeReorder";
 
 const DEBUG_MODE = false;
@@ -684,9 +692,27 @@ function resolveMetadataConflictsUsingEditHistory(
         }
     }
 
-    // Start with our cell as the base
-    // Shallow copy is sufficient - attachments are merged separately later
-    const resolvedCell = { ...ourCell };
+    // Start with a UNION of both metadatas so any field present on either side
+    // (attachments, milestoneIndex, selectedAudioId, future fields, etc.) is
+    // preserved by default. ourCell wins on overlapping keys; metadata.data is
+    // also unioned so sub-fields like milestoneIndex / startTime survive.
+    // Phase 2 in mergeTwoCellsUsingResolverLogic still overrides specific fields
+    // with intelligent merging (mergeAttachments, resolveAudioSelection) on top.
+    //
+    // This union also creates a fresh metadata object, so subsequent
+    // applyEditToCell mutations no longer alias ourCell.metadata.
+    const resolvedCell: CustomNotebookCellData = {
+        ...theirCell,
+        ...ourCell,
+        metadata: {
+            ...(theirCell.metadata ?? {}),
+            ...(ourCell.metadata ?? {}),
+            data: {
+                ...((theirCell.metadata ?? {}).data ?? {}),
+                ...((ourCell.metadata ?? {}).data ?? {}),
+            },
+        } as CustomNotebookCellData["metadata"],
+    };
 
     // For each metadata path, apply the most recent edit
     for (const [pathKey, edits] of editsByPath.entries()) {
@@ -1215,6 +1241,9 @@ export async function resolveCodexCustomMerge(
             debugLog(`Mapped their cell with ID: ${cell.metadata.id}`);
         }
     });
+    // Same-id merges below remove entries from theirCellsMap, so capturing the
+    // initial size lets the re-import alignment measure id overlap afterwards.
+    const theirIdBearingCellCount = theirCellsMap.size;
 
     const resultCells: CustomNotebookCellData[] = [];
 
@@ -1250,7 +1279,14 @@ export async function resolveCodexCustomMerge(
     // "their-only" cells as new, align them to our cells by content identity:
     //   - a timed cell (subtitle cue) with the exact same (startTime, endTime) and
     //     cell type IS the same cue, re-imported under a fresh id;
-    //   - a milestone with the same chapter number IS the same section marker.
+    //   - a milestone with the same chapter number IS the same section marker —
+    //     but ONLY in a wholesale-re-import-shaped merge (zero id overlap between
+    //     the two sides, the #1079 signature). In a normal incremental sync most
+    //     ids match, and a their-only milestone there is a genuinely NEW milestone
+    //     from the milestone-editing feature (promote/add, issue #936) whose
+    //     user-chosen label ("Part 2") must not fold it into an existing chapter
+    //     milestone that happens to share its last number. Timed-cue alignment
+    //     stays unconditional: exact (startTime, endTime) keys are precise.
     // Aligned pairs merge into the our-side cell (our id is canonical; edit
     // histories union; the newest edit wins per field).
     //
@@ -1264,9 +1300,12 @@ export async function resolveCodexCustomMerge(
     // Anything ambiguous (several live our-cells share a key — e.g. an already-
     // damaged file) is also left to the insert path.
     if (theirCellsMap.size > 0) {
+        const sharedIdCount = theirIdBearingCellCount - theirCellsMap.size;
+        const isWholesaleReimportShape = sharedIdCount === 0;
         const contentKeyForCell = (cell: CustomNotebookCellData): string | null => {
             const md: any = cell.metadata || {};
             if (md.type === CodexCellTypes.MILESTONE) {
+                if (!isWholesaleReimportShape) return null;
                 const label = (cell.value || "").trim();
                 if (!label) return null;
                 // Milestone values come in two app-generated formats for the same
@@ -1275,9 +1314,11 @@ export async function resolveCodexCustomMerge(
                 // value — same rule as extractChapterNumberFromMilestoneValue in the
                 // webview) so a re-imported "1" aligns with an existing "<docName> 1"
                 // instead of inserting a duplicate section. Files with several
-                // same-numbered milestones fall into the ambiguity skip.
+                // same-numbered milestones fall into the ambiguity skip. Digitless
+                // labels never align: they carry no chapter identity, and two
+                // default-named user milestones ("New milestone") must not fold.
                 const chapterMatch = label.match(/(\d+)(?!.*\d)/);
-                return chapterMatch ? `milestone:${chapterMatch[1]}` : `milestone:${label}`;
+                return chapterMatch ? `milestone:${chapterMatch[1]}` : null;
             }
             const data = md.data || {};
             if (data.startTime != null && data.endTime != null) {
@@ -2579,6 +2620,26 @@ export async function resolveConflictFiles(
 
     const resolvedFiles: ResolvedFile[] = [];
     const failedFiles: Array<{ filepath: string; error: string }> = [];
+    // Content files flagged as deleted on one side but restored because the
+    // deletion wasn't intentionally recorded, or the surviving side has newer edits.
+    const restoredFromDeletion: string[] = [];
+
+    // Effective deletion tombstones: the local metadata.json plus any incoming
+    // copy that is part of this conflict batch (a deletion recorded remotely may
+    // not have reached the local metadata.json yet).
+    let deletionTombstones: DeletionTombstone[] = [];
+    try {
+        const metadataConflict = conflicts.find(
+            (c) => c?.filepath && c.filepath.replace(/\\/g, "/").replace(/^\/+/, "") === "metadata.json"
+        );
+        deletionTombstones = collectDeletionTombstones(
+            await readMetadataContent(workspaceDir),
+            metadataConflict?.ours,
+            metadataConflict?.theirs
+        );
+    } catch (error) {
+        console.warn("[Merge] Could not collect deletion tombstones:", error);
+    }
 
     await vscode.window.withProgress(
         {
@@ -2601,7 +2662,10 @@ export async function resolveConflictFiles(
             try {
                 const uniqueDirs = new Set<string>();
                 for (const conflict of conflicts) {
-                    if (!conflict || conflict.isDeleted) continue;
+                    if (!conflict) continue;
+                    // Deleted content files may be restored below, so their parent
+                    // directories must exist too; other deletions need no directory.
+                    if (conflict.isDeleted && !isTrackedContentFile(conflict.filepath)) continue;
                     const rel = conflict.filepath.replace(/\\/g, "/").replace(/^\/+/, "");
                     const dir = path.posix.dirname(rel);
                     if (dir && dir !== ".") uniqueDirs.add(dir);
@@ -2664,6 +2728,54 @@ export async function resolveConflictFiles(
 
                 // Handle deleted file
                 if (conflict.isDeleted) {
+                    // Delete-vs-modify guard (issue #1116): for translation content
+                    // files, a deletion on one side must not silently discard the
+                    // surviving side's content. Deletion only wins when a recorded
+                    // deletion tombstone is at least as recent as the surviving
+                    // content's latest edit — otherwise the content is restored,
+                    // mirroring the timestamp rules used for cell-level merges.
+                    const survivingContent = conflict.ours || conflict.theirs;
+                    if (isTrackedContentFile(normalizedFilepath) && survivingContent) {
+                        const tombstoneTimestamp = findTombstoneTimestamp(
+                            deletionTombstones,
+                            normalizedFilepath
+                        );
+                        const latestEditTimestamp = getLatestContentTimestamp(survivingContent);
+                        const deletionIsIntentional =
+                            tombstoneTimestamp !== undefined &&
+                            tombstoneTimestamp >= latestEditTimestamp;
+
+                        if (!deletionIsIntentional) {
+                            debugLog(`Restoring deleted file with surviving content: ${conflict.filepath}`);
+                            try {
+                                let existedOnDisk = true;
+                                try {
+                                    await vscode.workspace.fs.stat(filePath);
+                                } catch {
+                                    existedOnDisk = false;
+                                }
+                                await vscode.workspace.fs.writeFile(
+                                    filePath,
+                                    Buffer.from(survivingContent)
+                                );
+                                resolvedFiles.push({
+                                    filepath: conflict.filepath,
+                                    resolution: existedOnDisk ? "modified" : "created",
+                                });
+                                restoredFromDeletion.push(conflict.filepath);
+                            } catch (e) {
+                                const detail = e instanceof Error ? e.message : String(e);
+                                console.error(`Error restoring deleted file ${conflict.filepath}:`, e);
+                                failedFiles.push({
+                                    filepath: conflict.filepath,
+                                    error: `Restore of deleted file failed: ${detail}`,
+                                });
+                            }
+                            return;
+                        }
+                        debugLog(`Honoring recorded deletion for: ${conflict.filepath}`);
+                    }
+
                     debugLog(`Deleting file: ${conflict.filepath}`);
                     try {
                         await vscode.workspace.fs.delete(filePath);
@@ -2721,6 +2833,17 @@ export async function resolveConflictFiles(
                         } else {
                             // Use non-empty content (prefer ours, fallback to theirs)
                             const content = conflict.ours || conflict.theirs;
+                            if (content.length === 0) {
+                                // Defense in depth: we were asked to create a new file but neither
+                                // side has content. This usually means a remote blob couldn't be
+                                // read at conflict-analysis time (incomplete fetch). The BLOB_READ_FAILED:
+                                // prefix routes this through the retry layer in stageAndCommitAllAndSync.
+                                failedFiles.push({
+                                    filepath: conflict.filepath,
+                                    error: "BLOB_READ_FAILED: empty content for new file (likely incomplete fetch)",
+                                });
+                                return;
+                            }
                             await vscode.workspace.fs.writeFile(filePath, Buffer.from(content));
                             resolvedFiles.push({
                                 filepath: conflict.filepath,
@@ -2779,6 +2902,21 @@ export async function resolveConflictFiles(
             await Promise.all(Array.from({ length: workerCount }, () => worker()));
         }
     );
+
+    if (restoredFromDeletion.length > 0) {
+        const names = restoredFromDeletion.map((f) => path.posix.basename(f.replace(/\\/g, "/")));
+        const preview =
+            names.slice(0, 5).join(", ") +
+            (names.length > 5 ? ` and ${names.length - 5} more` : "");
+        console.warn(
+            `[Merge] Restored ${restoredFromDeletion.length} file(s) that were deleted on one side without a matching deletion record:`,
+            restoredFromDeletion
+        );
+        vscode.window.showWarningMessage(
+            `${restoredFromDeletion.length} file(s) were deleted by another sync but contained newer edits ` +
+            `or had no recorded deletion, so they were restored: ${preview}`
+        );
+    }
 
     return { resolved: resolvedFiles, failed: failedFiles };
 }

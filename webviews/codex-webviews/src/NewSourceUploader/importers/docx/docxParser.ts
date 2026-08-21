@@ -18,6 +18,7 @@ import {
     DocxParseConfig,
     DocxParseError,
 } from './docxTypes';
+import { extractBodyParagraphXmls } from './utils/ooxmlScanner';
 
 // XML Parser configuration for OOXML
 const XML_PARSER_OPTIONS = {
@@ -236,21 +237,12 @@ export class DocxParser {
         return paragraphs;
     }
 
-    private sliceBodyXml(documentXml: string): string | null {
-        const bodyOpenIdx = documentXml.indexOf('<w:body');
-        if (bodyOpenIdx < 0) return null;
-        const bodyStart = documentXml.indexOf('>', bodyOpenIdx);
-        const bodyCloseIdx = documentXml.indexOf('</w:body>');
-        if (bodyStart < 0 || bodyCloseIdx < 0) return null;
-        return documentXml.slice(bodyStart + 1, bodyCloseIdx);
-    }
-
     private extractParagraphXmlList(documentXml: string): string[] {
-        const bodyXml = this.sliceBodyXml(documentXml);
-        if (!bodyXml) return [];
-        const paraRe = /<w:p\b[\s\S]*?<\/w:p>|<w:p\b[^>]*\/>/g;
-        const matches = bodyXml.match(paraRe);
-        return matches ?? [];
+        // Canonical enumeration shared with the exporter and table
+        // segmentation: mc:Fallback branches removed (their content is a
+        // duplicate of mc:Choice) and only outermost <w:p> elements counted
+        // (text-box paragraphs belong to their anchor paragraph).
+        return extractBodyParagraphXmls(documentXml);
     }
 
     private parseParagraphFragment(paragraphXml: string): any | null {
@@ -576,7 +568,13 @@ export class DocxParser {
     }
 
     /**
-     * Find all elements with given tag name
+     * Find all OUTERMOST elements with the given tag name.
+     *
+     * Once an element matches, we do not search inside it for further matches:
+     * its nested content already belongs to it (e.g. a <w:r> anchoring a text
+     * box contains the text box's <w:r> elements — collecting those nested
+     * runs separately would duplicate their text, since the outer run's <w:t>
+     * scan already includes them).
      */
     private findAllElements(element: any, tagName: string): any[] {
         const results: any[] = [];
@@ -590,9 +588,9 @@ export class DocxParser {
             results.push(...items);
         }
 
-        // Search in children
+        // Search in children (skipping matched elements' subtrees)
         for (const key of Object.keys(element)) {
-            if (key.startsWith('@_') || key === '#text') continue;
+            if (key.startsWith('@_') || key === '#text' || key === tagName) continue;
 
             const child = element[key];
             if (Array.isArray(child)) {

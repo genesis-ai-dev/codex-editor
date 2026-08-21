@@ -26,6 +26,22 @@ const debug = (...args: any[]) => {
     }
 };
 
+/**
+ * Thrown when notebook content cannot be parsed as a valid Codex notebook.
+ *
+ * IMPORTANT: this must propagate to callers rather than being converted into
+ * an empty notebook. A truncated or mid-write read that silently becomes
+ * `{ cells: [] }` looks like a legitimately empty notebook to downstream
+ * writers, which can then persist the empty state over the real file and wipe
+ * all translations (issue #1119, Lingala S306).
+ */
+export class NotebookDeserializationError extends Error {
+    constructor(message: string, public readonly cause?: unknown) {
+        super(message);
+        this.name = "NotebookDeserializationError";
+    }
+}
+
 export class CodexContentSerializer implements vscode.NotebookSerializer {
     public readonly label: string = "Codex Translation Notebook Serializer";
 
@@ -36,40 +52,24 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         debug("Deserializing notebook data");
         const contents = new TextDecoder().decode(data); // convert to String
         debug("Contents:", contents);
-        // Read file contents
         let raw: RawNotebookData;
         try {
             raw = <RawNotebookData>JSON.parse(contents);
-            debug("Successfully parsed notebook contents", { cellCount: raw.cells.length });
-            return raw as CodexNotebookAsJSONData;
-        } catch {
-            debug("Failed to parse notebook contents, creating empty notebook");
-            raw = { cells: [], metadata: {} };
-        }
-        // Create array of Notebook cells for the VS Code API from file contents
-        const cells = raw.cells.map((item) => {
-            debug("Processing cell", { id: item.metadata?.id, kind: item.kind });
-            const cell = new vscode.NotebookCellData(
-                item.kind,
-                item.value,
-                item.languageId || "html"
+        } catch (error) {
+            // Never fabricate an empty notebook here — unparseable content is
+            // most likely a truncated/mid-write read, not an empty file.
+            throw new NotebookDeserializationError(
+                `Notebook content is not valid JSON (${data.byteLength} bytes read)`,
+                error
             );
-            cell.metadata = item.metadata || {}; // Ensure metadata is included if available
-            if (item.metadata && item.metadata.id) {
-                cell.metadata.id = item.metadata.id;
-            }
-            return cell;
-        });
-        const notebookData = new vscode.NotebookData(cells);
-        notebookData.metadata = raw.metadata || {};
-
-        // Ensure metadata.edits array exists for backward compatibility
-        if (!notebookData.metadata.edits) {
-            notebookData.metadata.edits = [];
         }
-
-        debug("Notebook deserialization complete", { cellCount: cells.length });
-        return notebookData as CodexNotebookAsJSONData;
+        if (!raw || typeof raw !== "object" || !Array.isArray(raw.cells)) {
+            throw new NotebookDeserializationError(
+                "Notebook JSON is missing a cells array — refusing to treat it as an empty notebook"
+            );
+        }
+        debug("Successfully parsed notebook contents", { cellCount: raw.cells.length });
+        return raw as CodexNotebookAsJSONData;
     }
 
     async serializeNotebook(

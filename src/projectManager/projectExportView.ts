@@ -1205,7 +1205,7 @@ function getWebviewContent(
                     overflow-y: auto;
                 }
                 .popup-file-list div { padding: 2px 0; display: flex; align-items: center; }
-                .popup-footer { display: flex; justify-content: flex-end; margin-top: 16px; flex-shrink: 0; }
+                .popup-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-shrink: 0; }
 
                 /* Step 4: Exporting screen */
                 .export-progress-card {
@@ -2307,6 +2307,12 @@ function getWebviewContent(
                                         </div>
                                     </div>
                                 </div>
+                                <div class="format-section-suboption" id="usfmOptions" style="display: none;" data-option="usfm">
+                                    <label class="format-option-toggle" id="usfmParatextHeadingsToggle">
+                                        <input type="checkbox" id="usfmParatextHeadingsCb">
+                                        Export paratext cells as section headings (\\s1)
+                                    </label>
+                                </div>
                             </div>
                             <!-- Subtitle options -->
                             <div class="format-section" id="subtitle-section" data-option="subtitles">
@@ -2779,8 +2785,13 @@ function getWebviewContent(
                         <p id="htmlMismatchSummary"></p>
                         <div class="popup-file-list" id="htmlMismatchFileList"></div>
                         <p style="margin-top: 8px; color: var(--vscode-descriptionForeground); font-size: 0.85em;">
-                            Review and resolve these in the editor before exporting, or proceed with the export anyway.
+                            These cells may not round-trip with their original formatting. You can still export.
                         </p>
+                    </div>
+                    <div class="popup-footer">
+                        <button type="button" onclick="continueHtmlMismatchAnyway()">
+                            Continue anyway
+                        </button>
                     </div>
                 </div>
             </div>
@@ -5266,7 +5277,7 @@ function getWebviewContent(
                             option.classList.add('selected');
                             selectedFormat = option.dataset.format;
                             const usfmOptions = document.getElementById('usfmOptions');
-                            if (usfmOptions) usfmOptions.style.display = selectedFormat === 'usfm' ? 'block' : 'none';
+                            if (usfmOptions) usfmOptions.style.display = (selectedFormat === 'usfm' || selectedFormat === 'usfm-no-validate') ? 'block' : 'none';
 
                             checkTextSelectionMismatch();
 
@@ -5366,6 +5377,11 @@ function getWebviewContent(
                     if (popup) popup.classList.remove('visible');
                 }
 
+                function continueHtmlMismatchAnyway() {
+                    closeHtmlMismatchPopup();
+                    advanceFromStep2();
+                }
+
                 function exportProject() {
                     let formatToSend = selectedFormat || (selectedAudioMode ? 'audio' : null);
                     if (!formatToSend || !exportPath || selectedFiles.size === 0) return;
@@ -5373,6 +5389,10 @@ function getWebviewContent(
                     if (formatToSend === 'usfm-no-validate') {
                         formatToSend = 'usfm';
                         options.skipValidation = true;
+                    }
+                    if (formatToSend === 'usfm') {
+                        const paratextHeadingsCb = document.getElementById('usfmParatextHeadingsCb');
+                        if (paratextHeadingsCb && paratextHeadingsCb.checked) options.paratextAsHeadings = true;
                     }
                     if (selectedAudioMode) {
                         options.includeAudio = true;

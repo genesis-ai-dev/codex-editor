@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.31.0",
+    "version": "0.32.0",
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"
@@ -212,6 +212,11 @@
             {
                 "command": "codex-editor-extension.toggleCorrectionEditorMode",
                 "title": "Toggle Source Editing Mode",
+                "category": "Codex Extension"
+            },
+            {
+                "command": "codex-editor-extension.repairHtmlStructureArtifacts",
+                "title": "Repair HTML Structure Artifacts",
                 "category": "Codex Extension"
             },
             {
