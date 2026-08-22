@@ -64,7 +64,11 @@ export const AlignmentPreview: React.FC<AlignmentPreviewProps> = ({
     const [selectedAlignmentMethod, setSelectedAlignmentMethod] = useState<string>("current");
 
     // Calculate statistics
-    const matchedCount = alignedCells.filter((c) => c.notebookCell && !c.isParatext).length;
+    // Additional overlaps are folded into the cell they overlap rather than becoming cells of
+    // their own, so counting them here would promise more cells than the import produces.
+    const matchedCount = alignedCells.filter(
+        (c) => c.notebookCell && !c.isParatext && !c.isAdditionalOverlap
+    ).length;
     const paratextCount = alignedCells.filter((c) => c.isParatext).length;
     const additionalOverlapCount = alignedCells.filter((c) => c.isAdditionalOverlap).length;
     const averageConfidence =
@@ -398,6 +402,14 @@ export const AlignmentPreview: React.FC<AlignmentPreviewProps> = ({
                                                         className="text-xs"
                                                     >
                                                         Paratext
+                                                    </Badge>
+                                                )}
+                                                {cell.isAdditionalOverlap && (
+                                                    <Badge
+                                                        variant="secondary"
+                                                        className="text-xs"
+                                                    >
+                                                        Merged into cell above
                                                     </Badge>
                                                 )}
                                             </div>

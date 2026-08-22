@@ -37,6 +37,27 @@ const calculateOverlap = (
 };
 
 /**
+ * How closely two ranges coincide: overlap divided by the span they jointly cover.
+ * 1 when the ranges are identical, near 0 when a brief cue sits inside a long cell.
+ */
+const calculateFit = (
+    sourceStart: number,
+    sourceEnd: number,
+    targetStart: number,
+    targetEnd: number,
+    overlap: number
+): number => {
+    const union = Math.max(sourceEnd, targetEnd) - Math.min(sourceStart, targetStart);
+    return union > 0 ? overlap / union : 0;
+};
+
+/**
+ * Two overlaps this close are the same overlap. Timestamps carry millisecond precision,
+ * so this only ever absorbs floating-point noise.
+ */
+const OVERLAP_TIE_EPSILON = 1e-6;
+
+/**
  * Normalize timestamps to handle hour offsets
  */
 const normalizeTimestamps = (
@@ -129,6 +150,7 @@ export const subtitlesCellAligner: CellAligner = async (
         if (!item.content.trim()) return;
 
         let maxOverlap = 0;
+        let bestFit = 0;
         let bestTargetIndex = -1;
 
         targetCells.forEach((targetCell, targetIndex) => {
@@ -148,8 +170,27 @@ export const subtitlesCellAligner: CellAligner = async (
                 normalized.targetEnd
             );
 
-            if (overlap > maxOverlap) {
+            if (overlap <= 0) return;
+
+            const fit = calculateFit(
+                normalized.sourceStart,
+                normalized.sourceEnd,
+                normalized.targetStart,
+                normalized.targetEnd,
+                overlap
+            );
+
+            if (overlap > maxOverlap + OVERLAP_TIE_EPSILON) {
                 maxOverlap = overlap;
+                bestFit = fit;
+                bestTargetIndex = targetIndex;
+            } else if (Math.abs(overlap - maxOverlap) <= OVERLAP_TIE_EPSILON && fit > bestFit) {
+                // Equal overlap. This happens when one cell's range is nested inside another's:
+                // the cue overlaps both by exactly the same amount. Give the cue to the cell whose
+                // range it actually matches, so a nested cue reaches its own cell instead of being
+                // absorbed by the enclosing one.
+                maxOverlap = Math.max(maxOverlap, overlap);
+                bestFit = fit;
                 bestTargetIndex = targetIndex;
             }
         });
@@ -176,8 +217,9 @@ export const subtitlesCellAligner: CellAligner = async (
     targetCells.forEach((targetCell, targetIndex) => {
         const assignedImports = targetToImports.get(targetIndex) || [];
 
-        // Sort by overlap descending
-        assignedImports.sort((a, b) => b.overlap - a.overlap);
+        // Sort by overlap descending; the widest overlap is the primary match. Ties fall back to
+        // import order so the choice of primary is deterministic run to run.
+        assignedImports.sort((a, b) => b.overlap - a.overlap || a.importIndex - b.importIndex);
 
         assignedImports.forEach(({ importIndex, overlap }, i) => {
             const item = filteredImportedContent[importIndex];
@@ -193,12 +235,15 @@ export const subtitlesCellAligner: CellAligner = async (
                     confidence: overlap, // Use overlap as confidence proxy
                 });
             } else {
-                // Additional matches - children
+                // Additional cues covering the same cell. These are not cells of their own — the
+                // write path folds their text into the primary match — so they carry the parent's
+                // id in `parentId` and keep their own cue id for traceability.
                 alignedCells.push({
                     notebookCell: targetCell,
                     importedContent: {
                         ...item,
-                        id: `${targetId}:${generateRandomId()}`,
+                        id: item.id || `${targetId}:${generateRandomId()}`,
+                        parentId: targetId,
                     },
                     isAdditionalOverlap: true,
                     alignmentMethod: "timestamp",

@@ -42,6 +42,8 @@ export interface ImportedContent {
     startTime?: number;
     endTime?: number;
     edits?: any[];
+    /** The cell this content belongs under: its parent for paratext and additional overlaps. */
+    parentId?: string;
     [key: string]: any; // Allow additional metadata
 }
 

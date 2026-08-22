@@ -34,6 +34,7 @@ import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolde
 import { MetadataManager } from "../../utils/metadataManager";
 import { openCodexDocumentWithSourcePair } from "../../utils/openCodexDocumentWithSourcePair";
 import type { ExistingImportPair } from "./updateExistingImport";
+import { applyTranslationToNotebook, describeTranslationImport } from "./translationWriteMerge";
 // import { parseRtfWithPandoc as parseRtfNode } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
 
 const execAsync = promisify(exec);
@@ -1830,155 +1831,21 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             const existingContent = await vscode.workspace.fs.readFile(targetFileUri);
             const existingNotebook = JSON.parse(new TextDecoder().decode(existingContent));
 
-            // Build a map of aligned updates keyed by the TARGET cell's ID (not the imported content's ID)
-            const updatesMap = new Map<string, { alignedCell: any; updatedCell: any }>();
-            const paratextCells: Array<{ cell: any; parentId?: string }> = [];
-
-            let insertedCount = 0;
-            let skippedCount = 0;
-            let paratextCount = 0;
-            let childCellCount = 0;
-
-            for (const alignedCell of message.alignedContent) {
-                if (alignedCell.isParatext) {
-                    const paratextId = alignedCell.importedContent.id;
-                    const importedData = alignedCell.importedContent.data;
-                    const paratextData =
-                        typeof importedData === "object" && importedData !== null ? importedData : {};
-                    const paratextCell = {
-                        kind: 1,
-                        languageId: "html",
-                        value: alignedCell.importedContent.content,
-                        metadata: {
-                            type: CodexCellTypes.PARATEXT,
-                            id: paratextId,
-                            data: {
-                                ...paratextData,
-                                startTime: alignedCell.importedContent.startTime,
-                                endTime: alignedCell.importedContent.endTime,
-                            },
-                            parentId: alignedCell.importedContent.parentId,
-                        },
-                    };
-                    paratextCells.push({
-                        cell: paratextCell,
-                        parentId: alignedCell.importedContent.parentId,
-                    });
-                    paratextCount++;
-                } else if (alignedCell.notebookCell) {
-                    const targetId =
-                        alignedCell.notebookCell?.metadata?.id ?? alignedCell.importedContent.id;
-
-                    const existingCell = existingNotebook.cells.find(
-                        (c: any) => c.metadata?.id === targetId
-                    );
-
-                    // Never overwrite milestone cells — they are structural markers
-                    const isMilestone =
-                        existingCell?.metadata?.type === CodexCellTypes.MILESTONE ||
-                        alignedCell.notebookCell?.metadata?.type === CodexCellTypes.MILESTONE;
-                    if (isMilestone) {
-                        skippedCount++;
-                        continue;
-                    }
-
-                    const existingValue = existingCell?.value ?? alignedCell.notebookCell.value ?? "";
-
-                    if (existingValue && existingValue.trim() !== "") {
-                        updatesMap.set(targetId, {
-                            alignedCell,
-                            updatedCell: existingCell || alignedCell.notebookCell,
-                        });
-                        skippedCount++;
-                    } else {
-                        const updatedCell = {
-                            kind: 1,
-                            languageId: "html",
-                            value: alignedCell.importedContent.content,
-                            metadata: {
-                                ...(existingCell?.metadata ?? alignedCell.notebookCell.metadata),
-                                type: CodexCellTypes.TEXT,
-                                id: targetId,
-                                data: {
-                                    ...(existingCell?.metadata?.data ??
-                                        alignedCell.notebookCell.metadata?.data),
-                                    startTime: alignedCell.importedContent.startTime,
-                                    endTime: alignedCell.importedContent.endTime,
-                                },
-                            },
-                        };
-                        updatesMap.set(targetId, { alignedCell, updatedCell });
-
-                        if (alignedCell.isAdditionalOverlap) {
-                            childCellCount++;
-                        } else {
-                            insertedCount++;
-                        }
-                    }
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                existingNotebook,
+                message.alignedContent as any,
+                {
+                    importerType: message.importerType,
+                    sourceFilePath: message.sourceFilePath,
                 }
-            }
-
-            // Preserve original notebook cell order: iterate existing cells, apply updates in-place
-            const newCells: any[] = [];
-            const usedCellIds = new Set<string>();
-
-            for (const cell of existingNotebook.cells) {
-                const cellId = cell.metadata?.id;
-                if (cellId && updatesMap.has(cellId)) {
-                    newCells.push(updatesMap.get(cellId)!.updatedCell);
-                    usedCellIds.add(cellId);
-                } else {
-                    newCells.push(cell);
-                    if (cellId) {
-                        usedCellIds.add(cellId);
-                    }
-                }
-
-                // Insert paratext cells that reference this cell as their parent
-                if (cellId) {
-                    const childParatexts = paratextCells.filter((p) => p.parentId === cellId);
-                    for (const pt of childParatexts) {
-                        newCells.push(pt.cell);
-                    }
-                }
-            }
-
-            // Append paratext cells without a parent (or whose parent wasn't found)
-            for (const pt of paratextCells) {
-                const alreadyInserted =
-                    pt.parentId && newCells.some((c) => c.metadata?.id === pt.cell.metadata?.id);
-                if (!alreadyInserted) {
-                    newCells.push(pt.cell);
-                }
-            }
-
-            const updatedNotebook = {
-                ...existingNotebook,
-                cells: newCells,
-                metadata: {
-                    ...existingNotebook.metadata,
-                    importerType: message.importerType || existingNotebook.metadata?.importerType,
-                    importTimestamp: new Date().toISOString(),
-                    importContext: {
-                        ...(existingNotebook.metadata?.importContext ?? {}),
-                        lastTranslationImport: {
-                            importerType: message.importerType,
-                            timestamp: new Date().toISOString(),
-                            sourceFilePath: message.sourceFilePath,
-                            stats: { insertedCount, skippedCount, paratextCount, childCellCount },
-                        },
-                    },
-                },
-            };
+            );
 
             await vscode.workspace.fs.writeFile(
                 targetFileUri,
                 Buffer.from(formatJsonForNotebookFile(updatedNotebook))
             );
 
-            vscode.window.showInformationMessage(
-                `Translation imported: ${insertedCount} translations, ${paratextCount} paratext cells, ${childCellCount} child cells, ${skippedCount} skipped.`
-            );
+            vscode.window.showInformationMessage(describeTranslationImport(stats));
         } catch (error) {
             console.error("Error in translation import:", error);
             throw error;
