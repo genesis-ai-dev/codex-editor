@@ -285,6 +285,7 @@ export const parseFile = async (
                 fileName: file.name,
                 cellLabel,
                 segmentIndex: index,
+                cueId: typeof cue.id === 'string' && cue.id.trim() !== '' ? cue.id : undefined,
             });
 
             cells.push({

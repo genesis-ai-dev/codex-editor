@@ -15,10 +15,19 @@
  * Nothing was ever written as a child cell despite the import reporting that it had been. Folding
  * the text in is what the parent-keyed map was always incapable of expressing.
  *
+ * Re-imports: a cell that already holds a translation is only left alone when the incoming text
+ * is identical, empty, or the cell's current value was last set by a person in the editor (a
+ * user edit, or a validated value). Otherwise the import replaces the text — clients round-trip
+ * exported subtitle files through external editors, and their fixes must land on re-upload.
+ * Every replacement is recorded as edit-history entries (the previous value is back-filled into
+ * the history first when no edit captured it), so nothing is discarded and the new value
+ * survives sync merges instead of being reverted to a remote edit.
+ *
  * This module is pure (no vscode imports) so the merge is unit-testable.
  */
 
-import { CodexCellTypes } from "../../../types/enums";
+import { CodexCellTypes, EditType } from "../../../types/enums";
+import { EditMapUtils } from "../../utils/editMapUtils";
 
 /** Joins the text of two cues folded into the same cell. */
 const OVERLAP_JOIN = " ";
@@ -62,7 +71,9 @@ export interface TranslationAlignedCell {
 export interface TranslationWriteStats {
     /** Cells that received imported text they did not have before. */
     insertedCount: number;
-    /** Cells left untouched: milestones, and cells that already hold a translation. */
+    /** Cells whose existing translation was replaced by different imported text. */
+    updatedCount: number;
+    /** Cells left untouched: milestones, unchanged translations, and human-authored values. */
     skippedCount: number;
     /** Paratext cells added. */
     paratextCount: number;
@@ -117,6 +128,51 @@ const byTime = (a: CuePiece, b: CuePiece): number => {
 const hasText = (value: string | undefined): boolean =>
     typeof value === "string" && value.trim() !== "";
 
+/** Shape of an edit-history entry as this module reads and writes it. */
+interface CellEdit {
+    editMap: readonly string[];
+    value: unknown;
+    timestamp: number;
+    type: EditType;
+    author?: string;
+    validatedBy?: Array<{ isDeleted?: boolean;[key: string]: unknown }>;
+    [key: string]: unknown;
+}
+
+/** Imports run under the same synthetic author as re-imports (see reimportMerge.ts). */
+const IMPORT_AUTHOR = "system";
+
+const makeImportEdit = (editMap: readonly string[], value: unknown, timestamp: number): CellEdit => ({
+    editMap,
+    value,
+    timestamp,
+    type: EditType.INITIAL_IMPORT,
+    author: IMPORT_AUTHOR,
+    validatedBy: [],
+});
+
+const isValueEditMap = (editMap: unknown): boolean =>
+    Array.isArray(editMap) && editMap.length === 1 && editMap[0] === "value";
+
+const cellEdits = (cell: TranslationCell | undefined): CellEdit[] => {
+    const edits = cell?.metadata?.edits;
+    return Array.isArray(edits) ? (edits as CellEdit[]) : [];
+};
+
+/**
+ * A cell whose current value was last authored by a person — typed in the editor, or validated —
+ * must never be silently replaced by an import. Machine-written values (previous imports, LLM
+ * output, cells with no edit history at all) are fair game: re-importing a corrected file is how
+ * clients deliver their fixes.
+ */
+const valueIsHumanAuthored = (cell: TranslationCell | undefined): boolean => {
+    const valueEdits = cellEdits(cell).filter((edit) => isValueEditMap(edit?.editMap));
+    const last = valueEdits[valueEdits.length - 1];
+    if (!last) return false;
+    if (last.type === EditType.USER_EDIT) return true;
+    return (last.validatedBy ?? []).some((entry) => entry && entry.isDeleted !== true);
+};
+
 /**
  * Apply aligned imported content to a notebook, returning a new notebook and the stats that
  * describe what actually changed. Pure: the caller owns reading and writing the file.
@@ -141,6 +197,7 @@ export function applyTranslationToNotebook(
 
     const stats: TranslationWriteStats = {
         insertedCount: 0,
+        updatedCount: 0,
         skippedCount: 0,
         paratextCount: 0,
         mergedCueCount: 0,
@@ -215,15 +272,6 @@ export function applyTranslationToNotebook(
             continue;
         }
 
-        const existingValue = existingCell?.value ?? notebookCell.value ?? "";
-        if (hasText(existingValue)) {
-            // The cell already holds a translation; leave it and its extra cues alone.
-            updatesMap.set(targetId, existingCell ?? notebookCell);
-            stats.skippedCount++;
-            overlapsByParentId.delete(targetId);
-            continue;
-        }
-
         const extraCues = (overlapsByParentId.get(targetId) ?? []).slice();
         overlapsByParentId.delete(targetId);
 
@@ -240,6 +288,19 @@ export function applyTranslationToNotebook(
             .sort(byTime);
 
         const value = pieces.map((piece) => piece.content.trim()).join(OVERLAP_JOIN);
+
+        const existingValue = existingCell?.value ?? notebookCell.value ?? "";
+        const isOverwrite = hasText(existingValue);
+        if (
+            isOverwrite &&
+            (value === existingValue || !hasText(value) || valueIsHumanAuthored(existingCell))
+        ) {
+            // Unchanged, nothing real to write, or a person authored the current value:
+            // leave the cell and its extra cues alone.
+            updatesMap.set(targetId, existingCell ?? notebookCell);
+            stats.skippedCount++;
+            continue;
+        }
 
         const data: Record<string, unknown> = {
             ...(existingCell?.metadata?.data ?? notebookCell.metadata?.data),
@@ -264,21 +325,57 @@ export function applyTranslationToNotebook(
             delete data.mergedOverlaps;
         }
 
+        const metadata: NonNullable<TranslationCell["metadata"]> = {
+            ...(existingCell?.metadata ?? notebookCell.metadata),
+            type: CodexCellTypes.TEXT,
+            id: targetId,
+            data,
+        };
+
+        if (isOverwrite) {
+            // Replacing an existing translation: record it in the edit history so the previous
+            // value is preserved and the new one wins sync merges instead of being reverted.
+            const editTimestamp = Date.parse(timestamp) || 0;
+            const edits = [...cellEdits(existingCell)];
+            if (
+                !edits.some((edit) => isValueEditMap(edit?.editMap) && edit?.value === existingValue)
+            ) {
+                edits.push(makeImportEdit(EditMapUtils.value(), existingValue, editTimestamp - 1));
+            }
+            edits.push(makeImportEdit(EditMapUtils.value(), value, editTimestamp));
+
+            const oldData = (existingCell?.metadata?.data ?? {}) as Record<string, unknown>;
+            for (const field of ["startTime", "endTime"] as const) {
+                if (
+                    data[field] !== undefined &&
+                    JSON.stringify(oldData[field]) !== JSON.stringify(data[field])
+                ) {
+                    edits.push(
+                        makeImportEdit(
+                            EditMapUtils.metadataNested("data", field),
+                            data[field],
+                            editTimestamp
+                        )
+                    );
+                }
+            }
+            metadata.edits = edits;
+        }
+
         updatesMap.set(targetId, {
             kind: 1,
             languageId: "html",
             value,
-            metadata: {
-                ...(existingCell?.metadata ?? notebookCell.metadata),
-                type: CodexCellTypes.TEXT,
-                id: targetId,
-                data,
-            },
+            metadata,
         });
 
         // Unmatched cells come back from the aligner carrying their own (empty) content, so only
         // count a cell that genuinely gained text.
-        if (hasText(value)) stats.insertedCount++;
+        if (isOverwrite) {
+            stats.updatedCount++;
+        } else if (hasText(value)) {
+            stats.insertedCount++;
+        }
     }
 
     // Any extra cue whose parent never produced a primary match would otherwise be dropped in
@@ -366,6 +463,9 @@ export function describeTranslationImport(stats: TranslationWriteStats): string 
     if (stats.mergedCueCount > 0) {
         const cue = stats.mergedCueCount === 1 ? "cue" : "cues";
         parts.splice(2, 0, `${stats.mergedCueCount} overlapping ${cue} merged in`);
+    }
+    if (stats.updatedCount > 0) {
+        parts.splice(1, 0, `${stats.updatedCount} updated`);
     }
     return `Translation imported: ${parts.join(", ")}.`;
 }

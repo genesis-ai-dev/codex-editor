@@ -148,3 +148,182 @@ describe('subtitlesCellAligner — alignments that were already correct', () => 
         expect(paratext[0].importedContent.content).toBe('nowhere near');
     });
 });
+
+/**
+ * A cue whose identifier is one of the notebook's own cell ids — a re-import of this project's
+ * exported file. The parser keeps the identifier as data.originalCueId.
+ */
+const exportedCue = (
+    cellId: string,
+    startTime: number,
+    endTime: number,
+    content: string
+): ImportedContent => ({
+    id: `import-${cellId}`,
+    content,
+    startTime,
+    endTime,
+    data: { originalCueId: cellId },
+});
+
+// The real 204 timings: TRAINEES cell 16:01.792–16:31.042, ZEE cell nested at 16:23.417–16:24.083.
+const P = { start: 961.792, end: 991.042 };
+const N = { start: 983.417, end: 984.083 };
+
+describe('subtitlesCellAligner — cues matched by exported cell id', () => {
+    it('routes a cue straight to the cell whose id it carries, regardless of timing', async () => {
+        const targets = [cell('A', 0, 5), cell('B', 5, 10)];
+        // Timed inside A, but the identifier says it is B's cue.
+        const imported = [exportedCue('B', 1, 2, 'BELONGS TO B')];
+
+        const aligned = await subtitlesCellAligner(targets, [], imported);
+
+        const primary = primaries(aligned).find((a) => idOf(a) === 'B');
+        expect(primary?.importedContent.content).toBe('BELONGS TO B');
+        expect(primary?.alignmentMethod).toBe('exact-id');
+        expect(primary?.confidence).toBe(1);
+        expect(primaries(aligned).find((a) => idOf(a) === 'A')?.importedContent.content).toBe('');
+    });
+
+    it('an id match outranks a timestamp match for the same cell', async () => {
+        const targets = [cell('A', 0, 10)];
+        const imported = [
+            cue('c1', 0, 10, 'TIMESTAMP MATCH'),
+            exportedCue('A', 4, 5, 'ID MATCH'),
+        ];
+
+        const aligned = await subtitlesCellAligner(targets, [], imported);
+
+        const primary = primaries(aligned).find((a) => idOf(a) === 'A');
+        expect(primary?.importedContent.content).toBe('ID MATCH');
+        expect(primary?.alignmentMethod).toBe('exact-id');
+        expect(overlaps(aligned)[0]?.importedContent.content).toBe('TIMESTAMP MATCH');
+    });
+
+    it('ignores cue identifiers that match no cell (plain numbered subtitle files)', async () => {
+        const targets = [cell('A', 0, 5)];
+        const imported = [{ ...cue('c1', 0, 5, 'normal'), data: { originalCueId: '84' } }];
+
+        const aligned = await subtitlesCellAligner(targets, [], imported);
+
+        const primary = primaries(aligned).find((a) => idOf(a) === 'A');
+        expect(primary?.importedContent.content).toBe('normal');
+        expect(primary?.alignmentMethod).toBe('timestamp');
+    });
+});
+
+describe('subtitlesCellAligner — corrupted-export repair (issue #1144 damage baked into the file)', () => {
+    // The pre-#1144 importer stamped an enclosing cell with its nested cell's exact timing. An
+    // export of such a project contains two identical-timed cues and no full-span cue at all.
+
+    it('restores the displaced cue to the enclosing cell in a fresh project', async () => {
+        const sources = [cell('srcP', P.start, P.end), cell('srcN', N.start, N.end)];
+        const targets = [cell('P', P.start, P.end), cell('N', N.start, N.end)];
+        const imported = [
+            cue('displaced', N.start, N.end, 'PARENT TEXT'), // file order: parent cell first
+            cue('genuine', N.start, N.end, 'NESTED TEXT'),
+        ];
+
+        const aligned = await subtitlesCellAligner(targets, sources, imported);
+
+        const parentPrimary = primaries(aligned).find((a) => idOf(a) === 'P');
+        expect(parentPrimary?.importedContent.content).toBe('PARENT TEXT');
+        // Re-timed to the cell's true span, so the write path heals the timestamps too.
+        expect(parentPrimary?.importedContent.startTime).toBe(P.start);
+        expect(parentPrimary?.importedContent.endTime).toBe(P.end);
+        expect(primaries(aligned).find((a) => idOf(a) === 'N')?.importedContent.content).toBe(
+            'NESTED TEXT'
+        );
+        expect(overlaps(aligned)).toHaveLength(0);
+    });
+
+    it('falls back to target cell ranges when no source cells are provided', async () => {
+        const targets = [cell('P', P.start, P.end), cell('N', N.start, N.end)];
+        const imported = [
+            cue('displaced', N.start, N.end, 'PARENT TEXT'),
+            cue('genuine', N.start, N.end, 'NESTED TEXT'),
+        ];
+
+        const aligned = await subtitlesCellAligner(targets, [], imported);
+
+        expect(primaries(aligned).find((a) => idOf(a) === 'P')?.importedContent.content).toBe(
+            'PARENT TEXT'
+        );
+        expect(primaries(aligned).find((a) => idOf(a) === 'N')?.importedContent.content).toBe(
+            'NESTED TEXT'
+        );
+    });
+
+    it('heals a re-import into the damaged project itself: id routing plus source timings', async () => {
+        // The project's own parent cell carries the damage (nested range), so only the .source
+        // ranges can restore the true span. The cues carry the cells' ids, being this project's
+        // own export.
+        const sources = [cell('P', P.start, P.end), cell('N', N.start, N.end)];
+        const targets = [cell('P', N.start, N.end, 'old damaged text'), cell('N', N.start, N.end)];
+        const imported = [
+            exportedCue('P', N.start, N.end, 'PARENT TEXT'),
+            exportedCue('N', N.start, N.end, 'NESTED TEXT'),
+        ];
+
+        const aligned = await subtitlesCellAligner(targets, sources, imported);
+
+        const parentPrimary = primaries(aligned).find((a) => idOf(a) === 'P');
+        expect(parentPrimary?.importedContent.content).toBe('PARENT TEXT');
+        expect(parentPrimary?.alignmentMethod).toBe('exact-id');
+        // The restored timing rides on the imported content, healing the cell on write.
+        expect(parentPrimary?.importedContent.startTime).toBe(P.start);
+        expect(parentPrimary?.importedContent.endTime).toBe(P.end);
+        expect(primaries(aligned).find((a) => idOf(a) === 'N')?.importedContent.content).toBe(
+            'NESTED TEXT'
+        );
+    });
+
+    it('leaves a lone nested-timed cue alone — that is a legitimate nested translation', async () => {
+        const targets = [cell('P', P.start, P.end), cell('N', N.start, N.end)];
+        const imported = [cue('genuine', N.start, N.end, 'NESTED TEXT')];
+
+        const aligned = await subtitlesCellAligner(targets, [], imported);
+
+        expect(primaries(aligned).find((a) => idOf(a) === 'N')?.importedContent.content).toBe(
+            'NESTED TEXT'
+        );
+        expect(primaries(aligned).find((a) => idOf(a) === 'P')?.importedContent.content).toBe('');
+    });
+
+    it('keeps both duplicates on the nested cell when the enclosing cell has its own cue', async () => {
+        const targets = [cell('P', P.start, P.end), cell('N', N.start, N.end)];
+        const imported = [
+            cue('full', P.start, P.end, 'PARENT TEXT'),
+            cue('n1', N.start, N.end, 'NESTED A'),
+            cue('n2', N.start, N.end, 'NESTED B'),
+        ];
+
+        const aligned = await subtitlesCellAligner(targets, [], imported);
+
+        expect(primaries(aligned).find((a) => idOf(a) === 'P')?.importedContent.content).toBe(
+            'PARENT TEXT'
+        );
+        expect(primaries(aligned).find((a) => idOf(a) === 'N')?.importedContent.content).toBe(
+            'NESTED A'
+        );
+        expect(overlaps(aligned).map((a) => a.importedContent.content)).toEqual(['NESTED B']);
+    });
+
+    it('handles a displaced cue whose text is empty without stealing the nested cell', async () => {
+        // Two of the eight damaged cells in the real 204 export carry empty text.
+        const targets = [cell('P', P.start, P.end), cell('N', N.start, N.end)];
+        const imported = [
+            cue('displaced', N.start, N.end, ''),
+            cue('genuine', N.start, N.end, 'NESTED TEXT'),
+        ];
+
+        const aligned = await subtitlesCellAligner(targets, [], imported);
+
+        expect(primaries(aligned).find((a) => idOf(a) === 'N')?.importedContent.content).toBe(
+            'NESTED TEXT'
+        );
+        // Nothing to restore for P — its translation is genuinely absent from the file.
+        expect(primaries(aligned).find((a) => idOf(a) === 'P')?.importedContent.content).toBe('');
+        expect(overlaps(aligned)).toHaveLength(0);
+    });
+});

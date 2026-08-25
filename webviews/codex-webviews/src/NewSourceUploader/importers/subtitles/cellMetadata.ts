@@ -24,6 +24,12 @@ export interface SubtitleCellMetadataParams {
      */
     cellLabel?: string | null;
     segmentIndex?: number; // Optional segment index for milestone detection
+    /**
+     * The cue identifier line from the subtitle file, when present. Codex exports write each
+     * cell's id as the cue identifier, so preserving it lets a re-imported export match its
+     * cells by id instead of relying on timestamp overlap.
+     */
+    cueId?: string;
 }
 
 /**
@@ -95,6 +101,7 @@ export function createSubtitleCellMetadata(params: SubtitleCellMetadataParams): 
                 format: params.format,
                 originalText: params.text,
                 globalReferences: [], // Empty for subtitle files (no verse references)
+                ...(params.cueId ? { originalCueId: params.cueId } : {}),
             },
         }
     };

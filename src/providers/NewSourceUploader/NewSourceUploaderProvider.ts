@@ -696,11 +696,31 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         const targetContent = await vscode.workspace.fs.readFile(targetUri);
                         const targetNotebook = JSON.parse(new TextDecoder().decode(targetContent));
 
+                        // The .source cells carry the authoritative timings — target cells can be
+                        // damaged (e.g. by the pre-#1144 importer), so aligners need the source as
+                        // reference. Optional: a failure to read it must not block the import.
+                        let sourceCells: unknown[] = [];
+                        try {
+                            const sourceContent = await vscode.workspace.fs.readFile(
+                                vscode.Uri.file(sourceFilePath)
+                            );
+                            const sourceNotebook = JSON.parse(
+                                new TextDecoder().decode(sourceContent)
+                            );
+                            sourceCells = sourceNotebook.cells || [];
+                        } catch (sourceError) {
+                            console.warn(
+                                `[NEW SOURCE UPLOADER] Could not read source file for alignment context: ${sourceFilePath}`,
+                                sourceError
+                            );
+                        }
+
                         webviewPanel.webview.postMessage({
                             command: "targetFileContent",
                             sourceFilePath: sourceFilePath,
                             targetFilePath: targetFilePath,
                             targetCells: targetNotebook.cells || [],
+                            sourceCells,
                         });
                     } catch (error) {
                         console.error(`[NEW SOURCE UPLOADER] Error fetching target file for ${sourceFilePath}:`, error);

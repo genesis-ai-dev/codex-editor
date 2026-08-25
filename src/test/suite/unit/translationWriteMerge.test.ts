@@ -1,5 +1,5 @@
 import * as assert from "assert";
-import { CodexCellTypes } from "../../../../types/enums";
+import { CodexCellTypes, EditType } from "../../../../types/enums";
 import {
     applyTranslationToNotebook,
     describeTranslationImport,
@@ -136,17 +136,135 @@ suite("translationWriteMerge", () => {
             );
         });
 
-        test("a cell that already holds a translation is left alone, and so are its extra cues", () => {
-            const target = cell("A", "existing work", 10, 18);
+        test("replaces a machine-written translation when the imported text differs", () => {
+            // Clients round-trip exported files through external editors; their fixes must land.
+            const target = cell("A", "written by an earlier import", 10, 18);
             const { updatedNotebook, stats } = applyTranslationToNotebook(
                 notebook([target]),
                 [primary(target, "TRANSLATION A", 10, 18), overlap(target, "SUB-CUE B", 12, 14)],
                 opts
             );
 
-            assert.strictEqual(find(updatedNotebook, "A")!.value, "existing work");
+            assert.strictEqual(find(updatedNotebook, "A")!.value, "TRANSLATION A SUB-CUE B");
+            assert.strictEqual(stats.updatedCount, 1);
             assert.strictEqual(stats.insertedCount, 0);
-            assert.strictEqual(stats.mergedCueCount, 0);
+            assert.strictEqual(stats.mergedCueCount, 1);
+            assert.strictEqual(stats.skippedCount, 0);
+        });
+
+        test("an overwrite records both the previous and the new value in the edit history", () => {
+            const target = cell("A", "old value", 10, 18);
+            const { updatedNotebook } = applyTranslationToNotebook(
+                notebook([target]),
+                [primary(target, "new value", 10, 18)],
+                opts
+            );
+
+            const edits = (find(updatedNotebook, "A")!.metadata!.edits as any[]) ?? [];
+            const valueEdits = edits.filter((e) => e.editMap.length === 1 && e.editMap[0] === "value");
+            assert.deepStrictEqual(
+                valueEdits.map((e) => e.value),
+                ["old value", "new value"]
+            );
+            // The back-filled previous value sorts just before the import's own edit.
+            assert.ok(valueEdits[0].timestamp < valueEdits[1].timestamp);
+            assert.strictEqual(valueEdits[1].timestamp, Date.parse(opts.timestamp));
+            assert.ok(valueEdits.every((e) => e.type === EditType.INITIAL_IMPORT));
+        });
+
+        test("an overwrite that changes the timestamps records those as edits too", () => {
+            // The corrupted-export repair restores a displaced cue's true timing; the write must
+            // survive sync merges, so the timing change is recorded alongside the value change.
+            const target = cell("A", "old value", 12, 14);
+            const { updatedNotebook } = applyTranslationToNotebook(
+                notebook([target]),
+                [primary(target, "new value", 10, 18)],
+                opts
+            );
+
+            const written = find(updatedNotebook, "A")!;
+            assert.strictEqual(written.metadata?.data?.startTime, 10);
+            assert.strictEqual(written.metadata?.data?.endTime, 18);
+            const edits = (written.metadata!.edits as any[]) ?? [];
+            const timingEdits = edits.filter((e) => e.editMap[1] === "data");
+            assert.deepStrictEqual(
+                timingEdits.map((e) => [e.editMap[2], e.value]),
+                [
+                    ["startTime", 10],
+                    ["endTime", 18],
+                ]
+            );
+        });
+
+        test("identical imported text leaves the cell alone", () => {
+            const target = cell("A", "same text", 10, 18);
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [primary(target, "same text", 10, 18)],
+                opts
+            );
+
+            const written = find(updatedNotebook, "A")!;
+            assert.strictEqual(written.value, "same text");
+            assert.strictEqual(written.metadata!.edits, undefined);
+            assert.strictEqual(stats.updatedCount, 0);
+            assert.strictEqual(stats.skippedCount, 1);
+        });
+
+        test("never replaces text a person typed in the editor", () => {
+            const target = cell("A", "typed by hand", 10, 18, {
+                edits: [
+                    {
+                        editMap: ["value"],
+                        value: "typed by hand",
+                        timestamp: 1,
+                        type: EditType.USER_EDIT,
+                        author: "sam",
+                    },
+                ],
+            });
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [primary(target, "imported replacement", 10, 18)],
+                opts
+            );
+
+            assert.strictEqual(find(updatedNotebook, "A")!.value, "typed by hand");
+            assert.strictEqual(stats.updatedCount, 0);
+            assert.strictEqual(stats.skippedCount, 1);
+        });
+
+        test("never replaces a validated value", () => {
+            const target = cell("A", "approved text", 10, 18, {
+                edits: [
+                    {
+                        editMap: ["value"],
+                        value: "approved text",
+                        timestamp: 1,
+                        type: EditType.INITIAL_IMPORT,
+                        validatedBy: [{ username: "reviewer", isDeleted: false }],
+                    },
+                ],
+            });
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [primary(target, "imported replacement", 10, 18)],
+                opts
+            );
+
+            assert.strictEqual(find(updatedNotebook, "A")!.value, "approved text");
+            assert.strictEqual(stats.skippedCount, 1);
+        });
+
+        test("empty imported text never clobbers an existing translation", () => {
+            const target = cell("A", "real work", 10, 18);
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [primary(target, "", 10, 18)],
+                opts
+            );
+
+            assert.strictEqual(find(updatedNotebook, "A")!.value, "real work");
             assert.strictEqual(stats.skippedCount, 1);
         });
 
@@ -204,7 +322,10 @@ suite("translationWriteMerge", () => {
             );
             assert.strictEqual(withNewText.length, stats.insertedCount);
             assert.strictEqual(stats.insertedCount, 2);
-            assert.strictEqual(stats.skippedCount, 1);
+            // B's machine-written "already done" is replaced by the differing import.
+            assert.strictEqual(stats.updatedCount, 1);
+            assert.strictEqual(find(updatedNotebook, "B")!.value, "two");
+            assert.strictEqual(stats.skippedCount, 0);
             assert.strictEqual(stats.mergedCueCount, 1);
 
             const recorded = (updatedNotebook.metadata as any).importContext.lastTranslationImport
@@ -268,13 +389,31 @@ suite("translationWriteMerge", () => {
 
     suite("describeTranslationImport", () => {
         test("mentions merged cues only when there are some", () => {
-            const base = { insertedCount: 3, skippedCount: 1, paratextCount: 0, mergedCueCount: 0 };
+            const base = {
+                insertedCount: 3,
+                updatedCount: 0,
+                skippedCount: 1,
+                paratextCount: 0,
+                mergedCueCount: 0,
+            };
             assert.ok(!describeTranslationImport(base).includes("merged"));
             assert.ok(
                 describeTranslationImport({ ...base, mergedCueCount: 2 }).includes(
                     "2 overlapping cues merged in"
                 )
             );
+        });
+
+        test("mentions updated cells only when there are some", () => {
+            const base = {
+                insertedCount: 3,
+                updatedCount: 0,
+                skippedCount: 1,
+                paratextCount: 0,
+                mergedCueCount: 0,
+            };
+            assert.ok(!describeTranslationImport(base).includes("updated"));
+            assert.ok(describeTranslationImport({ ...base, updatedCount: 2 }).includes("2 updated"));
         });
     });
 });

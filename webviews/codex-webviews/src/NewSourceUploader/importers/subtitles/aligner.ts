@@ -1,6 +1,7 @@
 import { AlignedCell, CellAligner, ImportedContent } from "../../types/plugin";
 import { v4 as uuidv4 } from "uuid";
 import { CodexCellTypes } from "../../../../../../types/enums";
+import { repairDisplacedCueTimings, RepairRangeCell } from "./cueRepair";
 
 /**
  * Generate a random ID for child cells
@@ -109,7 +110,7 @@ export const subtitlesCellAligner: CellAligner = async (
     sourceCells,
     importedContent
 ): Promise<AlignedCell[]> => {
-    const filteredImportedContent = importedContent.filter((item) => {
+    const preFilteredContent = importedContent.filter((item) => {
         const cellType = item.type as CodexCellTypes | undefined;
         return cellType !== CodexCellTypes.MILESTONE && cellType !== CodexCellTypes.PARATEXT;
     });
@@ -117,6 +118,76 @@ export const subtitlesCellAligner: CellAligner = async (
     let totalOverlaps = 0;
 
     const usedImportedIndices = new Set<number>();
+
+    // --- Corrupted-export repair -------------------------------------------------------------
+    // A file exported from a project damaged by the pre-#1144 importer carries cues displaced
+    // onto a nested cell's exact range (see cueRepair.ts). Restore those cues' timings against
+    // the authoritative cell ranges before any overlap matching happens. The .source cells are
+    // the safe reference — target cells can themselves carry the damage when the file is being
+    // re-imported into the very project it was exported from.
+    const rangeReference = (sourceCells?.length ? sourceCells : targetCells)
+        .map((cell): RepairRangeCell | null => {
+            const cellType = cell.metadata?.type as CodexCellTypes | undefined;
+            if (cellType === CodexCellTypes.MILESTONE || cellType === CodexCellTypes.PARATEXT) {
+                return null;
+            }
+            const id = cell.metadata?.id;
+            const start = convertToSeconds(cell.metadata?.data?.startTime);
+            const end = convertToSeconds(cell.metadata?.data?.endTime);
+            if (typeof id !== "string" || !(end > start)) return null;
+            return { id, start, end };
+        })
+        .filter((cell): cell is RepairRangeCell => cell !== null);
+
+    const retimings = repairDisplacedCueTimings(
+        preFilteredContent.map((item) => ({
+            start: convertToSeconds(item.startTime),
+            end: convertToSeconds(item.endTime),
+        })),
+        rangeReference
+    );
+
+    const filteredImportedContent = preFilteredContent.slice();
+    for (const retiming of retimings) {
+        const original = filteredImportedContent[retiming.cueIndex];
+        filteredImportedContent[retiming.cueIndex] = {
+            ...original,
+            startTime: retiming.startTime,
+            endTime: retiming.endTime,
+        };
+        console.log(
+            `Subtitle aligner: cue ${retiming.cueIndex} (${original.id}) carried a displaced ` +
+            `nested timing ${retiming.originalStartTime}s-${retiming.originalEndTime}s from a ` +
+            `corrupted export; restored to ${retiming.startTime}s-${retiming.endTime}s ` +
+            `(cell ${retiming.cellId}).`
+        );
+    }
+
+    // --- Exact id matching -------------------------------------------------------------------
+    // Codex exports write each cell's id as the cue identifier, and the subtitle parser keeps it
+    // as data.originalCueId. When a cue's identifier IS one of this notebook's cell ids, the file
+    // is a re-import of this project's own export: route the cue straight to its cell, exactly.
+    const targetIndexByCellId = new Map<string, number>();
+    targetCells.forEach((cell, index) => {
+        const cellType = cell.metadata?.type as CodexCellTypes | undefined;
+        if (cellType === CodexCellTypes.MILESTONE) return;
+        const id = cell.metadata?.id;
+        if (typeof id === "string" && id !== "") targetIndexByCellId.set(id, index);
+    });
+
+    const forcedTargetByImport = new Map<number, number>();
+    filteredImportedContent.forEach((item, importIndex) => {
+        const cueId = (item.data as { originalCueId?: unknown } | undefined)?.originalCueId;
+        if (typeof cueId !== "string" || cueId === "") return;
+        const targetIndex = targetIndexByCellId.get(cueId);
+        if (targetIndex !== undefined) forcedTargetByImport.set(importIndex, targetIndex);
+    });
+    if (forcedTargetByImport.size > 0) {
+        console.log(
+            `Subtitle aligner: ${forcedTargetByImport.size}/${filteredImportedContent.length} ` +
+            `cues matched existing cells by id (re-import of this project's own export).`
+        );
+    }
 
     // Debug logging: Show first 20 target cells with timestamps
     console.log("=== TARGET CELLS (first 20) ===");
@@ -147,6 +218,7 @@ export const subtitlesCellAligner: CellAligner = async (
     const importToBestTarget = new Map<number, { targetIndex: number; overlap: number }>();
 
     filteredImportedContent.forEach((item, importIndex) => {
+        if (forcedTargetByImport.has(importIndex)) return; // Already routed by exact id.
         if (!item.content.trim()) return;
 
         let maxOverlap = 0;
@@ -204,7 +276,10 @@ export const subtitlesCellAligner: CellAligner = async (
     });
 
     // Group imports by their best target
-    const targetToImports = new Map<number, { importIndex: number; overlap: number }[]>();
+    const targetToImports = new Map<
+        number,
+        { importIndex: number; overlap: number; forced?: boolean }[]
+    >();
 
     importToBestTarget.forEach((data, importIndex) => {
         if (!targetToImports.has(data.targetIndex)) {
@@ -213,26 +288,40 @@ export const subtitlesCellAligner: CellAligner = async (
         targetToImports.get(data.targetIndex)!.push({ importIndex, overlap: data.overlap });
     });
 
+    // Cues routed by exact id outrank any timestamp match for the same cell.
+    forcedTargetByImport.forEach((targetIndex, importIndex) => {
+        if (!targetToImports.has(targetIndex)) {
+            targetToImports.set(targetIndex, []);
+        }
+        targetToImports.get(targetIndex)!.push({ importIndex, overlap: 0, forced: true });
+    });
+
     // Process each target in order
     targetCells.forEach((targetCell, targetIndex) => {
         const assignedImports = targetToImports.get(targetIndex) || [];
 
-        // Sort by overlap descending; the widest overlap is the primary match. Ties fall back to
-        // import order so the choice of primary is deterministic run to run.
-        assignedImports.sort((a, b) => b.overlap - a.overlap || a.importIndex - b.importIndex);
+        // Exact-id matches first, then by overlap descending; the widest overlap is the primary
+        // match. Ties fall back to import order so the choice of primary is deterministic run to
+        // run.
+        assignedImports.sort(
+            (a, b) =>
+                Number(b.forced ?? false) - Number(a.forced ?? false) ||
+                b.overlap - a.overlap ||
+                a.importIndex - b.importIndex
+        );
 
-        assignedImports.forEach(({ importIndex, overlap }, i) => {
+        assignedImports.forEach(({ importIndex, overlap, forced }, i) => {
             const item = filteredImportedContent[importIndex];
             usedImportedIndices.add(importIndex);
             const targetId = targetCell.metadata?.id || uuidv4();
 
             if (i === 0) {
-                // Highest overlap - primary match
+                // Exact id match or highest overlap - primary match
                 alignedCells.push({
                     notebookCell: targetCell,
                     importedContent: { ...item, id: targetId },
-                    alignmentMethod: "timestamp",
-                    confidence: overlap, // Use overlap as confidence proxy
+                    alignmentMethod: forced ? "exact-id" : "timestamp",
+                    confidence: forced ? 1 : overlap, // Use overlap as confidence proxy
                 });
             } else {
                 // Additional cues covering the same cell. These are not cells of their own — the
