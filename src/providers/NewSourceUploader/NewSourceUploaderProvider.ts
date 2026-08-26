@@ -34,7 +34,11 @@ import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolde
 import { MetadataManager } from "../../utils/metadataManager";
 import { openCodexDocumentWithSourcePair } from "../../utils/openCodexDocumentWithSourcePair";
 import type { ExistingImportPair } from "./updateExistingImport";
-import { applyTranslationToNotebook, describeTranslationImport } from "./translationWriteMerge";
+import {
+    applyTranslationToNotebook,
+    describeTranslationImport,
+    needsBulkOverwriteConfirmation,
+} from "./translationWriteMerge";
 // import { parseRtfWithPandoc as parseRtfNode } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
 
 const execAsync = promisify(exec);
@@ -235,25 +239,34 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 } else if (message.command === "writeTranslation") {
                     const syncManager = SyncManager.getInstance();
                     syncManager.beginImportInProgress();
+                    let written = false;
                     try {
-                        await this.handleWriteTranslation(message as WriteTranslationMessage, token);
+                        written = await this.handleWriteTranslation(
+                            message as WriteTranslationMessage,
+                            token
+                        );
                     } finally {
                         syncManager.endImportInProgress();
                     }
 
-                    // Send success notification
-                    webviewPanel.webview.postMessage({
-                        command: "notification",
-                        type: "success",
-                        message: "Translation imported successfully!"
-                    });
+                    if (!written) {
+                        // The user declined a bulk overwrite; the file is untouched.
+                        webviewPanel.webview.postMessage({ command: "importCancelled" });
+                    } else {
+                        // Send success notification
+                        webviewPanel.webview.postMessage({
+                            command: "notification",
+                            type: "success",
+                            message: "Translation imported successfully!"
+                        });
 
-                    // Send updated inventory after successful translation import
-                    const inventory = await this.fetchProjectInventory();
-                    webviewPanel.webview.postMessage({
-                        command: "projectInventory",
-                        inventory: inventory,
-                    });
+                        // Send updated inventory after successful translation import
+                        const inventory = await this.fetchProjectInventory();
+                        webviewPanel.webview.postMessage({
+                            command: "projectInventory",
+                            inventory: inventory,
+                        });
+                    }
                 } else if (message.command === "importBookNames") {
                     // Handle book names import
                     const { xmlContent, nameType } = message;
@@ -1842,16 +1855,22 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         await removeLocalizedBooksJson();
     }
 
+    /**
+     * Write an imported translation into its .codex file.
+     *
+     * Returns false when the user was asked to confirm a bulk overwrite and declined, in which case
+     * nothing was written.
+     */
     private async handleWriteTranslation(
         message: WriteTranslationMessage,
         token: vscode.CancellationToken
-    ): Promise<void> {
+    ): Promise<boolean> {
         try {
             const targetFileUri = vscode.Uri.file(message.targetFilePath);
             const existingContent = await vscode.workspace.fs.readFile(targetFileUri);
             const existingNotebook = JSON.parse(new TextDecoder().decode(existingContent));
 
-            const { updatedNotebook, stats } = applyTranslationToNotebook(
+            const { updatedNotebook, stats, overwriteRisk } = applyTranslationToNotebook(
                 existingNotebook,
                 message.alignedContent as any,
                 {
@@ -1860,12 +1879,38 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 }
             );
 
+            // Importing the wrong file aligns by timestamp just as neatly as the right one, and it
+            // would replace the whole translation with nothing but a cheerful count to show for it.
+            if (needsBulkOverwriteConfirmation(stats, overwriteRisk)) {
+                const fileName = path.basename(message.targetFilePath);
+                const choice = await vscode.window.showWarningMessage(
+                    `This import would replace ${stats.updatedCount} existing translations in ${fileName}.`,
+                    {
+                        modal: true,
+                        detail:
+                            `Nothing in "${path.basename(message.sourceFilePath)}" matched a cell by id, so this file is ` +
+                            `not an export of this project, and it would rewrite ${stats.updatedCount} of the ` +
+                            `${overwriteRisk.populatedCellCount} cells that already hold a translation.\n\n` +
+                            `If this is the corrected file you meant to import, go ahead. If it belongs to a ` +
+                            `different project or episode, cancel — the existing translations stay as they are.`,
+                    },
+                    "Replace Translations"
+                );
+                if (choice !== "Replace Translations") {
+                    vscode.window.showInformationMessage(
+                        "Translation import cancelled. Nothing was changed."
+                    );
+                    return false;
+                }
+            }
+
             await vscode.workspace.fs.writeFile(
                 targetFileUri,
                 Buffer.from(formatJsonForNotebookFile(updatedNotebook))
             );
 
             vscode.window.showInformationMessage(describeTranslationImport(stats));
+            return true;
         } catch (error) {
             console.error("Error in translation import:", error);
             throw error;

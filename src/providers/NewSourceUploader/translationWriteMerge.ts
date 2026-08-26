@@ -23,6 +23,18 @@
  * the history first when no edit captured it), so nothing is discarded and the new value
  * survives sync merges instead of being reverted to a remote edit.
  *
+ * A cell that keeps its text can still take a corrected TIME RANGE, but only from a cue the
+ * aligner matched by cell id — proof the file is this project's own export coming back. Timing
+ * from a merely overlapping cue is never trusted that way: a file whose clock is offset would
+ * otherwise silently shift every cell in the notebook. See the retime branch in pass 2.
+ *
+ * Nothing here touches a locked cell, and a retime stands down on a validated one, because both
+ * are places where a person has said in the editor that this cell is settled.
+ *
+ * Replacing text in bulk is destructive, and importing the wrong file (another episode's export)
+ * aligns by timestamp just as happily as the right one. {@link needsBulkOverwriteConfirmation}
+ * spots that shape so the caller can ask before writing; everything else stays silent.
+ *
  * This module is pure (no vscode imports) so the merge is unit-testable.
  */
 
@@ -31,6 +43,16 @@ import { EditMapUtils } from "../../utils/editMapUtils";
 
 /** Joins the text of two cues folded into the same cell. */
 const OVERLAP_JOIN = " ";
+
+/** Timestamps carry millisecond precision; anything closer than this is the same instant. */
+const TIME_EPSILON = 1e-3 / 2;
+
+/**
+ * A bulk overwrite is only worth interrupting for when it is big in both senses: many cells, and
+ * most of the work in the file. Below either threshold the import stays silent.
+ */
+const BULK_OVERWRITE_MIN_CELLS = 10;
+const BULK_OVERWRITE_MIN_SHARE = 0.5;
 
 export interface TranslationCell {
     kind?: number;
@@ -65,6 +87,11 @@ export interface TranslationAlignedCell {
     importedContent: TranslationImportedContent;
     isParatext?: boolean;
     isAdditionalOverlap?: boolean;
+    /**
+     * How the aligner chose this cell. `exact-id` means the imported cue named the cell outright,
+     * which is only possible for a file exported from this very project.
+     */
+    alignmentMethod?: string;
     [key: string]: unknown;
 }
 
@@ -73,12 +100,22 @@ export interface TranslationWriteStats {
     insertedCount: number;
     /** Cells whose existing translation was replaced by different imported text. */
     updatedCount: number;
+    /** Cells that kept their text but took a corrected time range from an id-matched cue. */
+    retimedCount: number;
     /** Cells left untouched: milestones, unchanged translations, and human-authored values. */
     skippedCount: number;
     /** Paratext cells added. */
     paratextCount: number;
     /** Extra cues folded into the text of the cell they overlap. */
     mergedCueCount: number;
+}
+
+/** What the caller needs to judge whether this import is about to do something drastic. */
+export interface TranslationOverwriteRisk {
+    /** Cues the aligner matched to a cell by id — proof the file belongs to this project. */
+    exactIdMatches: number;
+    /** Cells that already held a translation before this import ran. */
+    populatedCellCount: number;
 }
 
 export interface ApplyTranslationOptions {
@@ -91,6 +128,24 @@ export interface ApplyTranslationOptions {
 export interface ApplyTranslationResult {
     updatedNotebook: TranslationNotebook;
     stats: TranslationWriteStats;
+    overwriteRisk: TranslationOverwriteRisk;
+}
+
+/**
+ * True when this import looks like the wrong file rather than a corrected one.
+ *
+ * Importing another episode's subtitles aligns by timestamp perfectly well — every project starts
+ * at zero — so a mistake replaces the whole translation and reports it as a success. The tell is
+ * that not one cue named a cell by id, so the file is nobody's export of this project, and yet it
+ * is set to replace most of the translations in it. The caller should confirm before writing.
+ */
+export function needsBulkOverwriteConfirmation(
+    stats: TranslationWriteStats,
+    risk: TranslationOverwriteRisk
+): boolean {
+    if (risk.exactIdMatches > 0) return false;
+    if (stats.updatedCount < BULK_OVERWRITE_MIN_CELLS) return false;
+    return stats.updatedCount > risk.populatedCellCount * BULK_OVERWRITE_MIN_SHARE;
 }
 
 /** A single cue's contribution to a cell's text. */
@@ -154,9 +209,41 @@ const makeImportEdit = (editMap: readonly string[], value: unknown, timestamp: n
 const isValueEditMap = (editMap: unknown): boolean =>
     Array.isArray(editMap) && editMap.length === 1 && editMap[0] === "value";
 
+/**
+ * True for any edit that records the cell's value, in either storage format.
+ *
+ * Projects created before edit maps existed store the text as `cellValue` with no `editMap` at
+ * all. Those files are only normalized when a sync merge or the edit-history migration happens to
+ * touch them (see `resolvers.ts` and `migration_...` in `migrationUtils.ts`), so an untouched old
+ * project still holds them — and reading only the new shape would make a person's typed text look
+ * machine-written and hand it to the next import to overwrite.
+ */
+const isValueEdit = (edit: CellEdit | undefined): boolean => {
+    if (!edit) return false;
+    if (isValueEditMap(edit.editMap)) return true;
+    return !edit.editMap && (edit as { cellValue?: unknown }).cellValue !== undefined;
+};
+
+/** The text a value edit recorded, wherever that format kept it. */
+const valueEditValue = (edit: CellEdit): unknown =>
+    edit.value !== undefined ? edit.value : (edit as { cellValue?: unknown }).cellValue;
+
 const cellEdits = (cell: TranslationCell | undefined): CellEdit[] => {
     const edits = cell?.metadata?.edits;
     return Array.isArray(edits) ? (edits as CellEdit[]) : [];
+};
+
+/** Someone signed off on this edit and has not withdrawn it. */
+const hasActiveValidator = (edit: CellEdit | undefined): boolean =>
+    (edit?.validatedBy ?? []).some((entry) => entry && entry.isDeleted !== true);
+
+/** A person set this: they typed it, or they signed off on it. */
+const isHumanEdit = (edit: CellEdit): boolean =>
+    edit.type === EditType.USER_EDIT || hasActiveValidator(edit);
+
+const lastValueEdit = (cell: TranslationCell | undefined): CellEdit | undefined => {
+    const valueEdits = cellEdits(cell).filter(isValueEdit);
+    return valueEdits[valueEdits.length - 1];
 };
 
 /**
@@ -166,11 +253,55 @@ const cellEdits = (cell: TranslationCell | undefined): CellEdit[] => {
  * clients deliver their fixes.
  */
 const valueIsHumanAuthored = (cell: TranslationCell | undefined): boolean => {
-    const valueEdits = cellEdits(cell).filter((edit) => isValueEditMap(edit?.editMap));
-    const last = valueEdits[valueEdits.length - 1];
-    if (!last) return false;
-    if (last.type === EditType.USER_EDIT) return true;
-    return (last.validatedBy ?? []).some((entry) => entry && entry.isDeleted !== true);
+    const last = lastValueEdit(cell);
+    return last ? isHumanEdit(last) : false;
+};
+
+/**
+ * Whether the cell's current value carries a live sign-off.
+ *
+ * The editor reads validation off the LAST entry in a cell's history whatever kind of edit it is
+ * (CodexCellEditor.tsx takes `editHistory[editHistory.length - 1]`), so appending a timing edit to
+ * a validated cell would quietly clear its badge. A retime is an automatic correction and is not
+ * worth costing someone their sign-off, so it stands down instead.
+ */
+const valueIsValidated = (cell: TranslationCell | undefined): boolean =>
+    hasActiveValidator(lastValueEdit(cell));
+
+const isTimingEditMap = (editMap: unknown, field: "startTime" | "endTime"): boolean =>
+    Array.isArray(editMap) &&
+    editMap.length === 3 &&
+    editMap[0] === "metadata" &&
+    editMap[1] === "data" &&
+    editMap[2] === field;
+
+/**
+ * Whether a person set this cell's time range by hand. Retiming is only ever an automatic
+ * correction, so it must yield to someone who deliberately placed the cell where it is.
+ */
+const timingIsHumanAuthored = (cell: TranslationCell | undefined): boolean => {
+    const edits = cellEdits(cell);
+    return (["startTime", "endTime"] as const).some((field) => {
+        const timingEdits = edits.filter((edit) => isTimingEditMap(edit?.editMap, field));
+        const last = timingEdits[timingEdits.length - 1];
+        return last ? isHumanEdit(last) : false;
+    });
+};
+
+/**
+ * Whether an incoming timestamp is a real change from the stored one. An unreadable incoming time
+ * is never a reason to rewrite anything; an unreadable stored time means the cell has no usable
+ * range yet, so any real incoming time is an improvement.
+ */
+const timeChanged = (
+    incoming: number | string | undefined,
+    existing: unknown
+): boolean => {
+    const incomingSeconds = toSeconds(incoming);
+    if (Number.isNaN(incomingSeconds)) return false;
+    const existingSeconds = toSeconds(existing as number | string | undefined);
+    if (Number.isNaN(existingSeconds)) return true;
+    return Math.abs(incomingSeconds - existingSeconds) > TIME_EPSILON;
 };
 
 /**
@@ -198,9 +329,19 @@ export function applyTranslationToNotebook(
     const stats: TranslationWriteStats = {
         insertedCount: 0,
         updatedCount: 0,
+        retimedCount: 0,
         skippedCount: 0,
         paratextCount: 0,
         mergedCueCount: 0,
+    };
+
+    const overwriteRisk: TranslationOverwriteRisk = {
+        exactIdMatches: alignedContent.filter((entry) => entry.alignmentMethod === "exact-id")
+            .length,
+        populatedCellCount: (existingNotebook.cells ?? []).filter(
+            (existing) =>
+                existing.metadata?.type !== CodexCellTypes.MILESTONE && hasText(existing.value)
+        ).length,
     };
 
     // Pass 1 — sort the aligned entries into paratext, primary matches, and extra cues.
@@ -272,6 +413,17 @@ export function applyTranslationToNotebook(
             continue;
         }
 
+        // A locked cell is off limits. The editor refuses even its own timestamp updates on one
+        // ("Block timestamp updates to locked cells", codexDocument.ts), so an import writing the
+        // file directly must not be the way around that.
+        const isLocked =
+            existingCell?.metadata?.isLocked === true || notebookCell.metadata?.isLocked === true;
+        if (isLocked) {
+            stats.skippedCount++;
+            overlapsByParentId.delete(targetId);
+            continue;
+        }
+
         const extraCues = (overlapsByParentId.get(targetId) ?? []).slice();
         overlapsByParentId.delete(targetId);
 
@@ -295,10 +447,56 @@ export function applyTranslationToNotebook(
             isOverwrite &&
             (value === existingValue || !hasText(value) || valueIsHumanAuthored(existingCell))
         ) {
-            // Unchanged, nothing real to write, or a person authored the current value:
-            // leave the cell and its extra cues alone.
-            updatesMap.set(targetId, existingCell ?? notebookCell);
-            stats.skippedCount++;
+            // Unchanged, nothing real to write, or a person authored the current value: the text
+            // stays as it is.
+            const keptCell = existingCell ?? notebookCell;
+            const keptData = (keptCell.metadata?.data ?? {}) as Record<string, unknown>;
+
+            // The range can still be wrong while the text is right — a client retimes a line in an
+            // external editor and changes nothing else, and a cell displaced by the pre-#1144
+            // importer holds the correct words under a nested cue's range. Take the correction only
+            // from a cue that named this cell by id, so it is provably this project's own export,
+            // and never from a range a person placed by hand.
+            const retimeFields =
+                aligned.alignmentMethod === "exact-id" &&
+                hasText(value) &&
+                !timingIsHumanAuthored(existingCell) &&
+                !valueIsValidated(existingCell)
+                    ? (["startTime", "endTime"] as const).filter((field) =>
+                        timeChanged(imported[field], keptData[field])
+                    )
+                    : [];
+
+            if (retimeFields.length === 0) {
+                updatesMap.set(targetId, keptCell);
+                stats.skippedCount++;
+                continue;
+            }
+
+            const editTimestamp = Date.parse(timestamp) || 0;
+            const retimedData: Record<string, unknown> = { ...keptData };
+            const retimedEdits = [...cellEdits(existingCell)];
+            for (const field of retimeFields) {
+                retimedData[field] = imported[field];
+                retimedEdits.push(
+                    makeImportEdit(
+                        EditMapUtils.metadataNested("data", field),
+                        imported[field],
+                        editTimestamp
+                    )
+                );
+            }
+
+            updatesMap.set(targetId, {
+                ...keptCell,
+                metadata: {
+                    ...keptCell.metadata,
+                    id: targetId,
+                    data: retimedData,
+                    edits: retimedEdits,
+                },
+            });
+            stats.retimedCount++;
             continue;
         }
 
@@ -325,9 +523,13 @@ export function applyTranslationToNotebook(
             delete data.mergedOverlaps;
         }
 
+        // Keep whatever kind of cell this already is. Timed paratext cells are exported as cues
+        // like any other, so an import that stamped TEXT on everything would quietly promote them
+        // into ordinary cells. Milestones never reach here — they were skipped above.
+        const existingType = existingCell?.metadata?.type ?? notebookCell.metadata?.type;
         const metadata: NonNullable<TranslationCell["metadata"]> = {
             ...(existingCell?.metadata ?? notebookCell.metadata),
-            type: CodexCellTypes.TEXT,
+            type: hasText(existingType) ? existingType : CodexCellTypes.TEXT,
             id: targetId,
             data,
         };
@@ -337,9 +539,7 @@ export function applyTranslationToNotebook(
             // value is preserved and the new one wins sync merges instead of being reverted.
             const editTimestamp = Date.parse(timestamp) || 0;
             const edits = [...cellEdits(existingCell)];
-            if (
-                !edits.some((edit) => isValueEditMap(edit?.editMap) && edit?.value === existingValue)
-            ) {
+            if (!edits.some((edit) => isValueEdit(edit) && valueEditValue(edit) === existingValue)) {
                 edits.push(makeImportEdit(EditMapUtils.value(), existingValue, editTimestamp - 1));
             }
             edits.push(makeImportEdit(EditMapUtils.value(), value, editTimestamp));
@@ -390,13 +590,14 @@ export function applyTranslationToNotebook(
         if (ordered.length === 0) continue;
 
         const value = ordered.map((piece) => piece.content.trim()).join(OVERLAP_JOIN);
+        const existingType = existingCell.metadata?.type;
         updatesMap.set(parentId, {
             kind: 1,
             languageId: "html",
             value,
             metadata: {
                 ...existingCell.metadata,
-                type: CodexCellTypes.TEXT,
+                type: hasText(existingType) ? existingType : CodexCellTypes.TEXT,
                 id: parentId,
                 data: {
                     ...existingCell.metadata?.data,
@@ -431,6 +632,19 @@ export function applyTranslationToNotebook(
         if (!alreadyInserted) newCells.push(pt.cell);
     }
 
+    // `childCellCount` is the marker the pre-#1144 importer left behind, and the one-off repair
+    // command uses it to recognize a damaged project. Overwriting the import record would erase
+    // that evidence, so a later import must not make a damaged file look clean.
+    const previousImportContext = existingNotebook.metadata?.importContext as
+        | Record<string, any>
+        | undefined;
+    const previousChildCellCount = previousImportContext?.lastTranslationImport?.stats
+        ?.childCellCount;
+    const damageMarker =
+        typeof previousChildCellCount === "number" && previousChildCellCount > 0
+            ? { childCellCount: previousChildCellCount }
+            : {};
+
     const updatedNotebook: TranslationNotebook = {
         ...existingNotebook,
         cells: newCells,
@@ -439,18 +653,18 @@ export function applyTranslationToNotebook(
             importerType: options.importerType || (existingNotebook.metadata?.importerType as string),
             importTimestamp: timestamp,
             importContext: {
-                ...((existingNotebook.metadata?.importContext as Record<string, unknown>) ?? {}),
+                ...(previousImportContext ?? {}),
                 lastTranslationImport: {
                     importerType: options.importerType,
                     timestamp,
                     sourceFilePath: options.sourceFilePath,
-                    stats: { ...stats },
+                    stats: { ...stats, ...damageMarker },
                 },
             },
         },
     };
 
-    return { updatedNotebook, stats };
+    return { updatedNotebook, stats, overwriteRisk };
 }
 
 /** The message shown when an import finishes. Kept here so tests can assert it matches the stats. */
@@ -463,6 +677,9 @@ export function describeTranslationImport(stats: TranslationWriteStats): string 
     if (stats.mergedCueCount > 0) {
         const cue = stats.mergedCueCount === 1 ? "cue" : "cues";
         parts.splice(2, 0, `${stats.mergedCueCount} overlapping ${cue} merged in`);
+    }
+    if (stats.retimedCount > 0) {
+        parts.splice(1, 0, `${stats.retimedCount} retimed`);
     }
     if (stats.updatedCount > 0) {
         parts.splice(1, 0, `${stats.updatedCount} updated`);

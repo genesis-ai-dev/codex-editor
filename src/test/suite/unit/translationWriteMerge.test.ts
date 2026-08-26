@@ -3,9 +3,12 @@ import { CodexCellTypes, EditType } from "../../../../types/enums";
 import {
     applyTranslationToNotebook,
     describeTranslationImport,
+    needsBulkOverwriteConfirmation,
     type TranslationAlignedCell,
     type TranslationCell,
     type TranslationNotebook,
+    type TranslationOverwriteRisk,
+    type TranslationWriteStats,
 } from "../../../providers/NewSourceUploader/translationWriteMerge";
 
 /**
@@ -63,8 +66,40 @@ const overlap = (
     isAdditionalOverlap: true,
 });
 
+/** A cue the aligner matched to its cell by id — only possible for this project's own export. */
+const idMatch = (
+    target: TranslationCell,
+    content: string,
+    startTime: number,
+    endTime: number
+): TranslationAlignedCell => ({
+    ...primary(target, content, startTime, endTime),
+    alignmentMethod: "exact-id",
+});
+
 const find = (nb: TranslationNotebook, id: string): TranslationCell | undefined =>
     nb.cells.find((c) => c.metadata?.id === id);
+
+const timingEditsOf = (written: TranslationCell): Array<[unknown, unknown]> =>
+    ((written.metadata?.edits as any[]) ?? [])
+        .filter((e) => Array.isArray(e.editMap) && e.editMap[1] === "data")
+        .map((e) => [e.editMap[2], e.value]);
+
+const statsWith = (overrides: Partial<TranslationWriteStats> = {}): TranslationWriteStats => ({
+    insertedCount: 0,
+    updatedCount: 0,
+    retimedCount: 0,
+    skippedCount: 0,
+    paratextCount: 0,
+    mergedCueCount: 0,
+    ...overrides,
+});
+
+const riskWith = (overrides: Partial<TranslationOverwriteRisk> = {}): TranslationOverwriteRisk => ({
+    exactIdMatches: 0,
+    populatedCellCount: 100,
+    ...overrides,
+});
 
 const opts = { importerType: "subtitles", sourceFilePath: "/x.source", timestamp: "2026-01-01T00:00:00.000Z" };
 
@@ -283,6 +318,38 @@ suite("translationWriteMerge", () => {
             assert.strictEqual(stats.skippedCount, 1);
         });
 
+        test("a locked cell is never written to", () => {
+            // The editor blocks even its own timestamp updates on a locked cell, so an import
+            // writing the file directly must not be the way around that.
+            const target = cell("A", "settled text", 983.417, 984.083, { isLocked: true });
+
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [idMatch(target, "a replacement", 961.792, 991.042)],
+                opts
+            );
+
+            const written = find(updatedNotebook, "A")!;
+            assert.strictEqual(written.value, "settled text");
+            assert.strictEqual(written.metadata?.data?.startTime, 983.417);
+            assert.strictEqual(stats.updatedCount, 0);
+            assert.strictEqual(stats.retimedCount, 0);
+            assert.strictEqual(stats.skippedCount, 1);
+        });
+
+        test("a locked empty cell is not filled either", () => {
+            const target = cell("A", "", 10, 18, { isLocked: true });
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [primary(target, "a translation", 10, 18)],
+                opts
+            );
+
+            assert.strictEqual(find(updatedNotebook, "A")!.value, "");
+            assert.strictEqual(stats.insertedCount, 0);
+            assert.strictEqual(stats.skippedCount, 1);
+        });
+
         test("unmatched empty cells are not counted as translations", () => {
             // The aligner echoes unmatched target cells back with their own (empty) content.
             const a = cell("A", "", 10, 18);
@@ -387,15 +454,459 @@ suite("translationWriteMerge", () => {
         });
     });
 
-    suite("describeTranslationImport", () => {
-        test("mentions merged cues only when there are some", () => {
-            const base = {
-                insertedCount: 3,
-                updatedCount: 0,
-                skippedCount: 1,
-                paratextCount: 0,
-                mergedCueCount: 0,
+    suite("edit history written before edit maps existed", () => {
+        // Old projects store a value edit as `cellValue` with no editMap at all. Reading only the
+        // current shape would make a person's typed text look machine-written.
+        const legacyEdit = (value: string, type: EditType) => ({
+            cellValue: value,
+            timestamp: 1,
+            type,
+            author: "sam",
+        });
+
+        test("legacy user edits still protect a cell from being overwritten", () => {
+            const target = cell("A", "typed by hand", 10, 18, {
+                edits: [legacyEdit("typed by hand", EditType.USER_EDIT)],
+            });
+
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [primary(target, "imported replacement", 10, 18)],
+                opts
+            );
+
+            assert.strictEqual(find(updatedNotebook, "A")!.value, "typed by hand");
+            assert.strictEqual(stats.updatedCount, 0);
+            assert.strictEqual(stats.skippedCount, 1);
+        });
+
+        test("a legacy validated value is protected too", () => {
+            const target = cell("A", "approved text", 10, 18, {
+                edits: [
+                    {
+                        ...legacyEdit("approved text", EditType.INITIAL_IMPORT),
+                        validatedBy: [{ username: "reviewer", isDeleted: false }],
+                    },
+                ],
+            });
+
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [primary(target, "imported replacement", 10, 18)],
+                opts
+            );
+
+            assert.strictEqual(find(updatedNotebook, "A")!.value, "approved text");
+            assert.strictEqual(stats.skippedCount, 1);
+        });
+
+        test("a legacy edit already holding the current value is not back-filled twice", () => {
+            const target = cell("A", "machine draft", 10, 18, {
+                edits: [legacyEdit("machine draft", EditType.INITIAL_IMPORT)],
+            });
+
+            const { updatedNotebook } = applyTranslationToNotebook(
+                notebook([target]),
+                [primary(target, "corrected text", 10, 18)],
+                opts
+            );
+
+            const edits = (find(updatedNotebook, "A")!.metadata!.edits as any[]) ?? [];
+            const recordedValues = edits
+                .filter((e) => e.cellValue !== undefined || (e.editMap?.length === 1 && e.editMap[0] === "value"))
+                .map((e) => (e.value !== undefined ? e.value : e.cellValue));
+            assert.deepStrictEqual(recordedValues, ["machine draft", "corrected text"]);
+        });
+    });
+
+    suite("timing corrections on a cell that keeps its text", () => {
+        test("an id-matched cue corrects the range without touching the text", () => {
+            // The corrupted-export heal: the words are right, the range belongs to a nested cue.
+            const target = cell("A", "same text", 983.417, 984.083);
+
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [idMatch(target, "same text", 961.792, 991.042)],
+                opts
+            );
+
+            const written = find(updatedNotebook, "A")!;
+            assert.strictEqual(written.value, "same text");
+            assert.strictEqual(written.metadata?.data?.startTime, 961.792);
+            assert.strictEqual(written.metadata?.data?.endTime, 991.042);
+            assert.strictEqual(stats.retimedCount, 1);
+            assert.strictEqual(stats.updatedCount, 0);
+            assert.strictEqual(stats.skippedCount, 0);
+        });
+
+        test("the corrected range is recorded as edits so it survives a sync merge", () => {
+            const target = cell("A", "same text", 983.417, 984.083);
+            const { updatedNotebook } = applyTranslationToNotebook(
+                notebook([target]),
+                [idMatch(target, "same text", 961.792, 991.042)],
+                opts
+            );
+
+            const written = find(updatedNotebook, "A")!;
+            assert.deepStrictEqual(timingEditsOf(written), [
+                ["startTime", 961.792],
+                ["endTime", 991.042],
+            ]);
+            // The text was not rewritten, so no value edit belongs in the history.
+            const valueEdits = ((written.metadata!.edits as any[]) ?? []).filter(
+                (e) => e.editMap?.length === 1 && e.editMap[0] === "value"
+            );
+            assert.strictEqual(valueEdits.length, 0);
+        });
+
+        test("only the field that actually moved is written", () => {
+            const target = cell("A", "same text", 10, 984.083);
+            const { updatedNotebook } = applyTranslationToNotebook(
+                notebook([target]),
+                [idMatch(target, "same text", 10, 991.042)],
+                opts
+            );
+
+            assert.deepStrictEqual(timingEditsOf(find(updatedNotebook, "A")!), [
+                ["endTime", 991.042],
+            ]);
+        });
+
+        test("a merely overlapping cue never retimes a cell", () => {
+            // A file whose clock is offset overlaps everything; trusting it would shift the
+            // whole notebook.
+            const target = cell("A", "same text", 983.417, 984.083);
+
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [primary(target, "same text", 961.792, 991.042)],
+                opts
+            );
+
+            const written = find(updatedNotebook, "A")!;
+            assert.strictEqual(written.metadata?.data?.startTime, 983.417);
+            assert.strictEqual(written.metadata?.data?.endTime, 984.083);
+            assert.strictEqual(stats.retimedCount, 0);
+            assert.strictEqual(stats.skippedCount, 1);
+        });
+
+        test("a range a person placed by hand is left alone", () => {
+            const target = cell("A", "same text", 983.417, 984.083, {
+                edits: [
+                    {
+                        editMap: ["metadata", "data", "startTime"],
+                        value: 983.417,
+                        timestamp: 5,
+                        type: EditType.USER_EDIT,
+                        author: "sam",
+                    },
+                ],
+            });
+
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [idMatch(target, "same text", 961.792, 991.042)],
+                opts
+            );
+
+            assert.strictEqual(find(updatedNotebook, "A")!.metadata?.data?.startTime, 983.417);
+            assert.strictEqual(stats.retimedCount, 0);
+            assert.strictEqual(stats.skippedCount, 1);
+        });
+
+        test("a sub-millisecond difference is not a correction", () => {
+            const target = cell("A", "same text", 961.792, 991.042);
+            const { stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [idMatch(target, "same text", 961.7922, 991.0419)],
+                opts
+            );
+
+            assert.strictEqual(stats.retimedCount, 0);
+            assert.strictEqual(stats.skippedCount, 1);
+        });
+
+        test("text a person typed keeps its words but still takes a corrected range", () => {
+            const target = cell("A", "typed by hand", 983.417, 984.083, {
+                edits: [
+                    {
+                        editMap: ["value"],
+                        value: "typed by hand",
+                        timestamp: 1,
+                        type: EditType.USER_EDIT,
+                        author: "sam",
+                    },
+                ],
+            });
+
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [idMatch(target, "different imported text", 961.792, 991.042)],
+                opts
+            );
+
+            const written = find(updatedNotebook, "A")!;
+            assert.strictEqual(written.value, "typed by hand");
+            assert.strictEqual(written.metadata?.data?.startTime, 961.792);
+            assert.strictEqual(stats.retimedCount, 1);
+        });
+
+        test("an empty cue never retimes the cell it failed to fill", () => {
+            const target = cell("A", "real work", 983.417, 984.083);
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [idMatch(target, "", 961.792, 991.042)],
+                opts
+            );
+
+            assert.strictEqual(find(updatedNotebook, "A")!.metadata?.data?.startTime, 983.417);
+            assert.strictEqual(stats.retimedCount, 0);
+            assert.strictEqual(stats.skippedCount, 1);
+        });
+
+        test("a validated cell is not retimed, because that would clear its badge", () => {
+            // The editor reads validation off the LAST edit in the history whatever kind it is, so
+            // appending a timing edit to a validated cell would silently un-validate it.
+            const target = cell("A", "approved text", 983.417, 984.083, {
+                edits: [
+                    {
+                        editMap: ["value"],
+                        value: "approved text",
+                        timestamp: 1,
+                        type: EditType.INITIAL_IMPORT,
+                        validatedBy: [{ username: "reviewer", isDeleted: false }],
+                    },
+                ],
+            });
+
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [idMatch(target, "approved text", 961.792, 991.042)],
+                opts
+            );
+
+            const written = find(updatedNotebook, "A")!;
+            assert.strictEqual(written.metadata?.data?.startTime, 983.417);
+            assert.strictEqual(stats.retimedCount, 0);
+            assert.strictEqual(stats.skippedCount, 1);
+            // The validation is still the last thing in the history.
+            const edits = (written.metadata!.edits as any[]) ?? [];
+            assert.strictEqual(edits.length, 1);
+            assert.ok(edits[edits.length - 1].validatedBy.length > 0);
+        });
+
+        test("a withdrawn validation does not block the correction", () => {
+            const target = cell("A", "same text", 983.417, 984.083, {
+                edits: [
+                    {
+                        editMap: ["value"],
+                        value: "same text",
+                        timestamp: 1,
+                        type: EditType.INITIAL_IMPORT,
+                        validatedBy: [{ username: "reviewer", isDeleted: true }],
+                    },
+                ],
+            });
+
+            const { stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [idMatch(target, "same text", 961.792, 991.042)],
+                opts
+            );
+
+            assert.strictEqual(stats.retimedCount, 1);
+        });
+
+        test("a retimed cell keeps the rest of its metadata", () => {
+            const target = cell("A", "same text", 983.417, 984.083, {
+                cellLabel: "TRAINEES",
+                data: { startTime: 983.417, endTime: 984.083, someOtherField: "keep me" },
+            });
+
+            const { updatedNotebook } = applyTranslationToNotebook(
+                notebook([target]),
+                [idMatch(target, "same text", 961.792, 991.042)],
+                opts
+            );
+
+            const written = find(updatedNotebook, "A")!;
+            assert.strictEqual(written.metadata?.cellLabel, "TRAINEES");
+            assert.strictEqual(written.metadata?.data?.someOtherField, "keep me");
+            assert.strictEqual(written.metadata?.type, CodexCellTypes.TEXT);
+        });
+    });
+
+    suite("cell type is never changed by an import", () => {
+        test("a timed paratext cell stays paratext when its text is replaced", () => {
+            // Paratext cells are exported as cues like any other, so a round trip must not quietly
+            // promote them into ordinary translation cells.
+            const target = cell("P", "an old heading", 19, 19.5, {
+                type: CodexCellTypes.PARATEXT,
+            });
+
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [primary(target, "a corrected heading", 19, 19.5)],
+                opts
+            );
+
+            const written = find(updatedNotebook, "P")!;
+            assert.strictEqual(written.value, "a corrected heading");
+            assert.strictEqual(written.metadata?.type, CodexCellTypes.PARATEXT);
+            assert.strictEqual(stats.updatedCount, 1);
+        });
+
+        test("an empty paratext cell stays paratext when it is filled", () => {
+            const target = cell("P", "", 19, 19.5, { type: CodexCellTypes.PARATEXT });
+            const { updatedNotebook } = applyTranslationToNotebook(
+                notebook([target]),
+                [primary(target, "a heading", 19, 19.5)],
+                opts
+            );
+
+            assert.strictEqual(find(updatedNotebook, "P")!.metadata?.type, CodexCellTypes.PARATEXT);
+        });
+
+        test("a cell with no type recorded still becomes a text cell", () => {
+            const target: TranslationCell = {
+                kind: 1,
+                languageId: "html",
+                value: "",
+                metadata: { id: "A", data: { startTime: 10, endTime: 18 } },
             };
+
+            const { updatedNotebook } = applyTranslationToNotebook(
+                notebook([target]),
+                [primary(target, "translation", 10, 18)],
+                opts
+            );
+
+            assert.strictEqual(find(updatedNotebook, "A")!.metadata?.type, CodexCellTypes.TEXT);
+        });
+    });
+
+    suite("evidence of the pre-fix damage is not erased by a later import", () => {
+        const damaged = (cells: TranslationCell[]) =>
+            notebook(cells, {
+                importContext: {
+                    lastTranslationImport: {
+                        importerType: "subtitles",
+                        stats: { insertedCount: 5, childCellCount: 102 },
+                    },
+                },
+            });
+
+        test("the childCellCount marker survives a later import", () => {
+            // It is the only thing the one-off repair command uses to recognize a damaged project.
+            const a = cell("A", "", 10, 18);
+            const { updatedNotebook } = applyTranslationToNotebook(
+                damaged([a]),
+                [primary(a, "translation", 10, 18)],
+                opts
+            );
+
+            const recorded = (updatedNotebook.metadata as any).importContext.lastTranslationImport
+                .stats;
+            assert.strictEqual(recorded.childCellCount, 102);
+            assert.strictEqual(recorded.insertedCount, 1);
+        });
+
+        test("a healthy project gains no such marker", () => {
+            const a = cell("A", "", 10, 18);
+            const { updatedNotebook } = applyTranslationToNotebook(
+                notebook([a]),
+                [primary(a, "translation", 10, 18)],
+                opts
+            );
+
+            const recorded = (updatedNotebook.metadata as any).importContext.lastTranslationImport
+                .stats;
+            assert.ok(!("childCellCount" in recorded));
+        });
+    });
+
+    suite("needsBulkOverwriteConfirmation", () => {
+        test("catches a file that matched nothing by id and would replace most of the work", () => {
+            assert.strictEqual(
+                needsBulkOverwriteConfirmation(
+                    statsWith({ updatedCount: 60 }),
+                    riskWith({ exactIdMatches: 0, populatedCellCount: 100 })
+                ),
+                true
+            );
+        });
+
+        test("stays quiet when the file is this project's own export", () => {
+            assert.strictEqual(
+                needsBulkOverwriteConfirmation(
+                    statsWith({ updatedCount: 60 }),
+                    riskWith({ exactIdMatches: 1, populatedCellCount: 100 })
+                ),
+                false
+            );
+        });
+
+        test("stays quiet for a handful of cells", () => {
+            assert.strictEqual(
+                needsBulkOverwriteConfirmation(
+                    statsWith({ updatedCount: 9 }),
+                    riskWith({ populatedCellCount: 10 })
+                ),
+                false
+            );
+        });
+
+        test("stays quiet when most of the existing work is left alone", () => {
+            assert.strictEqual(
+                needsBulkOverwriteConfirmation(
+                    statsWith({ updatedCount: 50 }),
+                    riskWith({ populatedCellCount: 100 })
+                ),
+                false
+            );
+            assert.strictEqual(
+                needsBulkOverwriteConfirmation(
+                    statsWith({ updatedCount: 51 }),
+                    riskWith({ populatedCellCount: 100 })
+                ),
+                true
+            );
+        });
+
+        test("an import that only fills empty cells is never a bulk overwrite", () => {
+            assert.strictEqual(
+                needsBulkOverwriteConfirmation(
+                    statsWith({ insertedCount: 400 }),
+                    riskWith({ populatedCellCount: 0 })
+                ),
+                false
+            );
+        });
+
+        test("the risk report counts id matches and the work already in the file", () => {
+            const a = cell("A", "existing one", 10, 18);
+            const b = cell("B", "existing two", 20, 28);
+            const c = cell("C", "", 30, 38);
+            const milestone = cell("M", "1", undefined, undefined, {
+                type: CodexCellTypes.MILESTONE,
+            });
+
+            const { overwriteRisk } = applyTranslationToNotebook(
+                notebook([a, b, c, milestone]),
+                [idMatch(a, "new one", 10, 18), primary(b, "new two", 20, 28)],
+                opts
+            );
+
+            assert.strictEqual(overwriteRisk.exactIdMatches, 1);
+            // The milestone's "1" is structure, not translated work.
+            assert.strictEqual(overwriteRisk.populatedCellCount, 2);
+        });
+    });
+
+    suite("describeTranslationImport", () => {
+        const base = statsWith({ insertedCount: 3, skippedCount: 1 });
+
+        test("mentions merged cues only when there are some", () => {
             assert.ok(!describeTranslationImport(base).includes("merged"));
             assert.ok(
                 describeTranslationImport({ ...base, mergedCueCount: 2 }).includes(
@@ -405,15 +916,13 @@ suite("translationWriteMerge", () => {
         });
 
         test("mentions updated cells only when there are some", () => {
-            const base = {
-                insertedCount: 3,
-                updatedCount: 0,
-                skippedCount: 1,
-                paratextCount: 0,
-                mergedCueCount: 0,
-            };
             assert.ok(!describeTranslationImport(base).includes("updated"));
             assert.ok(describeTranslationImport({ ...base, updatedCount: 2 }).includes("2 updated"));
+        });
+
+        test("mentions retimed cells only when there are some", () => {
+            assert.ok(!describeTranslationImport(base).includes("retimed"));
+            assert.ok(describeTranslationImport({ ...base, retimedCount: 8 }).includes("8 retimed"));
         });
     });
 });
