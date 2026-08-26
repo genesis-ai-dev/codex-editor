@@ -97,7 +97,7 @@ jobs:
 
             - name: Setup pnpm
               if: steps.version.outputs.skip != 'true'
-              run: npm install -g pnpm
+              run: npm install -g pnpm@10
 
             - name: Set package.json version
               if: steps.version.outputs.skip != 'true'

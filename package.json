@@ -1220,5 +1220,14 @@
     },
     "extensionDependencies": [
         "project-accelerate.shared-state-store"
-    ]
+    ],
+    "pnpm": {
+        "onlyBuiltDependencies": [
+            "@vscode/vsce-sign",
+            "canvas",
+            "dugite",
+            "edgedriver",
+            "geckodriver"
+        ]
+    }
 }
