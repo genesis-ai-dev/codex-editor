@@ -215,7 +215,10 @@ export const subtitlesCellAligner: CellAligner = async (
     });
 
     // Create a map of best matches: for each import, find target with max overlap
-    const importToBestTarget = new Map<number, { targetIndex: number; overlap: number }>();
+    const importToBestTarget = new Map<
+        number,
+        { targetIndex: number; overlap: number; fit: number }
+    >();
 
     filteredImportedContent.forEach((item, importIndex) => {
         if (forcedTargetByImport.has(importIndex)) return; // Already routed by exact id.
@@ -271,6 +274,7 @@ export const subtitlesCellAligner: CellAligner = async (
             importToBestTarget.set(importIndex, {
                 targetIndex: bestTargetIndex,
                 overlap: maxOverlap,
+                fit: bestFit,
             });
         }
     });
@@ -278,14 +282,16 @@ export const subtitlesCellAligner: CellAligner = async (
     // Group imports by their best target
     const targetToImports = new Map<
         number,
-        { importIndex: number; overlap: number; forced?: boolean }[]
+        { importIndex: number; overlap: number; fit: number; forced?: boolean }[]
     >();
 
     importToBestTarget.forEach((data, importIndex) => {
         if (!targetToImports.has(data.targetIndex)) {
             targetToImports.set(data.targetIndex, []);
         }
-        targetToImports.get(data.targetIndex)!.push({ importIndex, overlap: data.overlap });
+        targetToImports
+            .get(data.targetIndex)!
+            .push({ importIndex, overlap: data.overlap, fit: data.fit });
     });
 
     // Cues routed by exact id outrank any timestamp match for the same cell.
@@ -293,7 +299,7 @@ export const subtitlesCellAligner: CellAligner = async (
         if (!targetToImports.has(targetIndex)) {
             targetToImports.set(targetIndex, []);
         }
-        targetToImports.get(targetIndex)!.push({ importIndex, overlap: 0, forced: true });
+        targetToImports.get(targetIndex)!.push({ importIndex, overlap: 0, fit: 1, forced: true });
     });
 
     // Process each target in order
@@ -310,18 +316,23 @@ export const subtitlesCellAligner: CellAligner = async (
                 a.importIndex - b.importIndex
         );
 
-        assignedImports.forEach(({ importIndex, overlap, forced }, i) => {
+        assignedImports.forEach(({ importIndex, fit, forced }, i) => {
             const item = filteredImportedContent[importIndex];
             usedImportedIndices.add(importIndex);
             const targetId = targetCell.metadata?.id || uuidv4();
 
             if (i === 0) {
-                // Exact id match or highest overlap - primary match
+                // Exact id match or highest overlap - primary match.
+                // A timestamp match reports how completely the two ranges coincide (see
+                // calculateFit): 1 when they are the same range, near 0 for a brief cue inside a
+                // long cell. It is NOT a probability that the translation is right — the aligner
+                // has read no text — so the preview labels it "timing fit". Only an id match,
+                // where the file names the cell outright, claims real confidence.
                 alignedCells.push({
                     notebookCell: targetCell,
                     importedContent: { ...item, id: targetId },
                     alignmentMethod: forced ? "exact-id" : "timestamp",
-                    confidence: forced ? 1 : overlap, // Use overlap as confidence proxy
+                    confidence: forced ? 1 : fit,
                 });
             } else {
                 // Additional cues covering the same cell. These are not cells of their own — the
@@ -336,13 +347,16 @@ export const subtitlesCellAligner: CellAligner = async (
                     },
                     isAdditionalOverlap: true,
                     alignmentMethod: "timestamp",
-                    confidence: overlap,
+                    confidence: fit,
                 });
             }
             totalOverlaps++;
         });
 
         if (assignedImports.length === 0) {
+            // No cue reached this cell, so it is echoed back holding its own existing content.
+            // Nothing was aligned here and nothing will be written, so it carries no confidence —
+            // reporting 1.0 made untouched cells look like the import's most certain matches.
             const targetId = targetCell.metadata?.id || uuidv4();
             alignedCells.push({
                 notebookCell: targetCell,
@@ -355,8 +369,8 @@ export const subtitlesCellAligner: CellAligner = async (
                     startTime: targetCell.metadata?.data?.startTime,
                     endTime: targetCell.metadata?.data?.endTime,
                 },
+                isPassThrough: true,
                 alignmentMethod: "custom",
-                confidence: 1.0,
             });
         }
     });

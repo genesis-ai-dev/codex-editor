@@ -454,6 +454,102 @@ suite("translationWriteMerge", () => {
         });
     });
 
+    suite("text a third-party editor rewrote but did not change", () => {
+        // A file that has been through someone else's subtitle editor comes back with the same
+        // words encoded differently. Treating that as an edit rewrites hundreds of cells, buries
+        // their real history, and makes a routine re-upload look like the wrong file entirely.
+        //
+        // The fixture needs a character with a canonical decomposition (the accented "e") and an
+        // ASCII space. An earlier version of this suite used Tibetan alone, which has neither, so
+        // half of these rewrites were no-ops comparing a string with itself.
+        const TEXT = "Gen\u00E8se \u0F5F\u0F7A\u0F0B\u0F55\u0F53\u0F0B\u0F61\u0F71\u0F0D";
+
+        const REWRITES: Array<[string, (text: string) => string]> = [
+            ["decomposing the characters", (t) => t.normalize("NFD")],
+            ["zero-width spaces between characters", (t) => t.split("").join("\u200B")],
+            ["a byte-order mark", (t) => t.replace(" ", "\uFEFF ")],
+            ["non-breaking spaces", (t) => t.replace(/ /g, "\u00A0")],
+            ["soft hyphens", (t) => t.split("").join("\u00AD")],
+            ["re-breaking the line", (t) => t.replace(" ", "\n")],
+        ];
+
+        test("every rewrite below really does change the bytes", () => {
+            // Without this, a fixture that happens to be invariant under one of these rewrites
+            // turns its test into a tautology that passes with the feature deleted.
+            for (const [label, rewrite] of REWRITES) {
+                assert.notStrictEqual(rewrite(TEXT), TEXT, `${label} must not be a no-op`);
+                assert.notStrictEqual(
+                    rewrite(TEXT).trim(),
+                    TEXT,
+                    `${label} must not be undone by the trim the write path already applies`
+                );
+            }
+        });
+
+        for (const [label, rewrite] of REWRITES) {
+            test(`${label} is not a change`, () => {
+                const target = cell("A", TEXT, 10, 18);
+                const { updatedNotebook, stats } = applyTranslationToNotebook(
+                    notebook([target]),
+                    [primary(target, rewrite(TEXT), 10, 18)],
+                    opts
+                );
+
+                const written = find(updatedNotebook, "A")!;
+                assert.strictEqual(written.value, TEXT, "the stored text must not be rewritten");
+                assert.strictEqual(written.metadata!.edits, undefined, "no edit history churn");
+                assert.strictEqual(stats.updatedCount, 0);
+                assert.strictEqual(stats.skippedCount, 1);
+            });
+        }
+
+        test("a real edit still lands, however small", () => {
+            const target = cell("A", TEXT, 10, 18);
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [primary(target, TEXT + "\u0F0D", 10, 18)],
+                opts
+            );
+
+            assert.strictEqual(find(updatedNotebook, "A")!.value, TEXT + "\u0F0D");
+            assert.strictEqual(stats.updatedCount, 1);
+        });
+
+        test("a rewritten-but-unchanged cell still takes a corrected range", () => {
+            // The retime must not be lost just because the text arrived re-encoded.
+            const target = cell("A", TEXT, 983.417, 984.083);
+            const { updatedNotebook, stats } = applyTranslationToNotebook(
+                notebook([target]),
+                [idMatch(target, TEXT.normalize("NFD"), 961.792, 991.042)],
+                opts
+            );
+
+            const written = find(updatedNotebook, "A")!;
+            assert.strictEqual(written.value, TEXT);
+            assert.strictEqual(written.metadata?.data?.startTime, 961.792);
+            assert.strictEqual(stats.retimedCount, 1);
+            assert.strictEqual(stats.updatedCount, 0);
+        });
+
+        test("a re-encoded file cannot trip the bulk-overwrite guard", () => {
+            // The guard counts replacements, so phantom differences used to push a legitimate
+            // re-upload of a large project over the threshold.
+            const cells = Array.from({ length: 40 }, (_, i) => cell(`c${i}`, `${TEXT}${i}`, i, i + 1));
+            const aligned = cells.map((c, i) =>
+                primary(c, `${TEXT}${i}`.normalize("NFD"), i, i + 1)
+            );
+
+            const { stats, overwriteRisk } = applyTranslationToNotebook(
+                notebook(cells),
+                aligned,
+                opts
+            );
+
+            assert.strictEqual(stats.updatedCount, 0);
+            assert.strictEqual(needsBulkOverwriteConfirmation(stats, overwriteRisk), false);
+        });
+    });
+
     suite("edit history written before edit maps existed", () => {
         // Old projects store a value edit as `cellValue` with no editMap at all. Reading only the
         // current shape would make a person's typed text look machine-written.

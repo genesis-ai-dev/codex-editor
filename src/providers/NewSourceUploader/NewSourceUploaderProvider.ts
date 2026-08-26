@@ -1882,6 +1882,29 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             // Importing the wrong file aligns by timestamp just as neatly as the right one, and it
             // would replace the whole translation with nothing but a cheerful count to show for it.
             if (needsBulkOverwriteConfirmation(stats, overwriteRisk)) {
+                // If this ever fires on a file the user believes is correct, these samples are what
+                // tells us whether the differences are real edits or an external editor rewriting
+                // characters that render identically.
+                const samples: string[] = [];
+                const before = new Map<string, string>(
+                    (existingNotebook.cells ?? [])
+                        .filter((c: any) => typeof c?.metadata?.id === "string")
+                        .map((c: any) => [c.metadata.id as string, (c.value ?? "") as string])
+                );
+                for (const cell of updatedNotebook.cells) {
+                    if (samples.length >= 3) break;
+                    const id = cell.metadata?.id;
+                    if (typeof id !== "string") continue;
+                    const old = before.get(id);
+                    if (old === undefined || old === cell.value || !old.trim()) continue;
+                    samples.push(`  ${id}\n    was: ${JSON.stringify(old)}\n    now: ${JSON.stringify(cell.value)}`);
+                }
+                console.log(
+                    `[NEW SOURCE UPLOADER] Bulk overwrite confirmation for ${message.sourceFilePath}: ` +
+                    `${stats.updatedCount} of ${overwriteRisk.populatedCellCount} populated cells would be ` +
+                    `replaced, 0 matched by id. Sample replacements:\n${samples.join("\n")}`
+                );
+
                 const fileName = path.basename(message.targetFilePath);
                 const choice = await vscode.window.showWarningMessage(
                     `This import would replace ${stats.updatedCount} existing translations in ${fileName}.`,

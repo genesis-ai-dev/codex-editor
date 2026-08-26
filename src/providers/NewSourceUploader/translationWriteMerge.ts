@@ -16,9 +16,11 @@
  * the text in is what the parent-keyed map was always incapable of expressing.
  *
  * Re-imports: a cell that already holds a translation is only left alone when the incoming text
- * is identical, empty, or the cell's current value was last set by a person in the editor (a
- * user edit, or a validated value). Otherwise the import replaces the text — clients round-trip
- * exported subtitle files through external editors, and their fixes must land on re-upload.
+ * says the same thing (see `normalizeForComparison` — a round trip through someone else's editor
+ * rewrites characters without changing a word), is empty, or the cell's current value was last set
+ * by a person in the editor (a user edit, or a validated value). Otherwise the import replaces the
+ * text — clients round-trip exported subtitle files through external editors, and their fixes must
+ * land on re-upload.
  * Every replacement is recorded as edit-history entries (the previous value is back-filled into
  * the history first when no edit captured it), so nothing is discarded and the new value
  * survives sync merges instead of being reverted to a remote edit.
@@ -182,6 +184,33 @@ const byTime = (a: CuePiece, b: CuePiece): number => {
 
 const hasText = (value: string | undefined): boolean =>
     typeof value === "string" && value.trim() !== "";
+
+/**
+ * The form two pieces of text have to differ in before an import calls them different.
+ *
+ * A subtitle file that has been through a third-party editor comes back with the same words
+ * written differently: composed characters decomposed (or the reverse), zero-width spaces added or
+ * removed as line-wrap hints, lines re-broken, ordinary spaces swapped for non-breaking ones. All
+ * of it renders identically and none of it is a translation change, but byte equality calls every
+ * such line an edit — which rewrites hundreds of cells, buries their real history under noise, and
+ * makes a routine re-upload look like someone importing the wrong file entirely.
+ *
+ * ZWNJ and ZWJ are deliberately NOT stripped: in Indic and Arabic scripts they change what is
+ * rendered, so a difference there is a real difference.
+ */
+const normalizeForComparison = (text: string): string =>
+    text
+        .normalize("NFC")
+        // Invisible line-break hints and the byte-order mark. Left alone: ZWNJ/ZWJ (U+200C/D) and
+        // the bidi marks, which change what is rendered and so are real differences.
+        .replace(/[\u00AD\u200B\uFEFF]/g, "")
+        // \s covers newlines, tabs, non-breaking spaces and the rest of the Unicode space family.
+        .replace(/\s+/g, " ")
+        .trim();
+
+/** Whether imported text says the same thing the cell already says. */
+const textsMatch = (a: string, b: string): boolean =>
+    a === b || normalizeForComparison(a) === normalizeForComparison(b);
 
 /** Shape of an edit-history entry as this module reads and writes it. */
 interface CellEdit {
@@ -445,7 +474,9 @@ export function applyTranslationToNotebook(
         const isOverwrite = hasText(existingValue);
         if (
             isOverwrite &&
-            (value === existingValue || !hasText(value) || valueIsHumanAuthored(existingCell))
+            (textsMatch(value, existingValue) ||
+                !hasText(value) ||
+                valueIsHumanAuthored(existingCell))
         ) {
             // Unchanged, nothing real to write, or a person authored the current value: the text
             // stays as it is.

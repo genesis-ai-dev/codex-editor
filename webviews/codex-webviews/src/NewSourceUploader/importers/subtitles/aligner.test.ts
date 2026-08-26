@@ -327,3 +327,65 @@ describe('subtitlesCellAligner — corrupted-export repair (issue #1144 damage b
         expect(overlaps(aligned)).toHaveLength(0);
     });
 });
+
+describe('subtitlesCellAligner — what the reported score means', () => {
+    it('a timestamp match reports how well the ranges coincide, not seconds of overlap', async () => {
+        // The old score was the raw overlap in seconds, so this cue reported "800% confidence".
+        const targets = [cell('A', 0, 10)];
+        const imported = [cue('c1', 1, 9, 'EIGHT SECONDS OF OVERLAP')];
+
+        const aligned = await subtitlesCellAligner(targets, [], imported);
+
+        const match = primaries(aligned).find((a) => idOf(a) === 'A');
+        expect(match?.alignmentMethod).toBe('timestamp');
+        // 8s shared over a 10s union.
+        expect(match?.confidence).toBeCloseTo(0.8, 6);
+    });
+
+    it('scores 1 only when the ranges are actually the same', async () => {
+        const targets = [cell('A', 0, 10)];
+        const aligned = await subtitlesCellAligner(targets, [], [cue('c1', 0, 10, 'EXACT')]);
+        expect(primaries(aligned).find((a) => idOf(a) === 'A')?.confidence).toBe(1);
+    });
+
+    it('a brief cue inside a long cell scores low rather than high', async () => {
+        const targets = [cell('A', 0, 30)];
+        const aligned = await subtitlesCellAligner(targets, [], [cue('c1', 10, 11, 'BRIEF')]);
+        const match = primaries(aligned).find((a) => idOf(a) === 'A');
+        // Previously 1 second of overlap displayed as "100% confidence".
+        expect(match?.confidence).toBeCloseTo(1 / 30, 6);
+    });
+
+    it('a cue folded into a cell reports its own fit, not the seconds it overlapped', async () => {
+        const targets = [cell('A', 0, 10)];
+        const imported = [cue('c1', 0, 10, 'PRIMARY'), cue('c2', 4, 5, 'EXTRA')];
+
+        const aligned = await subtitlesCellAligner(targets, [], imported);
+
+        expect(overlaps(aligned)).toHaveLength(1);
+        expect(overlaps(aligned)[0].confidence).toBeCloseTo(0.1, 6);
+    });
+
+    it('a cell nothing was imported onto is a pass-through carrying no score', async () => {
+        // It used to come back at confidence 1, so untouched cells looked like the surest matches.
+        const targets = [cell('A', 0, 10), cell('B', 20, 30)];
+        const aligned = await subtitlesCellAligner(targets, [], [cue('c1', 0, 10, 'ONLY A')]);
+
+        const untouched = aligned.find((a) => idOf(a) === 'B');
+        expect(untouched?.isPassThrough).toBe(true);
+        expect(untouched?.confidence).toBeUndefined();
+
+        const matched = aligned.find((a) => idOf(a) === 'A');
+        expect(matched?.isPassThrough).toBeUndefined();
+    });
+
+    it('an id match still claims full confidence', async () => {
+        // The file naming the cell outright is the one claim that survives scrutiny.
+        const targets = [cell('A', 0, 10)];
+        const aligned = await subtitlesCellAligner(targets, [], [exportedCue('A', 99, 100, 'X')]);
+
+        const match = primaries(aligned).find((a) => idOf(a) === 'A');
+        expect(match?.alignmentMethod).toBe('exact-id');
+        expect(match?.confidence).toBe(1);
+    });
+});
