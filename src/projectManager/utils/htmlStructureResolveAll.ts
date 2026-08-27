@@ -15,7 +15,14 @@ import type { CustomNotebookCellData, EditHistory, ValidationEntry } from "../..
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { EditMapUtils } from "../../utils/editMapUtils";
 import { atomicWriteUriText } from "../../utils/notebookSafeSaveUtils";
-import { compareHtmlStructure } from "../../../sharedUtils/htmlStructureUtils";
+import {
+    compareHtmlStructure,
+    tryDeterministicStructureFix,
+} from "../../../sharedUtils/htmlStructureUtils";
+import {
+    fillSourceTemplateWithTranslation,
+    isSafeForcedRewrite,
+} from "../../../sharedUtils/htmlStructureTemplateFill";
 import {
     resolveHtmlStructurePair,
     type StructureResolveOutcome,
@@ -37,6 +44,7 @@ export interface HtmlStructureResolveFileSummary {
     mismatches: number;
     resolvedDeterministic: number;
     resolvedLlm: number;
+    resolvedTemplateFill: number;
     unresolved: number;
     missingContent: number;
 }
@@ -45,6 +53,13 @@ export interface HtmlStructureResolveRunResult {
     files: HtmlStructureResolveFileSummary[];
     cancelled: boolean;
 }
+
+/**
+ * `llm` reshapes the translation and asks a model when that fails, which can
+ * leave cells unresolved. `force` instead rebuilds the translation inside the
+ * source's own tags, which always matches and never calls a model.
+ */
+export type HtmlStructureResolveMode = "llm" | "force";
 
 interface NotebookPair {
     codexUri: vscode.Uri;
@@ -135,6 +150,7 @@ const emptySummary = (pair: Pick<NotebookPair, "displayName" | "fileName">, mism
     mismatches,
     resolvedDeterministic: 0,
     resolvedLlm: 0,
+    resolvedTemplateFill: 0,
     unresolved: 0,
     missingContent: 0,
 });
@@ -270,12 +286,17 @@ const findEnforcedNotebooks = async (): Promise<NotebookPair[]> => {
 export async function runHtmlStructureResolveAll(
     pairs: NotebookPair[],
     author: string,
+    mode: HtmlStructureResolveMode = "llm",
     progress?: vscode.Progress<{ message?: string; increment?: number; }>,
     token?: vscode.CancellationToken
 ): Promise<HtmlStructureResolveRunResult> {
     const serializer = new CodexContentSerializer();
-    const { fetchCompletionConfig } = await import("../../utils/llmUtils");
-    const config: CompletionConfig = await fetchCompletionConfig();
+    // Force mode is fully offline, so the LLM config is only fetched when needed.
+    let config: CompletionConfig | undefined;
+    if (mode === "llm") {
+        const { fetchCompletionConfig } = await import("../../utils/llmUtils");
+        config = await fetchCompletionConfig();
+    }
     const files: HtmlStructureResolveFileSummary[] = [];
     const totalMismatches = pairs.reduce(
         (sum, pair) => sum + collectMismatchedCells(pair.sourceCells, pair.codexCells).length,
@@ -313,13 +334,37 @@ export async function runHtmlStructureResolveAll(
             });
 
             const liveHtml = pair.codexCells[mismatch.cellIndex]?.value ?? mismatch.targetHtml;
-            const outcome = await resolveHtmlStructurePair(mismatch.sourceHtml, liveHtml, config);
-            recordOutcome(summary, outcome);
-            if (outcome.status !== "resolved") continue;
+            let resolvedContent: string | null = null;
+
+            if (mode === "llm") {
+                const outcome = await resolveHtmlStructurePair(mismatch.sourceHtml, liveHtml, config);
+                recordOutcome(summary, outcome);
+                if (outcome.status === "resolved") {
+                    resolvedContent = outcome.content;
+                }
+            } else {
+                const deterministic = tryDeterministicStructureFix(mismatch.sourceHtml, liveHtml);
+                if (deterministic !== null) {
+                    summary.resolvedDeterministic += 1;
+                    resolvedContent = deterministic;
+                } else {
+                    const filled = fillSourceTemplateWithTranslation(mismatch.sourceHtml, liveHtml);
+                    // Verified rather than trusted: the fill is only written when it
+                    // really matches the source and keeps every word of the translation.
+                    if (filled && isSafeForcedRewrite(mismatch.sourceHtml, liveHtml, filled.html)) {
+                        summary.resolvedTemplateFill += 1;
+                        resolvedContent = filled.html;
+                    } else {
+                        summary.unresolved += 1;
+                    }
+                }
+            }
+
+            if (resolvedContent === null) continue;
 
             applyResolvedContent(
                 pair.codexCells[mismatch.cellIndex],
-                outcome.content,
+                resolvedContent,
                 author,
                 Date.now()
             );
@@ -344,23 +389,35 @@ const formatRunMessage = (result: HtmlStructureResolveRunResult): string => {
     const totals = result.files.reduce(
         (accumulator, file) => ({
             resolved:
-                accumulator.resolved + file.resolvedDeterministic + file.resolvedLlm,
+                accumulator.resolved +
+                file.resolvedDeterministic +
+                file.resolvedLlm +
+                file.resolvedTemplateFill,
+            rebuilt: accumulator.rebuilt + file.resolvedTemplateFill,
             unresolved: accumulator.unresolved + file.unresolved + file.missingContent,
             filesTouched: accumulator.filesTouched + (
-                file.resolvedDeterministic + file.resolvedLlm > 0 ? 1 : 0
+                file.resolvedDeterministic + file.resolvedLlm + file.resolvedTemplateFill > 0 ? 1 : 0
             ),
         }),
-        { resolved: 0, unresolved: 0, filesTouched: 0 }
+        { resolved: 0, rebuilt: 0, unresolved: 0, filesTouched: 0 }
     );
     const prefix = result.cancelled ? "Stopped early. " : "";
+    const rebuiltNote = totals.rebuilt > 0
+        ? ` ${totals.rebuilt} were rebuilt from the source template.`
+        : "";
+    const remainingNote = totals.unresolved > 0
+        ? ` ${totals.unresolved} still need Resolve — run the command again to continue.`
+        : "";
     return (
-        `${prefix}Resolved ${totals.resolved} cell(s) in ${totals.filesTouched} notebook(s). ` +
-        `${totals.unresolved} still need Resolve — run the command again to continue.`
+        `${prefix}Resolved ${totals.resolved} cell(s) in ${totals.filesTouched} notebook(s).` +
+        `${rebuiltNote}${remainingNote}`
     );
 };
 
-/** Command entry point: scan, confirm, resolve, then report remaining mismatches. */
-export async function resolveHtmlStructureAcrossProjectCommand(author: string): Promise<void> {
+const runAcrossProject = async (
+    author: string,
+    mode: HtmlStructureResolveMode
+): Promise<void> => {
     const notebooks = await findEnforcedNotebooks();
     if (notebooks.length === 0) {
         vscode.window.showWarningMessage(
@@ -379,6 +436,7 @@ export async function resolveHtmlStructureAcrossProjectCommand(author: string): 
         return;
     }
 
+    const forced = mode === "force";
     const selected = await vscode.window.showQuickPick(
         withMismatches.map((item) => ({
             label: item.notebook.displayName,
@@ -389,26 +447,61 @@ export async function resolveHtmlStructureAcrossProjectCommand(author: string): 
         })),
         {
             canPickMany: true,
-            title: "Resolve HTML structure mismatches",
-            placeHolder: "Choose notebooks to resolve. Safe to stop and re-run later.",
+            title: forced
+                ? "Force-resolve HTML structure from the source template"
+                : "Resolve HTML structure mismatches",
+            placeHolder: forced
+                ? "Rebuilds each translation inside the source's tags. No model calls."
+                : "Choose notebooks to resolve. Safe to stop and re-run later.",
         }
     );
     if (!selected || selected.length === 0) return;
 
+    if (forced) {
+        const cells = selected.reduce((sum, item) => {
+            const match = withMismatches.find((entry) => entry.notebook === item.notebook);
+            return sum + (match?.mismatches.length ?? 0);
+        }, 0);
+        const proceed = await vscode.window.showWarningMessage(
+            `Force-resolve ${cells} cell(s)?`,
+            {
+                modal: true,
+                detail:
+                    "Each translation is rewritten into the source paragraph's own tags, so the structure always matches. " +
+                    "Every word of the translation is kept and the previous value stays in the cell's edit history, but " +
+                    "where a translation is split across styled runs is a best guess. Inline bold/italic that the source " +
+                    "does not have is dropped.",
+            },
+            "Force Resolve"
+        );
+        if (proceed !== "Force Resolve") return;
+    }
+
     const result = await vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
-            title: "Resolving HTML structure",
+            title: forced ? "Force-resolving HTML structure" : "Resolving HTML structure",
             cancellable: true,
         },
         (progress, token) =>
             runHtmlStructureResolveAll(
                 selected.map((item) => item.notebook),
                 author,
+                mode,
                 progress,
                 token
             )
     );
 
     vscode.window.showInformationMessage(formatRunMessage(result));
+};
+
+/** Deterministic reshaping first, then the LLM. Can leave cells unresolved. */
+export async function resolveHtmlStructureAcrossProjectCommand(author: string): Promise<void> {
+    await runAcrossProject(author, "llm");
+}
+
+/** Rebuilds every remaining mismatch from the source template. Never uses the LLM. */
+export async function forceResolveHtmlStructureAcrossProjectCommand(author: string): Promise<void> {
+    await runAcrossProject(author, "force");
 }

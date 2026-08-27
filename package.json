@@ -230,6 +230,11 @@
                 "category": "Codex Extension"
             },
             {
+                "command": "codex-editor-extension.forceResolveHtmlStructureAcrossProject",
+                "title": "Force-Resolve Remaining HTML Structure Mismatches From Source",
+                "category": "Codex Extension"
+            },
+            {
                 "title": "Start a new Project",
                 "shortTitle": "Start a new Project",
                 "command": "codex-editor-extension.initializeNewProject"

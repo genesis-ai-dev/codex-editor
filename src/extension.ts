@@ -70,7 +70,10 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { repairHtmlStructureArtifacts } from "./projectManager/utils/htmlStructureRepairMigration";
 import { migrateBiblicaTranslationsCommand } from "./projectManager/utils/biblicaMigration/biblicaMigrationRunner";
-import { resolveHtmlStructureAcrossProjectCommand } from "./projectManager/utils/htmlStructureResolveAll";
+import {
+    forceResolveHtmlStructureAcrossProjectCommand,
+    resolveHtmlStructureAcrossProjectCommand,
+} from "./projectManager/utils/htmlStructureResolveAll";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 import { initializeAudioExtractor } from "./utils/audioExtractor";
@@ -1134,6 +1137,21 @@ export async function activate(context: vscode.ExtensionContext) {
                     // Fall back to anonymous when not signed in.
                 }
                 await resolveHtmlStructureAcrossProjectCommand(author);
+            }
+        )
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.forceResolveHtmlStructureAcrossProject",
+            async () => {
+                let author = "anonymous";
+                try {
+                    const userInfo = await getAuthApi()?.getUserInfo();
+                    author = userInfo?.username || author;
+                } catch {
+                    // Fall back to anonymous when not signed in.
+                }
+                await forceResolveHtmlStructureAcrossProjectCommand(author);
             }
         )
     );
