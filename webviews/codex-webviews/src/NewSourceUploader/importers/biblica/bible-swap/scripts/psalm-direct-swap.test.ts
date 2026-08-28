@@ -4,6 +4,7 @@ import {
     buildBibleChapterBlockIndex,
     buildVersificationPlan,
 } from "../index";
+import { buildBibleVerseIndex } from "../surgicalSwap";
 
 const NO_STYLE = "CharacterStyle/$ID/[No character style]";
 
@@ -13,8 +14,10 @@ const csr = (style: string, content: string) =>
 const bookMarker = () =>
     `<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/meta%3abk">${csr(NO_STYLE, "PSA")}</ParagraphStyleRange>`;
 
-const label = (n: number) =>
-    `<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/head%3acl">${csr(NO_STYLE, `Psalm ${n}`)}</ParagraphStyleRange>`;
+const labelText = (text: string) =>
+    `<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/head%3acl">${csr(NO_STYLE, text)}</ParagraphStyleRange>`;
+
+const label = (n: number) => labelText(`Psalm ${n}`);
 
 const engSubheader = (text: string) =>
     `<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/head%3ad_h">${csr(NO_STYLE, text)}</ParagraphStyleRange>`;
@@ -68,6 +71,31 @@ function verseNumbersInChapterRegion(xml: string, chapter: number): number[] {
     ].map((m) => Number(m[1]));
     return [...new Set(nums)].sort((a, b) => a - b);
 }
+
+describe("Psalm chapter label", () => {
+    // Psalms 24, 111, 117 and 138 of the Biblica study text carry no meta:c
+    // marker at all, so the head:cl label is the only chapter signal. A
+    // round-tripped export re-splices that label in the project language, and
+    // reading it must not depend on the English word.
+    it.each(["Psalm 24", "Salmo 24", "Psaume 24", "Псалом 24", "भजन संहिता 24"])(
+        "starts a new chapter on a %s label with no meta:c marker",
+        (heading) => {
+            const study = story(
+                label(23) +
+                    range(1, 6).map((v) => verse("23", v, `EN 23:${v}`, v === 1)).join("") +
+                    labelText(heading) +
+                    range(1, 10).map((v) => verse("24", v, `EN 24:${v}`)).join("")
+            );
+
+            const index = buildBibleVerseIndex(study);
+            const verseCount = (ch: string) =>
+                [...index.keys()].filter((k) => k.startsWith(`PSA|${ch}|`)).length;
+
+            expect(verseCount("23")).toBe(6);
+            expect(verseCount("24")).toBe(10);
+        }
+    );
+});
 
 describe("Psalm direct same-number swap", () => {
     it("appends the translation's extra verses when it is longer", () => {

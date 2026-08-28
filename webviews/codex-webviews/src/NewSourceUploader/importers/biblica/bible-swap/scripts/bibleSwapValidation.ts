@@ -67,19 +67,19 @@ export const LANGUAGE_FIXTURES: Record<string, LanguageFixture> = {
     },
     marathi: {
         language: "marathi",
-        bibleDir: `${BIBLE_ROOT}/NEW/Marathi Full Bible`,
+        bibleDir: `${BIBLE_ROOT}/Marathi Full Bible`,
         volumes: standardVolumes("marathi"),
     },
     french: {
         language: "french",
-        bibleDir: `${BIBLE_ROOT}/NEW/French Full Bible`,
+        bibleDir: `${BIBLE_ROOT}/French Full Bible`,
         volumes: standardVolumes("french", {
             "MAT-JOHN": "40MAT_43JHN_french.idml",
         }),
     },
     hindi: {
         language: "hindi",
-        bibleDir: `${BIBLE_ROOT}/NEW/Hindi Full Bible`,
+        bibleDir: `${BIBLE_ROOT}/Hindi Full Bible`,
         volumes: standardVolumes("hindi", {
             "GEN-DEU": "01GEN_05DEU_hindi.idml",
             "MAT-JOHN": "40MAT_43JHN_hindi.idml",

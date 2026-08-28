@@ -375,6 +375,16 @@ export function isPsalmChapterHeadLabelStyle(style: string): boolean {
     return /(?:^|\/)head%3acl(?:$|\b)/.test(style) || /(?:^|\/)head:cl(?:$|\b)/.test(style);
 }
 
+/**
+ * Read the Psalm number out of a `head:cl` chapter-label paragraph.
+ *
+ * The caller has already established that this is the chapter-label style
+ * inside PSA, so the number alone identifies the chapter and the label word is
+ * ignored. Anchoring on the English "Psalm" broke translated round-trips: an
+ * export re-splices the label in the project language ("Salmo 24"), and the
+ * Psalms that carry no `meta:c` marker (24, 111, 117, 138 in the Biblica study
+ * text) then read as a continuation of the previous chapter.
+ */
 export function readPsalmNumberFromHeadLabelParagraph(
     storyXml: string,
     bodyStart: number,
@@ -385,8 +395,8 @@ export function readPsalmNumberFromHeadLabelParagraph(
         text += storyXml.slice(c.absInnerStart, c.absInnerEnd);
     }
     const normalized = text.replace(/\u00ad/g, "");
-    const match = normalized.match(/(?:Psalm|Псалом\.?)\s+(\d{1,3})\b/i);
-    return match ? match[1] : null;
+    const match = normalized.match(/\d{1,3}/);
+    return match ? match[0] : null;
 }
 
 /** Locate `head:cl` paragraph XML keyed by Psalm chapter number. */
