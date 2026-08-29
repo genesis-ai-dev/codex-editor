@@ -973,37 +973,19 @@ function applyEditToCell(cell: CustomNotebookCellData, edit: EditHistory): void 
             // Direct cell value edit
             cell.value = value as string;
         } else if (path.length >= 2 && path[0] === 'metadata') {
-            // Metadata field edit
-            if (path.length === 2) {
-                // Direct metadata field (e.g., cellLabel)
-                const field = path[1];
-                if (field === 'cellLabel') {
-                    cell.metadata.cellLabel = value as string;
-                } else if (field === 'selectedAudioId') {
-                    cell.metadata.selectedAudioId = value as string;
-                } else if (field === 'selectionTimestamp') {
-                    cell.metadata.selectionTimestamp = value as number;
-                } else if (field === 'isLocked') {
-                    cell.metadata.isLocked = value as boolean;
+            // Importers add format-specific locator metadata over time. Apply
+            // arbitrary metadata paths generically so those fields do not need
+            // a resolver code change each time a round-trip format evolves.
+            let target = cell.metadata as unknown as Record<string, unknown>;
+            for (let index = 1; index < path.length - 1; index++) {
+                const field = path[index];
+                const existing = target[field];
+                if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
+                    target[field] = {};
                 }
-            } else if (path.length === 3 && path[1] === 'data') {
-                // Data field edit (e.g., startTime, endTime)
-                const dataField = path[2];
-                if (!cell.metadata.data) {
-                    cell.metadata.data = {};
-                }
-
-                if (dataField === 'startTime') {
-                    cell.metadata.data.startTime = value as number;
-                } else if (dataField === 'endTime') {
-                    cell.metadata.data.endTime = value as number;
-                } else if (dataField === 'deleted') {
-                    cell.metadata.data.deleted = value as boolean;
-                } else {
-                    // Generic data field assignment
-                    (cell.metadata.data as any)[dataField] = value as any;
-                }
+                target = target[field] as Record<string, unknown>;
             }
+            target[path[path.length - 1]] = value;
         }
     } catch (error) {
         debugLog(`Error applying edit to cell: ${error}`);
@@ -2920,4 +2902,3 @@ export async function resolveConflictFiles(
 
     return { resolved: resolvedFiles, failed: failedFiles };
 }
-

@@ -1,4 +1,5 @@
 import { ParsedSpreadsheet, SpreadsheetColumn, SpreadsheetRow } from './types';
+import { splitDelimitedRecords } from './csvRecordUtils';
 
 /**
  * Lightweight analysis for UI stats (no full row normalization).
@@ -21,7 +22,9 @@ export function quickAnalyzeSpreadsheet(content: string): SpreadsheetQuickAnalys
     }
 
     const delimiter = detectDelimiter(content);
-    const allLines = content.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+    const allLines = splitDelimitedRecords(content)
+        .map((record) => record.content.trim())
+        .filter((line) => line.length > 0);
 
     if (allLines.length === 0) {
         return {
@@ -66,7 +69,10 @@ export function quickAnalyzeSpreadsheet(content: string): SpreadsheetQuickAnalys
  * Detect the delimiter used in a CSV/TSV file
  */
 function detectDelimiter(content: string): string {
-    const lines = content.split('\n').slice(0, 5); // Check first 5 lines
+    const lines = splitDelimitedRecords(content)
+        .map((record) => record.content)
+        .filter((line) => line.trim())
+        .slice(0, 5);
     const delimiters = [',', '\t', ';', '|'];
     const counts: { [key: string]: number; } = {};
 
@@ -74,7 +80,7 @@ function detectDelimiter(content: string): string {
         counts[delimiter] = 0;
         for (const line of lines) {
             if (line.trim()) {
-                counts[delimiter] += (line.match(new RegExp(`\\${delimiter}`, 'g')) || []).length;
+                counts[delimiter] += Math.max(0, parseCSVLine(line, delimiter).length - 1);
             }
         }
     }
@@ -154,15 +160,16 @@ function getSampleValues(rows: SpreadsheetRow[], columnIndex: number, maxSamples
  */
 export async function parseSpreadsheetFile(file: File): Promise<ParsedSpreadsheet> {
     const content = await file.text();
+    const parseContent = content.charCodeAt(0) === 0xFEFF ? content.slice(1) : content;
 
-    if (!content.trim()) {
+    if (!parseContent.trim()) {
         throw new Error('File is empty');
     }
 
-    const delimiter = detectDelimiter(content);
-    const allLines = content.split('\n').map(line => line.trim()).filter(line => line);
+    const delimiter = detectDelimiter(parseContent);
+    const allLines = splitDelimitedRecords(parseContent).map((record) => record.content.trim());
 
-    if (allLines.length === 0) {
+    if (allLines.length === 0 || allLines.every((line) => !line)) {
         throw new Error('No data found in file');
     }
 
@@ -206,7 +213,8 @@ export async function parseSpreadsheetFile(file: File): Promise<ParsedSpreadshee
         columns,
         rows: normalizedRows,
         delimiter,
-        filename: file.name.replace(/\.[^/.]+$/, '') // Remove extension
+        filename: file.name.replace(/\.[^/.]+$/, ''), // Remove extension
+        hasHeader,
     };
 }
 
@@ -236,4 +244,4 @@ export function validateSpreadsheetFile(file: File): { isValid: boolean; errors:
         isValid: errors.length === 0,
         errors
     };
-} 
+}

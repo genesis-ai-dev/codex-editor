@@ -18,8 +18,8 @@
  *   same tombstone mechanism the editor's delete-cell action uses.
  * - Matched cells keep their OLD cell id (so translations, edit history,
  *   comments, and audio stay attached), keep their old edit history, and any
- *   changed value or `data` field gets a timestamped MIGRATION edit appended
- *   so the change wins the sync merge on every machine.
+ *   changed value or importer metadata field gets a timestamped MIGRATION
+ *   edit appended so the change wins the sync merge on every machine.
  * - New cells with no old counterpart start with an empty target.
  * - Milestone cells are matched by chapter number so their ids are stable
  *   across the re-import too.
@@ -30,6 +30,12 @@
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { EditMapUtils } from "../../utils/editMapUtils";
 import { extractPlainTextFromHtml } from "../../../sharedUtils/htmlStructureUtils";
+import {
+    appendImporterMetadataEdits,
+    makeReimportEdit as makeEdit,
+    mergeNotebookMetadata,
+    remapNotebookMetadataCellIds,
+} from "./reimportMetadata";
 
 export interface ReimportEdit {
     editMap: readonly string[];
@@ -88,21 +94,6 @@ const PRESERVED_TARGET_METADATA_KEYS = [
     "isLocked",
 ] as const;
 
-/** Notebook metadata that identifies the existing pair and must not change. */
-const PRESERVED_NOTEBOOK_METADATA_KEYS = [
-    "id",
-    "fileDisplayName",
-    "sourceFsPath",
-    "codexFsPath",
-    "navigation",
-    "sourceCreatedAt",
-    "corpusMarker",
-    "textDirection",
-    "videoUrl",
-    "lineNumbersEnabled",
-    "lineNumbersEnabledSource",
-] as const;
-
 const normalizeText = (html: string | undefined): string =>
     extractPlainTextFromHtml(html ?? "");
 
@@ -133,57 +124,9 @@ interface OldCellEntry {
 const hasTranslation = (entry: OldCellEntry): boolean =>
     Boolean(entry.targetCell?.value && entry.targetCell.value.trim() !== "");
 
-const mergeNotebookMetadata = (
-    existing: Record<string, unknown> | undefined,
-    incoming: Record<string, unknown> | undefined,
-): Record<string, unknown> => {
-    const merged: Record<string, unknown> = { ...(existing ?? {}), ...(incoming ?? {}) };
-    for (const key of PRESERVED_NOTEBOOK_METADATA_KEYS) {
-        if (existing && existing[key] !== undefined) {
-            merged[key] = existing[key];
-        }
-    }
-    return merged;
-};
-
-const REIMPORT_AUTHOR = "system";
-
-const makeEdit = (
-    editMap: readonly string[],
-    value: unknown,
-    timestamp: number,
-): ReimportEdit => ({
-    editMap,
-    value,
-    timestamp,
-    type: EditType.MIGRATION,
-    author: REIMPORT_AUTHOR,
-    validatedBy: [],
-});
-
 const ensureEdits = (cell: ReimportCell): ReimportEdit[] => {
     const metadata = (cell.metadata ??= {});
     return (metadata.edits ??= []);
-};
-
-/**
- * Append MIGRATION edits describing every difference between the cell's old
- * `data` fields and its new ones, so the changes (e.g. corrected
- * `paragraphIndex`) propagate through the sync merge instead of being
- * reverted to the remote's newest edit.
- */
-const appendDataFieldEdits = (
-    cell: ReimportCell,
-    oldData: Record<string, unknown> | undefined,
-    timestamp: number,
-): void => {
-    const newData = cell.metadata?.data ?? {};
-    const edits = ensureEdits(cell);
-    for (const [field, value] of Object.entries(newData)) {
-        if (value === undefined) continue;
-        if (JSON.stringify(oldData?.[field]) === JSON.stringify(value)) continue;
-        edits.push(makeEdit(EditMapUtils.metadataNested("data", field), value, timestamp));
-    }
 };
 
 /** Append a value edit when the cell's value differs from its previous value. */
@@ -229,6 +172,7 @@ export const mergeReimportedNotebookPair = (
     newCodex: ReimportNotebook,
 ): ReimportMergeResult => {
     const now = Date.now();
+    const freshToRetainedCellIds = new Map<string, string>();
 
     const oldTargetById = new Map<string, ReimportCell>();
     for (const cell of existingCodex.cells ?? []) {
@@ -330,19 +274,21 @@ export const mergeReimportedNotebookPair = (
     const adoptOldCell = (cell: PendingCell, entry: OldCellEntry, carriedValue: string) => {
         entry.consumed = true;
         const oldId = entry.sourceCell.metadata!.id as string;
+        const freshId = cell.sourceCell.metadata?.id;
+        if (typeof freshId === "string") freshToRetainedCellIds.set(freshId, oldId);
         const oldSourceMetadata = entry.sourceCell.metadata as Record<string, unknown>;
 
         // Source side: keep the old id and edit history; record the new value
-        // and data changes as MIGRATION edits so they survive the sync merge.
+        // and locator changes as MIGRATION edits so they survive the sync merge.
         cell.sourceCell.metadata = {
             ...(cell.sourceCell.metadata ?? {}),
             id: oldId,
             edits: [...(entry.sourceCell.metadata?.edits ?? [])],
         };
         appendValueEditIfChanged(cell.sourceCell, entry.sourceCell.value, now);
-        appendDataFieldEdits(
+        appendImporterMetadataEdits(
             cell.sourceCell,
-            oldSourceMetadata.data as Record<string, unknown> | undefined,
+            oldSourceMetadata,
             now,
         );
 
@@ -370,9 +316,9 @@ export const mergeReimportedNotebookPair = (
         };
         cell.codexCell.value = carriedValue;
         appendValueEditIfChanged(cell.codexCell, entry.targetCell?.value, now);
-        appendDataFieldEdits(
+        appendImporterMetadataEdits(
             cell.codexCell,
-            oldTargetMetadata?.data as Record<string, unknown> | undefined,
+            oldTargetMetadata,
             now,
         );
 
@@ -394,6 +340,8 @@ export const mergeReimportedNotebookPair = (
         const entry = candidates[0];
         entry.consumed = true;
         const oldId = entry.sourceCell.metadata!.id as string;
+        const freshId = cell.sourceCell.metadata?.id;
+        if (typeof freshId === "string") freshToRetainedCellIds.set(freshId, oldId);
         // Keep the old value (e.g. "<docName> 1" vs the importer's bare "1")
         // so no value edit is needed; only the id and history carry over.
         cell.sourceCell.metadata = {
@@ -537,14 +485,23 @@ export const mergeReimportedNotebookPair = (
     }
     mergedCodexCells.push(...orphanedParatext);
 
+    const remappedSourceMetadata = remapNotebookMetadataCellIds(
+        newSource.metadata,
+        freshToRetainedCellIds,
+    );
+    const remappedCodexMetadata = remapNotebookMetadataCellIds(
+        newCodex.metadata,
+        freshToRetainedCellIds,
+    );
+
     return {
         mergedSource: {
             cells: mergedSourceCells,
-            metadata: mergeNotebookMetadata(existingSource.metadata, newSource.metadata),
+            metadata: mergeNotebookMetadata(existingSource.metadata, remappedSourceMetadata, now),
         },
         mergedCodex: {
             cells: mergedCodexCells,
-            metadata: mergeNotebookMetadata(existingCodex.metadata, newCodex.metadata),
+            metadata: mergeNotebookMetadata(existingCodex.metadata, remappedCodexMetadata, now),
         },
         stats,
     };

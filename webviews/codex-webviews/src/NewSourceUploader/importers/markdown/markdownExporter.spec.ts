@@ -83,6 +83,44 @@ describe("exportMarkdownWithTranslations", () => {
         expect(exportMarkdownWithTranslations(source, cells as never)).toBe("keep");
     });
 
+    it("ignores inactive re-import cells", () => {
+        const source = "Keep me";
+        const cells = [{
+            kind: 2,
+            value: "<p>Wrong stale translation</p>",
+            metadata: {
+                sourceSpan: { start: 0, end: source.length },
+                data: { originalText: source, deleted: true },
+            },
+        }];
+        expect(exportMarkdownWithTranslations(source, cells as never)).toBe(source);
+    });
+
+    it("refuses a stale source span instead of replacing unrelated text", () => {
+        const cells = [{
+            kind: 2,
+            value: "<p>Translation</p>",
+            metadata: {
+                id: "stale-cell",
+                sourceSpan: { start: 0, end: 7 },
+                originalMarkdown: "Old text",
+            },
+        }];
+        expect(() => exportMarkdownWithTranslations("New text", cells as never)).toThrow(
+            /sourceSpan no longer matches/
+        );
+    });
+
+    it("refuses overlapping active source spans", () => {
+        const cells = [
+            { kind: 2, value: "<p>One</p>", metadata: { sourceSpan: { start: 0, end: 4 } } },
+            { kind: 2, value: "<p>Two</p>", metadata: { sourceSpan: { start: 3, end: 7 } } },
+        ];
+        expect(() => exportMarkdownWithTranslations("1234567", cells as never)).toThrow(
+            /source spans overlap/
+        );
+    });
+
     it("preserves line breaks between consecutive list items", () => {
         const source =
             "## 2.1 Herci\n" +

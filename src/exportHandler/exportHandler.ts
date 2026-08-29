@@ -1292,6 +1292,7 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
             const extension = getSpreadsheetExtension(originalFileName, delimiter, notebookImporterType);
             const columnHeaders = (codexNotebook.metadata as any)?.columnHeaders;
             const sourceColumnIndex = (codexNotebook.metadata as any)?.sourceColumnIndex;
+            const hasHeader = (codexNotebook.metadata as any)?.hasHeader;
 
             console.log(`[Spreadsheet Export] Processing ${fileName}`);
             console.log(`[Spreadsheet Export] - importerType: ${notebookImporterType}`);
@@ -1334,6 +1335,7 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
                     columnHeaders,
                     sourceColumnIndex,
                     importerType: notebookImporterType,
+                    hasHeader,
                 }
             );
 

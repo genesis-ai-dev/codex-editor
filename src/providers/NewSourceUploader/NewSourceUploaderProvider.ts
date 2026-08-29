@@ -20,7 +20,7 @@ import { NotebookPreview, CustomNotebookMetadata } from "../../../types";
 import { CodexCell } from "../../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
-import { createStandardizedFilename, extractUsfmCodeFromFilename, getDefaultBookName } from "../../utils/bookNameUtils";
+import { createStandardizedFilename, extractUsfmCodeFromFilename, getDefaultBookName, isBiblicalImporterType } from "../../utils/bookNameUtils";
 import { formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
 import { CodexContentSerializer } from "../../serializer";
 import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
@@ -991,7 +991,21 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             fileDisplayName = `${languagePrefix} ${fileDisplayName}`;
         }
 
+        // Persist importer metadata by default. Round-trip formats evolve and
+        // their exporters depend on format-specific fields (for example
+        // obsStory, pdfDocumentMetadata, markdownRoundTripSource, and TMS
+        // language/format data). An allowlist silently discarded those fields.
+        // Remove only import-time payloads that are large or recursively
+        // duplicate metadata; canonical originals live in attachments.
+        const persistableImporterMetadata = {
+            ...(processedNotebook.metadata as unknown as Record<string, unknown>),
+        };
+        delete persistableImporterMetadata.originalFileData;
+        delete persistableImporterMetadata.docxDocument;
+        delete persistableImporterMetadata.sourceMetadata;
+
         const metadata: CustomNotebookMetadata = {
+            ...(persistableImporterMetadata as Partial<CustomNotebookMetadata>),
             id: processedNotebook.metadata.id,
             originalName: processedNotebook.metadata.originalFileName,
             sourceFsPath: "",
@@ -1106,7 +1120,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         const pairsWithOriginalFiles = new Set<number>();
         // Content hash per pair, used to detect re-imports of an already-imported file
-        const originalFileHashes = new Map<number, string>();
+        const originalFileHashes = new Map<number, { hash: string; requestedFileName: string }>();
         if (workspaceFolder) {
             for (let pairIdx = 0; pairIdx < message.notebookPairs.length; pairIdx++) {
                 const pair = message.notebookPairs[pairIdx];
@@ -1166,7 +1180,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     );
 
                     console.log(`[NewSourceUploader] Original file: ${result.message}`);
-                    originalFileHashes.set(pairIdx, result.hash);
+                    originalFileHashes.set(pairIdx, { hash: result.hash, requestedFileName });
 
                     // Store the file hash in metadata for integrity verification and deduplication tracking
                     (pair.source.metadata as any).originalFileHash = result.hash;
@@ -1258,27 +1272,34 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const skippedPairs = new Set<number>();
         if (workspaceFolder) {
             const { findExistingImportPairs } = await import('./updateExistingImport');
-            for (const [pairIdx, hash] of originalFileHashes) {
+            for (const [pairIdx, originalFile] of originalFileHashes) {
                 // Imports whose standardized filename already exists (biblical
                 // books like GEN.source, or legacy non-UUID names) went through
                 // the overwrite-confirmation flow in handleWriteNotebooks; the
                 // user already chose to overwrite, so don't ask again here.
-                const standardizedName = await createStandardizedFilename(
-                    message.notebookPairs[pairIdx].source.name,
-                    ".source"
-                );
-                try {
-                    await vscode.workspace.fs.stat(
-                        vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts", standardizedName)
+                const importerType = message.notebookPairs[pairIdx].source.metadata.importerType;
+                if (isBiblicalImporterType(importerType)) {
+                    const standardizedName = await createStandardizedFilename(
+                        message.notebookPairs[pairIdx].source.name,
+                        ".source",
+                        true,
                     );
-                    continue;
-                } catch {
-                    // No standardized-name file; this pair is eligible for
-                    // re-import detection.
+                    try {
+                        await vscode.workspace.fs.stat(
+                            vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts", standardizedName)
+                        );
+                        continue;
+                    } catch {
+                        // No standardized-name file; this pair is eligible for
+                        // re-import detection.
+                    }
                 }
 
-                const fileName = message.notebookPairs[pairIdx].source.metadata.originalFileName;
-                const matches = await findExistingImportPairs(workspaceFolder, hash, fileName);
+                // Use the filename the user selected, not the deduplicated
+                // attachment filename (e.g. "document(1).docx"). Changed-file
+                // re-import detection is keyed by the requested original name.
+                const fileName = originalFile.requestedFileName;
+                const matches = await findExistingImportPairs(workspaceFolder, originalFile.hash, fileName);
                 if (!matches) continue;
 
                 const displayFileName = fileName || "This document";
@@ -2653,4 +2674,3 @@ async function confirmOverwriteWithDetails(
 
     return action === "Overwrite Files";
 }
-

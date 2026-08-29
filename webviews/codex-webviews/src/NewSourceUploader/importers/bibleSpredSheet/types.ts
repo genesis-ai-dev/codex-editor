@@ -19,6 +19,7 @@ export interface ParsedSpreadsheet {
     rows: SpreadsheetRow[];
     delimiter: string;
     filename: string;
+    hasHeader: boolean;
 }
 
 export interface SpreadsheetCell {
@@ -32,4 +33,4 @@ export type ColumnType = 'globalReferences' | 'source' | 'target' | 'attachments
 
 export interface ColumnTypeSelection {
     [columnIndex: number]: ColumnType;
-} 
+}

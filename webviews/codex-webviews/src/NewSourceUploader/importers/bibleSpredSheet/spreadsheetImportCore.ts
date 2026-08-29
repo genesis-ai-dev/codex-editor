@@ -96,7 +96,7 @@ export async function buildSpreadsheetImportResult(
     const targetColumnIndex = findColumnIndex(columnMapping, "target");
     const attachmentsColumnIndex = findColumnIndex(columnMapping, "attachments");
 
-    if (!sourceColumnIndex && !targetColumnIndex) {
+    if (sourceColumnIndex === undefined && targetColumnIndex === undefined) {
         throw new Error("Could not detect a source or target text column from headers. Name a column Source, Target, or similar.");
     }
 
@@ -112,8 +112,9 @@ export async function buildSpreadsheetImportResult(
 
     if (isTranslationImport) {
         const cells = parsedData.rows
-            .filter((row) => row[targetColumnIndex!]?.trim())
-            .map((row, index) => {
+            .map((row, rowIndex) => ({ row, rowIndex }))
+            .filter(({ row }) => row[targetColumnIndex!]?.trim())
+            .map(({ row, rowIndex }) => {
                 const globalReferences = globalReferencesColumnIndex !== undefined
                     ? parseGlobalReferencesField(row[globalReferencesColumnIndex])
                     : [];
@@ -127,7 +128,7 @@ export async function buildSpreadsheetImportResult(
                         type: CodexCellTypes.TEXT,
                         edits: [],
                         data: {
-                            rowIndex: index,
+                            rowIndex,
                             globalReferences,
                         },
                     },
@@ -158,8 +159,9 @@ export async function buildSpreadsheetImportResult(
     }
 
     const sourceCells = parsedData.rows
-        .filter((row) => row[sourceColumnIndex!]?.trim())
-        .map((row, index) => {
+        .map((row, rowIndex) => ({ row, rowIndex }))
+        .filter(({ row }) => row[sourceColumnIndex!]?.trim())
+        .map(({ row, rowIndex }) => {
             const globalReferences =
                 globalReferencesColumnIndex !== undefined
                     ? parseGlobalReferencesField(row[globalReferencesColumnIndex])
@@ -172,7 +174,7 @@ export async function buildSpreadsheetImportResult(
 
             const { cellId, metadata: cellMetadata } = createSpreadsheetCellMetadata({
                 originalContent: row[sourceColumnIndex!],
-                rowIndex: index,
+                rowIndex,
                 originalRowValues,
                 sourceColumnIndex: sourceColumnIndex!,
                 fileName: file.name,
@@ -220,6 +222,7 @@ export async function buildSpreadsheetImportResult(
                 columnHeaders,
                 sourceColumnIndex: sourceColumnIndex!,
                 originalFileContent,
+                hasHeader: parsedData.hasHeader,
             },
         },
         codex: {
@@ -243,6 +246,7 @@ export async function buildSpreadsheetImportResult(
                 columnHeaders,
                 sourceColumnIndex: sourceColumnIndex!,
                 originalFileContent,
+                hasHeader: parsedData.hasHeader,
             },
         },
     };

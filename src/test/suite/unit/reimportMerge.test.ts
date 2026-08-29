@@ -215,21 +215,38 @@ suite("reimportMerge", () => {
             assert.strictEqual(stats.droppedOldCells, 1);
         });
 
-        test("preserves target attachments and audio selection, and records data field changes as edits", () => {
-            const existingSource = notebook([textCell("old-1", "<p>Hello</p>")]);
+        test("preserves target attachments and records top-level and nested locator changes as edits", () => {
+            const existingSource = notebook([
+                textCell("old-1", "<p>Hello</p>", {
+                    paragraphIndex: 3,
+                    paragraphIndices: [3, 4],
+                    segmentIndex: 1,
+                }),
+            ]);
             const existingCodex = notebook([
                 textCell("old-1", "<p>Hola</p>", {
                     attachments: { "audio-1": { type: "audio" } },
                     selectedAudioId: "audio-1",
                     selectionTimestamp: 123,
-                    data: { paragraphIndex: 3 },
+                    paragraphIndex: 3,
+                    paragraphIndices: [3, 4],
+                    segmentIndex: 1,
+                    data: { rowIndex: 3 },
                 }),
             ]);
             const newSource = notebook([
-                textCell("new-1", "<p>Hello</p>", { data: { paragraphIndex: 7 } }),
+                textCell("new-1", "<p>Hello</p>", {
+                    paragraphIndex: 7,
+                    paragraphMappingVersion: "outermost-no-fallback-v1",
+                    data: { rowIndex: 7 },
+                }),
             ]);
             const newCodex = notebook([
-                textCell("new-1", "", { data: { paragraphIndex: 7 } }),
+                textCell("new-1", "", {
+                    paragraphIndex: 7,
+                    paragraphMappingVersion: "outermost-no-fallback-v1",
+                    data: { rowIndex: 7 },
+                }),
             ]);
 
             const { mergedCodex } = mergeReimportedNotebookPair(
@@ -244,13 +261,61 @@ suite("reimportMerge", () => {
             assert.strictEqual(metadata.selectedAudioId, "audio-1");
             assert.deepStrictEqual(metadata.attachments, { "audio-1": { type: "audio" } });
             // Structural metadata comes from the new parse...
-            assert.deepStrictEqual(metadata.data, { paragraphIndex: 7 });
+            assert.strictEqual(metadata.paragraphIndex, 7);
+            assert.strictEqual(metadata.paragraphMappingVersion, "outermost-no-fallback-v1");
+            assert.strictEqual(metadata.paragraphIndices, null);
+            assert.strictEqual(metadata.segmentIndex, null);
+            assert.deepStrictEqual(metadata.data, { rowIndex: 7 });
             // ...and the change is recorded as an edit so it survives sync.
-            const dataEdits = edits(mergedCodex.cells[0]).filter(
-                (e) => e.editMap.join(".") === "metadata.data.paragraphIndex"
+            const paragraphEdits = edits(mergedCodex.cells[0]).filter(
+                (e) => e.editMap.join(".") === "metadata.paragraphIndex"
             );
-            assert.strictEqual(dataEdits.length, 1);
-            assert.strictEqual(dataEdits[0].value, 7);
+            assert.strictEqual(paragraphEdits.length, 1);
+            assert.strictEqual(paragraphEdits[0].value, 7);
+            const rowEdits = edits(mergedCodex.cells[0]).filter(
+                (e) => e.editMap.join(".") === "metadata.data.rowIndex"
+            );
+            assert.strictEqual(rowEdits.length, 1);
+            assert.strictEqual(rowEdits[0].value, 7);
+            const clearedLocatorEdits = edits(mergedCodex.cells[0]).filter(
+                (e) => ["metadata.paragraphIndices", "metadata.segmentIndex"].includes(e.editMap.join("."))
+            );
+            assert.strictEqual(clearedLocatorEdits.length, 2);
+            assert.ok(clearedLocatorEdits.every((edit) => edit.value === null));
+        });
+
+        test("remaps file-level cell references to retained ids and records metadata edits", () => {
+            const existingSource = notebook([textCell("old-1", "<p>Hello</p>")], {
+                structureMetadata: {
+                    lineMappings: [{ lineIndex: 1, cellId: "old-1" }],
+                },
+                edits: [],
+            });
+            const existingCodex = notebook([textCell("old-1", "<p>Hola</p>")]);
+            const newSource = notebook([textCell("new-1", "<p>Hello</p>")], {
+                structureMetadata: {
+                    lineMappings: [{ lineIndex: 2, cellId: "new-1" }],
+                },
+                edits: [],
+            });
+            const newCodex = notebook([textCell("new-1", "")]);
+
+            const { mergedSource } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex
+            );
+
+            assert.deepStrictEqual(mergedSource.metadata?.structureMetadata, {
+                lineMappings: [{ lineIndex: 2, cellId: "old-1" }],
+            });
+            const metadataEdits = mergedSource.metadata?.edits as ReimportEdit[];
+            const structureEdit = metadataEdits.find(
+                (edit) => edit.editMap.join(".") === "metadata.structureMetadata"
+            );
+            assert.ok(structureEdit);
+            assert.deepStrictEqual(structureEdit?.value, mergedSource.metadata?.structureMetadata);
         });
 
         test("re-inserts paratext cells after their surviving parent and tombstones orphaned ones", () => {
