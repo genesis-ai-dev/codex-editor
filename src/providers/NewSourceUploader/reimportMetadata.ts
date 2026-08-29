@@ -143,7 +143,7 @@ export const appendImporterMetadataEdits = (
     oldMetadata: Record<string, unknown> | undefined,
     timestamp: number,
 ): void => {
-    const newMetadata = (cell.metadata ??= {});
+    const newMetadata = (cell.metadata ??= {}) as Record<string, unknown>;
     const edits = ensureEdits(cell);
     for (const [field, value] of Object.entries(newMetadata)) {
         if (field === "id" || field === "edits" || field === "data" || value === undefined) continue;
@@ -156,7 +156,7 @@ export const appendImporterMetadataEdits = (
         edits.push(makeReimportEdit(EditMapUtils.metadata(field), null, timestamp));
     }
 
-    const newData = (newMetadata.data ??= {});
+    const newData = (newMetadata.data ??= {}) as Record<string, unknown>;
     const oldData = oldMetadata?.data as Record<string, unknown> | undefined;
     for (const [field, value] of Object.entries(newData)) {
         if (value === undefined) continue;
