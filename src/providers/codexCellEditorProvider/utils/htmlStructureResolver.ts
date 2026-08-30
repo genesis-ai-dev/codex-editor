@@ -3,6 +3,7 @@ import {
     compareHtmlStructure,
     extractPlainTextFromHtml,
     tryDeterministicStructureFix,
+    type HtmlStructureOptions,
 } from "../../../../sharedUtils/htmlStructureUtils";
 import type { CompletionConfig } from "../../../utils/llmUtils";
 import type { CodexCellDocument } from "../codexDocument";
@@ -73,9 +74,10 @@ export const verifyResolvedContent = (
     sourceHtml: string,
     originalTargetHtml: string,
     resolvedHtml: string,
+    options?: HtmlStructureOptions,
 ): string | null => {
     if (!resolvedHtml) return null;
-    if (!compareHtmlStructure(sourceHtml, resolvedHtml).isMatch) return null;
+    if (!compareHtmlStructure(sourceHtml, resolvedHtml, options).isMatch) return null;
 
     const sourceText = extractPlainTextFromHtml(sourceHtml);
     const originalText = extractPlainTextFromHtml(originalTargetHtml);
@@ -109,14 +111,14 @@ export const resolveCellHtmlStructure = async (
         return { status: "missing-content" };
     }
     const targetHtml = targetCell.cellContent;
-
-    if (compareHtmlStructure(sourceHtml, targetHtml).isMatch) {
-        return { status: "already-matched" };
-    }
-
-    const deterministicFix = tryDeterministicStructureFix(sourceHtml, targetHtml);
+    const metadata = document.getNotebookMetadata();
+    const deterministicFix = tryDeterministicStructureFix(sourceHtml, targetHtml, metadata);
     if (deterministicFix !== null) {
         return { status: "resolved", content: deterministicFix, method: "deterministic" };
+    }
+
+    if (compareHtmlStructure(sourceHtml, targetHtml, metadata).isMatch) {
+        return { status: "already-matched" };
     }
 
     try {
@@ -127,7 +129,7 @@ export const resolveCellHtmlStructure = async (
             targetHtml,
             completionConfig,
         );
-        const verified = verifyResolvedContent(sourceHtml, targetHtml, llmResult);
+        const verified = verifyResolvedContent(sourceHtml, targetHtml, llmResult, metadata);
         if (verified !== null) {
             return { status: "resolved", content: verified, method: "llm" };
         }
@@ -172,9 +174,7 @@ export const maybeRepairStructureDeterministically = async (
 
     const sourceHtml = await getSourceCellContent(cellId);
     if (!sourceHtml) return html;
-    if (compareHtmlStructure(sourceHtml, html).isMatch) return html;
-
-    return tryDeterministicStructureFix(sourceHtml, html) ?? html;
+    return tryDeterministicStructureFix(sourceHtml, html, metadata) ?? html;
 };
 
 export type AutoResolveHtmlStructureOptions = {
@@ -210,13 +210,13 @@ export const maybeAutoResolveHtmlStructure = async (
         return translatedHtml;
     }
 
-    if (compareHtmlStructure(sourceHtml, translatedHtml).isMatch) {
-        return translatedHtml;
-    }
-
-    const deterministicFix = tryDeterministicStructureFix(sourceHtml, translatedHtml);
+    const deterministicFix = tryDeterministicStructureFix(sourceHtml, translatedHtml, metadata);
     if (deterministicFix !== null) {
         return deterministicFix;
+    }
+
+    if (compareHtmlStructure(sourceHtml, translatedHtml, metadata).isMatch) {
+        return translatedHtml;
     }
 
     try {
@@ -225,7 +225,7 @@ export const maybeAutoResolveHtmlStructure = async (
         options?.onResolving?.();
         const resolveWithLLM = options?.resolveWithLLM ?? resolveHtmlStructureWithLLM;
         const llmResult = await resolveWithLLM(sourceHtml, translatedHtml, completionConfig);
-        return verifyResolvedContent(sourceHtml, translatedHtml, llmResult) ?? translatedHtml;
+        return verifyResolvedContent(sourceHtml, translatedHtml, llmResult, metadata) ?? translatedHtml;
     } catch (error) {
         console.error("[maybeAutoResolveHtmlStructure] Error:", error);
         return translatedHtml;

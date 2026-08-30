@@ -1382,6 +1382,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     sourceNotebooks[pairIdx],
                     codexNotebooks[pairIdx]
                 );
+                if (result.cancelled) continue;
                 allFiles.push({ pairIdx, sourceUri: result.sourceUri, codexUri: result.codexUri });
 
                 const { stats } = result;
@@ -1431,6 +1432,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         createdFiles.forEach((file, i) => {
             allFiles.push({ pairIdx: createIndices[i], sourceUri: file.sourceUri, codexUri: file.codexUri });
         });
+
+        // All updates may have been cancelled by the unmatched-translation
+        // warning. Do not run successful-import cleanup for an empty batch.
+        if (allFiles.length === 0) {
+            webviewPanel.webview.postMessage({ command: "importCancelled" });
+            return;
+        }
 
         // Register notebook references in the original files registry
         // Only for pairs that had an actual original file saved via deduplication

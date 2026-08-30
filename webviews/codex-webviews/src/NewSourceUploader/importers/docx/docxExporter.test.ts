@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import JSZip from "jszip";
 import { exportDocxWithTranslations } from "./docxExporter";
 import { DOCX_PARAGRAPH_MAPPING_VERSION } from "./cellMetadata";
+import { tryDeterministicStructureFix } from "../../../../../../sharedUtils/htmlStructureUtils";
 
 const textBoxParagraph =
     `<w:p><w:r><w:drawing><mc:AlternateContent>` +
@@ -43,6 +44,20 @@ function cell(paragraphIndex: number, sourceText: string, value: string, metadat
 }
 
 describe("DOCX exporter paragraph compatibility", () => {
+    it("exports identical XML before and after a formatting-only cell repair", async () => {
+        const original = await makeDocx('<w:p><w:pPr><w:jc w:val="center"/></w:pPr>' +
+            '<w:r><w:rPr><w:u w:val="single"/><w:sz w:val="36"/></w:rPr><w:t>Le</w:t></w:r>' +
+            '<w:r><w:rPr><w:u w:val="single"/><w:sz w:val="36"/></w:rPr><w:t>sson #6</w:t></w:r></w:p>');
+        const source = '<p style="text-align: center"><span style="font-size: 18pt"><u>Le</u></span>' +
+            '<span style="font-size: 18pt"><u>sson #6</u></span></p>';
+        const target = cell(0, "Lesson #6", "<p>Lección #6</p>");
+        const repaired = tryDeterministicStructureFix(source, target.value, { importerType: "docx" });
+        expect(repaired).not.toBeNull();
+        const before = await exportDocxWithTranslations(original, [target]);
+        const after = await exportDocxWithTranslations(original, [{ ...target, value: repaired! }]);
+        expect(await getDocumentXml(after)).toBe(await getDocumentXml(before));
+    });
+
     it("exports legacy coordinates and removes the duplicated fallback branch", async () => {
         const original = await makeDocx(
             `<w:p><w:r><w:t>Before</w:t></w:r></w:p>` +

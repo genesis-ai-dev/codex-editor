@@ -29,7 +29,8 @@
 
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { EditMapUtils } from "../../utils/editMapUtils";
-import { extractPlainTextFromHtml } from "../../../sharedUtils/htmlStructureUtils";
+import { isDocxFormattingContext } from "../../../sharedUtils/docxHtmlFormatting";
+import { getReimportSourceText } from "./reimportSourceText";
 import {
     appendImporterMetadataEdits,
     makeReimportEdit as makeEdit,
@@ -93,9 +94,6 @@ const PRESERVED_TARGET_METADATA_KEYS = [
     "cellLabel",
     "isLocked",
 ] as const;
-
-const normalizeText = (html: string | undefined): string =>
-    extractPlainTextFromHtml(html ?? "");
 
 const isTextCell = (cell: ReimportCell): boolean =>
     (cell.metadata?.type ?? CodexCellTypes.TEXT) === CodexCellTypes.TEXT;
@@ -172,6 +170,8 @@ export const mergeReimportedNotebookPair = (
     newCodex: ReimportNotebook,
 ): ReimportMergeResult => {
     const now = Date.now();
+    const docx = isDocxFormattingContext(existingSource.metadata) && isDocxFormattingContext(newSource.metadata);
+    const sourceText = (cell: ReimportCell): string => getReimportSourceText(cell, docx);
     const freshToRetainedCellIds = new Map<string, string>();
 
     const oldTargetById = new Map<string, ReimportCell>();
@@ -216,7 +216,7 @@ export const mergeReimportedNotebookPair = (
             }
             return;
         }
-        const text = normalizeText(cell.value);
+        const text = sourceText(cell);
         if (!isTextCell(cell) || !text) {
             // Unmatched cell shapes (empty text, unexpected types) are kept
             // as-is rather than removed — a removed cell would just be
@@ -268,7 +268,7 @@ export const mergeReimportedNotebookPair = (
             };
         const isText = isTextCell(sourceCell) && sourceCell.metadata?.type !== CodexCellTypes.MILESTONE;
         if (isText) stats.totalNewCells++;
-        return { sourceCell, codexCell, normalizedText: normalizeText(sourceCell.value), isText };
+        return { sourceCell, codexCell, normalizedText: sourceText(sourceCell), isText };
     });
 
     const adoptOldCell = (cell: PendingCell, entry: OldCellEntry, carriedValue: string) => {
@@ -385,7 +385,7 @@ export const mergeReimportedNotebookPair = (
     for (const cell of unmatched) {
         const contained = oldEntries.filter((entry) => {
             if (entry.consumed) return false;
-            const oldText = normalizeText(entry.sourceCell.value);
+            const oldText = sourceText(entry.sourceCell);
             return oldText.length >= MIN_CONTAINMENT_LENGTH && cell.normalizedText.includes(oldText);
         });
         if (contained.length === 0) continue;

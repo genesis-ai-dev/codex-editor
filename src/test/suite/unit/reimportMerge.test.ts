@@ -1,4 +1,5 @@
 import * as assert from "assert";
+import { getReimportSourceText } from "../../../providers/NewSourceUploader/reimportSourceText";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 import {
     mergeReimportedNotebookPair,
@@ -28,6 +29,66 @@ const findCell = (nb: ReimportNotebook, id: string): ReimportCell | undefined =>
 
 suite("reimportMerge", () => {
     suite("mergeReimportedNotebookPair", () => {
+        test("DOCX formatting-only re-import keeps the old heading id, translation and history", () => {
+            const metadata = { importerType: "docx" };
+            const data = { originalText: "Lesson #6, Chapter 2 Overview" };
+            const oldSource = textCell("old-title", '<p><span style="font-size: 18pt">Le</span><span style="font-size: 18pt">sson #6, Chapter 2 Overview</span></p>', {
+                paragraphIndex: 9, data,
+            });
+            const oldTarget = textCell("old-title", "<p>Lección #6, Resumen del Capítulo 2</p>", {
+                attachments: { audio: "recording.mp3" }, cellLabel: "Title",
+                edits: [{ editMap: ["value"], value: "Spanish", timestamp: 1, type: EditType.USER_EDIT }],
+            });
+            const newCell = textCell("fresh-title", '<p><span style="font-size: 18pt">Lesson #6, Chapter 2 Overview</span></p>', {
+                paragraphIndex: 30, paragraphMappingVersion: "outermost-no-fallback-v1", data,
+            });
+            const result = mergeReimportedNotebookPair(
+                notebook([oldSource], metadata), notebook([oldTarget], metadata),
+                notebook([newCell], metadata), notebook([textCell("fresh-title", "", newCell.metadata)], metadata),
+            );
+            assert.strictEqual(result.stats.matchedCells, 1);
+            assert.strictEqual(result.stats.droppedTranslations, 0);
+            const target = findCell(result.mergedCodex, "old-title")!;
+            assert.strictEqual(target.value, oldTarget.value);
+            assert.deepStrictEqual(target.metadata?.attachments, oldTarget.metadata?.attachments);
+            assert.strictEqual(target.metadata?.cellLabel, "Title");
+            assert.strictEqual(target.metadata?.paragraphIndex, 30);
+            assert.strictEqual(edits(target)[0].type, EditType.USER_EDIT);
+            assert.ok(edits(target).some((edit) => edit.editMap.join(".") === "metadata.paragraphIndex"));
+            assert.ok(edits(result.mergedSource.cells[0]).some((edit) => edit.editMap[0] === "value"));
+        });
+
+        test("DOCX text normalization keeps inline words, boundaries and single-decoded entities", () => {
+            const cell = textCell("x", '<p>Le<span>sson</span> A&amp;B</p><p>&#x43;&#68;&nbsp;&amp;lt;</p><p>x<br/>y</p>');
+            assert.strictEqual(getReimportSourceText(cell, true), "Lesson A&B CD &lt; x y");
+            assert.strictEqual(getReimportSourceText(cell, false), "Le sson A&B &#x43;&#68; < x y");
+        });
+
+        test("DOCX source corrections take precedence over stale originalText", () => {
+            const old = textCell("old", "<p>Changed source</p>", { data: { originalText: "Old source" } });
+            const fresh = textCell("new", "<p>Old source</p>", { data: { originalText: "Old source" } });
+            const metadata = { importerType: "docx" };
+            const result = mergeReimportedNotebookPair(
+                notebook([old], metadata), notebook([textCell("old", "Translation")], metadata),
+                notebook([fresh], metadata), notebook([textCell("new", "")], metadata),
+            );
+            assert.strictEqual(result.stats.matchedCells, 0);
+            assert.strictEqual(findCell(result.mergedCodex, "new")?.value, "");
+        });
+
+        test("does not apply DOCX inline matching to other importer types", () => {
+            for (const importerType of ["markdown", "obs", "usfm", "biblica", "indesign", "spreadsheet-csv", "spreadsheet-tsv"]) {
+                const metadata = { importerType };
+                const result = mergeReimportedNotebookPair(
+                    notebook([textCell("old", "<p>Le<span>sson</span></p>")], metadata),
+                    notebook([textCell("old", "Translation")], metadata),
+                    notebook([textCell("new", "<p>Lesson</p>")], metadata),
+                    notebook([textCell("new", "")], metadata),
+                );
+                assert.strictEqual(result.stats.matchedCells, 0, importerType);
+            }
+        });
+
         test("carries translations over for cells with identical source text", () => {
             const existingSource = notebook([textCell("old-1", "<p>Hello world</p>")]);
             const existingCodex = notebook([
