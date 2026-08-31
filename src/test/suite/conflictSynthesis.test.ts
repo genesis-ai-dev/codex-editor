@@ -43,7 +43,7 @@ function fakeGitOps(
     return {
         resolveRef: async (_dir: string, ref: string) => {
             if (!refs.includes(ref)) throw new Error(`unknown ref ${ref}`);
-            return "0000000000000000000000000000000000000000";
+            return ref;
         },
         readBlobAtRef: async (_dir: string, ref: string, filepath: string) => {
             const key = `${ref}:${filepath}`;

@@ -32,7 +32,7 @@ import {
     notifyEmptiedCodexFilesRestored,
     notifyEmptiedCodexFilesBlockedSync,
 } from "../syncSafetyGuard";
-import { enforceConflictListInvariant } from "./conflictSynthesis";
+import { enforceConflictListInvariant, excludeUnchangedConflicts } from "./conflictSynthesis";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -198,16 +198,8 @@ export async function stageAndCommitAllAndSync(
             return syncResult;
         }
 
-        // Invariant (issue #991): every remote-changed file MUST appear in the
-        // conflict list — proceeding otherwise would create a merge commit
-        // missing those files. Unlike the old diagnostic, this checks ALL
-        // paths, not just `.codex`, because the gan-ji-an regression involved
-        // .webm pointer files too. On early attempts a mismatch throws a
-        // TransientSyncError so the retry layer below refetches; on the FINAL
-        // attempt the missing paths are synthesized from local git state and
-        // merged normally, so a persistent upstream mismatch degrades to a
-        // normal merge instead of a permanent sync outage. See
-        // enforceConflictListInvariant for the full decision logic.
+        // History changes can already be present with identical content. Only
+        // genuinely missing/different paths need conflict recovery (issue #991).
         const conflictsArr = Array.isArray(conflictsResponse?.conflicts)
             ? (conflictsResponse.conflicts as Array<{ filepath?: string; }>)
             : [];
@@ -222,6 +214,7 @@ export async function stageAndCommitAllAndSync(
                     : [],
             retryCount,
             workspaceDir: workspaceFolder,
+            snapshot: conflictsResponse.mergeSnapshot,
         });
 
         // Capture uploaded LFS files from the sync operation
@@ -230,7 +223,11 @@ export async function stageAndCommitAllAndSync(
         }
 
         if (conflictsResponse?.hasConflicts || synthesizedConflicts.length > 0) {
-            const conflicts = [...(conflictsResponse.conflicts || []), ...synthesizedConflicts];
+            const conflicts = await excludeUnchangedConflicts(
+                [...(conflictsResponse.conflicts || []), ...synthesizedConflicts],
+                workspaceFolder,
+                conflictsResponse.mergeSnapshot
+            );
             debug(`🔧 Processing ${conflicts.length} file conflicts from git sync...`);
 
             // Track which files are being modified
@@ -246,7 +243,9 @@ export async function stageAndCommitAllAndSync(
                 }
             }
 
-            const { resolved: resolvedFiles, failed: failedConflicts } = await resolveConflictFiles(conflicts, workspaceFolder);
+            const { resolved: resolvedFiles, failed: failedConflicts } = conflicts.length > 0
+                ? await resolveConflictFiles(conflicts, workspaceFolder)
+                : { resolved: [], failed: [] };
 
             // Reconcile with actual resolutions: a conflict flagged isDeleted may
             // have been restored by the deletion guard. Downstream consumers treat
@@ -300,33 +299,33 @@ export async function stageAndCommitAllAndSync(
                 ));
             }
 
-            if (resolvedFiles.length > 0) {
-                try {
-                    await authApi.completeMerge(resolvedFiles, undefined);
-                    debug(`✅ Resolved ${resolvedFiles.length} file conflicts`);
-                } catch (completeMergeError) {
-                    const errorMessage = completeMergeError instanceof Error ? completeMergeError.message : String(completeMergeError);
-                    debug("completeMerge error:", errorMessage);
+            // Divergent histories still need a two-parent commit even when all
+            // file contents match. Otherwise every later sync repeats the merge.
+            try {
+                await authApi.completeMerge(resolvedFiles, undefined, conflictsResponse.mergeSnapshot);
+                debug(`✅ Resolved ${resolvedFiles.length} file conflicts`);
+            } catch (completeMergeError) {
+                const errorMessage = completeMergeError instanceof Error ? completeMergeError.message : String(completeMergeError);
+                debug("completeMerge error:", errorMessage);
 
-                    // Use the shared classifier so completeMerge retries stay aligned
-                    // with the outer transient-error policy (single source of truth).
-                    if (isRetriableSyncError(completeMergeError) && retryCount < 3) {
-                        debug(`⚠️ Transient completeMerge failure, retrying... (attempt ${retryCount + 1}/3)`);
+                // Use the shared classifier so completeMerge retries stay aligned
+                // with the outer transient-error policy (single source of truth).
+                if (isRetriableSyncError(completeMergeError) && retryCount < 3) {
+                    debug(`⚠️ Transient completeMerge failure, retrying... (attempt ${retryCount + 1}/3)`);
 
-                        const backoffMs = 5 * Math.pow(2, retryCount) * 1000;
-                        debug(`⏳ Waiting ${backoffMs / 1000} seconds before retrying...`);
-                        await new Promise(resolve => setTimeout(resolve, backoffMs));
+                    const backoffMs = 5 * Math.pow(2, retryCount) * 1000;
+                    debug(`⏳ Waiting ${backoffMs / 1000} seconds before retrying...`);
+                    await new Promise(resolve => setTimeout(resolve, backoffMs));
 
-                        return stageAndCommitAllAndSync(commitMessage, showCompletionMessage, retryCount + 1);
-                    }
-
-                    if (retryCount >= 3) {
-                        vscode.window.showErrorMessage(
-                            `Sync couldn't complete after multiple attempts. Please check your internet connection and try again.`
-                        );
-                    }
-                    throw completeMergeError;
+                    return stageAndCommitAllAndSync(commitMessage, showCompletionMessage, retryCount + 1);
                 }
+
+                if (retryCount >= 3) {
+                    vscode.window.showErrorMessage(
+                        `Sync couldn't complete after multiple attempts. Please check your internet connection and try again.`
+                    );
+                }
+                throw completeMergeError;
             }
         }
 

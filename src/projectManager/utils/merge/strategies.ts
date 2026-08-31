@@ -2,6 +2,7 @@ import { ConflictResolutionStrategy } from "./types";
 
 // Define which files use which strategies
 export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]> = {
+    [ConflictResolutionStrategy.LFS_POINTER]: [".project/attachments/pointers/*"],
     // Codex notebook files - special merge process for cell arrays
     [ConflictResolutionStrategy.CODEX_CUSTOM_MERGE]: [
         "files/target/*.codex",

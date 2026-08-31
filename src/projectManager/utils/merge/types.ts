@@ -7,6 +7,7 @@ export enum ConflictResolutionStrategy {
     SPECIAL = "special", // Merge based on timestamps/rules
     CODEX_CUSTOM_MERGE = "codex", // Special merge process for cell arrays
     JSON_MERGE_3WAY = "json-merge-3way", // 3-way merge for JSON settings with chatSystemMessage tie-breaker
+    LFS_POINTER = "lfs-pointer", // Preserve one-sided pointer changes; reject ambiguous replacements
 }
 
 export interface ConflictFile {

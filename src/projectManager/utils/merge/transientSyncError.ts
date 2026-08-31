@@ -39,6 +39,7 @@ export function isRetriableSyncError(err: unknown): boolean {
     const msg = err.message;
     return (
         msg.startsWith(BLOB_READ_FAILED_PREFIX) ||
+        msg.includes("MERGE_STATE_CHANGED:") ||
         msg.includes("non-fast-forward") ||
         msg.includes("failed to push") ||
         msg.includes("Failed to push") ||

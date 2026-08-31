@@ -1,5 +1,7 @@
 import { CodexCellDocument } from './../../../providers/codexCellEditorProvider/codexDocument';
 import * as vscode from "vscode";
+import { resolvePointerConflict } from "./pointerConflict";
+import { atomicWriteUriText } from "../../../utils/notebookSafeSaveUtils";
 import * as path from "path";
 import { ConflictResolutionStrategy, ConflictFile } from "./types";
 import { determineStrategy } from "./strategies";
@@ -578,6 +580,9 @@ export async function resolveConflictFile(
         }
 
         switch (strategy) {
+            case ConflictResolutionStrategy.LFS_POINTER:
+                resolvedContent = resolvePointerConflict(conflict);
+                break;
             case ConflictResolutionStrategy.IGNORE:
                 debugLog("Ignoring conflict for:", conflict.filepath);
                 resolvedContent = conflict.ours; // Keep our version
@@ -630,7 +635,7 @@ export async function resolveConflictFile(
 
         const targetPath = vscode.Uri.file(resolvedTarget);
         debugLog("Writing resolved content to:", targetPath.fsPath);
-        await vscode.workspace.fs.writeFile(targetPath, Buffer.from(resolvedContent));
+        await atomicWriteUriText(targetPath, resolvedContent);
         debugLog("Successfully wrote content for:", conflict.filepath);
 
         return conflict.filepath;
@@ -2754,9 +2759,9 @@ export async function resolveConflictFiles(
                                 } catch {
                                     existedOnDisk = false;
                                 }
-                                await vscode.workspace.fs.writeFile(
+                                await atomicWriteUriText(
                                     filePath,
-                                    Buffer.from(survivingContent)
+                                    survivingContent
                                 );
                                 resolvedFiles.push({
                                     filepath: conflict.filepath,
@@ -2844,7 +2849,7 @@ export async function resolveConflictFiles(
                                 });
                                 return;
                             }
-                            await vscode.workspace.fs.writeFile(filePath, Buffer.from(content));
+                            await atomicWriteUriText(filePath, content);
                             resolvedFiles.push({
                                 filepath: conflict.filepath,
                                 resolution: "created",

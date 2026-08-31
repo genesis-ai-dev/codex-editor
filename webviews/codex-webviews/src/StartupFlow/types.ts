@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { ConflictFile } from "../../../../src/projectManager/utils/merge/types";
 import { ResolvedFile } from "../../../../src/projectManager/utils/merge/resolvers";
+import type { MergeSnapshot } from "../../../../src/projectManager/utils/merge/conflictSynthesis";
 
 // Add ImportType type
 export type ImportType = "source" | "translation" | "bible-download";
@@ -163,8 +164,9 @@ export interface FrontierAPI {
         allChangedFilePaths?: string[];
         remoteChangedFilePaths?: string[];
         uploadedLfsFiles?: string[];
+        mergeSnapshot?: MergeSnapshot;
     }>;
-    completeMerge: (resolvedFiles: ResolvedFile[], workspacePath: string | undefined) => Promise<void>;
+    completeMerge: (resolvedFiles: ResolvedFile[], workspacePath: string | undefined, snapshot?: MergeSnapshot) => Promise<void>;
     onSyncStatusChange: (
         callback: (status: { status: 'started' | 'completed' | 'error' | 'skipped', message?: string; }) => void
     ) => vscode.Disposable;
