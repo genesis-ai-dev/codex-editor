@@ -27,6 +27,7 @@ export interface ExistingImportPair {
 const resolvePairForBaseName = async (
     workspaceFolder: vscode.WorkspaceFolder,
     baseName: string,
+    expectedOriginal?: { hash: string; fileName: string },
 ): Promise<ExistingImportPair | null> => {
     const sourceUri = vscode.Uri.joinPath(
         workspaceFolder.uri,
@@ -51,10 +52,20 @@ const resolvePairForBaseName = async (
     try {
         const content = await vscode.workspace.fs.readFile(sourceUri);
         const notebook = JSON.parse(new TextDecoder().decode(content));
+        if (expectedOriginal) {
+            // Registry references can outlive an Update Existing operation.
+            // A previous original must not masquerade as a current hash match.
+            const { originalFileHash, originalFileName, originalName } = notebook.metadata ?? {};
+            const matches = originalFileHash
+                ? originalFileHash === expectedOriginal.hash
+                : (originalFileName || originalName) === expectedOriginal.fileName;
+            if (!matches) return null;
+        }
         if (typeof notebook?.metadata?.fileDisplayName === "string") {
             displayName = notebook.metadata.fileDisplayName;
         }
     } catch {
+        if (expectedOriginal) return null;
         // Display name is cosmetic; fall back to the base name.
     }
 
@@ -101,7 +112,8 @@ const scanSourceMetadata = async (
                 } else if (
                     originalFileName &&
                     (metadata.originalName === originalFileName ||
-                        metadata.originalFileName === originalFileName)
+                        metadata.originalFileName === originalFileName ||
+                        metadata.originalFileRequestedName === originalFileName)
                 ) {
                     nameBaseNames.push(baseName);
                 }
@@ -126,13 +138,16 @@ export const findExistingImportPairs = async (
     originalFileHash: string,
     originalFileName?: string,
 ): Promise<ExistingImportMatches | null> => {
-    const resolveAll = async (baseNames: Iterable<string>): Promise<ExistingImportPair[]> => {
+    const resolveAll = async (
+        baseNames: Iterable<string>,
+        expectedOriginal?: { hash: string; fileName: string },
+    ): Promise<ExistingImportPair[]> => {
         const pairs: ExistingImportPair[] = [];
         const seen = new Set<string>();
         for (const baseName of baseNames) {
             if (seen.has(baseName)) continue;
             seen.add(baseName);
-            const pair = await resolvePairForBaseName(workspaceFolder, baseName);
+            const pair = await resolvePairForBaseName(workspaceFolder, baseName, expectedOriginal);
             if (pair) pairs.push(pair);
         }
         return pairs;
@@ -141,7 +156,7 @@ export const findExistingImportPairs = async (
     // Fast path: the registry answers the common cases without touching any
     // notebook files (a first-time import should not pay for a full scan).
     const entry = await findOriginalFileByHash(workspaceFolder, originalFileHash);
-    const registryHashPairs = await resolveAll(entry?.referencedBy ?? []);
+    const registryHashPairs = await resolveAll(entry?.referencedBy ?? [], entry ?? undefined);
     if (registryHashPairs.length > 0) {
         return { matchedBy: "content", pairs: registryHashPairs };
     }
@@ -214,18 +229,6 @@ export const updateExistingImportPair = async (
         newSource as unknown as ReimportNotebook,
         newCodex as unknown as ReimportNotebook,
     );
-
-    const reimportContext = {
-        timestamp: new Date().toISOString(),
-        stats,
-    };
-    for (const merged of [mergedSource, mergedCodex]) {
-        const metadata = (merged.metadata ??= {});
-        metadata.importContext = {
-            ...((metadata.importContext as Record<string, unknown>) ?? {}),
-            lastReimport: reimportContext,
-        };
-    }
 
     await writeNotebook(pair.sourceUri, mergedSource as unknown as CodexNotebookAsJSONData);
     await writeNotebook(pair.codexUri, mergedCodex as unknown as CodexNotebookAsJSONData);

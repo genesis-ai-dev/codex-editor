@@ -1090,10 +1090,14 @@ export interface CustomNotebookMetadata {
     edits?: FileEditHistory[];
     importerType?: FileImporterType;
     /**
-     * The original filename of the imported artifact (if any).
-     * Example: "MAT.idml", "mydoc.docx"
+     * Stored filename of the imported original (if any), including any
+     * deduplication suffix. Example: "MAT.idml", "mydoc(1).docx".
      */
     originalFileName?: string;
+    /** SHA-256 of the stored original's bytes (not the notebook JSON). */
+    originalFileHash?: string;
+    /** Name supplied at import, before storage deduplication adds a suffix. */
+    originalFileRequestedName?: string;
     /**
      * Canonical source identifier for the imported artifact.
      * Stored at notebook-level (not per-cell). For most importers this matches originalFileName.
@@ -1170,6 +1174,8 @@ export type NotebookImportMetadataCore = Pick<
     CustomNotebookMetadata,
     | "id"
     | "originalFileName"
+    | "originalFileHash"
+    | "originalFileRequestedName"
     | "sourceFile"
     | "importerType"
     | "importContext"

@@ -994,6 +994,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const metadata: CustomNotebookMetadata = {
             id: processedNotebook.metadata.id,
             originalName: processedNotebook.metadata.originalFileName,
+            originalFileName: processedNotebook.metadata.originalFileName,
+            originalFileHash: processedNotebook.metadata.originalFileHash,
+            originalFileRequestedName: processedNotebook.metadata.originalFileRequestedName,
+            importContext: processedNotebook.metadata.importContext,
             sourceFsPath: "",
             codexFsPath: "",
             navigation: [],
@@ -1169,14 +1173,17 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     originalFileHashes.set(pairIdx, result.hash);
 
                     // Store the file hash in metadata for integrity verification and deduplication tracking
-                    (pair.source.metadata as any).originalFileHash = result.hash;
+                    pair.source.metadata.originalFileHash = result.hash;
+                    pair.source.metadata.originalFileRequestedName = requestedFileName;
+                    pair.source.metadata.originalFileName = result.fileName;
                     if (pair.codex?.metadata) {
-                        (pair.codex.metadata as any).originalFileHash = result.hash;
+                        pair.codex.metadata.originalFileHash = result.hash;
+                        pair.codex.metadata.originalFileRequestedName = requestedFileName;
+                        pair.codex.metadata.originalFileName = result.fileName;
                     }
 
-                    // IMPORTANT: Preserve user's original filename as fileDisplayName before updating originalFileName
-                    // This ensures the display name reflects what the user imported, while originalFileName
-                    // points to the actual deduplicated file in attachments/files/originals
+                    // Keep the user's requested name for display; originalFileName
+                    // now points to the actual deduplicated file in attachments/files/originals.
                     if (result.fileName !== requestedFileName) {
                         // Set fileDisplayName to user's original name (without extension) if not already set
                         if (!pair.source.metadata.fileDisplayName) {
@@ -1189,11 +1196,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             (pair.codex.metadata as any).fileDisplayName = displayName;
                         }
 
-                        // Update originalFileName to point to the actual stored file (deduplicated)
-                        pair.source.metadata.originalFileName = result.fileName;
-                        if (pair.codex?.metadata) {
-                            pair.codex.metadata.originalFileName = result.fileName;
-                        }
                         console.log(`[NewSourceUploader] Updated originalFileName to deduplicated file: "${result.fileName}"`);
                     }
 
@@ -1277,7 +1279,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     // re-import detection.
                 }
 
-                const fileName = message.notebookPairs[pairIdx].source.metadata.originalFileName;
+                // Match the user's filename, not the suffixed storage name assigned above.
+                const fileName = message.notebookPairs[pairIdx].source.metadata.originalFileRequestedName;
                 const matches = await findExistingImportPairs(workspaceFolder, hash, fileName);
                 if (!matches) continue;
 

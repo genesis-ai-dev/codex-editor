@@ -30,6 +30,7 @@
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { EditMapUtils } from "../../utils/editMapUtils";
 import { extractPlainTextFromHtml } from "../../../sharedUtils/htmlStructureUtils";
+import { mergeReimportedMetadata, reimportTimestamp } from "./reimportMetadata";
 
 export interface ReimportEdit {
     editMap: readonly string[];
@@ -88,21 +89,6 @@ const PRESERVED_TARGET_METADATA_KEYS = [
     "isLocked",
 ] as const;
 
-/** Notebook metadata that identifies the existing pair and must not change. */
-const PRESERVED_NOTEBOOK_METADATA_KEYS = [
-    "id",
-    "fileDisplayName",
-    "sourceFsPath",
-    "codexFsPath",
-    "navigation",
-    "sourceCreatedAt",
-    "corpusMarker",
-    "textDirection",
-    "videoUrl",
-    "lineNumbersEnabled",
-    "lineNumbersEnabledSource",
-] as const;
-
 const normalizeText = (html: string | undefined): string =>
     extractPlainTextFromHtml(html ?? "");
 
@@ -132,19 +118,6 @@ interface OldCellEntry {
 
 const hasTranslation = (entry: OldCellEntry): boolean =>
     Boolean(entry.targetCell?.value && entry.targetCell.value.trim() !== "");
-
-const mergeNotebookMetadata = (
-    existing: Record<string, unknown> | undefined,
-    incoming: Record<string, unknown> | undefined,
-): Record<string, unknown> => {
-    const merged: Record<string, unknown> = { ...(existing ?? {}), ...(incoming ?? {}) };
-    for (const key of PRESERVED_NOTEBOOK_METADATA_KEYS) {
-        if (existing && existing[key] !== undefined) {
-            merged[key] = existing[key];
-        }
-    }
-    return merged;
-};
 
 const REIMPORT_AUTHOR = "system";
 
@@ -228,7 +201,7 @@ export const mergeReimportedNotebookPair = (
     newSource: ReimportNotebook,
     newCodex: ReimportNotebook,
 ): ReimportMergeResult => {
-    const now = Date.now();
+    const now = reimportTimestamp(existingSource.metadata, existingCodex.metadata);
 
     const oldTargetById = new Map<string, ReimportCell>();
     for (const cell of existingCodex.cells ?? []) {
@@ -540,11 +513,11 @@ export const mergeReimportedNotebookPair = (
     return {
         mergedSource: {
             cells: mergedSourceCells,
-            metadata: mergeNotebookMetadata(existingSource.metadata, newSource.metadata),
+            metadata: mergeReimportedMetadata(existingSource.metadata, newSource.metadata, now, stats),
         },
         mergedCodex: {
             cells: mergedCodexCells,
-            metadata: mergeNotebookMetadata(existingCodex.metadata, newCodex.metadata),
+            metadata: mergeReimportedMetadata(existingCodex.metadata, newCodex.metadata, now, stats),
         },
         stats,
     };
