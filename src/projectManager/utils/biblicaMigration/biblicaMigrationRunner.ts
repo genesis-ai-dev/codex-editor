@@ -34,6 +34,8 @@ interface BiblicaNotebook {
     /** Cells only carry segment structure when imported by the current importer. */
     hasSegmentedSourceMarkup: boolean;
     translatedCellCount: number;
+    /** Bible books the volume covers, e.g. `{MAT, MRK, LUK, JHN}`. */
+    bookCodes: Set<string>;
     metadata: Record<string, unknown>;
     sourceCells: CustomNotebookCellData[];
     codexCells: CustomNotebookCellData[];
@@ -42,7 +44,7 @@ interface BiblicaNotebook {
 export interface BiblicaMigrationPair {
     old: BiblicaNotebook;
     new: BiblicaNotebook;
-    pairedBy: "originalHash" | "baseName";
+    pairedBy: "originalHash" | "bookCoverage" | "baseName";
 }
 
 export interface BiblicaMigrationRunOptions {
@@ -98,15 +100,80 @@ const countTranslated = (cells: CustomNotebookCellData[]): number =>
         return (cell.value ?? "").replace(/<[^>]*>/g, "").trim().length > 0;
     }).length;
 
-/** Strip the uuid/counter suffixes the importer adds when a notebook name is taken. */
-const normalizeBaseName = (baseName: string): string =>
+/**
+ * Strip the uuid/counter suffixes the importer adds when a notebook name is taken,
+ * plus the markers Biblica puts on a re-typeset edition of the same volume. The
+ * Arabic project, for instance, was re-imported from right-to-left typeset files
+ * named `ACT-REV_R-L.idml`, which must still normalize to the same key as the
+ * `ACT-REV.idml` the translations came from.
+ */
+export const normalizeBaseName = (baseName: string): string =>
     baseName
         .replace(/-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "")
+        .replace(/^new[-_\s]+/i, "")
+        .replace(/[-_](?:r-l|l-r|rtl|ltr)$/i, "")
         .replace(/[-_]?notes$/i, "")
         .replace(/[-_]?biblica$/i, "")
         .replace(/[-_]\d+$/, "")
         .replace(/\s*\(\d+\)$/, "")
         .toLowerCase();
+
+/**
+ * Bible books a notebook covers, taken from the source cells' global references.
+ * The old importer records verse-level references (`GEN 1:1`) and the current one
+ * records bare book codes (`GEN`), so only the leading token is used.
+ */
+export const collectBookCodes = (cells: CustomNotebookCellData[]): Set<string> => {
+    const codes = new Set<string>();
+    for (const cell of cells) {
+        for (const reference of cell.metadata?.data?.globalReferences ?? []) {
+            const code = String(reference).trim().split(/\s+/)[0]?.toUpperCase();
+            if (code) codes.add(code);
+        }
+    }
+    return codes;
+};
+
+/** Overlap of two book sets, 1 when identical and 0 when they share nothing. */
+const bookSetSimilarity = (a: Set<string>, b: Set<string>): number => {
+    if (a.size === 0 || b.size === 0) return 0;
+    const shared = [...a].filter((code) => b.has(code)).length;
+    return shared / new Set([...a, ...b]).size;
+};
+
+/** Overlap below this is treated as two different volumes. */
+const MIN_BOOK_SIMILARITY = 0.5;
+/** The best candidate must beat the next one by this much to be unambiguous. */
+const MIN_BOOK_SIMILARITY_MARGIN = 0.2;
+
+/**
+ * Match a volume by the books it contains rather than by file name or hash. This
+ * is what pairs a re-typeset re-import with the original: the IDML bytes differ so
+ * the hash differs, and the file may even be renamed (`MAT-JOHN.idml` became
+ * `MAT-JHN_R-L.idml`), but the books it covers are the same.
+ *
+ * Returns undefined when nothing is close enough, or when two candidates are too
+ * similar to choose between — name matching then gets its turn.
+ */
+export const findByBookCoverage = (
+    oldNotebook: Pick<BiblicaNotebook, "bookCodes">,
+    candidates: Array<Pick<BiblicaNotebook, "bookCodes">>
+): number | undefined => {
+    const ranked = candidates
+        .map((candidate, index) => ({
+            index,
+            score: bookSetSimilarity(oldNotebook.bookCodes, candidate.bookCodes),
+        }))
+        .sort((a, b) => b.score - a.score);
+
+    const best = ranked[0];
+    if (!best || best.score < MIN_BOOK_SIMILARITY) return undefined;
+
+    const runnerUp = ranked[1];
+    if (runnerUp && best.score - runnerUp.score < MIN_BOOK_SIMILARITY_MARGIN) return undefined;
+
+    return best.index;
+};
 
 export async function findBiblicaNotebooks(): Promise<BiblicaNotebook[]> {
     const serializer = new CodexContentSerializer();
@@ -155,6 +222,7 @@ export async function findBiblicaNotebooks(): Promise<BiblicaNotebook[]> {
             originalFileName: getStringField(codex.metadata, "originalFileName"),
             hasSegmentedSourceMarkup: hasSegmentedMarkup(source.cells),
             translatedCellCount: countTranslated(codex.cells),
+            bookCodes: collectBookCodes(source.cells),
             metadata: codex.metadata,
             sourceCells: source.cells,
             codexCells: codex.cells,
@@ -165,9 +233,13 @@ export async function findBiblicaNotebooks(): Promise<BiblicaNotebook[]> {
 }
 
 /**
- * Pair each old notebook with the re-import of the same IDML. Prefers the IDML
- * hash; falls back to the notebook base name, which is needed when the re-imported
- * file is not byte-identical to the one originally imported.
+ * Pair each old notebook with the re-import of the same volume, trying the
+ * strongest signal first:
+ *
+ * 1. the IDML hash, which only matches when the very same file was re-imported;
+ * 2. the books the volume covers, which survives re-typesetting and renaming;
+ * 3. the notebook base name, as a last resort for volumes with no book markers
+ *    (front and back matter).
  */
 export function pairBiblicaNotebooks(notebooks: BiblicaNotebook[]): {
     pairs: BiblicaMigrationPair[];
@@ -201,6 +273,14 @@ export function pairBiblicaNotebooks(notebooks: BiblicaNotebook[]): {
             ? newNotebooks.find((candidate) => candidate.originalHash === oldNotebook.originalHash)
             : undefined;
         if (claim(oldNotebook, byHash, "originalHash")) continue;
+
+        // Only notebooks still up for grabs are considered, so an earlier volume
+        // cannot make a later one look ambiguous.
+        const available = newNotebooks.filter((candidate) => !claimed.has(candidate.baseName));
+        const byBooks = findByBookCoverage(oldNotebook, available);
+        if (byBooks !== undefined && claim(oldNotebook, available[byBooks], "bookCoverage")) {
+            continue;
+        }
 
         const oldKey = normalizeBaseName(oldNotebook.baseName);
         const byName = newNotebooks.find(
@@ -358,10 +438,18 @@ export async function migrateBiblicaTranslationsCommand(author: string): Promise
         return;
     }
 
+    const pairedByLabel: Record<BiblicaMigrationPair["pairedBy"], string> = {
+        originalHash: "same IDML file",
+        bookCoverage: "same books",
+        baseName: "same name",
+    };
+
     const selected = await vscode.window.showQuickPick(
         pairs.map((pair) => ({
             label: `${pair.old.displayName} → ${pair.new.displayName}`,
-            description: `${pair.old.translatedCellCount} translations, paired by ${pair.pairedBy}`,
+            description:
+                `${pair.old.translatedCellCount} translations, matched by ` +
+                pairedByLabel[pair.pairedBy],
             detail: `${pair.old.baseName}.codex → ${pair.new.baseName}.codex`,
             picked: true,
             pair,
