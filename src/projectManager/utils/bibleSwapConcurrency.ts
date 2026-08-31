@@ -22,10 +22,9 @@ export async function runWithConcurrency<T, R>(
     let nextIndex = 0;
 
     const runWorker = async (): Promise<void> => {
-        while (true) {
+        while (nextIndex < items.length) {
             const index = nextIndex;
             nextIndex += 1;
-            if (index >= items.length) return;
             results[index] = await fn(items[index], index);
         }
     };

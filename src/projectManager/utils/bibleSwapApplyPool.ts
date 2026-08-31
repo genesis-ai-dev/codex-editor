@@ -370,10 +370,9 @@ export async function applyBibleSwapStoriesParallel(
 
         await Promise.all(
             workers.map(async (w) => {
-                while (true) {
+                while (nextTask < tasks.length) {
                     const index = nextTask;
                     nextTask += 1;
-                    if (index >= tasks.length) break;
                     const task = tasks[index];
                     const { xml, stats } = await w.swap(task.studyStoryXml);
                     results[index] = { storyKey: task.storyKey, xml, stats };

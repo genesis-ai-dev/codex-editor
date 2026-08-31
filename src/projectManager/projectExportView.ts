@@ -3575,7 +3575,7 @@ function getWebviewContent(
                         const isBiblicaGroup = group.groupKey === 'biblica';
                         const filesHtml = group.files.map((f, fIdx) => renderFileItem(group, f, gIdx, fIdx)).join('');
                         const filterButtonsHtml = isBiblicaGroup
-                            ? '<span class="group-filter-cb filter-disabled" title="Biblica round-trip exports run one segment at a time" style="font-size: 0.85em;"><i class=\"codicon codicon-info\"></i> One file at a time</span>'
+                            ? '<span class="group-filter-cb filter-disabled" title="Biblica round-trip exports run one segment at a time" style="font-size: 0.85em;"><i class="codicon codicon-info"></i> One file at a time</span>'
                             : \`<label class="group-filter-cb \${hasTextFiles ? '' : 'filter-disabled'}" onclick="event.stopPropagation()">
                                 <input type="checkbox" data-group-key="\${group.groupKey}" data-filter="text" \${hasTextFiles ? '' : 'disabled'} onchange="onFilterCheckboxChange('\${group.groupKey}', 'text')"> All text
                             </label>
