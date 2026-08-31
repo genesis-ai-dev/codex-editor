@@ -2,13 +2,9 @@ import * as vscode from "vscode";
 import { basename } from "path";
 import * as path from "path";
 import * as fs from "fs";
-import { exec } from "child_process";
-import { promisify } from "util";
 import { removeHtmlTags, generateSrtData } from "./subtitleUtils";
 import { generateVttData, hasOverlappingCues } from "./vttUtils";
 // import { exportRtfWithPandoc } from "../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
-
-const execAsync = promisify(exec);
 
 /**
  * PERFORMANCE OPTIMIZATION NOTE:
@@ -24,10 +20,11 @@ const execAsync = promisify(exec);
  * that we read directly from the .codex files.
  */
 
-import { CodexNotebookAsJSONData } from "../../types";
+import type { CodexNotebookAsJSONData } from "../../types";
 import { readCodexNotebookFromUri, getActiveCells, isContentCellType } from "./exportHandlerUtils";
-import { resolveOriginalFileUri, findOriginalFileByPossibleNames } from "../providers/NewSourceUploader/originalFileUtils";
-import { isLfsPointerContent, resolveLfsPointerFile } from "../utils/lfsHelpers";
+import { convertDocxToPdfViaExtension } from "./pdfRoundTripConversion";
+import { RoundTripExportContext } from "./roundTripExportContext";
+import { OriginalFileError } from "./originalFileResolver";
 import { exportCodexContentAsPlaintext } from "./plaintextExporter";
 import { exportCodexContentAsXliff } from "./xliffExporter";
 import { exportCodexContentAsUsfm } from "./usfmExporter";
@@ -268,7 +265,8 @@ async function exportCodexContentAsIdmlRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    _options?: ExportOptions
+    _options: ExportOptions | undefined,
+    roundTrip: RoundTripExportContext
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
@@ -284,7 +282,9 @@ async function exportCodexContentAsIdmlRoundtrip(
     const { exportIdmlRoundtrip: exportBiblicaIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/biblica/biblicaExporter");
 
     // For each selected codex file, find its original attachment and create a translated copy in export folder
+    let filesExported = 0;
     for (const [index, filePath] of filesToExport.entries()) {
+        if (roundTrip.signal?.aborted) break;
         reporter.report({
             stage: "writing",
             message: `Processing ${index + 1}/${filesToExport.length}`,
@@ -319,44 +319,14 @@ async function exportCodexContentAsIdmlRoundtrip(
             const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
                 (codexNotebook.metadata as any)?.originalName ||
                 `${bookCode}.idml`;
-            const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
-
-            // Load original IDML
-            let idmlData: Uint8Array;
-            try {
-                idmlData = await vscode.workspace.fs.readFile(originalFileUri);
-            } catch (readErr) {
-                throw new Error(
-                    `Original IDML file not found at "${originalFileUri.fsPath}". ` +
-                    `The file may have been deleted or moved. ` +
-                    `Try re-importing the source file. (originalFileName: "${originalFileName}")`
-                );
-            }
-
-            // Check if the file is a Git LFS pointer and resolve it if so
-            if (isLfsPointerContent(idmlData)) {
-                console.log(`[IDML Export] File "${originalFileUri.fsPath}" is a Git LFS pointer - attempting to resolve...`);
-                reporter.report({
-                    stage: "downloading",
-                    message: `Downloading original IDML from LFS for ${fileName}...`,
-                    file: fileName,
-                });
-                const projectRoot = workspaceFolders[0].uri.fsPath;
-                const lfsResult = await resolveLfsPointerFile(originalFileUri.fsPath, projectRoot);
-                if (lfsResult.error || !lfsResult.data) {
-                    throw new Error(
-                        `Original IDML file "${originalFileName}" is an LFS pointer that could not be resolved. ` +
-                        (lfsResult.error ?? 'Unknown error')
-                    );
-                }
-                idmlData = lfsResult.data;
-                console.log(`[IDML Export] LFS pointer resolved: ${idmlData.length} bytes`);
-            }
+            const { data: idmlData } = await roundTrip.readOriginal(file, originalFileName, {
+                expectedHash: codexNotebook.metadata.originalFileHash,
+            });
 
             // Validate the file is a valid ZIP/IDML before processing
             if (idmlData.length < 4) {
                 throw new Error(
-                    `Original IDML file at "${originalFileUri.fsPath}" is too small (${idmlData.length} bytes) ` +
+                    `Original IDML file at "${originalFileName}" is too small (${idmlData.length} bytes) ` +
                     `to be a valid IDML/ZIP archive. The file may be corrupted or empty. ` +
                     `Try re-importing the source file.`
                 );
@@ -369,13 +339,13 @@ async function exportCodexContentAsIdmlRoundtrip(
                     .decode(idmlData.slice(0, 64))
                     .replace(/[^\x20-\x7E]/g, '.');
                 throw new Error(
-                    `File "${originalFileUri.fsPath}" (${idmlData.length} bytes) ` +
+                    `File "${originalFileName}" (${idmlData.length} bytes) ` +
                     `is not a valid IDML/ZIP archive. Expected ZIP signature "PK" but found: [${firstBytes}]. ` +
                     `Preview: "${firstChars}". ` +
                     `The original file may have been corrupted during import. Try re-importing.`
                 );
             }
-            console.log(`[IDML Export] Loaded original IDML: ${originalFileUri.fsPath} (${idmlData.length} bytes, valid ZIP signature)`);
+            console.log(`[IDML Export] Loaded original IDML: ${originalFileName} (${idmlData.length} bytes, valid ZIP signature)`);
 
             let updatedIdmlData: Uint8Array;
             if (isBiblicaFile) {
@@ -388,10 +358,12 @@ async function exportCodexContentAsIdmlRoundtrip(
             const suffix = isBiblicaFile ? '_biblica_translated' : '_translated';
             const injectedName = originalFileName.replace(/\.idml$/i, `_${timestamp}${suffix}.idml`);
             const injectedUri = vscode.Uri.joinPath(exportFolder, injectedName);
-            await vscode.workspace.fs.writeFile(injectedUri, updatedIdmlData);
+            await roundTrip.writeOutput(injectedUri, updatedIdmlData);
 
+            filesExported++;
             console.log(`[IDML Export] ${exporterType} export completed: ${injectedName}`);
         } catch (err) {
+            roundTrip.checkCancellation();
             console.error("IDML round-trip export failed:", err);
             reporter.fileMissing(
                 basename(filePath),
@@ -403,7 +375,7 @@ async function exportCodexContentAsIdmlRoundtrip(
 
     reporter.complete({
         exportPath: userSelectedPath,
-        filesExported: filesToExport.length,
+        filesExported,
         extraMessages: [`IDML round-trip export completed.`],
     });
 }
@@ -413,7 +385,8 @@ async function exportCodexContentAsDocxRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    _options?: ExportOptions
+    _options: ExportOptions | undefined,
+    roundTrip: RoundTripExportContext
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
@@ -428,7 +401,9 @@ async function exportCodexContentAsDocxRoundtrip(
     const { exportDocxWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/docx/docxExporter");
 
     // For each selected codex file, find its original attachment and create a translated copy in export folder
+    let filesExported = 0;
     for (const [index, filePath] of filesToExport.entries()) {
+        if (roundTrip.signal?.aborted) break;
         reporter.report({
             stage: "writing",
             message: `Processing ${index + 1}/${filesToExport.length}`,
@@ -459,34 +434,13 @@ async function exportCodexContentAsDocxRoundtrip(
             const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
                 (codexNotebook.metadata as any)?.originalName ||
                 `${bookCode}.docx`;
-            const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
-
-            // Load original DOCX
-            let docxData = await vscode.workspace.fs.readFile(originalFileUri);
-
-            // Check if the file is a Git LFS pointer and resolve it
-            if (isLfsPointerContent(docxData)) {
-                console.log(`[DOCX Export] File "${originalFileUri.fsPath}" is a Git LFS pointer - resolving...`);
-                reporter.report({
-                    stage: "downloading",
-                    message: `Downloading original DOCX from LFS for ${fileName}...`,
-                    file: fileName,
-                });
-                const projectRoot = workspaceFolders[0].uri.fsPath;
-                const lfsResult = await resolveLfsPointerFile(originalFileUri.fsPath, projectRoot);
-                if (lfsResult.error || !lfsResult.data) {
-                    throw new Error(
-                        `Original DOCX file "${originalFileName}" is an LFS pointer that could not be resolved. ` +
-                        (lfsResult.error ?? 'Unknown error')
-                    );
-                }
-                docxData = lfsResult.data;
-                console.log(`[DOCX Export] LFS pointer resolved: ${docxData.length} bytes`);
-            }
+            const { data: docxData } = await roundTrip.readOriginal(file, originalFileName, {
+                expectedHash: codexNotebook.metadata.originalFileHash,
+            });
 
             // Export with translations
             const updatedDocxData = await exportDocxWithTranslations(
-                docxData.buffer as ArrayBuffer,
+                docxData.buffer.slice(docxData.byteOffset, docxData.byteOffset + docxData.byteLength) as ArrayBuffer,
                 codexNotebook.cells
             );
 
@@ -494,10 +448,12 @@ async function exportCodexContentAsDocxRoundtrip(
             const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
             const exportedName = originalFileName.replace(/\.docx$/i, `_${timestamp}_translated.docx`);
             const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
-            await vscode.workspace.fs.writeFile(exportedUri, new Uint8Array(updatedDocxData));
+            await roundTrip.writeOutput(exportedUri, new Uint8Array(updatedDocxData));
 
+            filesExported++;
             console.log(`[DOCX Export] Round-trip export completed: ${exportedName}`);
         } catch (err) {
+            roundTrip.checkCancellation();
             console.error("DOCX round-trip export failed:", err);
             reporter.fileMissing(
                 basename(filePath),
@@ -509,7 +465,7 @@ async function exportCodexContentAsDocxRoundtrip(
 
     reporter.complete({
         exportPath: userSelectedPath,
-        filesExported: filesToExport.length,
+        filesExported,
         extraMessages: [`DOCX round-trip export completed.`],
     });
 }
@@ -519,7 +475,8 @@ async function exportCodexContentAsPdfRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    _options?: ExportOptions
+    _options: ExportOptions | undefined,
+    roundTrip: RoundTripExportContext
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
@@ -534,7 +491,9 @@ async function exportCodexContentAsPdfRoundtrip(
     const { exportDocxWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/docx/docxExporter");
 
     // For each selected codex file, export as DOCX then convert to PDF
+    let filesExported = 0;
     for (const [index, filePath] of filesToExport.entries()) {
+        if (roundTrip.signal?.aborted) break;
         reporter.report({
             stage: "writing",
             message: `Processing ${index + 1}/${filesToExport.length}`,
@@ -570,40 +529,8 @@ async function exportCodexContentAsPdfRoundtrip(
             const pdfMetadata = (codexNotebook.metadata as any)?.pdfDocumentMetadata;
             const convertedDocxFileName = pdfMetadata?.convertedDocxFileName || originalFileName.replace(/\.pdf$/i, '.docx');
 
-            // Resolve converted DOCX (preferred: attachments/files/originals, legacy: attachments/originals)
-            const docxUri = await resolveOriginalFileUri(workspaceFolders[0], convertedDocxFileName);
-            try {
-                await vscode.workspace.fs.stat(docxUri);
-            } catch {
-                console.warn(`[PDF Export] No converted DOCX found at ${docxUri.fsPath}`);
-                throw new Error(`No converted DOCX file found. Please re-import the PDF file.`);
-            }
-
-            // Read converted DOCX
-            let docxBytes = await vscode.workspace.fs.readFile(docxUri);
-
-            // Check if the file is a Git LFS pointer and resolve it
-            if (isLfsPointerContent(docxBytes)) {
-                console.log(`[PDF Export] File "${docxUri.fsPath}" is a Git LFS pointer - resolving...`);
-                reporter.report({
-                    stage: "downloading",
-                    message: `Downloading original DOCX from LFS for ${fileName}...`,
-                    file: fileName,
-                });
-                const projectRoot = workspaceFolders[0].uri.fsPath;
-                const lfsResult = await resolveLfsPointerFile(docxUri.fsPath, projectRoot);
-                if (lfsResult.error || !lfsResult.data) {
-                    throw new Error(
-                        `Converted DOCX file "${convertedDocxFileName}" is an LFS pointer that could not be resolved. ` +
-                        (lfsResult.error ?? 'Unknown error')
-                    );
-                }
-                docxBytes = lfsResult.data;
-                console.log(`[PDF Export] LFS pointer resolved: ${docxBytes.length} bytes`);
-            }
-
+            const { data: docxBytes } = await roundTrip.readOriginal(file, convertedDocxFileName);
             const docxData = docxBytes.buffer.slice(docxBytes.byteOffset, docxBytes.byteOffset + docxBytes.byteLength) as ArrayBuffer;
-            console.log(`[PDF Export] Using converted DOCX: ${docxUri.fsPath}`);
 
             reporter.report({
                 stage: "writing",
@@ -633,53 +560,26 @@ async function exportCodexContentAsPdfRoundtrip(
                 codexNotebook.cells
             );
 
-            // Step 2: Save translated DOCX to attachments/files/temporary folder
-            const temporaryDir = vscode.Uri.joinPath(
-                workspaceFolders[0].uri,
-                ".project",
-                "attachments",
-                "files",
-                "temporary"
-            );
-
-            // Ensure temporary directory exists
-            try {
-                await vscode.workspace.fs.createDirectory(temporaryDir);
-            } catch {
-                // Directory may already exist
-            }
-
-            // Get original PDF filename from metadata or derive from codex filename
-            const originalPdfFileName = originalFileName || fileName.replace(/\.codex$/i, '.pdf');
-            const translatedDocxFileName = originalPdfFileName.replace(/\.pdf$/i, '_translated.docx');
-            const translatedDocxUri = vscode.Uri.joinPath(temporaryDir, translatedDocxFileName);
-
-            await vscode.workspace.fs.writeFile(
-                translatedDocxUri,
-                new Uint8Array(updatedDocxData)
-            );
-            console.log(`[PDF Export] Saved translated DOCX to: ${translatedDocxUri.fsPath}`);
-
             reporter.report({
                 stage: "writing",
                 message: `Converting DOCX to PDF for ${fileName}...`,
                 file: fileName,
             });
-
-            // Step 3: Convert DOCX → PDF using docx2pdf via extension host
-            const pdfData = await convertDocxToPdfViaExtension(translatedDocxUri.fsPath);
+            const pdfData = await convertDocxToPdfViaExtension(updatedDocxData, roundTrip.signal);
 
             // Step 4: Save translated PDF to user's selected destination
             const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
             const translatedPdfName = originalFileName.replace(/\.pdf$/i, `_${timestamp}_translated.pdf`);
             const translatedPdfUri = vscode.Uri.joinPath(exportFolder, translatedPdfName);
 
-            await vscode.workspace.fs.writeFile(translatedPdfUri, new Uint8Array(pdfData));
+            await roundTrip.writeOutput(translatedPdfUri, new Uint8Array(pdfData));
             console.log(`[PDF Export] Saved translated PDF to: ${translatedPdfUri.fsPath}`);
 
+            filesExported++;
             console.log(`[PDF Export] ✓ Exported ${translatedPdfName}`);
 
         } catch (error) {
+            roundTrip.checkCancellation();
             console.error(`[PDF Export] Error exporting ${filePath}:`, error);
             reporter.fileMissing(
                 basename(filePath),
@@ -691,130 +591,9 @@ async function exportCodexContentAsPdfRoundtrip(
 
     reporter.complete({
         exportPath: userSelectedPath,
-        filesExported: filesToExport.length,
+        filesExported,
         extraMessages: [`PDF round-trip export completed.`],
     });
-}
-
-/**
- * Converts DOCX file to PDF using docx2pdf via Python script
- */
-async function convertDocxToPdfViaExtension(docxPath: string): Promise<ArrayBuffer> {
-    try {
-        // Get extension path
-        const extension = vscode.extensions.getExtension('project-accelerate.codex-editor-extension');
-        if (!extension) {
-            throw new Error('Could not find Codex Editor extension');
-        }
-        const scriptPath = path.join(extension.extensionPath, 'webviews', 'codex-webviews', 'src', 'NewSourceUploader', 'importers', 'pdf', 'scripts', 'docx_to_pdf.py');
-        const tempDir = path.join(extension.extensionPath, '.temp');
-        if (!fs.existsSync(tempDir)) {
-            fs.mkdirSync(tempDir, { recursive: true });
-        }
-        const pdfPath = path.join(tempDir, `converted_${Date.now()}.pdf`);
-
-        // Escape paths for shell
-        const escapedScriptPath = scriptPath.replace(/\\/g, '/');
-        const escapedDocxPath = docxPath.replace(/\\/g, '/');
-        const escapedPdfPath = pdfPath.replace(/\\/g, '/');
-
-        // Run Python script with file paths (no base64 in command line)
-        const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-        const command = `${pythonCmd} "${escapedScriptPath}" "${escapedDocxPath}" "${escapedPdfPath}"`;
-
-        console.log(`[DOCX→PDF] Converting DOCX to PDF...`);
-        console.log(`[DOCX→PDF] Command: ${command}`);
-        console.log(`[DOCX→PDF] DOCX path: ${docxPath}`);
-        console.log(`[DOCX→PDF] PDF output path: ${pdfPath}`);
-
-        // Verify DOCX file exists
-        if (!fs.existsSync(docxPath)) {
-            throw new Error(`DOCX file not found: ${docxPath}`);
-        }
-
-        let stdout: string;
-        let stderr: string;
-        try {
-            const result = await execAsync(command, { maxBuffer: 50 * 1024 * 1024 });
-            stdout = result.stdout;
-            stderr = result.stderr;
-        } catch (execError: any) {
-            // execAsync throws an error if exit code is non-zero
-            stdout = execError.stdout || '';
-            stderr = execError.stderr || '';
-            console.error(`[DOCX→PDF] Python script execution failed: ${execError.message}`);
-            console.error(`[DOCX→PDF] Exit code: ${execError.code}`);
-            console.error(`[DOCX→PDF] Stdout: ${stdout}`);
-            console.error(`[DOCX→PDF] Stderr: ${stderr}`);
-
-            // Try to parse error from stdout if it's JSON
-            if (stdout.trim()) {
-                try {
-                    const errorResult = JSON.parse(stdout);
-                    if (errorResult.error) {
-                        throw new Error(`DOCX to PDF conversion failed: ${errorResult.error}`);
-                    }
-                } catch {
-                    // Not JSON, use the stderr/stdout as error message
-                }
-            }
-
-            throw new Error(`DOCX to PDF conversion failed: ${stderr || stdout || execError.message}`);
-        }
-
-        // Log stderr for debugging
-        if (stderr) {
-            console.log(`[DOCX→PDF] Python stderr: ${stderr}`);
-        }
-
-        // Log stdout for debugging
-        console.log(`[DOCX→PDF] Python stdout: ${stdout.substring(0, 500)}${stdout.length > 500 ? '...' : ''}`);
-
-        if (!stdout.trim()) {
-            throw new Error('Python script returned no output');
-        }
-
-        let result;
-        try {
-            result = JSON.parse(stdout);
-        } catch (parseError) {
-            console.error(`[DOCX→PDF] Failed to parse Python output as JSON: ${parseError}`);
-            console.error(`[DOCX→PDF] Raw stdout: ${stdout}`);
-            throw new Error(`Failed to parse conversion result: ${parseError instanceof Error ? parseError.message : 'Unknown error'}. Output: ${stdout.substring(0, 200)}`);
-        }
-
-        if (result.success) {
-            // Verify PDF file exists
-            if (!fs.existsSync(pdfPath)) {
-                throw new Error(`PDF file was not created at: ${pdfPath}`);
-            }
-
-            // Read the generated PDF
-            const pdfData = fs.readFileSync(pdfPath);
-            console.log(`[DOCX→PDF] Read PDF file: ${pdfData.length} bytes`);
-
-            // Clean up temp PDF file
-            try {
-                fs.unlinkSync(pdfPath);
-            } catch (e) {
-                console.warn(`[DOCX→PDF] Could not delete temp PDF: ${e}`);
-            }
-
-            console.log(`[DOCX→PDF] ✓ Successfully converted DOCX to PDF`);
-            return pdfData.buffer.slice(pdfData.byteOffset, pdfData.byteOffset + pdfData.byteLength) as ArrayBuffer;
-        } else {
-            const errorMsg = result.error || 'DOCX to PDF conversion failed';
-            console.error(`[DOCX→PDF] Conversion failed: ${errorMsg}`);
-            console.error(`[DOCX→PDF] Full result object:`, JSON.stringify(result, null, 2));
-            throw new Error(errorMsg);
-        }
-    } catch (err) {
-        if (err instanceof Error && err.message.includes('DOCX to PDF conversion failed')) {
-            throw err; // Re-throw our custom errors
-        }
-        console.error(`[DOCX→PDF] Unexpected error: ${err}`);
-        throw err instanceof Error ? err : new Error(`Failed to convert DOCX to PDF: ${err}`);
-    }
 }
 
 /**
@@ -824,7 +603,8 @@ async function exportCodexContentAsObsRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    _options?: ExportOptions
+    _options: ExportOptions | undefined,
+    roundTrip: RoundTripExportContext
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
@@ -843,7 +623,9 @@ async function exportCodexContentAsObsRoundtrip(
     } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/obs/obsExporter");
 
     // For each selected codex file, reconstruct the OBS markdown with translations
+    let filesExported = 0;
     for (const [index, filePath] of filesToExport.entries()) {
+        if (roundTrip.signal?.aborted) break;
         reporter.report({
             stage: "writing",
             message: `Processing ${index + 1}/${filesToExport.length}`,
@@ -892,8 +674,9 @@ async function exportCodexContentAsObsRoundtrip(
                     (codexNotebook.metadata as any)?.originalFileName ||
                     (codexNotebook.metadata as any)?.originalName ||
                     `${fileName.split(".")[0]}.md`;
-                const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileNameForRead);
-                const originalBytes = await vscode.workspace.fs.readFile(originalFileUri);
+                const { data: originalBytes } = await roundTrip.readOriginal(file, originalFileNameForRead, {
+                    expectedHash: codexNotebook.metadata.originalFileHash,
+                });
                 const originalText = new TextDecoder("utf-8").decode(originalBytes);
                 const translationMap = collectObsTranslationsFromCells(codexNotebook.cells as never);
                 updatedMarkdown = exportObsWithTranslationsFromOriginal(originalText, storyParsed, translationMap);
@@ -919,11 +702,13 @@ async function exportCodexContentAsObsRoundtrip(
 
             // Write markdown content
             const encoder = new TextEncoder();
-            await vscode.workspace.fs.writeFile(exportedUri, encoder.encode(updatedMarkdown));
+            await roundTrip.writeOutput(exportedUri, encoder.encode(updatedMarkdown));
 
+            filesExported++;
             console.log(`[OBS Export] ✓ Exported ${exportedName}`);
 
         } catch (error) {
+            roundTrip.checkCancellation();
             console.error(`[OBS Export] Error exporting ${filePath}:`, error);
             reporter.fileMissing(
                 basename(filePath),
@@ -935,7 +720,7 @@ async function exportCodexContentAsObsRoundtrip(
 
     reporter.complete({
         exportPath: userSelectedPath,
-        filesExported: filesToExport.length,
+        filesExported,
         extraMessages: [`OBS markdown round-trip export completed.`],
     });
 }
@@ -947,7 +732,8 @@ async function exportCodexContentAsMarkdownRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    _options?: ExportOptions
+    _options: ExportOptions | undefined,
+    roundTrip: RoundTripExportContext
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
@@ -962,7 +748,9 @@ async function exportCodexContentAsMarkdownRoundtrip(
         "../../webviews/codex-webviews/src/NewSourceUploader/importers/markdown/markdownExporter"
     );
 
+    let filesExported = 0;
     for (const [index, filePath] of filesToExport.entries()) {
+        if (roundTrip.signal?.aborted) break;
         reporter.report({
             stage: "writing",
             message: `Processing ${index + 1}/${filesToExport.length}`,
@@ -990,8 +778,9 @@ async function exportCodexContentAsMarkdownRoundtrip(
                 (codexNotebook.metadata as { originalName?: string; }).originalName ||
                 `${fileName.split(".")[0]}.md`;
 
-            const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
-            const fileBytes = await vscode.workspace.fs.readFile(originalFileUri);
+            const { data: fileBytes } = await roundTrip.readOriginal(file, originalFileName, {
+                expectedHash: codexNotebook.metadata.originalFileHash,
+            });
             const canonicalSource = new TextDecoder("utf-8").decode(fileBytes);
 
             const updated = exportMarkdownWithTranslations(canonicalSource, codexNotebook.cells as never);
@@ -1000,10 +789,12 @@ async function exportCodexContentAsMarkdownRoundtrip(
             const timestamp = new Date().toISOString().replace(/[:.]/g, "-").split("T")[0];
             const exportedName = `${baseFileName}_${timestamp}_translated.md`;
             const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
-            await vscode.workspace.fs.writeFile(exportedUri, new TextEncoder().encode(updated));
+            await roundTrip.writeOutput(exportedUri, new TextEncoder().encode(updated));
 
+            filesExported++;
             console.log(`[Markdown Export] ✓ Exported ${exportedName}`);
         } catch (error) {
+            roundTrip.checkCancellation();
             console.error(`[Markdown Export] Error exporting ${filePath}:`, error);
             reporter.fileMissing(
                 basename(filePath),
@@ -1015,7 +806,7 @@ async function exportCodexContentAsMarkdownRoundtrip(
 
     reporter.complete({
         exportPath: userSelectedPath,
-        filesExported: filesToExport.length,
+        filesExported,
         extraMessages: [`Markdown round-trip export completed.`],
     });
 }
@@ -1028,7 +819,8 @@ async function exportCodexContentAsUsfmRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    _options?: ExportOptions
+    _options: ExportOptions | undefined,
+    roundTrip: RoundTripExportContext
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
@@ -1042,7 +834,9 @@ async function exportCodexContentAsUsfmRoundtrip(
     const exportUsfmRoundtrip = experimentalExporter.exportUsfmRoundtrip;
 
     // For each selected codex file, reconstruct the USFM with translations
+    let filesExported = 0;
     for (const [index, filePath] of filesToExport.entries()) {
+        if (roundTrip.signal?.aborted) break;
         reporter.report({
             stage: "writing",
             message: `Processing ${index + 1}/${filesToExport.length}`,
@@ -1115,47 +909,15 @@ async function exportCodexContentAsUsfmRoundtrip(
                 }
             }
 
-            // Try common USFM file extensions
-            const possibleExtensions = ['.usfm', '.sfm', '.USFM', '.SFM'];
-            let originalFileName = metadataOriginalFileName;
-
-            // If no originalFileName, try to find it in originals folder (attachments/files/originals or legacy attachments/originals)
-            let originalFileUri: vscode.Uri;
-            if (!originalFileName && finalBookCode) {
-                const possibleNames = possibleExtensions.map(ext => `${finalBookCode}${ext}`);
-                const found = await findOriginalFileByPossibleNames(workspaceFolders[0], possibleNames);
-                if (found) {
-                    originalFileName = found.fileName;
-                    originalFileUri = found.uri;
-                    console.log(`[USFM Export] Found original file: ${originalFileName}`);
-                } else {
-                    originalFileName = `${finalBookCode}.usfm`;
-                    console.log(`[USFM Export] Using fallback filename: ${originalFileName}`);
-                    originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
-                }
-            } else {
-                if (!originalFileName) {
-                    originalFileName = `${finalBookCode}.usfm`;
-                    console.log(`[USFM Export] Using fallback filename: ${originalFileName}`);
-                }
-                originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
-            }
-
-            let originalUsfmContent: string;
-            try {
-                const originalFileData = await vscode.workspace.fs.readFile(originalFileUri);
-                originalUsfmContent = new TextDecoder('utf-8').decode(originalFileData);
-                console.log(`[USFM Export] Loaded original USFM file: ${originalFileName}`);
-            } catch (error) {
-                // Fallback: try to get from structureMetadata if available
-                const structureMetadata = (codexNotebook.metadata as any)?.structureMetadata;
-                if (structureMetadata?.originalUsfmContent) {
-                    originalUsfmContent = structureMetadata.originalUsfmContent;
-                    console.log(`[USFM Export] Using original USFM content from metadata (file not found at ${originalFileUri.fsPath})`);
-                } else {
-                    throw new Error(`Original USFM file not found at ${originalFileUri.fsPath} and no original content in metadata`);
-                }
-            }
+            const possibleNames = metadataOriginalFileName
+                ? [metadataOriginalFileName]
+                : ['.usfm', '.sfm', '.USFM', '.SFM'].map(ext => `${finalBookCode}${ext}`);
+            const original = await roundTrip.readOriginal(file, possibleNames, {
+                embeddedContent: codexNotebook.metadata.structureMetadata?.originalUsfmContent,
+                expectedHash: codexNotebook.metadata.originalFileHash,
+            });
+            const originalFileName = original.fileName;
+            const originalUsfmContent = new TextDecoder('utf-8').decode(original.data);
 
             // Build codex cells array
             // Include id property if it exists (some cells have id at top level, others in metadata.id)
@@ -1203,11 +965,13 @@ async function exportCodexContentAsUsfmRoundtrip(
             const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
 
             const encoder = new TextEncoder();
-            await vscode.workspace.fs.writeFile(exportedUri, encoder.encode(updatedUsfmContent));
+            await roundTrip.writeOutput(exportedUri, encoder.encode(updatedUsfmContent));
 
+            filesExported++;
             console.log(`[USFM Export] ✓ Exported ${exportedName}`);
 
         } catch (error) {
+            roundTrip.checkCancellation();
             console.error(`[USFM Export] Error exporting ${filePath}:`, error);
             reporter.fileMissing(
                 basename(filePath),
@@ -1219,7 +983,7 @@ async function exportCodexContentAsUsfmRoundtrip(
 
     reporter.complete({
         exportPath: userSelectedPath,
-        filesExported: filesToExport.length,
+        filesExported,
         extraMessages: [`USFM round-trip export completed.`],
     });
 }
@@ -1232,7 +996,8 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    _options?: ExportOptions
+    _options: ExportOptions | undefined,
+    roundTrip: RoundTripExportContext
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
@@ -1247,7 +1012,9 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
     const { exportSpreadsheetWithTranslations, getDelimiterFromMetadata, getSpreadsheetExtension } =
         await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/bibleSpredSheet/spreadsheetExporter");
 
+    let filesExported = 0;
     for (const [index, filePath] of filesToExport.entries()) {
+        if (roundTrip.signal?.aborted) break;
         reporter.report({
             stage: "writing",
             message: `Processing ${index + 1}/${filesToExport.length}`,
@@ -1300,26 +1067,16 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
             console.log(`[Spreadsheet Export] - sourceColumnIndex: ${sourceColumnIndex}`);
             console.log(`[Spreadsheet Export] - columnHeaders: ${columnHeaders ? columnHeaders.join(', ') : 'none'}`);
 
-            // Get original file content from metadata (stored during import)
-            let originalFileContent: string | undefined = (codexNotebook.metadata as any)?.originalFileContent;
-
-            if (originalFileContent) {
-                console.log(`[Spreadsheet Export] ✓ Found originalFileContent in metadata (${originalFileContent.length} chars)`);
-                console.log(`[Spreadsheet Export] First 200 chars: ${originalFileContent.substring(0, 200)}`);
-            } else {
-                console.log(`[Spreadsheet Export] No originalFileContent in metadata, trying file system...`);
-
-                // Fallback: try to read from attachments (files/originals or legacy originals)
-                const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
-                console.log(`[Spreadsheet Export] Looking for original file at: ${originalFileUri.fsPath}`);
-
-                try {
-                    const fileData = await vscode.workspace.fs.readFile(originalFileUri);
-                    originalFileContent = Buffer.from(fileData).toString('utf-8');
-                    console.log(`[Spreadsheet Export] ✓ Loaded original file (${originalFileContent.length} chars)`);
-                } catch (err) {
-                    console.warn(`[Spreadsheet Export] ✗ Could not find original file. Will use fallback reconstruction.`);
-                }
+            let originalFileContent: string | undefined;
+            try {
+                const original = await roundTrip.readOriginal(file, originalFileName ? [originalFileName] : [], {
+                    embeddedContent: (codexNotebook.metadata as { originalFileContent?: string; }).originalFileContent,
+                    expectedHash: codexNotebook.metadata.originalFileHash,
+                });
+                originalFileContent = Buffer.from(original.data).toString('utf-8');
+            } catch (error) {
+                if (!(error instanceof OriginalFileError) || error.reason !== "missing") throw error;
+                console.warn(`[Spreadsheet Export] No saved original; using legacy cell metadata reconstruction.`);
             }
 
             console.log(`[Spreadsheet Export] Metadata: importerType="${notebookImporterType}", delimiter="${delimiter === '\t' ? 'TAB' : delimiter}", sourceColumnIndex=${sourceColumnIndex}, hasOriginalContent=${!!originalFileContent}`);
@@ -1346,13 +1103,15 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
             const outputUri = vscode.Uri.joinPath(exportFolder, outputFileName);
 
             // Write the file
-            await vscode.workspace.fs.writeFile(
+            await roundTrip.writeOutput(
                 outputUri,
                 Buffer.from(exportedContent, 'utf-8')
             );
 
+            filesExported++;
             console.log(`[Spreadsheet Export] ✓ Exported ${outputFileName}`);
         } catch (error) {
+            roundTrip.checkCancellation();
             console.error(`[Spreadsheet Export] Error exporting ${filePath}:`, error);
             reporter.fileMissing(
                 basename(filePath),
@@ -1364,7 +1123,7 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
 
     reporter.complete({
         exportPath: userSelectedPath,
-        filesExported: filesToExport.length,
+        filesExported,
         extraMessages: [`Spreadsheet round-trip export completed.`],
     });
 }
@@ -1377,7 +1136,8 @@ async function exportCodexContentAsTmsRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
     reporter: ExportProgressReporter,
-    _options?: ExportOptions
+    _options: ExportOptions | undefined,
+    roundTrip: RoundTripExportContext
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
@@ -1392,7 +1152,9 @@ async function exportCodexContentAsTmsRoundtrip(
     const { exportTmsWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/tms/tmsExporter");
 
     // For each selected codex file, reconstruct the TMS file with translations
+    let filesExported = 0;
     for (const [index, filePath] of filesToExport.entries()) {
+        if (roundTrip.signal?.aborted) break;
         reporter.report({
             stage: "writing",
             message: `Processing ${index + 1}/${filesToExport.length}`,
@@ -1451,10 +1213,9 @@ async function exportCodexContentAsTmsRoundtrip(
 
             // Use originalFileName from metadata, or construct fallback
             const finalOriginalFileName = originalFileName || `${fileName.split('.')[0]}${fileExtension}`;
-            const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], finalOriginalFileName);
-
-            // Load original TMS file
-            const tmsData = await vscode.workspace.fs.readFile(originalFileUri);
+            const { data: tmsData } = await roundTrip.readOriginal(file, finalOriginalFileName, {
+                expectedHash: codexNotebook.metadata.originalFileHash,
+            });
             const originalTmsContent = new TextDecoder('utf-8').decode(tmsData);
 
             console.log(`[TMS Export] Loaded original ${determinedFileType.toUpperCase()} file:`, finalOriginalFileName, 'length:', originalTmsContent.length);
@@ -1479,11 +1240,13 @@ async function exportCodexContentAsTmsRoundtrip(
 
             // Write TMS content
             const encoder = new TextEncoder();
-            await vscode.workspace.fs.writeFile(exportedUri, encoder.encode(updatedTmsContent));
+            await roundTrip.writeOutput(exportedUri, encoder.encode(updatedTmsContent));
 
+            filesExported++;
             console.log(`[TMS Export] ✓ Exported ${exportedName}`);
 
         } catch (error) {
+            roundTrip.checkCancellation();
             console.error(`[TMS Export] Error exporting ${filePath}:`, error);
             reporter.fileMissing(
                 basename(filePath),
@@ -1495,7 +1258,7 @@ async function exportCodexContentAsTmsRoundtrip(
 
     reporter.complete({
         exportPath: userSelectedPath,
-        filesExported: filesToExport.length,
+        filesExported,
         extraMessages: [`TMS round-trip export completed.`],
     });
 }
@@ -1635,54 +1398,57 @@ async function exportCodexContentAsRebuild(
     console.log(`[Rebuild Export] Found ${supportedCount} supported files across ${typeCount} types`);
     console.log(`[Rebuild Export] File groups:`, Object.keys(filesByType).map(type => `${type}: ${filesByType[type].length}`).join(', '));
 
-    // Build a "child" reporter that forwards report/fileMissing but swallows complete/error.
-    // This lets each sub-exporter stream progress to the same panel while we accumulate
-    // a single overall summary at the bottom of this orchestrator.
+    // Count only confirmed output writes; per-file failures remain visible but
+    // must never inflate the success total.
+    let processedCount = 0;
     const childReporter: ExportProgressReporter = {
         report: (event) => reporter.report(event),
         fileMissing: (file, reason, detail, location) => reporter.fileMissing(file, reason, detail, location),
-        complete: () => undefined,
+        complete: (summary) => { processedCount += summary.filesExported ?? 0; },
         error: (message) => reporter.fileMissing(message, "error"),
         cancelled: () => undefined,
     };
 
-    let processedCount = 0;
-
+    const roundTrip = new RoundTripExportContext(reporter, token);
     const groups: Array<{
         key: string;
         label: string;
         run: (paths: string[]) => Promise<void>;
     }> = [
-            { key: "docx", label: "DOCX", run: (paths) => exportCodexContentAsDocxRoundtrip(userSelectedPath, paths, childReporter, options) },
-            { key: "idml", label: "IDML", run: (paths) => exportCodexContentAsIdmlRoundtrip(userSelectedPath, paths, childReporter, options) },
-            { key: "pdf", label: "PDF", run: (paths) => exportCodexContentAsPdfRoundtrip(userSelectedPath, paths, childReporter, options) },
-            { key: "obs", label: "OBS markdown", run: (paths) => exportCodexContentAsObsRoundtrip(userSelectedPath, paths, childReporter, options) },
-            { key: "markdown", label: "Markdown", run: (paths) => exportCodexContentAsMarkdownRoundtrip(userSelectedPath, paths, childReporter, options) },
-            { key: "tms", label: "TMS", run: (paths) => exportCodexContentAsTmsRoundtrip(userSelectedPath, paths, childReporter, options) },
-            { key: "usfm", label: "USFM", run: (paths) => exportCodexContentAsUsfmRoundtrip(userSelectedPath, paths, childReporter, options) },
-            { key: "spreadsheet", label: "Spreadsheet", run: (paths) => exportCodexContentAsSpreadsheetRoundtrip(userSelectedPath, paths, childReporter, options) },
+            { key: "docx", label: "DOCX", run: (paths) => exportCodexContentAsDocxRoundtrip(userSelectedPath, paths, childReporter, options, roundTrip) },
+            { key: "idml", label: "IDML", run: (paths) => exportCodexContentAsIdmlRoundtrip(userSelectedPath, paths, childReporter, options, roundTrip) },
+            { key: "pdf", label: "PDF", run: (paths) => exportCodexContentAsPdfRoundtrip(userSelectedPath, paths, childReporter, options, roundTrip) },
+            { key: "obs", label: "OBS markdown", run: (paths) => exportCodexContentAsObsRoundtrip(userSelectedPath, paths, childReporter, options, roundTrip) },
+            { key: "markdown", label: "Markdown", run: (paths) => exportCodexContentAsMarkdownRoundtrip(userSelectedPath, paths, childReporter, options, roundTrip) },
+            { key: "tms", label: "TMS", run: (paths) => exportCodexContentAsTmsRoundtrip(userSelectedPath, paths, childReporter, options, roundTrip) },
+            { key: "usfm", label: "USFM", run: (paths) => exportCodexContentAsUsfmRoundtrip(userSelectedPath, paths, childReporter, options, roundTrip) },
+            { key: "spreadsheet", label: "Spreadsheet", run: (paths) => exportCodexContentAsSpreadsheetRoundtrip(userSelectedPath, paths, childReporter, options, roundTrip) },
         ];
 
-    for (const group of groups) {
-        if (token?.isCancellationRequested) return;
-        const paths = filesByType[group.key];
-        if (!paths || paths.length === 0) continue;
-        console.log(`[Rebuild Export] Exporting ${paths.length} ${group.label} file(s)...`);
-        reporter.report({
-            stage: "writing",
-            message: `Exporting ${paths.length} ${group.label} file(s)...`,
-        });
-        try {
-            await group.run(paths);
-            processedCount += paths.length;
-        } catch (error) {
-            console.error(`[Rebuild Export] ${group.label} export failed:`, error);
-            reporter.fileMissing(
-                `${group.label} group`,
-                "error",
-                error instanceof Error ? error.message : "Unknown error"
-            );
+    try {
+        for (const group of groups) {
+            if (token?.isCancellationRequested) return;
+            const paths = filesByType[group.key];
+            if (!paths || paths.length === 0) continue;
+            console.log(`[Rebuild Export] Exporting ${paths.length} ${group.label} file(s)...`);
+            reporter.report({
+                stage: "writing",
+                message: `Exporting ${paths.length} ${group.label} file(s)...`,
+            });
+            try {
+                await group.run(paths);
+            } catch (error) {
+                if (token?.isCancellationRequested) return;
+                console.error(`[Rebuild Export] ${group.label} export failed:`, error);
+                reporter.fileMissing(
+                    `${group.label} group`,
+                    "error",
+                    error instanceof Error ? error.message : "Unknown error"
+                );
+            }
         }
+    } finally {
+        roundTrip.dispose();
     }
 
     for (const f of unsupportedFiles) {
@@ -1888,7 +1654,9 @@ export async function exportCodexContent(
     reporter.complete({
         exportPath: wrapperPath,
         audioExportPath: isAudioExport ? audioPath : undefined,
-        filesExported: aggregated.filesExported || filesToExport.length,
+        filesExported: format === CodexExportFormat.REBUILD_EXPORT
+            ? aggregated.filesExported
+            : aggregated.filesExported || filesToExport.length,
         audioCopied: aggregated.audioCopied,
         audioMissing: aggregated.audioMissing,
         audioFailed: aggregated.audioFailed,

@@ -7,7 +7,6 @@ import { EXPORT_OPTIONS_BY_FILE_TYPE } from "../../sharedUtils/exportOptionsElig
 import { groupCodexFilesByImporterType, analyzeCodexFileAudio, type FileGroup } from "./utils/exportViewUtils";
 import { readCodexNotebookFromUri } from "../exportHandler/exportHandlerUtils";
 import { compareHtmlStructure } from "../../sharedUtils/htmlStructureUtils";
-import { getMediaFilesStrategy } from "../utils/localProjectSettings";
 import { AudioAttachmentsMigrator } from "../utils/audioAttachmentsMigrationUtils";
 import { openCodexDocumentWithSourcePair } from "../utils/openCodexDocumentWithSourcePair";
 import { jumpToCellInNotebook } from "../utils";
@@ -244,17 +243,13 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
 
     const fileGroups = await groupCodexFilesByImporterType(codexFiles);
 
-    const mediaStrategy = await getMediaFilesStrategy();
-    const isStreamOnly = mediaStrategy === "stream-only";
-
     const initialExportFolder = getLastExportFolderUri(context)?.fsPath ?? null;
     panel.webview.html = getWebviewContent(
         sourceLanguage,
         targetLanguage,
         codiconsUri,
         fileGroups,
-        initialExportFolder,
-        isStreamOnly
+        initialExportFolder
     );
 
     panel.webview.onDidReceiveMessage(async (message) => {
@@ -595,8 +590,7 @@ function getWebviewContent(
     targetLanguage: unknown,
     codiconsUri: vscode.Uri,
     fileGroups: FileGroup[],
-    initialExportFolder: string | null,
-    isStreamOnly: boolean
+    initialExportFolder: string | null
 ) {
     const hasLanguages = sourceLanguage && targetLanguage;
 
@@ -964,22 +958,11 @@ function getWebviewContent(
                     border-radius: 4px;
                     opacity: 1;
                 }
-                .format-warning {
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 6px;
-                    margin-top: 8px;
-                    padding: 4px 8px;
-                    font-size: 0.85em;
-                    color: var(--vscode-charts-yellow, #ca8a04);
-                    background-color: rgba(202, 138, 4, 0.12);
-                    border: 1px solid rgba(202, 138, 4, 0.35);
-                    border-radius: 4px;
-                }
-                .format-option-row.disabled-stream-only {
-                    opacity: 0.45;
-                    cursor: not-allowed;
-                    pointer-events: none;
+                .roundtrip-wrapper .format-description {
+                    margin: 8px 0 0;
+                    font-size: 0.9em;
+                    line-height: 1.45;
+                    color: var(--vscode-descriptionForeground);
                 }
                 .audio-section-disabled {
                     opacity: 0.45;
@@ -1771,7 +1754,7 @@ function getWebviewContent(
                             </div>
                             <!-- Round-trip: only for supported file types -->
                             <div class="roundtrip-wrapper" data-option="roundTrip">
-                                <div class="format-option-row${isStreamOnly ? " disabled-stream-only" : ""}">
+                                <div class="format-option-row">
                                     <div class="format-option" data-format="rebuild-export" style="flex: 1;">
                                         <i class="codicon codicon-refresh"></i>
                                         <div>
@@ -1790,10 +1773,7 @@ function getWebviewContent(
                                         </div>
                                     </div>
                                 </div>
-                                ${isStreamOnly ? `<div class="format-warning" style="margin-top: 6px;">
-                                    <i class="codicon codicon-warning"></i>
-                                    <span>Round-trip export is unavailable in "Stream Only" mode. Source files are not stored locally, so the original format cannot be reconstructed. Switch to "Auto Download" or "Stream and Save" to enable this option.</span>
-                                </div>` : ""}
+                                <p class="format-description">Uses local originals when available. Originals stored in LFS are downloaded only if needed, without changing your media settings or saving them to the project.</p>
                             </div>
                             <!-- Data Export: all, always open -->
                             <div class="format-section" data-option="dataExport">
@@ -1928,7 +1908,7 @@ function getWebviewContent(
                                 </div>
                                 <div class="stage-row pending" data-stage="downloading">
                                     <span class="stage-icon"><i class="codicon codicon-circle-large"></i></span>
-                                    <span>Downloading media</span>
+                                    <span>Downloading required files</span>
                                 </div>
                                 <div class="stage-row pending" data-stage="writing">
                                     <span class="stage-icon"><i class="codicon codicon-circle-large"></i></span>
@@ -2099,7 +2079,6 @@ function getWebviewContent(
                 const vscode = acquireVsCodeApi();
                 const fileGroups = ${groupsJson};
                 const exportOptionsConfig = ${exportOptionsConfigJson};
-                const isStreamOnly = ${JSON.stringify(isStreamOnly)};
                 let currentStep = 1;
                 // File-selection signature at the time the audio mismatch check last ran.
                 // Used to re-fire the warning when the user goes back and changes the file
@@ -4136,7 +4115,6 @@ function getWebviewContent(
                     document.querySelectorAll('#step2 .format-option:not(.audio-option)').forEach(option => {
                         option.addEventListener('click', (e) => {
                             if (e.target.closest('.format-section-header')) return;
-                            if (option.classList.contains('disabled-stream-only')) return;
 
                             // If clicking the already-selected format, deselect it
                             if (option.classList.contains('selected')) {

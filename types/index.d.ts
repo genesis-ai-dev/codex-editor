@@ -1094,6 +1094,8 @@ export interface CustomNotebookMetadata {
      * Example: "MAT.idml", "mydoc.docx"
      */
     originalFileName?: string;
+    /** SHA-256 of the stored original, set by the importer after deduplication. */
+    originalFileHash?: string;
     /**
      * Canonical source identifier for the imported artifact.
      * Stored at notebook-level (not per-cell). For most importers this matches originalFileName.
