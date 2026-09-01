@@ -291,7 +291,11 @@ export async function stageAndCommitAllAndSync(
             // already applied every one-sided change and no files need Codex
             // resolution. Skipping completeMerge would repeat the same sync.
             try {
-                await authApi.completeMerge(resolvedFiles, undefined);
+                await authApi.completeMerge(
+                    resolvedFiles,
+                    undefined,
+                    conflictsResponse.mergeSnapshot
+                );
                 debug(`✅ Resolved ${resolvedFiles.length} file conflicts`);
             } catch (completeMergeError) {
                 const errorMessage = completeMergeError instanceof Error ? completeMergeError.message : String(completeMergeError);
