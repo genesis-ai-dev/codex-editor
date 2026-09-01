@@ -1,0 +1,151 @@
+﻿
+ RUN  v2.1.9 C:/Users/marti/Desktop/FrontierRnD/Codex/codex-editor/webviews/codex-webviews
+
+node.exe : [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline 
+data, please update: `npm i baseline-browser-mapping@latest -D`
+At C:\Users\marti\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([baseline-brows...ping@latest -D`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(node:9312) [DEP0056] DeprecationWarning: The `util.isString` API is deprecated.  Please use `typeof arg === "string"` 
+instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-boundary-diag.debug.test.ts > Portuguese boundary paragraph diagnostics > JOS-EST
+
+@@@@@@ JOS-EST :: "desfiladeiro de Micm" ÔåÆ paragraph 1437
+
+  --- paragraph[1436] text%3ap_fj v=[23] body=2282793-2283361
+      chapterTransition=null
+      markers=
+      @2282797-2282916 cv%3av :: "23"
+      @2282920-2283041 cv%3av_sp :: " "
+      @2283045-2283166 meta%3av :: "23"
+      @2283170-2283358 $ID/[No character style] :: "Aconteceu que um destacamento filisteu"
+
+  --- paragraph[1437] text%3ap_dc2 v=[1,23] body=2283459-2285001
+      chapterTransition=13
+      markers=ch13@2283898 ch14@2284536
+      @2283463-2283583 cv%3adc :: "14"
+      @2283587-2283709 cv%3adc_sp :: " "
+      @2283713-2283894 $ID/[No character style] :: "<?ACE 3?>foi para o desfiladeiro de Micm├ís."
+      @2283898-2284020 meta%3ac :: "13."
+      @2284024-2284145 meta%3av :: "23"
+      @2284149-2284285 $ID/[No character style] :: " "
+      @2284289-2284407 cv%3av :: "1"
+      @2284411-2284532 cv%3av_sp :: " "
+      @2284536-2284658 meta%3ac :: "14."
+      @2284662-2284782 meta%3av :: "1"
+      @2284786-2284998 $ID/[No character style] :: "Certo dia, J├┤natas, filho de Saul, disse ao seu jovem escudeiro:"
+
+  --- paragraph[1438] text%3ap_sd v=[] body=2285098-2285302
+      chapterTransition=null
+      markers=
+      @2285102-2285299 $ID/[No character style] :: "ÔÇò Vamos ao destacamento filisteu, do outro lado."
+
+ Ô£ô src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-boundary-diag.debug.test.ts (2 tests) 231ms
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-boundary-diag.debug.test.ts > Portuguese boundary paragraph diagnostics > ACT-REV
+
+@@@@@@ ACT-REV :: "o bem de muitos" ÔåÆ paragraph 1001
+
+  --- paragraph[1000] text%3ap v=[23,24,25,26,27,28,29,30] body=2012606-2022749
+      chapterTransition=null
+      markers=
+      @2012610-2012729 cv%3av :: "23"
+      @2012733-2012854 cv%3av_sp :: " "
+      @2012858-2012979 meta%3av :: "23"
+      @2012983-2013210 $ID/[No character style] :: "ÔÇ£Tudo me ├® permitidoÔÇØ, mas nem tudo conv├®m. ÔÇ£Tudo me ├® permitidoÔÇØ, mas"
+      @2013214-2013335 meta%3av :: "23"
+      @2013339-2013475 $ID/[No character style] :: " "
+      @2013479-2013598 cv%3av :: "24"
+      @2013602-2013723 cv%3av_sp :: " "
+      @2013727-2013848 meta%3av :: "24"
+      @2013852-2014050 $ID/[No character style] :: "Ningu├®m deve buscar o seu pr├│prio bem, mas sim o dos outros."
+      @2014054-2014175 meta%3av :: "24"
+      @2014179-2014301 $ID/[No character style] :: ""
+      @2014305-2014424 cv%3av :: "25"
+      @2014428-2014549 cv%3av_sp :: " "
+      @2014553-2014674 meta%3av :: "25"
+      @2014678-2014904 $ID/[No character style] :: "Comam de tudo o que se vende no mercado, sem fazer perguntas por causa"
+      @2014908-2015029 meta%3av :: "25"
+      @2015033-2015169 $ID/[No character style] :: " "
+      @2015173-2015292 cv%3av :: "26"
+      @2015296-2015417 cv%3av_sp :: " "
+      @2015421-2015542 meta%3av :: "26"
+      @2015546-2015733 $ID/[No character style] :: "pois ÔÇ£do Senhor ├® a terra e tudo o que nela existeÔÇØ."
+      @2015737-2015861 notes%3af_sp :: " "
+      @2015865-2016965 notes%3af_call :: ""
+      @2016969-2017090 meta%3av :: "26"
+      @2017094-2017216 $ID/[No character style] :: ""
+      @2017220-2017352 cv%3av :: "27"
+      @2017356-2017507 cv%3av_sp :: " "
+      @2017511-2017645 meta%3av :: "27"
+      @2017649-2017954 $ID/[No character style] :: "Se algum descrente o convidar para uma refei├º├úo, e voc├¬ quiser ir, com"
+      @2017958-2018092 meta%3av :: "27"
+      @2018096-2018245 $ID/[No character style] :: " "
+      @2018249-2018381 cv%3av :: "28"
+      @2018385-2018536 cv%3av_sp :: " "
+      @2018540-2018674 meta%3av :: "28"
+      @2018678-2018984 $ID/[No character style] :: "Mas, se algu├®m disser: ÔÇ£Isto foi oferecido em sacrif├¡cio aos ├¡dolosÔÇØ, "
+      @2018988-2019142 notes%3af_sp :: " "
+      @2019146-2020472 notes%3af_call :: ""
+      @2020476-2020610 meta%3av :: "28"
+      @2020614-2020763 $ID/[No character style] :: " "
+      @2020767-2020899 cv%3av :: "29"
+      @2020903-2021054 cv%3av_sp :: " "
+      @2021058-2021192 meta%3av :: "29"
+      @2021196-2021490 $ID/[No character style] :: "Refiro-me ├á consci├¬ncia do outro, n├úo propriamente ├á sua. Afinal, por "
+      @2021494-2021628 meta%3av :: "29"
+      @2021632-2021781 $ID/[No character style] :: " "
+      @2021785-2021917 cv%3av :: "30"
+      @2021921-2022072 cv%3av_sp :: " "
+      @2022076-2022210 meta%3av :: "30"
+      @2022214-2022469 $ID/[No character style] :: "Se participo da refei├º├úo com a├º├úo de gra├ºas, por que sou caluniado por"
+      @2022473-2022607 meta%3av :: "30"
+      @2022611-2022746 $ID/[No character style] :: ""
+
+  --- paragraph[1001] text%3ap_fj v=[31,32,33] body=2022846-2025363
+      chapterTransition=null
+      markers=
+      @2022850-2022969 cv%3av :: "31"
+      @2022973-2023094 cv%3av_sp :: " "
+      @2023098-2023219 meta%3av :: "31"
+      @2023223-2023462 $ID/[No character style] :: "Assim, quer voc├¬s comam, quer bebam, quer fa├ºam qualquer outra coisa, "
+      @2023466-2023587 meta%3av :: "31"
+      @2023591-2023727 $ID/[No character style] :: " "
+      @2023731-2023850 cv%3av :: "32"
+      @2023854-2023975 cv%3av_sp :: " "
+      @2023979-2024100 meta%3av :: "32"
+      @2024104-2024333 $ID/[No character style] :: "N├úo se tornem motivo de trope├ºo nem para judeus, nem para gregos, nem "
+      @2024337-2024458 meta%3av :: "32"
+      @2024462-2024598 $ID/[No character style] :: " "
+      @2024602-2024721 cv%3av :: "33"
+      @2024725-2024846 cv%3av_sp :: " "
+      @2024850-2024971 meta%3av :: "33"
+      @2024975-2025234 $ID/[No character style] :: "Assim como eu tamb├®m procuro agradar a todos, de todas as formas, e n├ú"
+      @2025238-2025360 $ID/[No character style] :: ""
+
+  --- paragraph[1002] text%3ap_dc2 v=[1,33] body=2025461-2027222
+      chapterTransition=10
+      markers=ch10@2025885 ch11@2026523
+      @2025465-2025585 cv%3adc :: "11"
+      @2025589-2025711 cv%3adc_sp :: " "
+      @2025715-2025881 $ID/[No character style] :: "<?ACE 3?>para que sejam salvos."
+      @2025885-2026007 meta%3ac :: "10."
+      @2026011-2026132 meta%3av :: "33"
+      @2026136-2026272 $ID/[No character style] :: " "
+      @2026276-2026394 cv%3av :: "1"
+      @2026398-2026519 cv%3av_sp :: " "
+      @2026523-2026645 meta%3ac :: "11."
+      @2026649-2026769 meta%3av :: "1"
+      @2026773-2026969 $ID/[No character style] :: "Sejam meus imitadores, como tamb├®m sou imitador de Cristo."
+      @2026973-2027093 meta%3av :: "1"
+      @2027097-2027219 $ID/[No character style] :: ""
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  18:18:41
+   Duration  2.57s (transform 211ms, setup 29ms, collect 349ms, tests 231ms, environment 971ms, prepare 194ms)
+

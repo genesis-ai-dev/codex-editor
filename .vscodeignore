@@ -8,6 +8,8 @@
 # out/node_modules/** is only for runtime files explicitly copied by webpack.
 !out/*.js
 !out/node_modules/**
+# Precomputed Bible Swap language mappings (copied by webpack, read with fs).
+!out/bibleSwapLanguageMappings/**
 
 # Static assets
 !assets/**

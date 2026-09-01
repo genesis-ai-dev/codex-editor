@@ -1,0 +1,42 @@
+﻿
+ RUN  v2.1.9 C:/Users/marti/Desktop/FrontierRnD/Codex/codex-editor/webviews/codex-webviews
+
+node.exe : [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline 
+data, please update: `npm i baseline-browser-mapping@latest -D`
+At C:\Users\marti\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([baseline-brows...ping@latest -D`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/russian-psa62.debug.test.ts > PSA62 > counts
+bible PSA62 [
+  'PSA|62|1',  'PSA|62|2',
+  'PSA|62|3',  'PSA|62|4',
+  'PSA|62|5',  'PSA|62|6',
+  'PSA|62|7',  'PSA|62|8',
+  'PSA|62|9',  'PSA|62|10',
+  'PSA|62|11', 'PSA|62|12'
+]
+study PSA62 [
+  'PSA|62|1',  'PSA|62|2',
+  'PSA|62|3',  'PSA|62|4',
+  'PSA|62|5',  'PSA|62|6',
+  'PSA|62|7',  'PSA|62|8',
+  'PSA|62|9',  'PSA|62|10',
+  'PSA|62|11', 'PSA|62|12'
+]
+ðƒÐüð░ð╗ð¥ð╝ 62 pos 3353500
+styles [ 'ParagraphStyle/head%3acl' ]
+meta [ 'meta%3av">\n\t\t\t\t<Content>13' ]
+Psalm 62 study pos 3412553
+study styles [ 'ParagraphStyle/head%3acl' ]
+
+ Ô£ô src/NewSourceUploader/importers/biblica/bible-swap/scripts/russian-psa62.debug.test.ts (1 test) 79652ms
+   Ô£ô PSA62 > counts 79651ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:02:46
+   Duration  82.33s (transform 179ms, setup 33ms, collect 262ms, tests 79.65s, environment 1.26s, prepare 229ms)
+

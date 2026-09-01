@@ -1020,7 +1020,7 @@ type BaseCustomCellMetaData = {
     /**
      * Markdown / OBS round-trip: UTF-16 start (inclusive) and end (exclusive) offsets into the canonical source string.
      */
-    sourceSpan?: { start: number; end: number };
+    sourceSpan?: { start: number; end: number; };
 };
 
 export type BaseCustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
@@ -2398,25 +2398,25 @@ type EditorReceiveMessages =
     | { type: "updateVideoUrlInWebview"; content: string; }
     | { type: "videoStreamResolving"; }
     | {
-          // The user picked a video file in the OS dialog. It is staged (not yet
-          // imported into the project); the editor shows it as pending until the
-          // metadata modal is saved.
-          type: "videoFilePicked";
-          fsPath: string;
-          fileName: string;
-      }
+        // The user picked a video file in the OS dialog. It is staged (not yet
+        // imported into the project); the editor shows it as pending until the
+        // metadata modal is saved.
+        type: "videoFilePicked";
+        fsPath: string;
+        fileName: string;
+    }
     | { type: "videoStreamUnavailable"; reason: "offline" | "not-authenticated" | "not-found" | "error"; message?: string; }
     | { type: "videoNeedsDownload"; strategy: "auto-download" | "stream-and-save" | "stream-only"; }
     | {
-          type: "videoReferenceStatus";
-          status: "none" | "url" | "local-usable" | "missing";
-          // True only in stream-and-save when a downloaded local copy exists and is
-          // LFS-backed, so it can be reverted to a pointer to free space and re-streamed.
-          canFreeDiskSpace?: boolean;
-          // Size of the referenced video in bytes when known (real local bytes or the
-          // size recorded in the LFS pointer). Omitted for remote URLs / unknown.
-          videoSizeBytes?: number;
-      }
+        type: "videoReferenceStatus";
+        status: "none" | "url" | "local-usable" | "missing";
+        // True only in stream-and-save when a downloaded local copy exists and is
+        // LFS-backed, so it can be reverted to a pointer to free space and re-streamed.
+        canFreeDiskSpace?: boolean;
+        // Size of the referenced video in bytes when known (real local bytes or the
+        // size recorded in the LFS pointer). Omitted for remote URLs / unknown.
+        videoSizeBytes?: number;
+    }
     | {
         type: "milestoneProgressUpdate";
         milestoneProgress: Record<number, {
@@ -2902,6 +2902,103 @@ export interface ExportSummaryPayload {
     extraMessages?: string[];
 }
 
+/**
+ * Compatibility report shown in the Project Export view when a user picks a
+ * translated Bible IDML for the optional Biblica "Bible Swap" step. Computed
+ * by `src/projectManager/utils/bibleSwapCompatibility.ts` and posted from the
+ * host to the webview.
+ */
+/** Versification mapping plan summary (Study slots → Bible content stream). */
+export interface BibleSwapVersificationPlanSummary {
+    versesMapped: number;
+    versesRemoved: number;
+    versesInserted: number;
+    psalmChapterShifts: number;
+    /** Expected verse match % after applying the versification plan during swap. */
+    projectedVerseMatchPercent: number;
+}
+
+export interface BibleSwapVerseRef {
+    book: string;
+    chapter: string;
+    verse: string;
+}
+
+export interface BibleSwapVerseChange extends BibleSwapVerseRef {
+    textPreview: string;
+    /** Bible paragraph structure signature (structure mode). */
+    structure?: string;
+}
+
+export interface BibleSwapVerseRedirect {
+    studyBook: string;
+    studyChapter: string;
+    studyVerse: string;
+    bibleBook: string;
+    bibleChapter: string;
+    bibleVerse: string;
+    studyTextPreview: string;
+    bibleTextPreview: string;
+    bibleStructure?: string;
+}
+
+export interface BibleSwapStructureInsert {
+    studyBook: string;
+    studyChapter: string;
+    bibleBook: string;
+    bibleChapter: string;
+    verseStart: number;
+    verseEnd: number;
+    verseCount: number;
+    textPreview: string;
+    structure?: string;
+}
+
+export interface BibleSwapVersificationChanges {
+    removed: BibleSwapVerseChange[];
+    inserted: BibleSwapVerseChange[];
+    redirected: BibleSwapVerseRedirect[];
+    structureInserts: BibleSwapStructureInsert[];
+    totalRemoved: number;
+    totalInserted: number;
+    totalRedirected: number;
+    totalStructureInserts: number;
+    truncated: boolean;
+}
+
+export interface BibleSwapAnalysisProgress {
+    stage: "loading" | "indexing" | "planning" | "summarizing";
+    percent: number;
+    message: string;
+    current?: number;
+    total?: number;
+}
+
+export interface BibleSwapCompatibilityReport {
+    /** Basename of the Bible IDML the user picked, for display in the UI. */
+    bibleFileName: string;
+    /** Books present in BOTH the Bible IDML and at least one selected `.codex`. */
+    booksFound: number;
+    /** Total distinct books across all selected `.codex` notebooks. */
+    booksExpected: number;
+    /** `(book, chapter)` pairs present in BOTH. */
+    chaptersFound: number;
+    chaptersExpected: number;
+    /** `(book, chapter, verse)` triples present in BOTH. */
+    versesMatched: number;
+    versesExpected: number;
+    /** True when one of the selected `.codex` notebooks includes Psalms (PSA). */
+    hasPsalms: boolean;
+    /** @deprecated Use hasPsalms. Kept for backward compatibility. */
+    psaSkipped: boolean;
+    /** Per-book versification deltas. `missing` = in Study but not Bible; `extra` = in Bible but not Study. */
+    perBookMismatches: Array<{ book: string; missing: number; extra: number; }>;
+    /** Plan for aligning Study verse slots to Bible versification (computed during analysis). */
+    versificationPlan?: BibleSwapVersificationPlanSummary;
+    /** Detailed verse-level changes the swap will apply (preview for export). */
+    versificationChanges?: BibleSwapVersificationChanges;
+}
+
 export type MessagesToProjectExportView =
     | { command: "updateExportPath"; path: string; }
     | { command: "htmlStructureCheckResult"; mismatches: { totalMismatches: number; fileDetails: { file: string; count: number; }[]; }; }
@@ -2910,13 +3007,44 @@ export type MessagesToProjectExportView =
     | { command: "exportFileMissing"; file: string; reason: ExportMissingFileReason; detail?: string; cellId?: string; codexPath?: string; }
     | { command: "exportCompleted"; summary: ExportSummaryPayload; }
     | { command: "exportError"; message: string; }
-    | { command: "retryCompleted"; summary?: ExportSummaryPayload; error?: string; cancelled?: boolean; };
+    | { command: "retryCompleted"; summary?: ExportSummaryPayload; error?: string; cancelled?: boolean; }
+    | {
+        command: "bibleSwapFileSelected";
+        path: string;
+        name: string;
+        size: number;
+    }
+    | {
+        command: "bibleSwapCompatibilityProgress";
+        progress: BibleSwapAnalysisProgress;
+    }
+    | {
+        command: "bibleSwapCompatibility";
+        report?: BibleSwapCompatibilityReport;
+        error?: string;
+    };
 
 export type MessagesFromProjectExportView =
     | { command: "selectExportPath"; }
     | { command: "openProjectSettings"; }
-    | { command: "export"; format: string; userSelectedPath: string; filesToExport: string[]; options?: Record<string, unknown>; }
+    | {
+        command: "export";
+        format: string;
+        userSelectedPath: string;
+        filesToExport: string[];
+        options?: {
+            skipValidation?: boolean;
+            includeAudio?: boolean;
+            includeTimestamps?: boolean;
+            bibleSwapPath?: string;
+            /** Surgical = content-only; structure = whole chapter text blocks from Bible IDML. */
+            bibleSwapMode?: "surgical" | "structure";
+            /** "any" = analyze at export; a supported language id (e.g. "portuguese", "russian") applies its shipped versification mapping. */
+            bibleSwapLanguage?: string;
+        };
+    }
     | { command: "checkHtmlStructure"; filesToExport: string[]; }
+    | { command: "selectBibleIdmlFile"; filesToExport: string[]; }
     | { command: "openExportFolder"; path: string; }
     | { command: "closeExportView"; }
     | { command: "openCellInEditor"; cellId: string; filePath: string; }

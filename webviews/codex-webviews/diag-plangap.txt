@@ -1,0 +1,110 @@
+﻿
+ RUN  v2.1.9 C:/Users/marti/Desktop/FrontierRnD/Codex/codex-editor/webviews/codex-webviews
+
+node.exe : [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline 
+data, please update: `npm i baseline-browser-mapping@latest -D`
+At C:\Users\marti\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([baseline-brows...ping@latest -D`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(node:36252) [DEP0056] DeprecationWarning: The `util.isString` API is deprecated.  Please use `typeof arg === 
+"string"` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-plan-gap-diag.debug.test.ts > Portuguese plan gap diagnostics > JOS-EST
+
+@@@@@@ JOS-EST RUT 4
+  plan.chapterInserts[RUT|4]=[{"book":"RUT","chapter":"4","verse":"22"}]
+  plan.structureChapters[RUT|4]={"studyBook":"RUT","studyChapter":"4","studyVerseStart":1,"studyVerseEnd":21,"bibleSlices":[{"chapter":"4","firstVerse":1,"lastVerse":21}],"insertOnly":false}
+  bibleBlock: verses 1-22 len=33251
+    block para[0] text%3ap_dc1 :: "4 <?ACE 3?>1 4.1Enquanto isso, Boaz subiu ├á porta da cidade "
+    block para[1] text%3ap_sd :: "ÔÇò Meu amigo, venha c├í e sente┬¡-se."
+    block para[20] head%3as1 :: "A genealogia de Davi"
+    block para[21] text%3alh :: " 18 18Esta ├® a linha┬¡gem de Perez:"
+    block para[22] b :: ""
+    block para[23] text%3ali1 :: " Perez gerou Hez┬¡rom;18 19 19Hez┬¡rom gerou R├úo; R├úo gerou Am"
+  RUT 4:20 plan={"action":"replace","bible":{"book":"RUT","chapter":"4","verse":"20"}}
+      bibleIndex=subheader=false text="Ami┬¡na┬¡dabe gerou Naas┬¡som; Naas┬¡som gerou Sal┬¡mom"
+      validator study=""
+      validator bible="" paraStyle=-
+      validator export="" paraStyle=-
+  RUT 4:21 plan={"action":"replace","bible":{"book":"RUT","chapter":"4","verse":"21"}}
+      bibleIndex=subheader=false text="Sal┬¡mom gerou Boaz; Boaz gerou Obede;"
+      validator study=""
+      validator bible="" paraStyle=-
+      validator export="" paraStyle=-
+  RUT 4:22 plan=null
+      bibleIndex=subheader=false text="Obede gerou Jess├®; Jess├® gerou Davi."
+      validator study=""
+      validator bible="" paraStyle=-
+      validator export="" paraStyle=-
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-plan-gap-diag.debug.test.ts > Portuguese plan gap diagnostics > ISA-MAL
+
+@@@@@@ ISA-MAL LAM 1
+  plan.chapterInserts[LAM|1]=[]
+  plan.structureChapters[LAM|1]={"studyBook":"LAM","studyChapter":"1","studyVerseStart":1,"studyVerseEnd":22,"bibleSlices":[{"chapter":"1","firstVerse":1,"lastVerse":22}],"insertOnly":false}
+  bibleBlock: verses 1-22 len=66639
+    block para[0] text%3aq1_dc1_fn :: "1 <?ACE 3?>1 1.1Como se senta solit├íria a grande cidade,"
+    block para[1] text%3aq2 :: " antes t├úo cheia de gente!"
+    block para[151] text%3aq1 :: " Os meus gemidos s├úo muitos,"
+    block para[152] text%3aq2 :: " e o meu cora├º├úo desfalece.ÔÇØ"
+    block para[153] bb :: "1.22"
+    block para[154] head%3aqa :: "ÎÉ ├ülef"
+  LAM 1:20 plan={"action":"replace","bible":{"book":"LAM","chapter":"1","verse":"20"}}
+      bibleIndex=subheader=false text="ÔÇ£V├¬, , como estou angustiada! Estou atormentada no"
+      validator study=""
+      validator bible="" paraStyle=-
+      validator export="" paraStyle=-
+  LAM 1:21 plan={"action":"replace","bible":{"book":"LAM","chapter":"1","verse":"21"}}
+      bibleIndex=subheader=false text="ÔÇ£Os meus lamentos t├¬m sido ouvidos, mas n├úo h├í nin"
+      validator study=""
+      validator bible="" paraStyle=-
+      validator export="" paraStyle=-
+  LAM 1:22 plan={"action":"replace","bible":{"book":"LAM","chapter":"1","verse":"22"}}
+      bibleIndex=subheader=false text="ÔÇ£Que toda a maldade deles seja conhecida diante de"
+      validator study=""
+      validator bible="" paraStyle=-
+      validator export="" paraStyle=-
+
+@@@@@@ ISA-MAL HAB 3
+  plan.chapterInserts[HAB|3]=[]
+  plan.structureChapters[HAB|3]={"studyBook":"HAB","studyChapter":"3","studyVerseStart":2,"studyVerseEnd":18,"bibleSlices":[{"chapter":"3","firstVerse":2,"lastVerse":18}],"insertOnly":false}
+  bibleBlock: verses 1-19 len=44093
+    block para[0] head%3ad_h_dc1 :: "3 <?ACE 3?> 1 3.1 Ora├º├úo do profeta Habacuque. De acordo com"
+    block para[1] text%3aq1 :: " 2 2Senhor, ouvi falar da tua fama;"
+    block para[66] text%3aq1 :: " 19 19O Senhor, o Soberano, ├® a minha for├ºa;"
+    block para[67] text%3aq2 :: " ele faz os meus p├®s como os do cervo"
+    block para[68] text%3aq2 :: " e faz-me andar nos meus lugares altos."
+    block para[69] head%3ad :: "Para o mestre de m├║sica. Para os meus instrumentos de cordas"
+  HAB 3:1 plan=null
+      bibleIndex=subheader=true text="Ora├º├úo do profeta Habacuque . De acordo com ."
+      validator study=""
+      validator bible="" paraStyle=-
+      validator export="" paraStyle=-
+  HAB 3:2 plan={"action":"replace","bible":{"book":"HAB","chapter":"3","verse":"2"}}
+      bibleIndex=subheader=false text=", ouvi falar da tua fama; tremo diante dos teus at"
+      validator study=""
+      validator bible="" paraStyle=-
+      validator export="" paraStyle=-
+  HAB 3:18 plan={"action":"replace","bible":{"book":"HAB","chapter":"3","verse":"18"}}
+      bibleIndex=subheader=false text="ainda assim eu exultarei no e me alegrarei no Deus"
+      validator study=""
+      validator bible="" paraStyle=-
+      validator export="" paraStyle=-
+  HAB 3:19 plan=null
+      bibleIndex=subheader=false text="O , o Soberano, ├® a minha for├ºa; ele faz os meus p"
+      validator study=""
+      validator bible="" paraStyle=-
+      validator export="" paraStyle=-
+
+ Ô£ô src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-plan-gap-diag.debug.test.ts (2 tests) 289857ms
+   Ô£ô Portuguese plan gap diagnostics > JOS-EST 133039ms
+   Ô£ô Portuguese plan gap diagnostics > ISA-MAL 156816ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  19:20:58
+   Duration  293.33s (transform 287ms, setup 36ms, collect 436ms, tests 289.86s, environment 1.29s, prepare 288ms)
+

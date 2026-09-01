@@ -144,6 +144,14 @@ const extensionConfig = {
                     from: "node_modules/dugite/package.json",
                     to: "node_modules/dugite/package.json",
                 },
+                // Precomputed Bible Swap versification mappings per language.
+                // Loaded at runtime with fs from out/bibleSwapLanguageMappings
+                // (see src/projectManager/utils/bibleSwapLanguageMappings.ts).
+                {
+                    from: "webviews/codex-webviews/src/NewSourceUploader/importers/biblica/bible-swap/language-mappings",
+                    to: "bibleSwapLanguageMappings",
+                    globOptions: { ignore: ["**/*.ts", "**/*.md"] },
+                },
             ],
         }),
         // pdf-parse dynamically requires pdf.js versions; pin to its default so
@@ -316,4 +324,91 @@ const testRunnerConfig = {
     devtool: "nosources-source-map",
 };
 
-module.exports = [extensionConfig, testConfig, testRunnerConfig];
+/** Minimal shared base for Bible Swap worker_thread bundles (not full extensionConfig). */
+const bibleSwapWorkerBaseConfig = {
+    target: "node",
+    mode: "none",
+    externals: {
+        vscode: "commonjs vscode",
+    },
+    resolve: {
+        extensions: [".ts", ".js"],
+        alias: {
+            types: path.resolve(__dirname, "types"),
+        },
+    },
+    module: {
+        rules: [
+            {
+                test: /\.ts$/,
+                exclude: /node_modules/,
+                use: "ts-loader",
+            },
+        ],
+    },
+    devtool: "nosources-source-map",
+    infrastructureLogging: {
+        level: "log",
+    },
+};
+
+/** Worker bundle for parallel Bible Swap compatibility indexing. */
+const bibleSwapCompatWorkerConfig = {
+    ...bibleSwapWorkerBaseConfig,
+    name: "bibleSwapCompatWorker",
+    entry: "./src/projectManager/utils/bibleSwapCompatWorker.ts",
+    output: {
+        path: path.resolve(__dirname, "out"),
+        filename: "bibleSwapCompatWorker.js",
+        libraryTarget: "commonjs2",
+    },
+};
+
+const bibleSwapVerseIndexWorkerConfig = {
+    ...bibleSwapWorkerBaseConfig,
+    name: "bibleSwapVerseIndexWorker",
+    entry: "./src/projectManager/utils/bibleSwapVerseIndexWorker.ts",
+    output: {
+        path: path.resolve(__dirname, "out"),
+        filename: "bibleSwapVerseIndexWorker.js",
+        libraryTarget: "commonjs2",
+    },
+};
+
+const bibleSwapPlanWorkerConfig = {
+    ...bibleSwapWorkerBaseConfig,
+    name: "bibleSwapPlanWorker",
+    entry: "./src/projectManager/utils/bibleSwapPlanWorker.ts",
+    output: {
+        path: path.resolve(__dirname, "out"),
+        filename: "bibleSwapPlanWorker.js",
+        libraryTarget: "commonjs2",
+    },
+};
+
+const bibleSwapApplyWorkerConfig = {
+    ...bibleSwapWorkerBaseConfig,
+    name: "bibleSwapApplyWorker",
+    entry: "./src/projectManager/utils/bibleSwapApplyWorker.ts",
+    output: {
+        path: path.resolve(__dirname, "out"),
+        filename: "bibleSwapApplyWorker.js",
+        libraryTarget: "commonjs2",
+    },
+};
+
+const bibleSwapWorkerConfigs = [
+    bibleSwapCompatWorkerConfig,
+    bibleSwapVerseIndexWorkerConfig,
+    bibleSwapPlanWorkerConfig,
+    bibleSwapApplyWorkerConfig,
+];
+
+const extensionBuildConfigs = [extensionConfig, ...bibleSwapWorkerConfigs];
+const testBuildConfigs = [testConfig, testRunnerConfig];
+
+/** Skip test bundles during dev compile (WEBPACK_SKIP_TESTS=1) to reduce memory use. */
+module.exports =
+    process.env.WEBPACK_SKIP_TESTS === "1"
+        ? extensionBuildConfigs
+        : [...extensionBuildConfigs, ...testBuildConfigs];
