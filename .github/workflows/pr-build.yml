@@ -85,7 +85,7 @@ jobs:
                   echo "$(dirname "$(which node)")" >> "$GITHUB_PATH"
 
             - name: Setup pnpm
-              run: npm install -g pnpm
+              run: npm install -g pnpm@10
 
             - name: Generate version
               id: version
