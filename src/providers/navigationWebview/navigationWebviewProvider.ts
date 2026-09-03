@@ -495,7 +495,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const metadata = notebookData.metadata as CodexMetadata;
             const fileNameAbbr = path.basename(uri.fsPath, ".codex");
 
-            // Calculate progress based on cells with values (exclude paratext and child cells)
+            // Calculate progress based on cells with values (exclude paratext, child, and hidden cells)
             const unmergedCells = notebookData.cells.filter(
                 (cell) => !shouldExcludeCellFromProgress(cell)
             );
@@ -504,6 +504,8 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 cellMarkers: [cell.metadata?.id ?? ""],
                 cellType: cell.metadata?.type ?? cell.languageId,
                 merged: cell.metadata?.data?.merged,
+                deleted: cell.metadata?.data?.deleted,
+                hidden: cell.metadata?.data?.hidden,
                 metadata: { parentId: cell.metadata?.parentId },
                 data: cell.metadata?.data,
             });

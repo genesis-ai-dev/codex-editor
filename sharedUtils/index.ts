@@ -186,20 +186,21 @@ export type CellForProgressCheck = {
         id?: string;
         type?: string;
         parentId?: string;
-        data?: { merged?: boolean; parentId?: string; type?: string; };
+        data?: { merged?: boolean; parentId?: string; type?: string; deleted?: boolean; hidden?: boolean; };
     };
 };
 
 /**
  * Returns true if the cell should be excluded from progress (not counted in totalCells).
- * Paratext and child cells (e.g. type "text" with parentId) must not count toward progress.
+ * Milestone, merged, deleted, hidden, paratext, empty-id, and child cells must not count.
+ * Hidden is a translation-completeness flag, not a view-mode flag — exclude regardless of Source Editing Mode.
  */
 export function shouldExcludeCellFromProgress(cell: CellForProgressCheck): boolean {
     const md = cell.metadata;
-    const cellData = md?.data as { merged?: boolean; parentId?: string; type?: string; deleted?: boolean; } | undefined;
+    const cellData = md?.data as { merged?: boolean; parentId?: string; type?: string; deleted?: boolean; hidden?: boolean; } | undefined;
     const cellId = (md?.id ?? "").toString();
 
-    if (md?.type === "milestone" || cellData?.merged || cellData?.deleted) {
+    if (md?.type === "milestone" || cellData?.merged || cellData?.deleted || cellData?.hidden) {
         return true;
     }
     const isParatext =
@@ -221,14 +222,15 @@ export function shouldExcludeCellFromProgress(cell: CellForProgressCheck): boole
 
 /**
  * Returns true if the cell should be excluded from progress when already in QuillCellContent form.
- * Use this to filter lists before computing validation stats so paratext/child never count.
+ * Use this to filter lists before computing validation stats so paratext/child/hidden never count.
  */
 export function shouldExcludeQuillCellFromProgress(cell: QuillCellContent): boolean {
     const cellId = (cell.cellMarkers?.[0] ?? "").toString();
     if (!cellId || cellId.trim() === "") {
         return true;
     }
-    if (cell.merged || cell.deleted) {
+    const dataHidden = Boolean((cell.data as { hidden?: boolean; } | undefined)?.hidden);
+    if (cell.merged || cell.deleted || cell.hidden || dataHidden) {
         return true;
     }
     const typeLower = (cell.cellType ?? "").toString().toLowerCase();
