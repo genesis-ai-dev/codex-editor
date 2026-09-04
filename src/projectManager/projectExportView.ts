@@ -75,7 +75,7 @@ async function checkHtmlStructureMismatches(
                 if (!cellId || !cell.value) continue;
                 const sourceContent = sourceMap.get(cellId);
                 if (!sourceContent) continue;
-                const diff = compareHtmlStructure(sourceContent, cell.value);
+                const diff = compareHtmlStructure(sourceContent, cell.value, metadata);
                 if (!diff.isMatch) mismatchCount++;
             }
 

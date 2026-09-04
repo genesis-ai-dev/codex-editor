@@ -1,11 +1,12 @@
 import type { QuillCellContent } from "../../../../../types";
-import { compareHtmlStructure } from "./htmlStructureValidator";
+import { getHtmlStructureRepairDiff, type HtmlStructureOptions } from "./htmlStructureValidator";
 
 export function getStructureMismatchCellIds(
     cells: QuillCellContent[],
     sourceCellMap: Record<string, { content: string }>,
     enforceHtmlStructure: boolean,
     isSourceText: boolean,
+    options?: HtmlStructureOptions,
 ): string[] {
     if (!enforceHtmlStructure || isSourceText) {
         return [];
@@ -21,7 +22,7 @@ export function getStructureMismatchCellIds(
         const targetHtml = cell.cellContent;
         if (!sourceHtml || !targetHtml) continue;
 
-        const diff = compareHtmlStructure(sourceHtml, targetHtml);
+        const diff = getHtmlStructureRepairDiff(sourceHtml, targetHtml, options);
         if (!diff.isMatch) {
             mismatchedCellIds.push(cellId);
         }

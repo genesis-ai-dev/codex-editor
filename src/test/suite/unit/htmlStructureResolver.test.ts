@@ -1,11 +1,13 @@
 import * as assert from "assert";
 import * as sinon from "sinon";
 import * as vscode from "vscode";
+import { CodexCellTypes } from "../../../../types/enums";
 import type { CompletionConfig } from "../../../utils/llmUtils";
 import type { CodexCellDocument } from "../../../providers/codexCellEditorProvider/codexDocument";
 import {
     maybeAutoResolveHtmlStructure,
     maybeRepairStructureDeterministically,
+    resolveCellHtmlStructure,
     resolveHtmlStructureWithLLM,
     stripMarkdownCodeFences,
     verifyResolvedContent,
@@ -13,9 +15,9 @@ import {
 
 const mockConfig = { model: "test" } as CompletionConfig;
 
-const createMockDocument = (enforceHtmlStructure: boolean): CodexCellDocument =>
+const createMockDocument = (enforceHtmlStructure: boolean, importerType?: string): CodexCellDocument =>
     ({
-        getNotebookMetadata: () => ({ enforceHtmlStructure }),
+        getNotebookMetadata: () => ({ enforceHtmlStructure, importerType }),
     }) as CodexCellDocument;
 
 suite("htmlStructureResolver", () => {
@@ -138,6 +140,20 @@ suite("htmlStructureResolver", () => {
             assert.strictEqual(result, "<p>Hola</p>");
         });
 
+        test("restores DOCX style-only loss on save and on explicit resolve", async () => {
+            executeCommandStub.resolves({ cellId: "cell-13", content: '<p data-style-id="ListParagraph">Conscience is not the law.</p>' });
+            const target = "<p>La conciencia no es la ley.</p>";
+            const document = createMockDocument(true, "docx");
+            document.getCellContent = () => ({ cellContent: target, cellMarkers: ["cell-13"], cellType: CodexCellTypes.TEXT, editHistory: [] });
+            const expected = '<p data-style-id="ListParagraph">La conciencia no es la ley.</p>';
+            assert.strictEqual(await maybeRepairStructureDeterministically("cell-13", target, document), expected);
+            assert.deepStrictEqual(await resolveCellHtmlStructure("cell-13", document), {
+                status: "resolved", content: expected, method: "deterministic",
+            });
+            assert.strictEqual(await maybeRepairStructureDeterministically("cell-13", target, createMockDocument(true, "usfm")), target);
+            assert.strictEqual(await maybeRepairStructureDeterministically("cell-13", target, createMockDocument(false, "docx")), target);
+        });
+
         test("returns content unchanged when no deterministic fix applies", async () => {
             executeCommandStub.resolves({ cellId: "cell-1", content: "<p>Hello <em>World</em></p>" });
 
@@ -216,6 +232,15 @@ suite("htmlStructureResolver", () => {
             );
 
             assert.strictEqual(result, "<p>Hola</p>");
+        });
+
+        test("repairs DOCX attributes without calling the LLM", async () => {
+            executeCommandStub.resolves({ cellId: "cell", content: '<p data-style-id="ListParagraph">Source</p>' });
+            const resolveWithLLM = sinon.stub().resolves("must not be called");
+            const result = await maybeAutoResolveHtmlStructure("cell", "<p>Traducción</p>",
+                createMockDocument(true, "docx"), { config: mockConfig, resolveWithLLM });
+            assert.strictEqual(result, '<p data-style-id="ListParagraph">Traducción</p>');
+            assert.strictEqual(resolveWithLLM.callCount, 0);
         });
 
         test("fixes spurious span wrappers deterministically without calling the LLM", async () => {

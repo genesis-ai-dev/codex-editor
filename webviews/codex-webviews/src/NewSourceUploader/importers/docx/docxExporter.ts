@@ -11,9 +11,18 @@ import {
     DocxExportError,
 } from './docxTypes';
 import {
+    extractLegacyParagraphRanges,
     extractOutermostParagraphRanges,
     stripFallbackElements,
 } from './utils/ooxmlScanner';
+import {
+    buildRepeatedSourceAliasVariants,
+    deduplicateDocxSegments,
+    normalizeDocxWitness,
+    resolveDocxTranslations,
+    selectParagraphMappingMode,
+    type ParagraphTranslation,
+} from './utils/docxExportMapping';
 
 /**
  * NOTE:
@@ -70,13 +79,14 @@ export async function exportDocxWithTranslations(
         console.log('[DOCX Exporter] Extracted document.xml');
 
         // Collect translations from cells
-        const translationMap = collectTranslations(codexCells);
-        console.log(`[DOCX Exporter] Collected ${translationMap.size} translations`);
+        const { translations: translationPlans, witnesses } = collectTranslations(codexCells);
+        console.log(`[DOCX Exporter] Collected ${translationPlans.size} translations`);
 
         // Replace content in document.xml
         const updatedXml = await replaceContentInXml(
             documentXml,
-            translationMap,
+            translationPlans,
+            witnesses,
             exportConfig
         );
         console.log('[DOCX Exporter] Updated document.xml with translations');
@@ -115,9 +125,14 @@ export async function exportDocxWithTranslations(
  *     segments are all untranslated produces no entry and is left byte-untouched.
  *  3. Normal cells – one Codex cell ↔ one DOCX paragraph (paragraphIndex only).
  */
+type TranslationCollection = {
+    translations: Map<number, ParagraphTranslation>;
+    witnesses: Map<number, ParagraphTranslation>;
+};
+
 function collectTranslations(
     codexCells: Array<{ kind: number; value: string; metadata: any; }>
-): Map<number, string> {
+): TranslationCollection {
     console.log(`[Exporter] Processing ${codexCells.length} cells for translations`);
 
     // Accumulate per-paragraph segments: paragraphIndex → list of {segmentIndex, text, source}.
@@ -125,9 +140,15 @@ function collectTranslations(
     // Keeping untranslated segments (empty `text`) lets us fall back to `source` so that a
     // partially translated split paragraph preserves its untranslated portions instead of
     // dropping them.
-    const segmentsByParagraph = new Map<number, Array<{ segmentIndex: number; text: string; source: string; }>>();
+    const segmentsByParagraph = new Map<number, Array<{
+        segmentIndex: number;
+        text: string;
+        source: string;
+        mappingVersion?: string;
+    }>>();
     // Table cells bypass the segment system entirely
-    const tableTranslations = new Map<number, string>();
+    const tableTranslations = new Map<number, ParagraphTranslation>();
+    const tableWitnesses = new Map<number, ParagraphTranslation>();
 
     for (const cell of codexCells) {
         const meta = cell.metadata;
@@ -154,8 +175,6 @@ function collectTranslations(
 
         if (Array.isArray(paragraphIndices) && paragraphIndices.length > 0) {
             // Table-cell case: map lines of translation to each paragraph index.
-            // A fully-untranslated table cell is left byte-untouched (no map entries).
-            if (!translated) continue;
             // Fall back to the matching original line so a partially-translated table cell
             // doesn't blank the untranslated paragraphs.
             const originalLines = String(meta?.data?.originalText ?? '').split(/\r?\n/);
@@ -163,7 +182,22 @@ function collectTranslations(
             for (let j = 0; j < paragraphIndices.length; j++) {
                 const idx = paragraphIndices[j];
                 if (typeof idx !== 'number') continue;
-                tableTranslations.set(idx, parts[j] ?? originalLines[j] ?? '');
+                const plan = {
+                    paragraphIndex: idx,
+                    translation: parts[j] ?? originalLines[j] ?? '',
+                    sourceText: originalLines[j] ?? '',
+                    mappingVersion: meta?.paragraphMappingVersion,
+                };
+                tableWitnesses.set(idx, { ...plan, translation: '' });
+                if (!translated) continue;
+                const existing = tableTranslations.get(idx);
+                if (existing && (
+                    existing.translation !== plan.translation ||
+                    normalizeDocxWitness(existing.sourceText) !== normalizeDocxWitness(plan.sourceText)
+                )) {
+                    throw new Error(`Conflicting table-cell translations map to DOCX paragraph ${idx}.`);
+                }
+                tableTranslations.set(idx, plan);
             }
             continue;
         }
@@ -192,24 +226,38 @@ function collectTranslations(
             segmentIndex: segmentIndex ?? 0,
             text: translated,
             source,
+            mappingVersion: meta?.paragraphMappingVersion,
         });
     }
 
     // Build the final map: for split paragraphs, join segments in order, falling back to each
     // segment's original source text when it has no translation.
-    const translations = new Map<number, string>(tableTranslations);
+    const translations = new Map<number, ParagraphTranslation>(tableTranslations);
+    const witnesses = new Map<number, ParagraphTranslation>(tableWitnesses);
 
     for (const [paraIdx, segments] of segmentsByParagraph) {
-        // Leave a fully-untranslated paragraph byte-untouched (no map entry). This preserves the
-        // existing correct behavior and avoids overwriting the original with source text.
-        if (!segments.some(s => s.text)) continue;
-        segments.sort((a, b) => a.segmentIndex - b.segmentIndex);
-        const combined = segments.map(s => s.text || s.source).join(' ');
-        translations.set(paraIdx, combined);
+        const uniqueSegments = deduplicateDocxSegments(segments);
+        uniqueSegments.sort((a, b) => a.segmentIndex - b.segmentIndex);
+        const combinedSource = uniqueSegments.map(s => s.source).join(' ');
+        const aliasVariants = buildRepeatedSourceAliasVariants(uniqueSegments);
+        const witness: ParagraphTranslation = {
+            paragraphIndex: paraIdx,
+            translation: '',
+            sourceText: combinedSource,
+            mappingVersion: uniqueSegments.find((segment) => segment.mappingVersion)?.mappingVersion,
+            aliasVariants: aliasVariants.map((variant) => ({ ...variant, translation: '' })),
+        };
+        witnesses.set(paraIdx, witness);
+
+        // Untranslated paragraphs remain byte-untouched, but their witnesses
+        // still help classify the file's historical coordinate system.
+        if (!uniqueSegments.some(s => s.text)) continue;
+        const combined = uniqueSegments.map(s => s.text || s.source).join(' ');
+        translations.set(paraIdx, { ...witness, translation: combined, aliasVariants });
     }
 
     console.log(`[Exporter] Collected ${translations.size} translations total`);
-    return translations;
+    return { translations, witnesses };
 }
 
 /**
@@ -235,7 +283,8 @@ function removeHtmlTags(html: string): string {
  */
 async function replaceContentInXml(
     documentXml: string,
-    translations: Map<number, string>,
+    translations: Map<number, ParagraphTranslation>,
+    witnesses: Map<number, ParagraphTranslation>,
     _config: DocxExportConfig
 ): Promise<string> {
     const bodyOpenIdx = documentXml.indexOf('<w:body');
@@ -254,16 +303,20 @@ async function replaceContentInXml(
     const bodyXmlRaw = documentXml.slice(bodyStart + 1, bodyCloseIdx);
     const after = documentXml.slice(bodyCloseIdx);
 
-    // Remove mc:Fallback branches: they duplicate the mc:Choice content, so
-    // keeping them would leave the untranslated source text in the exported
-    // file (legacy renderers would show it). Word regenerates fallbacks on the
-    // next save. This also keeps paragraph indices aligned with the importer,
-    // which scans a Fallback-stripped body.
-    const bodyXml = stripFallbackElements(bodyXmlRaw);
-
-    // Canonical paragraph enumeration shared with the importer: outermost
-    // <w:p> elements only (text-box paragraphs belong to their anchor).
-    const ranges = extractOutermostParagraphRanges(bodyXml);
+    const currentBodyXml = stripFallbackElements(bodyXmlRaw);
+    const currentRanges = extractOutermostParagraphRanges(currentBodyXml);
+    const legacyRanges = extractLegacyParagraphRanges(bodyXmlRaw);
+    const mode = selectParagraphMappingMode(
+        witnesses,
+        currentBodyXml,
+        currentRanges,
+        bodyXmlRaw,
+        legacyRanges,
+    );
+    const bodyXml = mode === 'legacy' ? bodyXmlRaw : currentBodyXml;
+    const ranges = mode === 'legacy' ? legacyRanges : currentRanges;
+    const resolvedTranslations = resolveDocxTranslations(bodyXml, ranges, translations);
+    console.log(`[Exporter] Using ${mode} DOCX paragraph coordinates`);
     let out = '';
     let last = 0;
     let replacedCount = 0;
@@ -273,8 +326,13 @@ async function replaceContentInXml(
         out += bodyXml.slice(last, start);
 
         const paragraphXml = bodyXml.slice(start, end);
-        const translation = translations.get(paraIndex);
+        const translation = resolvedTranslations.get(paraIndex);
         if (translation) {
+            if (paragraphXml.indexOf('<w:t') < 0) {
+                throw new Error(
+                    `Cannot safely export DOCX paragraph ${paraIndex}: destination has no text node.`
+                );
+            }
             out += replaceParagraphTextXml(paragraphXml, translation);
             replacedCount++;
             console.log(`[Exporter] ✓ Replaced paragraph ${paraIndex}: "${translation.substring(0, 50)}..."`);
@@ -285,6 +343,14 @@ async function replaceContentInXml(
         last = end;
     }
     out += bodyXml.slice(last);
+
+    // Legacy coordinates are resolved against the original XML because those
+    // indices counted both AlternateContent branches.  Strip the fallback only
+    // after replacement so the authoritative Choice survives and untranslated
+    // duplicate/source branches cannot leak into the exported document.
+    if (mode === 'legacy') {
+        out = stripFallbackElements(out);
+    }
 
     console.log(`[Exporter] Found ${ranges.length} paragraphs in XML`);
     console.log(`[Exporter] Summary: ${replacedCount} replaced, ${ranges.length - replacedCount} skipped, ${ranges.length} total`);
@@ -344,7 +410,7 @@ function escapeXmlText(text: string): string {
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/\"/g, '&quot;')
+        .replace(/"/g, '&quot;')
         .replace(/'/g, '&apos;');
 }
 
@@ -353,7 +419,7 @@ function decodeBasicEntities(text: string): string {
     return (text ?? '')
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '\"')
+        .replace(/&quot;/g, '"')
         .replace(/&apos;/g, "'")
         .replace(/&amp;/g, '&');
 }
@@ -390,4 +456,3 @@ export class DocxExporter {
 
 // Export default instance
 export default new DocxExporter();
-

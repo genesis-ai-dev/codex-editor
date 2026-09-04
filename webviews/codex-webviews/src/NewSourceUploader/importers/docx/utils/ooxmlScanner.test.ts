@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
     extractBodyParagraphXmls,
+    extractLegacyParagraphRanges,
     extractOutermostParagraphRanges,
+    extractParagraphText,
     stripFallbackElements,
 } from "./ooxmlScanner";
 import { extractTableCellParagraphGroups } from "./tableSegmentation";
@@ -78,6 +80,26 @@ describe("extractOutermostParagraphRanges", () => {
         expect(xml.slice(ranges[1].start, ranges[1].end)).toBe(
             "<w:p><w:r><w:t>cell</w:t></w:r></w:p>"
         );
+    });
+});
+
+describe("extractLegacyParagraphRanges", () => {
+    it("reproduces the pre-0.32 textbox coordinate drift for compatibility", () => {
+        const body =
+            `<w:p><w:r><w:t>before</w:t></w:r></w:p>` +
+            textBoxParagraph +
+            `<w:p><w:r><w:t>after</w:t></w:r></w:p>`;
+        const ranges = extractLegacyParagraphRanges(body);
+        const texts = ranges.map((range) => extractParagraphText(body.slice(range.start, range.end)));
+
+        expect(texts).toEqual([
+            "before",
+            "Box line one.",
+            "Box line two.",
+            "Box line one.",
+            "Box line two.",
+            "after",
+        ]);
     });
 });
 

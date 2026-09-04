@@ -76,6 +76,12 @@ export async function exportUsfmRoundtrip(
 
     for (const cell of cells) {
         const metadata = cell.metadata as any;
+        if (
+            metadata?.data?.merged ||
+            metadata?.data?.deleted ||
+            metadata?.data?.hidden ||
+            metadata?.type === 'milestone'
+        ) continue;
         const translatedContent = cell.value.trim();
 
         // Try to get cellId from multiple possible locations
@@ -112,6 +118,12 @@ export async function exportUsfmRoundtrip(
         console.log(`[USFM Export] No cellIds in lineMappings, building fallback mapping by originalLine/originalText`);
         for (const cell of cells) {
             const metadata = cell.metadata as any;
+            if (
+                metadata?.data?.merged ||
+                metadata?.data?.deleted ||
+                metadata?.data?.hidden ||
+                metadata?.type === 'milestone'
+            ) continue;
             const translatedContent = cell.value.trim();
             if (!translatedContent) continue;
 

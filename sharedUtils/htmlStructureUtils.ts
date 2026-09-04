@@ -1,15 +1,16 @@
+import { isSelfClosingHtmlTag as isSelfClosing, peelWrapperChain } from "./htmlWrapperUtils";
+import {
+    collapseAdjacentEquivalentStyledSpans,
+    isDocxFormattingContext,
+    restoreDocxFormatting,
+    type HtmlStructureOptions,
+} from "./docxHtmlFormatting";
+export type { HtmlStructureOptions } from "./docxHtmlFormatting";
+
 export interface HtmlStructureDiff {
     isMatch: boolean;
     errors: string[];
 }
-
-const SELF_CLOSING_TAGS = new Set([
-    "br", "hr", "img", "input", "meta", "link",
-    "area", "base", "col", "embed", "source", "track", "wbr",
-]);
-
-const isSelfClosing = (tagName: string): boolean =>
-    SELF_CLOSING_TAGS.has(tagName.toLowerCase());
 
 export const extractHtmlSkeleton = (html: string): string => {
     if (!html) return "";
@@ -145,14 +146,17 @@ export const joinMergedCellHtml = (previousHtml: string, currentHtml: string): s
  * - adjacent bare-paragraph boundaries are collapsed, so a paragraph the
  *   user split with Enter still compares as one block.
  */
-const normalizeForStructureComparison = (html: string): string =>
-    stripEmptyBareSpans(stripEmptyParagraphs(html))
+const normalizeForStructureComparison = (html: string, options?: HtmlStructureOptions): string => {
+    const cleaned = stripEmptyBareSpans(stripEmptyParagraphs(html));
+    return (isDocxFormattingContext(options) ? collapseAdjacentEquivalentStyledSpans(cleaned) : cleaned)
         .replace(/<br\s*\/?>/gi, " ")
         .replace(/<\/p>\s*<p>/gi, " ");
+};
 
 export const compareHtmlStructure = (
     sourceHtml: string,
     targetHtml: string,
+    options?: HtmlStructureOptions,
 ): HtmlStructureDiff => {
     // Untranslated / spacer-only targets are not mismatches. Checking them
     // would flag every empty cell against a paragraph-based source (IDML,
@@ -161,8 +165,8 @@ export const compareHtmlStructure = (
         return { isMatch: true, errors: [] };
     }
 
-    const sourceSkeleton = extractHtmlSkeleton(normalizeForStructureComparison(sourceHtml));
-    const targetSkeleton = extractHtmlSkeleton(normalizeForStructureComparison(targetHtml));
+    const sourceSkeleton = extractHtmlSkeleton(normalizeForStructureComparison(sourceHtml, options));
+    const targetSkeleton = extractHtmlSkeleton(normalizeForStructureComparison(targetHtml, options));
     if (sourceSkeleton === targetSkeleton) {
         return { isMatch: true, errors: [] };
     }
@@ -278,60 +282,6 @@ export const convertBareSpanPairsToParagraphs = (html: string): string => {
 };
 
 /**
- * If the (trimmed) fragment is exactly one element wrapping all remaining
- * content, return its opening tag, tag name, and inner content; otherwise null.
- */
-const matchFullWrapper = (
-    html: string,
-): { openTag: string; tagName: string; inner: string } | null => {
-    const trimmed = html.trim();
-    const openMatch = /^<([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/.exec(trimmed);
-    if (!openMatch || openMatch[0].endsWith("/>")) return null;
-    const tagName = openMatch[1].toLowerCase();
-    if (isSelfClosing(tagName)) return null;
-    const closeTag = `</${tagName}>`;
-    if (!trimmed.toLowerCase().endsWith(closeTag)) return null;
-    const inner = trimmed.slice(openMatch[0].length, trimmed.length - closeTag.length);
-    // Reject when the closing tag at the end pairs with a nested opening tag
-    // rather than the leading one (e.g. `<p>a</p><p>b</p>`).
-    let depth = 0;
-    const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*\/?>/g;
-    let m: RegExpExecArray | null;
-    while ((m = tagRegex.exec(inner)) !== null) {
-        if (m[1].toLowerCase() !== tagName) continue;
-        if (m[0].startsWith("</")) {
-            depth--;
-            if (depth < 0) return null;
-        } else if (!m[0].endsWith("/>")) {
-            depth++;
-        }
-    }
-    return depth === 0 ? { openTag: openMatch[0], tagName, inner } : null;
-};
-
-/**
- * Peel off the chain of full-coverage wrapper elements accepted by `accept`,
- * outermost first. Returns the opening tags, matching closing tags (in
- * closing order), and the innermost content.
- */
-const peelWrapperChain = (
-    html: string,
-    accept: (openTag: string) => boolean,
-): { openTags: string[]; closeTags: string[]; inner: string } => {
-    const openTags: string[] = [];
-    const closeTags: string[] = [];
-    let inner = html;
-    let wrapper = matchFullWrapper(inner);
-    while (wrapper && accept(wrapper.openTag)) {
-        openTags.push(wrapper.openTag);
-        closeTags.unshift(`</${wrapper.tagName}>`);
-        inner = wrapper.inner;
-        wrapper = matchFullWrapper(inner);
-    }
-    return { openTags, closeTags, inner };
-};
-
-/**
  * Re-dress a target fragment with the source's exact wrapper chain: peel the
  * bare `<p>`/`<span>` wrappers the editor leaves behind (Quill drops inline
  * styles it has no registered format for, e.g. docx `<span style="font-family:
@@ -371,9 +321,18 @@ export const rewrapWithSourceWrappers = (
 export const tryDeterministicStructureFix = (
     sourceHtml: string,
     targetHtml: string,
+    options?: HtmlStructureOptions,
 ): string | null => {
-    if (compareHtmlStructure(sourceHtml, targetHtml).isMatch) return null;
-    const rewrapped = rewrapWithSourceWrappers(sourceHtml, targetHtml);
+    if (isEmptyOrPlaceholderHtml(targetHtml)) return null;
+    const docx = isDocxFormattingContext(options);
+    const formattingFix = docx ? restoreDocxFormatting(sourceHtml, targetHtml) : null;
+    if (formattingFix !== null && compareHtmlStructure(sourceHtml, formattingFix, options).isMatch) {
+        return formattingFix;
+    }
+    if (compareHtmlStructure(sourceHtml, targetHtml, options).isMatch) return null;
+    // DOCX uses the attribute-preserving repair above, never the generic
+    // source-wrapper replacement that can overwrite target presentation.
+    const rewrapped = docx ? null : rewrapWithSourceWrappers(sourceHtml, targetHtml);
     const candidates = [
         // Preferred: re-dressing with the source's verbatim wrappers keeps the
         // source's attributes (styles, data-style-id) for round-trip export.
@@ -387,9 +346,23 @@ export const tryDeterministicStructureFix = (
         `<p>${targetHtml}</p>`,
     ];
     for (const candidate of candidates) {
-        if (candidate !== targetHtml && compareHtmlStructure(sourceHtml, candidate).isMatch) {
+        if (candidate !== targetHtml && compareHtmlStructure(sourceHtml, candidate, options).isMatch) {
             return candidate;
         }
     }
     return null;
+};
+
+/** Shared by cell warnings and Resolve All so attribute-only repairs are reachable. */
+export const getHtmlStructureRepairDiff = (
+    sourceHtml: string,
+    targetHtml: string,
+    options?: HtmlStructureOptions,
+): HtmlStructureDiff => {
+    const diff = compareHtmlStructure(sourceHtml, targetHtml, options);
+    if (!diff.isMatch || !isDocxFormattingContext(options)) return diff;
+    if (tryDeterministicStructureFix(sourceHtml, targetHtml, options) !== null) {
+        return { isMatch: false, errors: ["Missing DOCX formatting attributes"] };
+    }
+    return diff;
 };

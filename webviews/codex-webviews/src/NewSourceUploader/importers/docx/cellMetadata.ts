@@ -9,6 +9,9 @@ import { CodexCellTypes } from 'types/enums';
 import type { DocxParagraph, DocxDocument } from './docxTypes';
 import { v4 as uuidv4 } from 'uuid';
 
+/** Stable identifier for the paragraph coordinate system used by new imports. */
+export const DOCX_PARAGRAPH_MAPPING_VERSION = 'outermost-no-fallback-v1';
+
 /**
  * Parameters for creating DOCX cell metadata
  */
@@ -60,6 +63,7 @@ export function createDocxCellMetadata(params: DocxCellMetadataParams): { metada
         edits: [],
         paragraphId,
         paragraphIndex,
+        paragraphMappingVersion: DOCX_PARAGRAPH_MAPPING_VERSION,
 
         // Present only when the paragraph was split into multiple cells
         ...(segmentIndex !== undefined && { segmentIndex }),
@@ -110,6 +114,7 @@ export function createDocxTableCellMetadata(
         // but prefer `paragraphIndices` when present.
         paragraphIndex: firstParagraphIndex,
         paragraphIndices,
+        paragraphMappingVersion: DOCX_PARAGRAPH_MAPPING_VERSION,
 
         data: {
             originalText: originalContent,
