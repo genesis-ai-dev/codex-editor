@@ -34,6 +34,11 @@ import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolde
 import { MetadataManager } from "../../utils/metadataManager";
 import { openCodexDocumentWithSourcePair } from "../../utils/openCodexDocumentWithSourcePair";
 import type { ExistingImportPair } from "./updateExistingImport";
+import {
+    applyTranslationToNotebook,
+    describeTranslationImport,
+    needsBulkOverwriteConfirmation,
+} from "./translationWriteMerge";
 // import { parseRtfWithPandoc as parseRtfNode } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
 
 const execAsync = promisify(exec);
@@ -234,25 +239,34 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 } else if (message.command === "writeTranslation") {
                     const syncManager = SyncManager.getInstance();
                     syncManager.beginImportInProgress();
+                    let written = false;
                     try {
-                        await this.handleWriteTranslation(message as WriteTranslationMessage, token);
+                        written = await this.handleWriteTranslation(
+                            message as WriteTranslationMessage,
+                            token
+                        );
                     } finally {
                         syncManager.endImportInProgress();
                     }
 
-                    // Send success notification
-                    webviewPanel.webview.postMessage({
-                        command: "notification",
-                        type: "success",
-                        message: "Translation imported successfully!"
-                    });
+                    if (!written) {
+                        // The user declined a bulk overwrite; the file is untouched.
+                        webviewPanel.webview.postMessage({ command: "importCancelled" });
+                    } else {
+                        // Send success notification
+                        webviewPanel.webview.postMessage({
+                            command: "notification",
+                            type: "success",
+                            message: "Translation imported successfully!"
+                        });
 
-                    // Send updated inventory after successful translation import
-                    const inventory = await this.fetchProjectInventory();
-                    webviewPanel.webview.postMessage({
-                        command: "projectInventory",
-                        inventory: inventory,
-                    });
+                        // Send updated inventory after successful translation import
+                        const inventory = await this.fetchProjectInventory();
+                        webviewPanel.webview.postMessage({
+                            command: "projectInventory",
+                            inventory: inventory,
+                        });
+                    }
                 } else if (message.command === "importBookNames") {
                     // Handle book names import
                     const { xmlContent, nameType } = message;
@@ -695,11 +709,31 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         const targetContent = await vscode.workspace.fs.readFile(targetUri);
                         const targetNotebook = JSON.parse(new TextDecoder().decode(targetContent));
 
+                        // The .source cells carry the authoritative timings — target cells can be
+                        // damaged (e.g. by the pre-#1144 importer), so aligners need the source as
+                        // reference. Optional: a failure to read it must not block the import.
+                        let sourceCells: unknown[] = [];
+                        try {
+                            const sourceContent = await vscode.workspace.fs.readFile(
+                                vscode.Uri.file(sourceFilePath)
+                            );
+                            const sourceNotebook = JSON.parse(
+                                new TextDecoder().decode(sourceContent)
+                            );
+                            sourceCells = sourceNotebook.cells || [];
+                        } catch (sourceError) {
+                            console.warn(
+                                `[NEW SOURCE UPLOADER] Could not read source file for alignment context: ${sourceFilePath}`,
+                                sourceError
+                            );
+                        }
+
                         webviewPanel.webview.postMessage({
                             command: "targetFileContent",
                             sourceFilePath: sourceFilePath,
                             targetFilePath: targetFilePath,
                             targetCells: targetNotebook.cells || [],
+                            sourceCells,
                         });
                     } catch (error) {
                         console.error(`[NEW SOURCE UPLOADER] Error fetching target file for ${sourceFilePath}:`, error);
@@ -1821,164 +1855,85 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         await removeLocalizedBooksJson();
     }
 
+    /**
+     * Write an imported translation into its .codex file.
+     *
+     * Returns false when the user was asked to confirm a bulk overwrite and declined, in which case
+     * nothing was written.
+     */
     private async handleWriteTranslation(
         message: WriteTranslationMessage,
         token: vscode.CancellationToken
-    ): Promise<void> {
+    ): Promise<boolean> {
         try {
             const targetFileUri = vscode.Uri.file(message.targetFilePath);
             const existingContent = await vscode.workspace.fs.readFile(targetFileUri);
             const existingNotebook = JSON.parse(new TextDecoder().decode(existingContent));
 
-            // Build a map of aligned updates keyed by the TARGET cell's ID (not the imported content's ID)
-            const updatesMap = new Map<string, { alignedCell: any; updatedCell: any }>();
-            const paratextCells: Array<{ cell: any; parentId?: string }> = [];
-
-            let insertedCount = 0;
-            let skippedCount = 0;
-            let paratextCount = 0;
-            let childCellCount = 0;
-
-            for (const alignedCell of message.alignedContent) {
-                if (alignedCell.isParatext) {
-                    const paratextId = alignedCell.importedContent.id;
-                    const importedData = alignedCell.importedContent.data;
-                    const paratextData =
-                        typeof importedData === "object" && importedData !== null ? importedData : {};
-                    const paratextCell = {
-                        kind: 1,
-                        languageId: "html",
-                        value: alignedCell.importedContent.content,
-                        metadata: {
-                            type: CodexCellTypes.PARATEXT,
-                            id: paratextId,
-                            data: {
-                                ...paratextData,
-                                startTime: alignedCell.importedContent.startTime,
-                                endTime: alignedCell.importedContent.endTime,
-                            },
-                            parentId: alignedCell.importedContent.parentId,
-                        },
-                    };
-                    paratextCells.push({
-                        cell: paratextCell,
-                        parentId: alignedCell.importedContent.parentId,
-                    });
-                    paratextCount++;
-                } else if (alignedCell.notebookCell) {
-                    const targetId =
-                        alignedCell.notebookCell?.metadata?.id ?? alignedCell.importedContent.id;
-
-                    const existingCell = existingNotebook.cells.find(
-                        (c: any) => c.metadata?.id === targetId
-                    );
-
-                    // Never overwrite milestone cells — they are structural markers
-                    const isMilestone =
-                        existingCell?.metadata?.type === CodexCellTypes.MILESTONE ||
-                        alignedCell.notebookCell?.metadata?.type === CodexCellTypes.MILESTONE;
-                    if (isMilestone) {
-                        skippedCount++;
-                        continue;
-                    }
-
-                    const existingValue = existingCell?.value ?? alignedCell.notebookCell.value ?? "";
-
-                    if (existingValue && existingValue.trim() !== "") {
-                        updatesMap.set(targetId, {
-                            alignedCell,
-                            updatedCell: existingCell || alignedCell.notebookCell,
-                        });
-                        skippedCount++;
-                    } else {
-                        const updatedCell = {
-                            kind: 1,
-                            languageId: "html",
-                            value: alignedCell.importedContent.content,
-                            metadata: {
-                                ...(existingCell?.metadata ?? alignedCell.notebookCell.metadata),
-                                type: CodexCellTypes.TEXT,
-                                id: targetId,
-                                data: {
-                                    ...(existingCell?.metadata?.data ??
-                                        alignedCell.notebookCell.metadata?.data),
-                                    startTime: alignedCell.importedContent.startTime,
-                                    endTime: alignedCell.importedContent.endTime,
-                                },
-                            },
-                        };
-                        updatesMap.set(targetId, { alignedCell, updatedCell });
-
-                        if (alignedCell.isAdditionalOverlap) {
-                            childCellCount++;
-                        } else {
-                            insertedCount++;
-                        }
-                    }
+            const { updatedNotebook, stats, overwriteRisk } = applyTranslationToNotebook(
+                existingNotebook,
+                message.alignedContent as any,
+                {
+                    importerType: message.importerType,
+                    sourceFilePath: message.sourceFilePath,
                 }
-            }
+            );
 
-            // Preserve original notebook cell order: iterate existing cells, apply updates in-place
-            const newCells: any[] = [];
-            const usedCellIds = new Set<string>();
-
-            for (const cell of existingNotebook.cells) {
-                const cellId = cell.metadata?.id;
-                if (cellId && updatesMap.has(cellId)) {
-                    newCells.push(updatesMap.get(cellId)!.updatedCell);
-                    usedCellIds.add(cellId);
-                } else {
-                    newCells.push(cell);
-                    if (cellId) {
-                        usedCellIds.add(cellId);
-                    }
+            // Importing the wrong file aligns by timestamp just as neatly as the right one, and it
+            // would replace the whole translation with nothing but a cheerful count to show for it.
+            if (needsBulkOverwriteConfirmation(stats, overwriteRisk)) {
+                // If this ever fires on a file the user believes is correct, these samples are what
+                // tells us whether the differences are real edits or an external editor rewriting
+                // characters that render identically.
+                const samples: string[] = [];
+                const before = new Map<string, string>(
+                    (existingNotebook.cells ?? [])
+                        .filter((c: any) => typeof c?.metadata?.id === "string")
+                        .map((c: any) => [c.metadata.id as string, (c.value ?? "") as string])
+                );
+                for (const cell of updatedNotebook.cells) {
+                    if (samples.length >= 3) break;
+                    const id = cell.metadata?.id;
+                    if (typeof id !== "string") continue;
+                    const old = before.get(id);
+                    if (old === undefined || old === cell.value || !old.trim()) continue;
+                    samples.push(`  ${id}\n    was: ${JSON.stringify(old)}\n    now: ${JSON.stringify(cell.value)}`);
                 }
+                console.log(
+                    `[NEW SOURCE UPLOADER] Bulk overwrite confirmation for ${message.sourceFilePath}: ` +
+                    `${stats.updatedCount} of ${overwriteRisk.populatedCellCount} populated cells would be ` +
+                    `replaced, 0 matched by id. Sample replacements:\n${samples.join("\n")}`
+                );
 
-                // Insert paratext cells that reference this cell as their parent
-                if (cellId) {
-                    const childParatexts = paratextCells.filter((p) => p.parentId === cellId);
-                    for (const pt of childParatexts) {
-                        newCells.push(pt.cell);
-                    }
-                }
-            }
-
-            // Append paratext cells without a parent (or whose parent wasn't found)
-            for (const pt of paratextCells) {
-                const alreadyInserted =
-                    pt.parentId && newCells.some((c) => c.metadata?.id === pt.cell.metadata?.id);
-                if (!alreadyInserted) {
-                    newCells.push(pt.cell);
-                }
-            }
-
-            const updatedNotebook = {
-                ...existingNotebook,
-                cells: newCells,
-                metadata: {
-                    ...existingNotebook.metadata,
-                    importerType: message.importerType || existingNotebook.metadata?.importerType,
-                    importTimestamp: new Date().toISOString(),
-                    importContext: {
-                        ...(existingNotebook.metadata?.importContext ?? {}),
-                        lastTranslationImport: {
-                            importerType: message.importerType,
-                            timestamp: new Date().toISOString(),
-                            sourceFilePath: message.sourceFilePath,
-                            stats: { insertedCount, skippedCount, paratextCount, childCellCount },
-                        },
+                const fileName = path.basename(message.targetFilePath);
+                const choice = await vscode.window.showWarningMessage(
+                    `This import would replace ${stats.updatedCount} existing translations in ${fileName}.`,
+                    {
+                        modal: true,
+                        detail:
+                            `Nothing in "${path.basename(message.sourceFilePath)}" matched a cell by id, so this file is ` +
+                            `not an export of this project, and it would rewrite ${stats.updatedCount} of the ` +
+                            `${overwriteRisk.populatedCellCount} cells that already hold a translation.\n\n` +
+                            `If this is the corrected file you meant to import, go ahead. If it belongs to a ` +
+                            `different project or episode, cancel — the existing translations stay as they are.`,
                     },
-                },
-            };
+                    "Replace Translations"
+                );
+                if (choice !== "Replace Translations") {
+                    vscode.window.showInformationMessage(
+                        "Translation import cancelled. Nothing was changed."
+                    );
+                    return false;
+                }
+            }
 
             await vscode.workspace.fs.writeFile(
                 targetFileUri,
                 Buffer.from(formatJsonForNotebookFile(updatedNotebook))
             );
 
-            vscode.window.showInformationMessage(
-                `Translation imported: ${insertedCount} translations, ${paratextCount} paratext cells, ${childCellCount} child cells, ${skippedCount} skipped.`
-            );
+            vscode.window.showInformationMessage(describeTranslationImport(stats));
+            return true;
         } catch (error) {
             console.error("Error in translation import:", error);
             throw error;

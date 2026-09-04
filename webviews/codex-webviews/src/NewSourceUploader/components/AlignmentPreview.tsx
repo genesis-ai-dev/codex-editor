@@ -64,14 +64,26 @@ export const AlignmentPreview: React.FC<AlignmentPreviewProps> = ({
     const [selectedAlignmentMethod, setSelectedAlignmentMethod] = useState<string>("current");
 
     // Calculate statistics
-    const matchedCount = alignedCells.filter((c) => c.notebookCell && !c.isParatext).length;
+    // Additional overlaps are folded into the cell they overlap rather than becoming cells of
+    // their own, and pass-throughs are cells nothing was imported onto, so counting either here
+    // would promise more cells than the import produces.
+    const realMatches = alignedCells.filter(
+        (c) => c.notebookCell && !c.isParatext && !c.isAdditionalOverlap && !c.isPassThrough
+    );
+    const matchedCount = realMatches.length;
     const paratextCount = alignedCells.filter((c) => c.isParatext).length;
     const additionalOverlapCount = alignedCells.filter((c) => c.isAdditionalOverlap).length;
+    // Averaged over the cells that were actually matched. Including paratext (always 0) and
+    // untouched pass-throughs dragged the figure toward whatever the file failed to align.
+    const scored = realMatches.filter((c) => typeof c.confidence === "number");
     const averageConfidence =
-        alignedCells.length > 0
-            ? alignedCells.reduce((sum, cell) => sum + (cell.confidence || 0), 0) /
-              alignedCells.length
+        scored.length > 0
+            ? scored.reduce((sum, cell) => sum + (cell.confidence || 0), 0) / scored.length
             : 0;
+    // Matching clocks says nothing about whether the words correspond, so a timestamp-aligned
+    // import reports timing fit rather than claiming a confidence it cannot support.
+    const scoresAreTimingFit =
+        scored.length > 0 && scored.every((c) => c.alignmentMethod === "timestamp");
 
     // Determine if alignment looks good or needs improvement
     const alignmentQuality =
@@ -110,14 +122,15 @@ export const AlignmentPreview: React.FC<AlignmentPreviewProps> = ({
         }
     };
 
-    const getConfidenceBadge = (confidence?: number) => {
+    const getConfidenceBadge = (confidence?: number, method?: string) => {
         if (confidence === undefined) return null;
         const level = confidence >= 0.8 ? "high" : confidence >= 0.5 ? "medium" : "low";
         const variant =
             level === "high" ? "default" : level === "medium" ? "secondary" : "destructive";
         return (
             <Badge variant={variant} className="text-xs">
-                {Math.round(confidence * 100)}% confidence
+                {Math.round(confidence * 100)}%{" "}
+                {method === "timestamp" ? "timing fit" : "confidence"}
             </Badge>
         );
     };
@@ -219,7 +232,9 @@ export const AlignmentPreview: React.FC<AlignmentPreviewProps> = ({
                             <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
                                 {Math.round(averageConfidence * 100)}%
                             </p>
-                            <p className="text-sm text-muted-foreground">Avg Confidence</p>
+                            <p className="text-sm text-muted-foreground">
+                                {scoresAreTimingFit ? "Avg Timing Fit" : "Avg Confidence"}
+                            </p>
                         </div>
                     </div>
 
@@ -281,7 +296,10 @@ export const AlignmentPreview: React.FC<AlignmentPreviewProps> = ({
                     <ScrollArea className="h-[400px] w-full rounded-md border p-4">
                         <div className="space-y-2">
                             {alignedCells
-                                .filter((cell) => cell.notebookCell && !cell.isParatext)
+                                .filter(
+                                    (cell) =>
+                                        cell.notebookCell && !cell.isParatext && !cell.isPassThrough
+                                )
                                 .map((cell, index) => (
                                     <Card key={index} className="p-3">
                                         <div className="flex items-start gap-3">
@@ -292,7 +310,7 @@ export const AlignmentPreview: React.FC<AlignmentPreviewProps> = ({
                                                         {cell.importedContent.id}
                                                     </Badge>
                                                     {getAlignmentMethodBadge(cell.alignmentMethod)}
-                                                    {getConfidenceBadge(cell.confidence)}
+                                                    {getConfidenceBadge(cell.confidence, cell.alignmentMethod)}
                                                     {cell.importedContent.startTime &&
                                                         cell.importedContent.endTime && (
                                                             <Badge
@@ -354,7 +372,7 @@ export const AlignmentPreview: React.FC<AlignmentPreviewProps> = ({
                                                         {cell.importedContent.id}
                                                     </Badge>
                                                     {getAlignmentMethodBadge(cell.alignmentMethod)}
-                                                    {getConfidenceBadge(cell.confidence)}
+                                                    {getConfidenceBadge(cell.confidence, cell.alignmentMethod)}
                                                 </div>
                                                 <p className="text-sm">
                                                     {cell.importedContent.content}
@@ -391,13 +409,29 @@ export const AlignmentPreview: React.FC<AlignmentPreviewProps> = ({
                                                     {cell.importedContent.id}
                                                 </Badge>
                                                 {getAlignmentMethodBadge(cell.alignmentMethod)}
-                                                {getConfidenceBadge(cell.confidence)}
+                                                {getConfidenceBadge(cell.confidence, cell.alignmentMethod)}
                                                 {cell.isParatext && (
                                                     <Badge
                                                         variant="destructive"
                                                         className="text-xs"
                                                     >
                                                         Paratext
+                                                    </Badge>
+                                                )}
+                                                {cell.isPassThrough && (
+                                                    <Badge
+                                                        variant="outline"
+                                                        className="text-xs"
+                                                    >
+                                                        Kept as-is
+                                                    </Badge>
+                                                )}
+                                                {cell.isAdditionalOverlap && (
+                                                    <Badge
+                                                        variant="secondary"
+                                                        className="text-xs"
+                                                    >
+                                                        Merged into cell above
                                                     </Badge>
                                                 )}
                                             </div>

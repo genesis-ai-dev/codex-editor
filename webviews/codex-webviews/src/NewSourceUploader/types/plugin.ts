@@ -42,6 +42,8 @@ export interface ImportedContent {
     startTime?: number;
     endTime?: number;
     edits?: any[];
+    /** The cell this content belongs under: its parent for paratext and additional overlaps. */
+    parentId?: string;
     [key: string]: any; // Allow additional metadata
 }
 
@@ -53,8 +55,19 @@ export interface AlignedCell {
     importedContent: ImportedContent;
     isParatext?: boolean;
     isAdditionalOverlap?: boolean;
+    /**
+     * An existing target cell echoed back untouched because nothing was imported onto it. It is
+     * not an alignment: it carries the cell's own content, nothing is written for it, and it must
+     * not be counted among the matches or the confidence scores.
+     */
+    isPassThrough?: boolean;
     alignmentMethod?: 'exact-id' | 'sequential' | 'custom' | 'timestamp' | 'manual';
-    confidence?: number; // 0-1 score for alignment confidence
+    /**
+     * 0-1. For a `timestamp` match this is how completely the cue's time range and the cell's
+     * coincide (intersection over union) — the preview shows it as "timing fit", since matching
+     * clocks is not evidence about the text. Other methods report alignment confidence.
+     */
+    confidence?: number;
 }
 
 /**

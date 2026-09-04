@@ -17,6 +17,7 @@ import {
     migration_verseRangeLabelsAndPositions,
     migration_recoverMissingMergedChildren,
     migration_repairVerseRangeDuplication,
+    migration_repairSubtitleOverlapOverwrite,
     migration_cellIdsToUuid,
     migration_recoverTempFilesAndMergeDuplicates,
     mergeDuplicateCellsAcrossWorkspace,
@@ -1217,6 +1218,26 @@ export async function activate(context: vscode.ExtensionContext) {
                     console.error("Verse-range duplication repair failed:", error);
                     await vscode.window.showErrorMessage(
                         `Verse-range duplication repair failed: ${msg}`
+                    );
+                }
+            }
+        )
+    );
+
+    // Command: Repair subtitle cells overwritten by a sub-cue (one-off recovery for issue #1144 —
+    // a target import let the last overlapping cue replace a cell's translation and timestamps;
+    // idempotent and prompts before writing).
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.repairSubtitleOverlapOverwrite",
+            async () => {
+                try {
+                    await migration_repairSubtitleOverlapOverwrite();
+                } catch (error) {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    console.error("Subtitle sub-cue overwrite repair failed:", error);
+                    await vscode.window.showErrorMessage(
+                        `Subtitle sub-cue overwrite repair failed: ${msg}`
                     );
                 }
             }

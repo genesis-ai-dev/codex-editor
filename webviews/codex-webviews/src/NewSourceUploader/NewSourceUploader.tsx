@@ -217,7 +217,7 @@ const NewSourceUploader: React.FC = () => {
 
                             aligner(
                                 response.targetCells,
-                                [],
+                                response.sourceCells ?? [],
                                 request.importedContent
                             )
                                 .then((alignedCells) => {
