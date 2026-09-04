@@ -17,3 +17,10 @@ export interface ConflictFile {
     isDeleted: boolean;
     isNew: boolean;
 }
+
+/** Commits whose contents Frontier used to produce a conflict list. */
+export interface MergeSnapshot {
+    localHead: string;
+    remoteHead: string;
+    baseHead?: string;
+}

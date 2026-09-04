@@ -296,6 +296,100 @@ suite("Media strategy: video preserve/erase rules", () => {
             removeTempDir(tempDir);
         }
     });
+
+    test("post-sync cleanup filters correct pointer stubs out of an empty-upload compatibility pass", async function () {
+        this.timeout(15000);
+        const { tempDir, filesPath, pointersPath } = setup();
+        const { findRealMediaFiles, postSyncCleanup } = await import("../../../utils/mediaStrategyManager");
+        const { isPointerFile } = await import("../../../utils/lfsHelpers");
+        const { setMediaFilesStrategy } = await import("../../../utils/localProjectSettings");
+
+        try {
+            const realBytes = Buffer.alloc(2048, 7);
+            const pointer = makePointer(realBytes.length);
+            fs.writeFileSync(pointersPath("already-clean.mp4"), pointer, "utf8");
+            fs.writeFileSync(filesPath("already-clean.mp4"), pointer, "utf8");
+            fs.writeFileSync(pointersPath("needs-cleanup.mp4"), pointer, "utf8");
+            fs.writeFileSync(filesPath("needs-cleanup.mp4"), realBytes);
+            const projectUri = vscode.Uri.file(tempDir);
+            await setMediaFilesStrategy("stream-only", projectUri);
+
+            assert.deepStrictEqual(
+                await findRealMediaFiles(path.join(tempDir, ".project", "attachments", "files")),
+                [path.join(BOOK, "needs-cleanup.mp4")],
+                "the compatibility pass must exclude existing pointer stubs"
+            );
+
+            await postSyncCleanup(projectUri, []);
+
+            assert.strictEqual(
+                await isPointerFile(filesPath("already-clean.mp4")),
+                true,
+                "an existing pointer must remain intact"
+            );
+            assert.strictEqual(
+                await isPointerFile(filesPath("needs-cleanup.mp4")),
+                true,
+                "real media left by a project swap must still be cleaned"
+            );
+        } finally {
+            removeTempDir(tempDir);
+        }
+    });
+
+    test("post-sync cleanup retains the legacy scan when upload information is omitted", async function () {
+        this.timeout(15000);
+        const { tempDir, filesPath, pointersPath } = setup();
+        const { postSyncCleanup } = await import("../../../utils/mediaStrategyManager");
+        const { isPointerFile } = await import("../../../utils/lfsHelpers");
+        const { setMediaFilesStrategy } = await import("../../../utils/localProjectSettings");
+
+        try {
+            const realBytes = Buffer.alloc(2048, 7);
+            fs.writeFileSync(pointersPath("legacy.mp4"), makePointer(realBytes.length), "utf8");
+            fs.writeFileSync(filesPath("legacy.mp4"), realBytes);
+            const projectUri = vscode.Uri.file(tempDir);
+            await setMediaFilesStrategy("stream-only", projectUri);
+
+            await postSyncCleanup(projectUri);
+
+            assert.strictEqual(
+                await isPointerFile(filesPath("legacy.mp4")),
+                true,
+                "an older Frontier response must retain the full safety cleanup"
+            );
+        } finally {
+            removeTempDir(tempDir);
+        }
+    });
+
+    test("post-sync cleanup still pointerizes files explicitly reported as uploaded", async function () {
+        this.timeout(15000);
+        const { tempDir, filesPath, pointersPath } = setup();
+        const { postSyncCleanup } = await import("../../../utils/mediaStrategyManager");
+        const { isPointerFile } = await import("../../../utils/lfsHelpers");
+        const { setMediaFilesStrategy } = await import("../../../utils/localProjectSettings");
+
+        try {
+            const realBytes = Buffer.alloc(2048, 7);
+            fs.writeFileSync(pointersPath("uploaded.mp4"), makePointer(realBytes.length), "utf8");
+            fs.writeFileSync(filesPath("uploaded.mp4"), realBytes);
+            const projectUri = vscode.Uri.file(tempDir);
+            await setMediaFilesStrategy("stream-only", projectUri);
+
+            await postSyncCleanup(projectUri, [
+                path.join(".project", "attachments", "pointers", BOOK, "uploaded.mp4"),
+            ]);
+
+            assert.strictEqual(
+                await isPointerFile(filesPath("uploaded.mp4")),
+                true,
+                "newly uploaded media must still be replaced by its pointer"
+            );
+        } finally {
+            removeTempDir(tempDir);
+        }
+    });
 });
 
 /**

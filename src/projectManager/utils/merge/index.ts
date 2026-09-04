@@ -17,7 +17,6 @@ import * as dugiteGit from "../../../utils/dugiteGit";
 import { resolveConflictFiles } from "./resolvers";
 import { restoreContentFilesMissingWithoutTombstone } from "./fileDeletionGuard";
 import { getAuthApi } from "../../../extension";
-import { ConflictFile } from "./types";
 import { getFrontierVersionStatus } from "../../utils/versionChecks";
 import { migration_recoverTempFilesAndMergeDuplicates } from "../migrationUtils";
 import {
@@ -198,30 +197,18 @@ export async function stageAndCommitAllAndSync(
             return syncResult;
         }
 
-        // Invariant (issue #991): every remote-changed file MUST appear in the
-        // conflict list — proceeding otherwise would create a merge commit
-        // missing those files. Unlike the old diagnostic, this checks ALL
-        // paths, not just `.codex`, because the gan-ji-an regression involved
-        // .webm pointer files too. On early attempts a mismatch throws a
-        // TransientSyncError so the retry layer below refetches; on the FINAL
-        // attempt the missing paths are synthesized from local git state and
-        // merged normally, so a persistent upstream mismatch degrades to a
-        // normal merge instead of a permanent sync outage. See
-        // enforceConflictListInvariant for the full decision logic.
+        // Frontier owns the Git trees and index. If its diagnostics and
+        // conflict list disagree, retry after a fresh sync but never synthesize
+        // conflicts in Codex from diagnostic paths alone.
         const conflictsArr = Array.isArray(conflictsResponse?.conflicts)
             ? (conflictsResponse.conflicts as Array<{ filepath?: string; }>)
             : [];
         const remoteChanged = conflictsResponse?.remoteChangedFilePaths;
-        const allChanged = conflictsResponse?.allChangedFilePaths;
-        const synthesizedConflicts: ConflictFile[] = await enforceConflictListInvariant({
+        await enforceConflictListInvariant({
             conflicts: conflictsArr,
-            changedPaths: Array.isArray(remoteChanged)
-                ? remoteChanged
-                : Array.isArray(allChanged)
-                    ? allChanged
-                    : [],
-            retryCount,
-            workspaceDir: workspaceFolder,
+            // allChangedFilePaths also contains local-only paths, so it is not
+            // a valid substitute for this invariant on older Frontier APIs.
+            changedPaths: Array.isArray(remoteChanged) ? remoteChanged : [],
         });
 
         // Capture uploaded LFS files from the sync operation
@@ -229,8 +216,8 @@ export async function stageAndCommitAllAndSync(
             syncResult.uploadedLfsFiles = conflictsResponse.uploadedLfsFiles;
         }
 
-        if (conflictsResponse?.hasConflicts || synthesizedConflicts.length > 0) {
-            const conflicts = [...(conflictsResponse.conflicts || []), ...synthesizedConflicts];
+        if (conflictsResponse?.hasConflicts) {
+            const conflicts = conflictsResponse.conflicts || [];
             debug(`🔧 Processing ${conflicts.length} file conflicts from git sync...`);
 
             // Track which files are being modified
@@ -300,33 +287,38 @@ export async function stageAndCommitAllAndSync(
                 ));
             }
 
-            if (resolvedFiles.length > 0) {
-                try {
-                    await authApi.completeMerge(resolvedFiles, undefined);
-                    debug(`✅ Resolved ${resolvedFiles.length} file conflicts`);
-                } catch (completeMergeError) {
-                    const errorMessage = completeMergeError instanceof Error ? completeMergeError.message : String(completeMergeError);
-                    debug("completeMerge error:", errorMessage);
+            // A divergent history still needs a merge commit when Frontier has
+            // already applied every one-sided change and no files need Codex
+            // resolution. Skipping completeMerge would repeat the same sync.
+            try {
+                await authApi.completeMerge(
+                    resolvedFiles,
+                    undefined,
+                    conflictsResponse.mergeSnapshot
+                );
+                debug(`✅ Resolved ${resolvedFiles.length} file conflicts`);
+            } catch (completeMergeError) {
+                const errorMessage = completeMergeError instanceof Error ? completeMergeError.message : String(completeMergeError);
+                debug("completeMerge error:", errorMessage);
 
-                    // Use the shared classifier so completeMerge retries stay aligned
-                    // with the outer transient-error policy (single source of truth).
-                    if (isRetriableSyncError(completeMergeError) && retryCount < 3) {
-                        debug(`⚠️ Transient completeMerge failure, retrying... (attempt ${retryCount + 1}/3)`);
+                // Use the shared classifier so completeMerge retries stay aligned
+                // with the outer transient-error policy (single source of truth).
+                if (isRetriableSyncError(completeMergeError) && retryCount < 3) {
+                    debug(`⚠️ Transient completeMerge failure, retrying... (attempt ${retryCount + 1}/3)`);
 
-                        const backoffMs = 5 * Math.pow(2, retryCount) * 1000;
-                        debug(`⏳ Waiting ${backoffMs / 1000} seconds before retrying...`);
-                        await new Promise(resolve => setTimeout(resolve, backoffMs));
+                    const backoffMs = 5 * Math.pow(2, retryCount) * 1000;
+                    debug(`⏳ Waiting ${backoffMs / 1000} seconds before retrying...`);
+                    await new Promise(resolve => setTimeout(resolve, backoffMs));
 
-                        return stageAndCommitAllAndSync(commitMessage, showCompletionMessage, retryCount + 1);
-                    }
-
-                    if (retryCount >= 3) {
-                        vscode.window.showErrorMessage(
-                            `Sync couldn't complete after multiple attempts. Please check your internet connection and try again.`
-                        );
-                    }
-                    throw completeMergeError;
+                    return stageAndCommitAllAndSync(commitMessage, showCompletionMessage, retryCount + 1);
                 }
+
+                if (retryCount >= 3) {
+                    vscode.window.showErrorMessage(
+                        `Sync couldn't complete after multiple attempts. Please check your internet connection and try again.`
+                    );
+                }
+                throw completeMergeError;
             }
         }
 
