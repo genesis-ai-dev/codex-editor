@@ -4,6 +4,7 @@ import { CodexCellTypes } from "../../types/enums";
 import { readCodexNotebookFromUri, getActiveCells, isContentCellType, getVerseMarkerForCell } from "./exportHandlerUtils";
 import type { ExportOptions } from "./exportHandler";
 import type { ExportProgressReporter } from "./exportProgress";
+import { toExportFileBaseName } from "./exportFileNameUtils";
 
 /** Verse ref regex: "1TH 1:1", "GEN 1:1", etc. */
 const VERSE_REF_REGEX = /\b[A-Z0-9]{2,4}\s+\d+:\d+\b/;
@@ -185,7 +186,9 @@ export async function exportCodexContentAsHtml(
             debug(`Processing file: ${file.fsPath}`);
 
                     const bookCode =
-                        basename(file.fsPath).split(".")[0] || "export";
+                        toExportFileBaseName(
+                            basename(file.fsPath).split(".")[0] || "export"
+                        );
 
                     // Create a subfolder per book for cleaner output
                     const exportFolder = vscode.Uri.joinPath(

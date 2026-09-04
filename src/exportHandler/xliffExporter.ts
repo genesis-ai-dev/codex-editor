@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { basename } from "path";
 import { CodexNotebookAsJSONData } from "../../types";
 import { readCodexNotebookFromUri, getActiveCells, isContentCellType } from "./exportHandlerUtils";
+import { toExportFileName } from "./exportFileNameUtils";
 import type { ExportOptions } from "./exportHandler";
 import type { ExportProgressReporter } from "./exportProgress";
 
@@ -187,10 +188,7 @@ export async function exportCodexContentAsXliff(
     </file>
 </xliff>`;
 
-            const timestamp = new Date()
-                .toISOString()
-                .replace(/[:.]/g, "-");
-            const exportFileName = `${fileBaseName}_${timestamp}.xliff`;
+            const exportFileName = toExportFileName(fileBaseName, ".xliff");
             const exportFile = vscode.Uri.joinPath(
                 exportFolder,
                 exportFileName

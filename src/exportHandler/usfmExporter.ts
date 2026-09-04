@@ -4,6 +4,7 @@ import * as grammar from "usfm-grammar";
 import { CodexCellTypes } from "../../types/enums";
 import { readCodexNotebookFromUri, getActiveCells, isContentCellType } from "./exportHandlerUtils";
 import { buildUsfmBody } from "./usfmBodyBuilder";
+import { toExportFileName } from "./exportFileNameUtils";
 import type { ExportOptions } from "./exportHandler";
 import type { ExportProgressReporter } from "./exportProgress";
 
@@ -294,10 +295,7 @@ export async function exportCodexContentAsUsfm(
                     }
                 }
 
-                const timestamp = new Date()
-                    .toISOString()
-                    .replace(/[:.]/g, "-");
-                const exportFileName = `${bookCode}_${timestamp}.usfm`;
+                const exportFileName = toExportFileName(bookCode, ".usfm");
                 const exportFile = vscode.Uri.joinPath(
                     exportFolder,
                     exportFileName

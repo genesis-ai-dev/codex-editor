@@ -10,7 +10,6 @@ import { getFFmpegPath } from "../utils/ffmpegManager";
 import { EditMapUtils } from "../utils/editMapUtils";
 import {
     sanitizeFileComponent,
-    getTargetLanguageCode,
     pickAudioAttachmentForCell,
     readNotebook,
     getAudioExporterContext,
@@ -22,6 +21,7 @@ import {
     type FrontierLfsApi,
 } from "./audioExporter";
 import { isExportableCell } from "./audioAttachmentUtils";
+import { toExportFileBaseName } from "./exportFileNameUtils";
 import { buildMilestoneIndexModel } from "../../sharedUtils/milestoneIndexUtils";
 import type { ExportProgressReporter } from "./exportProgress";
 import { createNoopReporter } from "./exportProgress";
@@ -507,11 +507,10 @@ export async function exportAudioByCharacter(
 
             if (token?.isCancellationRequested) break;
 
-            const bookFolder = vscode.Uri.joinPath(exportDir, sanitizeFileComponent(fileBase));
+            const exportFileBase = toExportFileBaseName(fileBase);
+            const safeFileBase = sanitizeFileComponent(exportFileBase);
+            const bookFolder = vscode.Uri.joinPath(exportDir, safeFileBase);
             await vscode.workspace.fs.createDirectory(bookFolder);
-
-            const langCode = getTargetLanguageCode();
-            const safeFileBase = sanitizeFileComponent(fileBase);
 
             const groupEntries = [...groups.entries()];
             for (let gi = 0; gi < groupEntries.length; gi++) {
@@ -543,7 +542,7 @@ export async function exportAudioByCharacter(
                 // don't bloat the file. Files still start at 0 so they DAW-align.
                 const trimSec = computeTrimDurationSec(verified, episodeDurationSec);
 
-                const destName = `${safeFileBase}_${langCode}_${charKey}${ext}`;
+                const destName = `${safeFileBase}_${charKey}${ext}`;
                 const destUri = vscode.Uri.joinPath(bookFolder, destName);
 
                 reporter.report({

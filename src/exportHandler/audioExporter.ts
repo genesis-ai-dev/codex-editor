@@ -15,6 +15,12 @@ import { formatCellDisplayLabel } from "./cellLabelUtils";
 import { parseVerseRef } from "../utils/verseRefUtils";
 import { CodexCellTypes } from "../../types/enums";
 import { buildMilestoneIndexModel } from "../../sharedUtils/milestoneIndexUtils";
+import {
+    sanitizeFileComponent,
+    toExportFileBaseName,
+} from "./exportFileNameUtils";
+
+export { sanitizeFileComponent, getTargetLanguageCode } from "./exportFileNameUtils";
 
 const execAsync = promisify(exec);
 
@@ -56,13 +62,6 @@ type AudioCellData = {
     audioStartTime?: number;
     audioEndTime?: number;
 };
-
-export function sanitizeFileComponent(input: string): string {
-    return input
-        .replace(/\s+/g, "_")
-        .replace(/[^a-zA-Z0-9._-]/g, "-")
-        .replace(/_+/g, "_");
-}
 
 function sanitizeFolderName(input: string): string {
     return input
@@ -161,13 +160,6 @@ export function formatChapterVerseSuffix(chapter?: number, verse?: number, verse
 // `formatCellDisplayLabel` and `extractCellTextSnippet` were extracted to
 // `./cellLabelUtils.ts` so the export wizard's pre-flight scan can reuse the
 // same identifiers — see that file for the rules and rationale.
-
-export function getTargetLanguageCode(): string {
-    const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
-    const lang = projectConfig.get<any>("targetLanguage") || {};
-    const code: string = lang.tag || lang.refName || "lang";
-    return sanitizeFileComponent(String(code).toLowerCase());
-}
 
 /**
  * Builds a mapping from cell ID to its milestone folder name.
@@ -936,6 +928,7 @@ export async function exportAudioAttachments(
         });
 
         const bookCode = basename(file.fsPath).split(".")[0] || "BOOK";
+        const exportBookCode = toExportFileBaseName(bookCode);
         // Targeted retry: when set, only the listed cells in this file are
         // processed (and merged into the existing export folder).
         const retryFilter = options?.retryCellFilter?.get(file.fsPath);
@@ -968,7 +961,7 @@ export async function exportAudioAttachments(
         const cellMilestoneFolder = buildCellMilestoneMap(notebook.cells);
         const milestoneModel = buildMilestoneIndexModel(notebook.cells);
 
-        const bookFolder = vscode.Uri.joinPath(exportDir, sanitizeFileComponent(bookCode));
+        const bookFolder = vscode.Uri.joinPath(exportDir, sanitizeFileComponent(exportBookCode));
 
         // Count audio cells for per-book progress. Paratext and
         // milestone cells (e.g. chapter headers, intros) are not
@@ -1162,7 +1155,7 @@ export async function exportAudioAttachments(
                 ? vscode.Uri.joinPath(bookFolder, sanitizeFolderName(milestoneFolderName))
                 : bookFolder;
 
-            const baseSegments = [sanitizeFileComponent(bookCode)];
+            const baseSegments = [sanitizeFileComponent(exportBookCode)];
             if (cvSuffix) {
                 baseSegments.push(cvSuffix);
             } else {
