@@ -8,6 +8,11 @@ import { getAutoCompleteStatusBarItem } from "../../extension";
 import { tokenizeText } from "../../utils/nlpUtils";
 import { buildFewShotExamplesText, buildMessages, fetchFewShotExamples, getPrecedingTranslationPairs, parseFinalAnswer } from "./shared";
 import { abTestingRegistry } from "../../utils/abTestingRegistry";
+import {
+    buildIdmlStructuredResponseFormat,
+    extractIdmlStructuredSource,
+    reconstructIdmlTranslationHtml,
+} from "./idmlStructuredTranslation";
 
 // Helper function to build A/B test context object
 function buildABTestContext(
@@ -96,13 +101,18 @@ export interface LLMCompletionResult {
     generationId?: string;
 }
 
+export interface LLMCompletionOptions {
+    enforceHtmlStructure?: boolean;
+}
+
 export async function llmCompletion(
     currentNotebookReader: CodexNotebookReader, // FIXME: if we just read the file as CodexNotebookAsJSONData (or whatever it's called), we can speed this up a lot because the notebook deserializer is really slow
     currentCellId: string,
     completionConfig: CompletionConfig,
     token: vscode.CancellationToken,
     returnHTML: boolean = true,
-    isBatchOperation: boolean = false
+    isBatchOperation: boolean = false,
+    options: LLMCompletionOptions = {},
 ): Promise<LLMCompletionResult> {
     const { contextSize, numberOfFewShotExamples, debugMode, chatSystemMessage, fewShotExampleFormat } = completionConfig;
 
@@ -138,6 +148,29 @@ export async function llmCompletion(
             console.error(`[llmCompletion] No source content found for any of the cell IDs: ${currentCellIds.join(", ")}`);
             throw new Error(`No source content found for cell ${currentCellId}. The search index may be incomplete. Try running "Force Complete Rebuild" from the command palette.`);
         }
+
+        // Multi-segment IDML cells cannot usually be repaired from a single
+        // plain-text completion without a second LLM request. For enforced
+        // notebooks, translate the indexed text slots in one structured call
+        // and rebuild the exact source HTML locally. Keep all other source
+        // formats, merged/range cells, and single-segment cells on the existing
+        // path to minimize behavior changes.
+        const structuredSourceCandidate =
+            options.enforceHtmlStructure === true &&
+            returnHTML &&
+            currentCellIds.length === 1 &&
+            validSourceCells.length === 1
+                ? extractIdmlStructuredSource(
+                    validSourceCells[0]!.rawContent || validSourceCells[0]!.content || "",
+                )
+                : null;
+        const structuredSource =
+            structuredSourceCandidate && structuredSourceCandidate.segments.length > 1
+                ? structuredSourceCandidate
+                : null;
+        const promptAllowsHtml = structuredSource
+            ? false
+            : Boolean(completionConfig.allowHtmlPredictions);
 
         // Sanitize HTML content to extract plain text (handles transcription spans, etc.)
         const sanitizeHtmlContent = (html: string): string => {
@@ -196,7 +229,7 @@ export async function llmCompletion(
             currentCellId,
             currentCellIndex,
             contextSize,
-            Boolean(completionConfig.allowHtmlPredictions)
+            promptAllowsHtml
         );
 
         // Get the source and target languages
@@ -211,7 +244,7 @@ export async function llmCompletion(
             // Generate few-shot examples
             const fewShotExamples = buildFewShotExamplesText(
                 finalExamples, 
-                Boolean(completionConfig.allowHtmlPredictions), 
+                promptAllowsHtml,
                 fewShotExampleFormat || "source-and-target"
             );
             console.log(`[llmCompletion] Built few-shot examples text (${fewShotExamples.length} chars, format: ${fewShotExampleFormat}):`, fewShotExamples.substring(0, 200) + '...');
@@ -225,16 +258,19 @@ export async function llmCompletion(
                 fewShotExamples,
                 precedingTranslationPairs,
                 currentCellSourceContent,
-                Boolean(completionConfig.allowHtmlPredictions),
+                promptAllowsHtml,
                 fewShotExampleFormat || "source-and-target",
-                sourceLanguage
+                sourceLanguage,
+                structuredSource?.segments ?? null,
             );
 
             // Unified AB testing via registry with random test selection (global gating)
             // A/B testing is disabled during batch operations (chapter autocomplete, batch transcription)
             // to avoid interrupting the user with variant selection UI
             const extConfig = vscode.workspace.getConfiguration("codex-editor-extension");
-            const abEnabled = Boolean(extConfig.get("abTestingEnabled") ?? true) && !isBatchOperation;
+            const abEnabled = Boolean(extConfig.get("abTestingEnabled") ?? true) &&
+                !isBatchOperation &&
+                !structuredSource;
             const abProbabilityRaw = extConfig.get<number>("abTestingProbability");
             const abProbability = Math.max(0, Math.min(1, typeof abProbabilityRaw === "number" ? abProbabilityRaw : 0.01));
             const randomValue = Math.random();
@@ -298,8 +334,66 @@ export async function llmCompletion(
                 }
             }
 
-            // A/B testing not triggered (or failed): call LLM once, return two identical variants
-            const llmResult = await callLLM(messages, completionConfig, token);
+            if (structuredSource) {
+                try {
+                    const structuredResult = await callLLM(messages, completionConfig, token, {
+                        responseFormat: buildIdmlStructuredResponseFormat(structuredSource),
+                    });
+                    const reconstructedHtml = reconstructIdmlTranslationHtml(
+                        structuredSource,
+                        structuredResult.content,
+                    );
+                    const variants = [reconstructedHtml, reconstructedHtml];
+
+                    if (debugMode) {
+                        logDebugMessages(messages, structuredResult.content, variants);
+                    }
+
+                    return {
+                        variants,
+                        isABTest: false,
+                        generationId: structuredResult.generationId,
+                    };
+                } catch (error) {
+                    if (error instanceof vscode.CancellationError ||
+                        (error instanceof Error && (error.message.includes("Canceled") || error.name === "AbortError"))) {
+                        throw error;
+                    }
+                    // Compatibility fallback for providers that do not support
+                    // JSON schema responses, or for a malformed model response.
+                    // The existing generation + resolver path remains intact.
+                    console.warn(
+                        "[llmCompletion] Structured IDML translation failed; falling back to legacy completion",
+                        error,
+                    );
+                }
+            }
+
+            // A/B testing not triggered (or failed), or structured output was
+            // unavailable: call the established completion path.
+            const fallbackMessages = structuredSource
+                ? buildMessages(
+                    targetLanguage,
+                    chatSystemMessage,
+                    buildFewShotExamplesText(
+                        finalExamples,
+                        Boolean(completionConfig.allowHtmlPredictions),
+                        fewShotExampleFormat || "source-and-target",
+                    ),
+                    await getPrecedingTranslationPairs(
+                        currentNotebookReader,
+                        currentCellId,
+                        currentCellIndex,
+                        contextSize,
+                        Boolean(completionConfig.allowHtmlPredictions),
+                    ),
+                    currentCellSourceContent,
+                    Boolean(completionConfig.allowHtmlPredictions),
+                    fewShotExampleFormat || "source-and-target",
+                    sourceLanguage,
+                )
+                : messages;
+            const llmResult = await callLLM(fallbackMessages, completionConfig, token);
             const completion = llmResult.content;
             const allowHtml = Boolean(completionConfig.allowHtmlPredictions);
 
@@ -315,7 +409,7 @@ export async function llmCompletion(
             const variants = [singleVariant, singleVariant];
 
             if (debugMode) {
-                logDebugMessages(messages, completion, variants);
+                logDebugMessages(fallbackMessages, completion, variants);
             }
 
             return {

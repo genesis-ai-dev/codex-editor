@@ -1,6 +1,9 @@
 import OpenAI from "openai";
 import { ChatMessage } from "../../types";
-import { ChatCompletionMessageParam } from "openai/resources";
+import {
+    ChatCompletionCreateParamsNonStreaming,
+    ChatCompletionMessageParam,
+} from "openai/resources/chat/completions";
 import { getAuthApi } from "../extension";
 import * as vscode from "vscode";
 import { MetadataManager } from "./metadataManager";
@@ -19,10 +22,15 @@ export interface LLMCallResult {
     generationId?: string;
 }
 
+export interface LLMCallOptions {
+    responseFormat?: ChatCompletionCreateParamsNonStreaming["response_format"];
+}
+
 export async function callLLM(
     messages: ChatMessage[],
     config: CompletionConfig,
-    cancellationToken?: vscode.CancellationToken
+    cancellationToken?: vscode.CancellationToken,
+    options?: LLMCallOptions,
 ): Promise<LLMCallResult> {
     try {
         // Check for cancellation before starting
@@ -82,6 +90,18 @@ export async function callLLM(
                 throw new vscode.CancellationError();
             }
 
+            const request: ChatCompletionCreateParamsNonStreaming = {
+                model,
+                messages: messages as ChatCompletionMessageParam[],
+                // Let the server decide temperature for the default model.
+                ...(model.toLowerCase() === "default"
+                    ? {}
+                    : model.toLowerCase() === "gpt-5"
+                        ? { temperature: 1 }
+                        : { temperature: config.temperature }),
+                ...(options?.responseFormat ? { response_format: options.responseFormat } : {}),
+            };
+
             // Create an AbortController for the fetch request if cancellation token is provided
             let abortController: AbortController | undefined;
             if (cancellationToken) {
@@ -97,12 +117,7 @@ export async function callLLM(
 
                 // Wrap the completion call to ensure cleanup
                 try {
-                    const completion = await openai.chat.completions.create({
-                        model,
-                        messages: messages as ChatCompletionMessageParam[],
-                        // Let the server decide temperature for the default model.
-                        ...(model.toLowerCase() === "default" ? {} : (model.toLowerCase() === "gpt-5" ? { temperature: 1 } : { temperature: config.temperature })),
-                    }, {
+                    const completion = await openai.chat.completions.create(request, {
                         signal: abortController.signal
                     });
 
@@ -134,11 +149,7 @@ export async function callLLM(
                 }
             } else {
                 // No cancellation token provided, use the original logic
-                const completion = await openai.chat.completions.create({
-                    model,
-                    messages: messages as ChatCompletionMessageParam[],
-                    ...(model.toLowerCase() === "default" ? {} : (model.toLowerCase() === "gpt-5" ? { temperature: 1 } : { temperature: config.temperature })),
-                });
+                const completion = await openai.chat.completions.create(request);
 
                 if (
                     completion.choices &&
