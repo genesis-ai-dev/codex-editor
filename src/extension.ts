@@ -74,9 +74,23 @@ import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 import { initializeAudioExtractor } from "./utils/audioExtractor";
 import { initializeAudioExporter } from "./exportHandler/audioExporter";
-import { checkTools, getUnavailableTools } from "./utils/toolsManager";
-import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteToolMode, getAudioToolMode } from "./utils/toolPreferences";
+import {
+    checkTools,
+    getFallbackToolsNotice,
+    getToolsEligibleForOptimization,
+    getUnavailableTools,
+    type OptimizedToolKey,
+} from "./utils/toolsManager";
+import {
+    initToolPreferences,
+    resetTemporaryBuiltinModesOnStartup,
+    setNativeGitAvailable,
+    getGitToolMode,
+    getSqliteToolMode,
+    getAudioToolMode,
+} from "./utils/toolPreferences";
 import { downloadFFmpeg } from "./utils/ffmpegManager";
+import { updateNativeToolStatus } from "./utils/nativeToolStatus";
 import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
 // markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
@@ -222,6 +236,122 @@ let notebookMetadataManager: NotebookMetadataManager;
 let authApi: FrontierAPI | undefined;
 let savedTabLayout: any[] = [];
 const TAB_LAYOUT_KEY = "codexEditor.tabLayout";
+const FALLBACK_NOTICE_STATE_KEY = "codex.fallbackToolsNotice";
+const FALLBACK_NOTICE_DISMISSALS = 10;
+
+interface FallbackNoticeState {
+    fallbackSignature: string;
+    dismissalsRemaining: number;
+}
+
+async function prepareFallbackToolsNotice(
+    context: vscode.ExtensionContext,
+    toolCheckResult: Awaited<ReturnType<typeof checkTools>>,
+    projectLoadedSuccessfully: boolean,
+): Promise<string | null> {
+    if (!projectLoadedSuccessfully) {
+        return null;
+    }
+
+    const notice = getFallbackToolsNotice(toolCheckResult);
+    const storageLocation = context.globalStorageUri.fsPath;
+    const previousState = context.globalState.get<FallbackNoticeState>(FALLBACK_NOTICE_STATE_KEY);
+
+    if (!notice) {
+        await context.globalState.update(FALLBACK_NOTICE_STATE_KEY, undefined);
+        console.info(
+            `[FallbackToolsNotice] Cleared ${FALLBACK_NOTICE_STATE_KEY} in globalState ` +
+            `(global storage: ${storageLocation})`,
+        );
+        return null;
+    }
+
+    if (previousState?.fallbackSignature !== notice) {
+        const resetState: FallbackNoticeState = {
+            fallbackSignature: notice,
+            dismissalsRemaining: 0,
+        };
+        await context.globalState.update(FALLBACK_NOTICE_STATE_KEY, resetState);
+        console.info(
+            `[FallbackToolsNotice] Stored ${FALLBACK_NOTICE_STATE_KEY} in globalState ` +
+            `(global storage: ${storageLocation}): ${JSON.stringify(resetState)}`,
+        );
+        return notice;
+    }
+
+    if (previousState.dismissalsRemaining > 0) {
+        const nextState: FallbackNoticeState = {
+            ...previousState,
+            dismissalsRemaining: previousState.dismissalsRemaining - 1,
+        };
+        await context.globalState.update(FALLBACK_NOTICE_STATE_KEY, nextState);
+        console.info(
+            `[FallbackToolsNotice] Suppressed notice; stored ${FALLBACK_NOTICE_STATE_KEY} ` +
+            `(global storage: ${storageLocation}): ${JSON.stringify(nextState)}`,
+        );
+        return null;
+    }
+
+    console.info(
+        `[FallbackToolsNotice] Showing notice; stored ${FALLBACK_NOTICE_STATE_KEY} ` +
+        `(global storage: ${storageLocation}): ${JSON.stringify(previousState)}`,
+    );
+    return notice;
+}
+
+async function snoozeFallbackNotice(
+    context: vscode.ExtensionContext,
+    notice: string,
+): Promise<void> {
+    const state: FallbackNoticeState = {
+        fallbackSignature: notice,
+        dismissalsRemaining: FALLBACK_NOTICE_DISMISSALS,
+    };
+    await context.globalState.update(FALLBACK_NOTICE_STATE_KEY, state);
+    console.info(
+        `[FallbackToolsNotice] Snoozed for ${FALLBACK_NOTICE_DISMISSALS} restarts; stored ${FALLBACK_NOTICE_STATE_KEY} ` +
+        `(global storage: ${context.globalStorageUri.fsPath}): ${JSON.stringify(state)}`,
+    );
+}
+
+async function applyOptimizedTools(
+    context: vscode.ExtensionContext,
+    tools: OptimizedToolKey[],
+): Promise<void> {
+    if (tools.length === 0) {
+        return;
+    }
+
+    const { enableOptimizedTools } = await import("./utils/optimizedToolsManager");
+    const result = await enableOptimizedTools(context, getAuthApi(), tools);
+    const getToolLabel = (tool: OptimizedToolKey): string => ({
+        sqlite: "Search",
+        git: "Sync",
+        ffmpeg: "Audio",
+    }[tool]);
+    const enabled = result.enabled.map(getToolLabel).join(", ");
+    const failed = result.failed
+        .map(({ tool, reason }) => `${getToolLabel(tool)} (${reason})`)
+        .join(", ");
+
+    if (result.failed.length === 0 && result.enabled.length > 0) {
+        vscode.window.showInformationMessage(
+            `Optimized tools enabled for ${enabled}.`,
+        );
+        return;
+    }
+
+    if (result.enabled.length > 0) {
+        vscode.window.showWarningMessage(
+            `Optimized tools enabled for ${enabled}; could not enable ${failed}.`,
+        );
+        return;
+    }
+
+    vscode.window.showErrorMessage(
+        `Could not enable optimized tools: ${failed}.`,
+    );
+}
 
 // Helper to save tab layout and persist to globalState
 async function saveTabLayout(context: vscode.ExtensionContext) {
@@ -356,6 +486,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     initToolPreferences(context);
+    await resetTemporaryBuiltinModesOnStartup();
 
     // Clear the stream-only video session cache (stored outside the project) so
     // "Loaded" videos re-stream after a reload, like the in-memory audio cache.
@@ -615,7 +746,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Set up the SQLite backend.
         // Always try to load the native binary (so it's available if the user
-        // toggles back to "auto").  Then, if the preference is "builtin" OR if
+        // toggles back to "auto"). Then, if the preference is "builtin" OR if
         // native failed, also initialize fts5-sql-bundle so the active backend
         // is ready to go.
         const sqliteBinaryStart = globalThis.performance.now();
@@ -679,10 +810,23 @@ export async function activate(context: vscode.ExtensionContext) {
                 nativeSqliteAvailable: false,
                 ffmpeg: false,
                 platformUnsupported: { git: false, sqlite: false, ffmpeg: false },
+                nativePlatformSupported: { git: false, sqlite: false, ffmpeg: false },
             };
             unavailableTools = getUnavailableTools(toolCheckResult);
         }
         stepStart = trackTiming("Checking tool availability", toolCheckStart);
+
+        if (metadataExists && workspaceFolders?.[0]) {
+            try {
+                await updateNativeToolStatus(
+                    workspaceFolders[0].uri,
+                    toolCheckResult,
+                    authApi,
+                );
+            } catch (error) {
+                console.warn("[Extension] Could not update native tool status in metadata:", error);
+            }
+        }
 
         const toolState = (nativeAvailable: boolean, mode: string): string => {
             const forced = mode === "force-builtin";
@@ -966,11 +1110,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
         console.info(summaryMessage);
 
-        // Execute post-activation tasks
-        const postActivationStart = globalThis.performance.now();
-
-        await executeCommandsAfter(context);
-
         // Only run migrations in actual Codex projects — they write completion flags
         // to .vscode/settings.json even when no project files exist
         if (metadataExists) {
@@ -1010,6 +1149,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // After migrations complete, trigger sync directly
         // (All migrations have finished executing since they're awaited sequentially)
+        let projectLoadedSuccessfully = false;
         try {
             const hasCodexProject = await checkIfProjectIsInitialized();
             if (hasCodexProject) {
@@ -1071,11 +1211,21 @@ export async function activate(context: vscode.ExtensionContext) {
                         }
                     }
                 }
+                projectLoadedSuccessfully = true;
             }
         } catch (error) {
             console.error("❌ [POST-MIGRATIONS] Error triggering sync after migrations:", error);
         }
 
+        const fallbackToolsNotice = await prepareFallbackToolsNotice(
+            context,
+            toolCheckResult,
+            projectLoadedSuccessfully,
+        );
+        const optimizedToolKeys = getToolsEligibleForOptimization(toolCheckResult)
+            .filter((tool) => tool !== "git" || !!getAuthApi()?.retryGitBinaryDownload);
+        const postActivationStart = globalThis.performance.now();
+        await executeCommandsAfter(context, fallbackToolsNotice, optimizedToolKeys);
         trackTiming("Running Post-activation Tasks", postActivationStart);
 
         // Register update commands and check for updates (non-blocking)
@@ -1120,9 +1270,6 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor.advancedToolSettings", async () => {
             if (!toolsStatusProvider) {
-                vscode.window.showInformationMessage(
-                    "Open the Status panel first (Codex Editor: Status), then run this command."
-                );
                 return;
             }
             toolsStatusProvider.enableReinstallMode();
@@ -1489,7 +1636,9 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
 }
 
 async function executeCommandsAfter(
-    context: vscode.ExtensionContext
+    context: vscode.ExtensionContext,
+    fallbackToolsNotice: string | null,
+    optimizedToolKeys: OptimizedToolKey[],
 ) {
     try {
         // Update splash screen for post-activation tasks
@@ -1524,6 +1673,31 @@ async function executeCommandsAfter(
             .update("workbench.editor.showTabs", "multiple", true);
         // Restore tab layout after splash screen closes
         await restoreTabLayout(context);
+
+        if (fallbackToolsNotice) {
+            console.info("[Extension] Showing fallback tools startup notice:", fallbackToolsNotice);
+            const warningMessage = optimizedToolKeys.length > 0
+                ? vscode.window.showWarningMessage(
+                    fallbackToolsNotice,
+                    "Use Optimized Tools",
+                    "Don't show for 10 restarts",
+                    "Dismiss",
+                )
+                : vscode.window.showWarningMessage(
+                    fallbackToolsNotice,
+                    "Don't show for 10 restarts",
+                    "Dismiss",
+                );
+            void Promise.resolve(warningMessage).then(async (choice) => {
+                if (choice === "Use Optimized Tools") {
+                    await applyOptimizedTools(context, optimizedToolKeys);
+                } else if (choice === "Don't show for 10 restarts") {
+                    await snoozeFallbackNotice(context, fallbackToolsNotice);
+                }
+            }).catch((error: unknown) => {
+                console.warn("[FallbackToolsNotice] Could not process notification action:", error);
+            });
+        }
 
         // Check if we need to show the welcome view after initialization
         await showWelcomeViewIfNeeded();

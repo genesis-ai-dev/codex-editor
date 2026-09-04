@@ -29,12 +29,13 @@ interface ToolStatus {
      * replaced with a "Not available on this platform" indicator.
      */
     platformUnsupported: PlatformUnsupportedFlags;
+    nativePlatformSupported: PlatformUnsupportedFlags;
 }
 
 type ViewMode = "warnings" | "status";
-type AudioToolMode = "auto" | "builtin";
-type GitToolMode = "auto" | "builtin";
-type SqliteToolMode = "auto" | "builtin";
+type AudioToolMode = "auto" | "builtin" | "force-builtin";
+type GitToolMode = "auto" | "builtin" | "force-builtin";
+type SqliteToolMode = "auto" | "builtin" | "force-builtin";
 
 interface InitialState {
     status: ToolStatus;
@@ -52,6 +53,12 @@ const EMPTY_UNSUPPORTED: PlatformUnsupportedFlags = {
     ffmpeg: false,
 };
 
+const ALL_NATIVE_SUPPORTED: PlatformUnsupportedFlags = {
+    git: true,
+    sqlite: true,
+    ffmpeg: true,
+};
+
 function readPlatformUnsupported(source: unknown): PlatformUnsupportedFlags {
     const raw = (source as { platformUnsupported?: Partial<PlatformUnsupportedFlags> })
         ?.platformUnsupported;
@@ -62,6 +69,19 @@ function readPlatformUnsupported(source: unknown): PlatformUnsupportedFlags {
         git: raw.git === true,
         sqlite: raw.sqlite === true,
         ffmpeg: raw.ffmpeg === true,
+    };
+}
+
+function readNativePlatformSupported(source: unknown): PlatformUnsupportedFlags {
+    const raw = (source as { nativePlatformSupported?: Partial<PlatformUnsupportedFlags> })
+        ?.nativePlatformSupported;
+    if (!raw) {
+        return ALL_NATIVE_SUPPORTED;
+    }
+    return {
+        git: raw.git !== false,
+        sqlite: raw.sqlite !== false,
+        ffmpeg: raw.ffmpeg !== false,
     };
 }
 
@@ -77,6 +97,7 @@ function getInitialState(): InitialState | null {
                     nativeSqliteAvailable: data.nativeSqliteAvailable ?? data.sqlite,
                     ffmpeg: data.ffmpeg ?? false,
                     platformUnsupported: readPlatformUnsupported(data),
+                    nativePlatformSupported: readNativePlatformSupported(data),
                 },
                 mode: data.mode === "status" ? "status" : "warnings",
                 audioToolMode: data.audioToolMode ?? "auto",
@@ -157,6 +178,7 @@ export const MissingToolsWarning: React.FC = () => {
                     nativeSqliteAvailable: message.nativeSqliteAvailable ?? message.sqlite,
                     ffmpeg: message.ffmpeg,
                     platformUnsupported: readPlatformUnsupported(message),
+                    nativePlatformSupported: readNativePlatformSupported(message),
                 });
                 setMode("warnings");
                 setRetrying(false);
@@ -168,6 +190,7 @@ export const MissingToolsWarning: React.FC = () => {
                     nativeSqliteAvailable: message.nativeSqliteAvailable ?? message.sqlite,
                     ffmpeg: message.ffmpeg,
                     platformUnsupported: readPlatformUnsupported(message),
+                    nativePlatformSupported: readNativePlatformSupported(message),
                 });
                 setAudioToolMode(message.audioToolMode ?? "auto");
                 setGitToolMode(message.gitToolMode ?? "auto");
@@ -183,6 +206,7 @@ export const MissingToolsWarning: React.FC = () => {
                     nativeSqliteAvailable: message.nativeSqliteAvailable ?? message.sqlite,
                     ffmpeg: message.ffmpeg,
                     platformUnsupported: readPlatformUnsupported(message),
+                    nativePlatformSupported: readNativePlatformSupported(message),
                 });
                 if (message.audioToolMode) {
                     setAudioToolMode(message.audioToolMode);
@@ -341,9 +365,9 @@ const TOOL_INFO = {
         iconOk: "codicon-check",
         iconMissing: "codicon-error",
         descriptions: {
-            available: "The native AI learning and search tools are installed and running.",
-            limited: "Using fallback tools. Native tools are installed but not active.",
-            builtinActive: "Using fallback tools. Full functionality is available but less performant.",
+            available: "Native search tools are installed and running.",
+            limited: "Fallback tools are active. Native tools are installed but not selected.",
+            builtinActive: "Fallback tools are active. Full functionality is available but may be slower.",
             missing: "The AI learning and search tools could not be set up. Projects cannot be opened or created without this component.",
         },
     },
@@ -353,8 +377,8 @@ const TOOL_INFO = {
         iconMissing: "codicon-warning",
         descriptions: {
             available: "Native sync tools are active. Syncing and collaboration are fully operational.",
-            limited: "Using fallback sync tools. Native sync tools are installed but not active.",
-            builtinActive: "Using fallback sync tools. Syncing and collaboration may be limited.",
+            limited: "Fallback sync tools are active. Native tools are installed but not selected.",
+            builtinActive: "Fallback sync tools are active. Syncing and collaboration may be limited.",
         },
     },
     ffmpeg: {
@@ -363,8 +387,8 @@ const TOOL_INFO = {
         iconMissing: "codicon-warning",
         descriptions: {
             available: "Native audio tools are active. Full audio format support is available for import/export.",
-            limited: "Using fallback audio tools (.wav format). Full audio format support requires native audio tools.",
-            missing: "Native audio tools could not be set up. Using fallback audio tools (.wav only).",
+            limited: "Fallback audio tools are active (.wav format).",
+            missing: "Native audio tools could not be set up. Fallback audio tools are active (.wav only).",
         },
     },
 } as const;
@@ -415,48 +439,66 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
     const isForced = (mode: string) => mode === "force-builtin";
     const isBuiltinMode = (mode: string) => mode === "builtin" || mode === "force-builtin";
 
-    const allOk = status.nativeSqliteAvailable && !isBuiltinMode(sqliteToolMode)
-        && status.nativeGitAvailable && !isBuiltinMode(gitToolMode)
-        && status.ffmpeg && !isBuiltinMode(audioToolMode);
+    const allOk = status.nativeSqliteAvailable && status.nativePlatformSupported.sqlite
+        && !isBuiltinMode(sqliteToolMode)
+        && status.nativeGitAvailable && status.nativePlatformSupported.git
+        && !isBuiltinMode(gitToolMode)
+        && status.ffmpeg
+        && !isBuiltinMode(audioToolMode);
 
-    const getToolState = (mode: string, nativeAvailable: boolean, unsupported: boolean) => {
+    const getToolState = (
+        mode: string,
+        nativeAvailable: boolean,
+        unsupported: boolean,
+        nativePlatformSupported: boolean,
+        operational: boolean,
+    ) => {
         const forced = isForced(mode);
         const usingBuiltIn = isBuiltinMode(mode) || !nativeAvailable;
-        // Severity priority: a missing native binary is always an error
-        // (unless admin has locked us into force-builtin, which is a softer
-        // "warning" state). Only when the binary is installed does the
-        // user's "builtin" preference downgrade to a warning.
         const severity: "ok" | "warning" | "error" =
-            !nativeAvailable && !forced ? "error"
+            !operational && !forced ? "error"
             : isBuiltinMode(mode) ? "warning"
             : "ok";
         const statusLabel =
             unsupported ? "Not available on this platform"
-            : forced ? "Running Fallback Tools (locked)"
+            : forced ? "Fallback Tools (locked)"
             : nativeAvailable && !usingBuiltIn ? "Installed and Running Native Tools"
             : nativeAvailable && usingBuiltIn ? "Installed and Running Fallback Tools"
-            : "Not Installed \u2013 Running Fallback Tools";
+            : operational ? "Fallback Tools Active"
+            : nativePlatformSupported ? "Native Tools Not Installed"
+            : "Fallback Tools Unavailable";
         const toggleLabel =
             forced ? "Unlock Native Tools"
             : nativeAvailable && usingBuiltIn ? "Use Native Tools"
             : nativeAvailable ? "Use Fallback Tools"
             : undefined;
-        // A "builtin" preference must not hide the download button: if the
-        // native binary isn't installed, the user should always be able to
-        // install it (the download handler flips mode back to "auto" so the
-        // newly-installed binary is actually used). Only force-builtin (admin
-        // lock) or an unsupported platform hides the option — on unsupported
-        // platforms the download can never succeed, so we render a passive
-        // "Not available" badge instead.
         const showDownload = !forced && !nativeAvailable && !unsupported;
-        const showToggle = forced || nativeAvailable;
+        const showToggle = !unsupported && (forced || nativeAvailable);
 
         return { forced, usingBuiltIn, severity, statusLabel, toggleLabel, showDownload, showToggle };
     };
 
-    const sqlite = getToolState(sqliteToolMode, status.nativeSqliteAvailable, status.platformUnsupported.sqlite);
-    const git = getToolState(gitToolMode, status.nativeGitAvailable, status.platformUnsupported.git);
-    const audio = getToolState(audioToolMode, status.ffmpeg, status.platformUnsupported.ffmpeg);
+    const sqlite = getToolState(
+        sqliteToolMode,
+        status.nativeSqliteAvailable,
+        status.platformUnsupported.sqlite,
+        status.nativePlatformSupported.sqlite,
+        status.sqlite,
+    );
+    const git = getToolState(
+        gitToolMode,
+        status.nativeGitAvailable,
+        status.platformUnsupported.git,
+        status.nativePlatformSupported.git,
+        status.git,
+    );
+    const audio = getToolState(
+        audioToolMode,
+        status.ffmpeg,
+        status.platformUnsupported.ffmpeg,
+        status.nativePlatformSupported.ffmpeg,
+        status.ffmpeg,
+    );
 
     return (
         <div className="flex items-center justify-center min-h-screen p-6">
@@ -474,7 +516,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                     >
                         {allOk
                             ? "All native tools are installed and running."
-                            : "Some native tools are not fully configured. Codex is using fallback alternatives where needed."}
+                            : "Some native tools are not fully configured. Codex is using fallback tools where needed."}
                     </p>
                 </div>
 
@@ -483,7 +525,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         title={TOOL_INFO.sqlite.name}
                         description={
                             status.platformUnsupported.sqlite
-                                ? "The native AI learning and search tools are not available on this platform. Codex is using its built-in fallback."
+                                ? "Native search tools are not available on this device. Codex is using fallback tools."
                                 : sqlite.usingBuiltIn
                                     ? (status.sqlite ? TOOL_INFO.sqlite.descriptions.builtinActive : TOOL_INFO.sqlite.descriptions.missing)
                                     : TOOL_INFO.sqlite.descriptions.available
@@ -494,6 +536,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         downloadState={downloadState.sqlite}
                         onDownload={sqlite.showDownload ? () => onDownloadTool("sqlite") : undefined}
                         platformUnsupported={status.platformUnsupported.sqlite}
+                        nativePlatformSupported={status.nativePlatformSupported.sqlite}
                         toggleLabel={sqlite.toggleLabel}
                         onToggle={sqlite.showToggle ? onToggleSqliteMode : undefined}
                         onDelete={deleteMode ? () => onDeleteTool("sqlite") : undefined}
@@ -506,7 +549,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         title={TOOL_INFO.git.name}
                         description={
                             status.platformUnsupported.git
-                                ? "Native sync tools are not available on this platform. Codex is using its built-in fallback; syncing and collaboration may be limited."
+                                ? "Native sync tools are not available on this device. Codex is using fallback tools; syncing and collaboration may be limited."
                                 : git.usingBuiltIn
                                     ? TOOL_INFO.git.descriptions.builtinActive
                                     : TOOL_INFO.git.descriptions.available
@@ -517,6 +560,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         downloadState={downloadState.git}
                         onDownload={git.showDownload ? () => onDownloadTool("git") : undefined}
                         platformUnsupported={status.platformUnsupported.git}
+                        nativePlatformSupported={status.nativePlatformSupported.git}
                         toggleLabel={git.toggleLabel}
                         onToggle={git.showToggle ? onToggleGitMode : undefined}
                         toggleDisabled={syncInProgress}
@@ -531,7 +575,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         title={TOOL_INFO.ffmpeg.name}
                         description={
                             status.platformUnsupported.ffmpeg
-                                ? "Native audio tools are not available on this platform. Codex is using its built-in fallback with limited format support (.wav only)."
+                                ? "Native audio tools are not available on this device. Codex is using fallback tools with limited format support (.wav only)."
                                 : audio.usingBuiltIn
                                     ? TOOL_INFO.ffmpeg.descriptions.limited
                                     : TOOL_INFO.ffmpeg.descriptions.available
@@ -542,6 +586,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         downloadState={downloadState.ffmpeg}
                         onDownload={audio.showDownload ? () => onDownloadTool("ffmpeg") : undefined}
                         platformUnsupported={status.platformUnsupported.ffmpeg}
+                        nativePlatformSupported={status.nativePlatformSupported.ffmpeg}
                         toggleLabel={audio.toggleLabel}
                         onToggle={audio.showToggle ? onToggleAudioMode : undefined}
                         toggleDisabled={audioProcessingInProgress}
@@ -823,6 +868,7 @@ interface StatusCardProps {
      * download would be a guaranteed no-op.
      */
     platformUnsupported?: boolean;
+    nativePlatformSupported?: boolean;
     toggleLabel?: string;
     onToggle?: () => void;
     toggleDisabled?: boolean;
@@ -842,6 +888,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
     downloadState = "idle",
     onDownload,
     platformUnsupported = false,
+    nativePlatformSupported = true,
     toggleLabel,
     onToggle,
     toggleDisabled = false,
@@ -962,7 +1009,9 @@ const StatusCard: React.FC<StatusCardProps> = ({
                                 {!downloading && !failed && (
                                     <>
                                         <i className="codicon codicon-cloud-download mr-1.5" />
-                                        Download and Install
+                                        {nativePlatformSupported
+                                            ? "Install Native Tools"
+                                            : "Install Fallback Tools"}
                                     </>
                                 )}
                             </Button>
@@ -1021,7 +1070,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
                             className="h-7 text-xs"
                         >
                             <i className="codicon codicon-lock mr-1.5" />
-                            Force Fallback Only
+                            Lock Fallback Mode
                         </Button>
                     )}
                 </div>
