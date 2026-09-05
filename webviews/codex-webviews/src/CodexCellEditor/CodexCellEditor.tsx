@@ -2499,7 +2499,7 @@ const CodexCellEditor: React.FC = () => {
                 if (cell.cellType === CodexCellTypes.MILESTONE) {
                     return false;
                 }
-                if (!cellId || cellId.includes(":paratext-") || cell.merged) {
+                if (!cellId || cellId.includes(":paratext-") || cell.merged || cell.hidden) {
                     return false;
                 }
                 // Exclude child cells (e.g. type "text" with parentId - they don't count toward progress)

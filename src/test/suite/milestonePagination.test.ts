@@ -1211,6 +1211,380 @@ suite("Milestone-Based Pagination Test Suite", () => {
         );
     });
 
+    test("calculateMilestoneProgress excludes hidden cells from all counts", async () => {
+        const cells = [
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "1",
+                metadata: {
+                    type: CodexCellTypes.MILESTONE,
+                    id: "milestone-1",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Visible translated",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "cell-visible",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "cell-hidden-empty",
+                    data: { hidden: true },
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Hidden but has text",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "cell-hidden-translated",
+                    data: { hidden: true },
+                },
+            },
+        ];
+
+        const document = await createDocumentWithCells(cells);
+        const progress = document.calculateMilestoneProgress(1, 1);
+
+        assert.strictEqual(
+            progress[1].percentTranslationsCompleted,
+            100,
+            "Hidden cells must not inflate the denominator — 1 of 1 visible cells translated"
+        );
+        assert.strictEqual(
+            progress[1].percentTextValidatedTranslations,
+            0,
+            "Hidden cells must not contribute validation counts"
+        );
+    });
+
+    test("calculateMilestoneProgress reports 0% when every cell is hidden", async () => {
+        const cells = [
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "1",
+                metadata: {
+                    type: CodexCellTypes.MILESTONE,
+                    id: "milestone-1",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Hidden 1",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "cell-hidden-1",
+                    data: { hidden: true },
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Hidden 2",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "cell-hidden-2",
+                    data: { hidden: true },
+                },
+            },
+        ];
+
+        const document = await createDocumentWithCells(cells);
+        const progress = document.calculateMilestoneProgress(1, 1);
+
+        assert.strictEqual(progress[1].percentTranslationsCompleted, 0);
+        assert.strictEqual(progress[1].percentAudioTranslationsCompleted, 0);
+        assert.strictEqual(progress[1].percentFullyValidatedTranslations, 0);
+        assert.strictEqual(progress[1].percentAudioValidatedTranslations, 0);
+        assert.strictEqual(progress[1].percentTextValidatedTranslations, 0);
+        for (const value of Object.values(progress[1])) {
+            assert.ok(Number.isFinite(value), "All-hidden milestone must not produce NaN");
+        }
+    });
+
+    test("buildMilestoneIndex excludes hidden cells from cellCount so navigation labels match visible cells", async () => {
+        const cells = [
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Genesis 23-25",
+                metadata: {
+                    type: CodexCellTypes.MILESTONE,
+                    id: "milestone-1",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Cell 1",
+                metadata: { type: CodexCellTypes.TEXT, id: "root-1" },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Cell 2",
+                metadata: { type: CodexCellTypes.TEXT, id: "root-2" },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Cell 3 hidden",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "root-3",
+                    data: { hidden: true },
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Cell 4",
+                metadata: { type: CodexCellTypes.TEXT, id: "root-4" },
+            },
+        ];
+
+        const document = await createDocumentWithCells(cells);
+        const milestoneIndex = document.buildMilestoneIndex(50);
+
+        assert.strictEqual(
+            milestoneIndex.milestones[0].cellCount,
+            3,
+            "cellCount should be 3 so the accordion label is 1-3, not 1-4"
+        );
+        assert.strictEqual(
+            milestoneIndex.milestones[0].subdivisions?.[0]?.endRootIndex,
+            3,
+            "Single subsection should span the 3 visible roots"
+        );
+    });
+
+    test("hiding a cell invalidates the milestone index cache and shrinks cellCount", async () => {
+        const cells = [
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "1",
+                metadata: {
+                    type: CodexCellTypes.MILESTONE,
+                    id: "milestone-1",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "A",
+                metadata: { type: CodexCellTypes.TEXT, id: "root-1" },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "B",
+                metadata: { type: CodexCellTypes.TEXT, id: "root-2" },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "C",
+                metadata: { type: CodexCellTypes.TEXT, id: "root-3" },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "D",
+                metadata: { type: CodexCellTypes.TEXT, id: "root-4" },
+            },
+        ];
+
+        const document = await createDocumentWithCells(cells);
+        assert.strictEqual(document.buildMilestoneIndex(50).milestones[0].cellCount, 4);
+
+        document.updateCellData("root-2", { hidden: true });
+
+        assert.strictEqual(
+            document.buildMilestoneIndex(50).milestones[0].cellCount,
+            3,
+            "Hiding a cell must rebuild the cached index so navigation updates without reload"
+        );
+    });
+
+    test("getCellsForMilestone still includes hidden cells for Source Editing Mode", async () => {
+        const cells = [
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "1",
+                metadata: {
+                    type: CodexCellTypes.MILESTONE,
+                    id: "milestone-1",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Visible A",
+                metadata: { type: CodexCellTypes.TEXT, id: "root-1" },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Hidden",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "root-2",
+                    data: { hidden: true },
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Visible B",
+                metadata: { type: CodexCellTypes.TEXT, id: "root-3" },
+            },
+        ];
+
+        const document = await createDocumentWithCells(cells);
+        const page = document.getCellsForMilestone(0, 0, 50);
+        const ids = page.map((c) => c.cellMarkers[0]);
+
+        assert.ok(ids.includes("root-1"));
+        assert.ok(ids.includes("root-2"), "Hidden cells must still be on the page for Source Editing Mode");
+        assert.ok(ids.includes("root-3"));
+    });
+
+    test("calculateSubsectionProgress uses visible roots only so a hidden neighbor does not create a phantom page", async () => {
+        const cellsPerPage = 2;
+        const cells = [
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "1",
+                metadata: {
+                    type: CodexCellTypes.MILESTONE,
+                    id: "milestone-1",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Visible A",
+                metadata: { type: CodexCellTypes.TEXT, id: "root-1" },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Visible B",
+                metadata: { type: CodexCellTypes.TEXT, id: "root-2" },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "root-3",
+                    data: { hidden: true },
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "root-4",
+                    data: { hidden: true },
+                },
+            },
+        ];
+
+        const document = await createDocumentWithCells(cells);
+        const subsectionProgress = document.calculateSubsectionProgress(0, cellsPerPage, 1, 1);
+
+        assert.strictEqual(
+            Object.keys(subsectionProgress).length,
+            1,
+            "Two visible roots with cellsPerPage=2 is a single page"
+        );
+        assert.strictEqual(
+            subsectionProgress[0].percentTranslationsCompleted,
+            100,
+            "Both visible cells are translated; hidden cells are not a second page"
+        );
+    });
+
+    test("calculateSubsectionProgress counts only visible cells on a mixed page", async () => {
+        const cellsPerPage = 2;
+        const cells = [
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "1",
+                metadata: {
+                    type: CodexCellTypes.MILESTONE,
+                    id: "milestone-1",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Visible translated",
+                metadata: { type: CodexCellTypes.TEXT, id: "root-1" },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "root-2",
+                    data: { hidden: true },
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "",
+                metadata: { type: CodexCellTypes.TEXT, id: "root-3" },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "root-4",
+                    data: { hidden: true },
+                },
+            },
+        ];
+
+        const document = await createDocumentWithCells(cells);
+        const subsectionProgress = document.calculateSubsectionProgress(0, cellsPerPage, 1, 1);
+
+        assert.strictEqual(
+            Object.keys(subsectionProgress).length,
+            1,
+            "Two visible roots fit on one page"
+        );
+        assert.strictEqual(
+            subsectionProgress[0].percentTranslationsCompleted,
+            50,
+            "1 of 2 visible cells translated; hidden cells excluded from the denominator"
+        );
+    });
+
     test("getCellsForMilestone handles subsection index bounds correctly", async () => {
         const cellsPerPage = 5;
         const cells = [

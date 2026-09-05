@@ -26,7 +26,7 @@ import { CodexContentSerializer } from "../../serializer";
 import { debounce } from "lodash";
 import { getSQLiteIndexManager, isDBShuttingDown } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
-import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./utils/cellUtils";
+import { extractParentCellIdFromParatext, convertCellToQuillContent, isNotebookCellHidden, isQuillCellHidden } from "./utils/cellUtils";
 import { FIRST_SUBDIVISION_KEY, findSubdivisionIndexForRoot, resolveSubdivisions } from "./utils/subdivisionUtils";
 import { buildMilestoneCellPayload } from "../../utils/milestoneCellUtils";
 import { formatJsonForNotebookFile, normalizeNotebookFileText } from "../../utils/notebookFileFormattingUtils";
@@ -1703,9 +1703,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     /**
      * Returns the ordered list of root content cell IDs within the given index
-     * range. Root content cells are non-milestone, non-paratext, non-deleted cells
-     * without a `parentId`. Pagination (both arithmetic and subdivision-based)
-     * operates over these roots; children and paratext are attached during slicing.
+     * range. Root content cells are non-milestone, non-paratext, non-deleted,
+     * non-hidden cells without a `parentId`. Pagination, subsection labels
+     * (e.g. "1-3"), and line numbering operate over these visible roots;
+     * children, paratext, and hidden cells are attached during slicing.
      */
     private getRootContentCellIdsInRange(
         startCellIndex: number,
@@ -1718,7 +1719,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             if (
                 cell.metadata?.type !== CodexCellTypes.MILESTONE &&
                 cell.metadata?.type !== CodexCellTypes.PARATEXT &&
-                cell.metadata?.data?.deleted !== true
+                cell.metadata?.data?.deleted !== true &&
+                !isNotebookCellHidden(cell)
             ) {
                 const parentId =
                     cell.metadata?.parentId ??
@@ -1838,12 +1840,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // Process content cells (excluding milestones, paratext, and deleted)
             if (cellType !== CodexCellTypes.MILESTONE && cellType !== "paratext") {
                 const isDeleted = cell.metadata?.data?.deleted === true;
-                // Child cells (splits) are excluded from counts: pagination, subsection labels,
-                // and line numbering are all root-based (children display on their parent's page)
+                const isHidden = isNotebookCellHidden(cell);
+                // Child and hidden cells are excluded from counts: pagination, subsection
+                // labels (e.g. "1-3"), and line numbering are all visible-root-based.
                 const isChildCell =
                     cell.metadata?.parentId !== undefined ||
                     (cell.metadata?.data as { parentId?: string; } | undefined)?.parentId !== undefined;
-                if (!isDeleted && !isChildCell) {
+                if (!isDeleted && !isHidden && !isChildCell) {
                     totalContentCells++;
                 }
 
@@ -1857,8 +1860,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
                         cell.metadata.data = {} as any;
                     }
                     (cell.metadata.data as any).milestoneIndex = currentMilestoneIndex;
-                    // Only count non-deleted root cells for milestone cell count
-                    if (!isDeleted && !isChildCell) {
+                    // Only count visible (non-deleted, non-hidden) root cells
+                    if (!isDeleted && !isHidden && !isChildCell) {
                         currentMilestoneCellCount++;
                     }
                 }
@@ -2315,16 +2318,20 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const startCellIndex = milestone.cellIndex;
         const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
 
-        // Collect content cells for this milestone (excluding milestone, paratext, and merged cells)
+        // Collect the same visible-root-eligible cells as getRootContentCellIdsInRange.
+        // Hidden cells are omitted from page slots so "1-N" labels match the editor;
+        // they are dropped from counts via shouldExcludeQuillCellFromProgress.
         const contentCells: QuillCellContent[] = [];
         for (let i = startCellIndex; i < endCellIndex; i++) {
             const cell = cells[i];
-            if (shouldExcludeCellFromProgress(cell)) {
+            if (
+                cell.metadata?.type === CodexCellTypes.MILESTONE ||
+                cell.metadata?.type === CodexCellTypes.PARATEXT ||
+                cell.metadata?.data?.deleted === true
+            ) {
                 continue;
             }
-            // Convert to QuillCellContent format
-            const quillContent = convertCellToQuillContent(cell);
-            contentCells.push(quillContent);
+            contentCells.push(convertCellToQuillContent(cell));
         }
 
         // Use root-based subsections to match getCellsForMilestone pagination.
@@ -2332,7 +2339,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // fall back to arithmetic chunks of `cellsPerPage`.
         const getContentCellParentId = (c: QuillCellContent) =>
             (c.metadata?.parentId as string | undefined) ?? (c.data?.parentId as string | undefined);
-        const rootContentCells = contentCells.filter((c) => !getContentCellParentId(c));
+        const rootContentCells = contentCells.filter(
+            (c) => !getContentCellParentId(c) && !isQuillCellHidden(c)
+        );
         const subdivisions = milestone.subdivisions ?? resolveSubdivisions({
             rootContentCellIds: rootContentCells.map((c) => c.cellMarkers[0]).filter(Boolean),
             placements: undefined,
@@ -2536,9 +2545,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
             (cell.metadata?.parentId as string | undefined) ??
             (cell.data?.parentId as string | undefined);
 
-        // Paginate by root content cells only, so adding a child (e.g. to cell 44) does not bump
-        // the last root (e.g. cell 50) to the next page. Each page shows N roots + all their descendants.
-        const rootContentCells = contentCells.filter((c) => !getContentCellParentId(c));
+        // Paginate by visible root content cells only, so adding a child (e.g. to cell 44)
+        // does not bump the last root (e.g. cell 50) to the next page, and hidden cells
+        // do not inflate "1-N" labels. Each page shows N visible roots + descendants
+        // + hidden roots that sit in this page's document span (for Source Editing Mode).
+        const allRootContentCells = contentCells.filter((c) => !getContentCellParentId(c));
+        const rootContentCells = allRootContentCells.filter((c) => !isQuillCellHidden(c));
         // Subdivisions computed by buildMilestoneIndex drive both the legacy
         // arithmetic chunking (as "auto" subdivisions) and any user-defined custom
         // breaks. Using them here keeps slicing, counting, and webview rendering
@@ -2558,7 +2570,25 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const activeSubdivision = subdivisions[validSubsectionIndex];
         const startRootIndex = activeSubdivision?.startRootIndex ?? 0;
         const endRootIndex = activeSubdivision?.endRootIndex ?? rootContentCells.length;
-        const rootsOnPage = rootContentCells.slice(startRootIndex, endRootIndex);
+        const visibleRootsOnPage = rootContentCells.slice(startRootIndex, endRootIndex);
+
+        const firstVisible = visibleRootsOnPage[0];
+        const nextPageFirstVisible = rootContentCells[endRootIndex];
+        const firstAllIdx =
+            startRootIndex === 0 || !firstVisible
+                ? 0
+                : allRootContentCells.findIndex(
+                    (c) => c.cellMarkers[0] === firstVisible.cellMarkers[0]
+                );
+        const endAllIdx = !nextPageFirstVisible
+            ? allRootContentCells.length
+            : allRootContentCells.findIndex(
+                (c) => c.cellMarkers[0] === nextPageFirstVisible.cellMarkers[0]
+            );
+        const rootsOnPage = allRootContentCells.slice(
+            firstAllIdx < 0 ? 0 : firstAllIdx,
+            endAllIdx < 0 ? allRootContentCells.length : endAllIdx
+        );
 
         // Include roots on this page and all their descendant content cells (children, grandchildren, etc.)
         const contentCellIdsForPage = new Set(
@@ -3464,6 +3494,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Check if this is a milestone cell and if we're modifying data that affects milestone index
         const isMilestoneCell = cellToUpdate.metadata?.type === CodexCellTypes.MILESTONE;
         const isModifyingDeletedFlag = 'deleted' in newData;
+        // Hiding a content cell changes visible root count / "1-N" labels, so
+        // the cached milestone index must rebuild even though cells.length is unchanged.
+        const isModifyingHiddenFlag = 'hidden' in newData;
         // Subdivision-related changes alter pagination, so the cached index must
         // be invalidated alongside the deleted-flag case. Name-only overrides
         // (both local and the source-mirror fallback) also flow through this
@@ -3474,7 +3507,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             'subdivisionNames' in newData ||
             'subdivisionNamesFromSource' in newData;
         const shouldInvalidateCache =
-            isMilestoneCell && (isModifyingDeletedFlag || isModifyingSubdivisions);
+            isModifyingHiddenFlag ||
+            (isMilestoneCell && (isModifyingDeletedFlag || isModifyingSubdivisions));
 
         // Ensure metadata exists
         if (!this._documentData.cells[indexOfCellToUpdate].metadata) {
