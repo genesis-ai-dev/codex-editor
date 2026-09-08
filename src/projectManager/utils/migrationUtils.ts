@@ -24,6 +24,11 @@ import {
     planVerseDuplicationRepair,
     applyVerseDuplicationRepair,
 } from "./merge/utils/verseDuplicationRepair";
+import {
+    isAffectedByOverlapOverwrite,
+    planSubtitleOverlapRepair,
+    applySubtitleOverlapRepair,
+} from "./merge/utils/subtitleOverlapRepair";
 import { isBibleTypeImporter } from "../../../sharedUtils/importerTypeUtils";
 import { recoverMergedChildrenForFile } from "./recoveryUtils";
 import { atomicWriteUriText } from "../../utils/notebookSafeSaveUtils";
@@ -3603,6 +3608,181 @@ export const migration_repairVerseRangeDuplication = async (): Promise<void> => 
         );
     } catch (error) {
         console.error("Error running verse-range duplication repair:", error);
+        throw error;
+    }
+};
+
+/**
+ * Scan (and optionally repair) one .codex file damaged by the subtitle sub-cue overwrite (#1144).
+ * Pairs the file with its .source to recover the timings the buggy import destroyed.
+ */
+export async function repairSubtitleOverlapOverwriteForFile(
+    fileUri: vscode.Uri,
+    options?: { dryRun?: boolean }
+): Promise<{ changed: boolean; repaired: number }> {
+    const dryRun = options?.dryRun ?? false;
+    try {
+        const sourceUri = await getCorrespondingSourceUri(fileUri);
+        if (!sourceUri) return { changed: false, repaired: 0 };
+
+        const serializer = new CodexContentSerializer();
+        const token = new vscode.CancellationTokenSource().token;
+
+        const codexData: any = await serializer.deserializeNotebook(
+            await vscode.workspace.fs.readFile(fileUri),
+            token
+        );
+        if (!isAffectedByOverlapOverwrite(codexData)) return { changed: false, repaired: 0 };
+
+        const sourceData: any = await serializer.deserializeNotebook(
+            await vscode.workspace.fs.readFile(sourceUri),
+            token
+        );
+
+        const plan = planSubtitleOverlapRepair(codexData, sourceData);
+        if (plan.candidates.length === 0) return { changed: false, repaired: 0 };
+        if (dryRun) return { changed: true, repaired: plan.candidates.length };
+
+        const result = applySubtitleOverlapRepair(codexData, plan, Date.now());
+        if (!result.changed) return { changed: false, repaired: 0 };
+
+        await vscode.workspace.fs.writeFile(
+            fileUri,
+            await serializer.serializeNotebook(codexData, token)
+        );
+        return { changed: true, repaired: result.repairedCount };
+    } catch (error) {
+        console.error(`Error repairing subtitle overlap overwrite for ${fileUri.fsPath}:`, error);
+        return { changed: false, repaired: 0 };
+    }
+}
+
+/**
+ * One-off recovery for projects damaged by the subtitle sub-cue overwrite (issue #1144), where a
+ * target import let the last overlapping cue replace a cell's real translation and timestamps.
+ *
+ * Two-pass with a confirmation modal between passes (dry-run scan -> confirm -> apply), mirroring
+ * {@link migration_repairVerseRangeDuplication}. Manual, idempotent, never auto-run.
+ *
+ * The original translation cannot be recovered — the imported subtitle file is not retained — so
+ * this restores each damaged cell's timings from the .source, parks the stranded sub-cue text in
+ * metadata, and empties the cell so a corrected re-import can fill it. The user is told to re-import.
+ */
+export const migration_repairSubtitleOverlapOverwrite = async (): Promise<void> => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) return;
+
+        debug("Running subtitle sub-cue overwrite repair scan...");
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolders[0], "**/*.codex")
+        );
+        if (codexFiles.length === 0) return;
+
+        const affected: Array<{ uri: vscode.Uri; repaired: number }> = [];
+        let totalCells = 0;
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Scanning for subtitle cells overwritten by a sub-cue",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (const file of codexFiles) {
+                    progress.report({
+                        message: path.basename(file.fsPath),
+                        increment: 100 / codexFiles.length,
+                    });
+                    const report = await repairSubtitleOverlapOverwriteForFile(file, {
+                        dryRun: true,
+                    });
+                    if (report.changed) {
+                        affected.push({ uri: file, repaired: report.repaired });
+                        totalCells += report.repaired;
+                    }
+                }
+            }
+        );
+
+        if (affected.length === 0) {
+            await vscode.window.showInformationMessage(
+                "No subtitle cells overwritten by a sub-cue were found."
+            );
+            return;
+        }
+
+        const previewLimit = 10;
+        const previewLines = affected
+            .slice(0, previewLimit)
+            .map((r) => `  • ${path.basename(r.uri.fsPath)} (${r.repaired})`)
+            .join("\n");
+        const moreLine =
+            affected.length > previewLimit
+                ? `\n  …and ${affected.length - previewLimit} more file(s)`
+                : "";
+        const detail =
+            `Each of these cells is holding a short sub-cue's text and timings instead of its own ` +
+            `translation. The original translation cannot be recovered automatically, so this repair ` +
+            `puts the correct timings back and empties the cell.\n\n` +
+            `The sub-cue text is kept in the cell's metadata, so nothing is destroyed.\n\n` +
+            `IMPORTANT: after this runs you must re-import the corrected target subtitle file to ` +
+            `fill the emptied cells back in.\n\nFiles:\n${previewLines}${moreLine}`;
+
+        const choice = await vscode.window.showWarningMessage(
+            `Found ${totalCells} cell(s) overwritten by a sub-cue across ${affected.length} file(s). Apply repair?`,
+            { modal: true, detail },
+            "Apply"
+        );
+        if (choice !== "Apply") return;
+
+        const appliedFilePaths: string[] = [];
+        let repairedCells = 0;
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Repairing subtitle cells",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (const { uri } of affected) {
+                    progress.report({
+                        message: path.basename(uri.fsPath),
+                        increment: 100 / affected.length,
+                    });
+                    const report = await repairSubtitleOverlapOverwriteForFile(uri, {
+                        dryRun: false,
+                    });
+                    if (report.changed) {
+                        appliedFilePaths.push(uri.fsPath);
+                        repairedCells += report.repaired;
+                    }
+                }
+            }
+        );
+
+        if (appliedFilePaths.length > 0) {
+            try {
+                const { GlobalProvider } = await import("../../globalProvider");
+                const provider = GlobalProvider.getInstance().getProvider("codex-cell-editor") as {
+                    refreshWebviewsForFiles?: (
+                        paths: string[],
+                        options?: { isSourceAndCodexFiles?: boolean; }
+                    ) => Promise<void>;
+                };
+                if (provider?.refreshWebviewsForFiles) {
+                    await provider.refreshWebviewsForFiles(appliedFilePaths);
+                }
+            } catch (error) {
+                console.warn("Failed to refresh webviews after subtitle overlap repair:", error);
+            }
+        }
+
+        void vscode.window.showInformationMessage(
+            `Subtitle repair complete: ${repairedCells} cell(s) across ${appliedFilePaths.length} file(s) had their timings restored and were emptied. Re-import the corrected target subtitle file to fill them back in.`
+        );
+    } catch (error) {
+        console.error("Error running subtitle overlap overwrite repair:", error);
         throw error;
     }
 };

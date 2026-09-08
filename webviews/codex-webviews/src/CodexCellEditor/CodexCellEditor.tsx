@@ -3254,11 +3254,14 @@ const CodexCellEditor: React.FC = () => {
                 sourceCellMap,
                 metadata?.enforceHtmlStructure ?? false,
                 isSourceText,
+                metadata,
             ),
         [
             translationUnitsWithCurrentEditorContent,
             sourceCellMap,
             metadata?.enforceHtmlStructure,
+            metadata?.importerType,
+            metadata?.corpusMarker,
             isSourceText,
         ],
     );

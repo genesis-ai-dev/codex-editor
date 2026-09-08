@@ -577,7 +577,7 @@ export async function ensureSqliteNativeBinary(
     // or verification can recover without user intervention. Each retry
     // surfaces its state through the optional progress reporter.
     const runDownload = async (
-        progress?: vscode.Progress<{ message?: string }>
+        progress?: vscode.Progress<{ message?: string; }>
     ): Promise<string | null> => {
         let lastError: Error | undefined;
         for (let attempt = 1; attempt <= MAX_FULL_RETRIES; attempt++) {

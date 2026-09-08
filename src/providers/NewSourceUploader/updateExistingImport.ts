@@ -11,6 +11,7 @@ import * as vscode from "vscode";
 import type { CodexNotebookAsJSONData, NotebookPreview } from "../../../types";
 import { findOriginalFileByHash, loadOriginalFilesRegistry } from "./originalFileUtils";
 import { writeNotebook } from "./codexFIleCreateUtils";
+import { isDocxFormattingContext } from "../../../sharedUtils/docxHtmlFormatting";
 import {
     mergeReimportedNotebookPair,
     type ReimportMergeStats,
@@ -183,6 +184,7 @@ export interface UpdateExistingImportResult {
     sourceUri: vscode.Uri;
     codexUri: vscode.Uri;
     stats: ReimportMergeStats;
+    cancelled?: boolean;
 }
 
 /**
@@ -214,6 +216,24 @@ export const updateExistingImportPair = async (
         newSource as unknown as ReimportNotebook,
         newCodex as unknown as ReimportNotebook,
     );
+
+    // A different sentence split cannot safely split an existing translation.
+    // Keep this guard DOCX-specific; other importers retain their current flow.
+    if (isDocxFormattingContext(existingSource.metadata) && stats.droppedTranslations > 0) {
+        const choice = await vscode.window.showWarningMessage(
+            `Updating "${pair.displayName}" would hide ${stats.droppedTranslations} translated cell(s) whose source segments could not be matched.`,
+            {
+                modal: true,
+                detail: "This can happen when the original text or sentence segmentation changes. " +
+                    "Cancel to keep both notebooks unchanged. If you continue, unmatched translations " +
+                    "remain in deleted cells with their history, but will not be used in exports.",
+            },
+            "Update Anyway",
+        );
+        if (choice !== "Update Anyway") {
+            return { sourceUri: pair.sourceUri, codexUri: pair.codexUri, stats, cancelled: true };
+        }
+    }
 
     const reimportContext = {
         timestamp: new Date().toISOString(),

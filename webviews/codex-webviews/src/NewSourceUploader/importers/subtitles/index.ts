@@ -16,8 +16,6 @@ import {
 import { WebVTTParser } from 'webvtt-parser';
 import { englishSubtitlesRaw, tigrinyaSubtitlesRaw, sourceOfTruthMapping } from './testData';
 import { createSubtitleCellMetadata } from './cellMetadata';
-// Remove automatic import of compile-time tests to avoid circular dependency
-// Import './compiletimeTests' manually when needed for testing
 
 const SUPPORTED_EXTENSIONS = ['vtt', 'srt', 'ass', 'sub'];
 
@@ -287,6 +285,7 @@ export const parseFile = async (
                 fileName: file.name,
                 cellLabel,
                 segmentIndex: index,
+                cueId: typeof cue.id === 'string' && cue.id.trim() !== '' ? cue.id : undefined,
             });
 
             cells.push({
