@@ -11,7 +11,9 @@ import { CodexExportFormat, exportCodexContent } from "../../../exportHandler/ex
 import { createNoopReporter, type ExportProgressEvent, type ExportSummary } from "../../../exportHandler/exportProgress";
 import type { MediaFilesStrategy } from "../../../../types";
 
-const root = path.resolve("/roundtrip-export-regression");
+// Key the fake disk the way the code under test looks paths up: Uri.fsPath
+// lower-cases the Windows drive letter, while path.resolve keeps it upper-case.
+const root = vscode.Uri.file(path.resolve("/roundtrip-export-regression")).fsPath;
 const workspace: vscode.WorkspaceFolder = { uri: vscode.Uri.file(root), name: "Roundtrip", index: 0 };
 const hash = (data: Uint8Array) => createHash("sha256").update(data).digest("hex");
 const pointerFor = (data: Uint8Array) => Buffer.from(
@@ -168,7 +170,7 @@ suite("Round-trip export storage, contents and results", () => {
         assert.strictEqual(Buffer.from(outputs()[0][1]).toString(), "%PDF-translated");
         assert.strictEqual(downloads.length, 1);
         await assert.rejects(fs.stat(tempPath), { code: "ENOENT" });
-        assert.ok(![...disk.keys()].some(name => name.includes("/temporary/")));
+        assert.ok(![...disk.keys()].some(name => name.includes(`${path.sep}temporary${path.sep}`)));
     });
 
     for (const format of ["tmx", "xliff", "markdown", "obs", "csv", "tsv", "usfm"]) {
