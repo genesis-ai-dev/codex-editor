@@ -79,6 +79,43 @@ export type ParagraphRange = {
 };
 
 /**
+ * Paragraph enumeration used by Codex Editor <= 0.31.x.
+ *
+ * This intentionally preserves the historical non-depth-aware regular
+ * expression.  It is not suitable for importing new documents, but existing
+ * projects persist paragraph indices produced by it.  The exporter uses this
+ * scanner only as a compatibility coordinate system after verifying the
+ * stored source text at those coordinates.
+ */
+export const extractLegacyParagraphRanges = (xml: string): ParagraphRange[] => {
+    const ranges: ParagraphRange[] = [];
+    const paragraphRe = /<w:p\b[\s\S]*?<\/w:p>|<w:p\b[^>]*\/>/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = paragraphRe.exec(xml)) !== null) {
+        ranges.push({ start: match.index, end: match.index + match[0].length });
+    }
+
+    return ranges;
+};
+
+/** Return the decoded text stored in all w:t nodes in an OOXML fragment. */
+export const extractParagraphText = (paragraphXml: string): string => {
+    let text = "";
+    const textRe = /<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g;
+    let match: RegExpExecArray | null;
+    while ((match = textRe.exec(paragraphXml)) !== null) {
+        text += match[1]
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'")
+            .replace(/&amp;/g, "&");
+    }
+    return text;
+};
+
+/**
  * Enumerate the OUTERMOST `<w:p>` elements of an XML fragment in document
  * order, returning their full [start, end) ranges. Paragraphs nested inside
  * another paragraph (text-box content) are contained within their anchor

@@ -93,6 +93,50 @@ suite("Codex Custom Merge - Edit and Label Conflict Resolution", () => {
         assert.ok(gen1v10);
         assert.strictEqual(gen1v10.value, "<span>test from user 1</span>");
     });
+
+    test("applies arbitrary importer locator edits at top-level and nested metadata paths", async () => {
+        const ours: any = createCell("CELL-1", "Translated");
+        ours.metadata.paragraphIndex = 7;
+        ours.metadata.sourceSpan = { start: 40, end: 50 };
+        ours.metadata.data = { rowIndex: 7 };
+        ours.metadata.edits = [
+            {
+                editMap: ["metadata", "paragraphIndex"],
+                value: 7,
+                timestamp: 20,
+                type: "migration",
+                author: "system",
+            },
+            {
+                editMap: ["metadata", "sourceSpan", "start"],
+                value: 40,
+                timestamp: 20,
+                type: "migration",
+                author: "system",
+            },
+            {
+                editMap: ["metadata", "data", "rowIndex"],
+                value: 7,
+                timestamp: 20,
+                type: "migration",
+                author: "system",
+            },
+        ];
+        const theirs: any = createCell("CELL-1", "Translated");
+        theirs.metadata.paragraphIndex = 3;
+        theirs.metadata.sourceSpan = { start: 10, end: 20 };
+        theirs.metadata.data = { rowIndex: 3 };
+
+        const merged = JSON.parse(await resolveCodexCustomMerge(
+            createNotebook([ours]),
+            createNotebook([theirs]),
+        ));
+        const metadata = merged.cells[0].metadata;
+
+        assert.strictEqual(metadata.paragraphIndex, 7);
+        assert.deepStrictEqual(metadata.sourceSpan, { start: 40, end: 50 });
+        assert.strictEqual(metadata.data.rowIndex, 7);
+    });
 });
 
 suite("Codex Custom Merge - Paratextual Cell Position Preservation", () => {
