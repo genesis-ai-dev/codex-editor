@@ -22,6 +22,7 @@ import { generateVttData, hasOverlappingCues } from "./vttUtils";
 
 import type { CodexNotebookAsJSONData } from "../../types";
 import { readCodexNotebookFromUri, getActiveCells, isContentCellType } from "./exportHandlerUtils";
+import { toExportFileName, toExportFileBaseName } from "./exportFileNameUtils";
 import { convertDocxToPdfViaExtension } from "./pdfRoundTripConversion";
 import { RoundTripExportContext } from "./roundTripExportContext";
 import { OriginalFileError } from "./originalFileResolver";
@@ -354,9 +355,7 @@ async function exportCodexContentAsIdmlRoundtrip(
                 updatedIdmlData = await exportIdmlRoundtrip(idmlData, codexNotebook.cells);
             }
 
-            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-            const suffix = isBiblicaFile ? '_biblica_translated' : '_translated';
-            const injectedName = originalFileName.replace(/\.idml$/i, `_${timestamp}${suffix}.idml`);
+            const injectedName = toExportFileName(originalFileName, ".idml");
             const injectedUri = vscode.Uri.joinPath(exportFolder, injectedName);
             await roundTrip.writeOutput(injectedUri, updatedIdmlData);
 
@@ -445,8 +444,7 @@ async function exportCodexContentAsDocxRoundtrip(
             );
 
             // Save translated DOCX into the chosen export folder
-            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-            const exportedName = originalFileName.replace(/\.docx$/i, `_${timestamp}_translated.docx`);
+            const exportedName = toExportFileName(originalFileName, ".docx");
             const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
             await roundTrip.writeOutput(exportedUri, new Uint8Array(updatedDocxData));
 
@@ -568,8 +566,7 @@ async function exportCodexContentAsPdfRoundtrip(
             const pdfData = await convertDocxToPdfViaExtension(updatedDocxData, roundTrip.signal);
 
             // Step 4: Save translated PDF to user's selected destination
-            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-            const translatedPdfName = originalFileName.replace(/\.pdf$/i, `_${timestamp}_translated.pdf`);
+            const translatedPdfName = toExportFileName(originalFileName, ".pdf");
             const translatedPdfUri = vscode.Uri.joinPath(exportFolder, translatedPdfName);
 
             await roundTrip.writeOutput(translatedPdfUri, new Uint8Array(pdfData));
@@ -693,11 +690,8 @@ async function exportCodexContentAsObsRoundtrip(
             const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
                 (codexNotebook.metadata as any)?.originalName ||
                 `${fileName.split('.')[0]}.md`;
-            const baseFileName = originalFileName.replace(/\.md$/i, '');
 
-            // Create timestamped filename
-            const timestamp = new Date().toISOString().replace(/[:.]/g, "-").split('T')[0]; // YYYY-MM-DD format
-            const exportedName = `${baseFileName}_${timestamp}_translated.md`;
+            const exportedName = toExportFileName(originalFileName, ".md");
             const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
 
             // Write markdown content
@@ -785,9 +779,7 @@ async function exportCodexContentAsMarkdownRoundtrip(
 
             const updated = exportMarkdownWithTranslations(canonicalSource, codexNotebook.cells as never);
 
-            const baseFileName = originalFileName.replace(/\.(md|markdown)$/i, "");
-            const timestamp = new Date().toISOString().replace(/[:.]/g, "-").split("T")[0];
-            const exportedName = `${baseFileName}_${timestamp}_translated.md`;
+            const exportedName = toExportFileName(originalFileName, ".md");
             const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
             await roundTrip.writeOutput(exportedUri, new TextEncoder().encode(updated));
 
@@ -960,8 +952,8 @@ async function exportCodexContentAsUsfmRoundtrip(
             }
 
             // Save to export folder
-            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-            const exportedName = originalFileName.replace(/\.(usfm|sfm|USFM|SFM)$/i, `_${timestamp}_translated.$1`);
+            const usfmExt = originalFileName.match(/\.(usfm|sfm)$/i)?.[0] ?? ".usfm";
+            const exportedName = toExportFileName(originalFileName, usfmExt);
             const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
 
             const encoder = new TextEncoder();
@@ -1059,6 +1051,7 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
             const extension = getSpreadsheetExtension(originalFileName, delimiter, notebookImporterType);
             const columnHeaders = (codexNotebook.metadata as any)?.columnHeaders;
             const sourceColumnIndex = (codexNotebook.metadata as any)?.sourceColumnIndex;
+            const hasHeader = (codexNotebook.metadata as any)?.hasHeader;
 
             console.log(`[Spreadsheet Export] Processing ${fileName}`);
             console.log(`[Spreadsheet Export] - importerType: ${notebookImporterType}`);
@@ -1091,15 +1084,15 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
                     columnHeaders,
                     sourceColumnIndex,
                     importerType: notebookImporterType,
+                    hasHeader,
                 }
             );
 
             // Generate output filename
-            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-            const baseName = originalFileName
-                ? originalFileName.replace(/\.(csv|tsv)$/i, '')
-                : fileName.replace(/\.codex$/i, '');
-            const outputFileName = `${baseName}_translated_${timestamp}.${extension}`;
+            const outputFileName = toExportFileName(
+                originalFileName || fileName,
+                `.${extension}`
+            );
             const outputUri = vscode.Uri.joinPath(exportFolder, outputFileName);
 
             // Write the file
@@ -1230,12 +1223,7 @@ async function exportCodexContentAsTmsRoundtrip(
 
             console.log(`[TMS Export] Generated ${determinedFileType.toUpperCase()} with translations, length:`, updatedTmsContent.length);
 
-            // Determine output filename
-            const baseFileName = finalOriginalFileName.replace(/\.(tmx|xliff|xlf)$/i, '');
-
-            // Create timestamped filename
-            const timestamp = new Date().toISOString().replace(/[:.]/g, "-").split('T')[0]; // YYYY-MM-DD format
-            const exportedName = `${baseFileName}_${timestamp}_translated${fileExtension}`;
+            const exportedName = toExportFileName(finalOriginalFileName, fileExtension);
             const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
 
             // Write TMS content
@@ -1743,9 +1731,8 @@ export const exportCodexContentAsSubtitlesSrt = async (
 
             const srtContent = generateSrtData(cells, false);
 
-            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
             const fileName = basename(file.fsPath).replace(".codex", "") || "unknown";
-            const exportFileName = `${fileName}_${timestamp}.srt`;
+            const exportFileName = toExportFileName(fileName, ".srt");
             const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
 
             await vscode.workspace.fs.writeFile(exportFile, Buffer.from(srtContent));
@@ -1822,9 +1809,8 @@ export const exportCodexContentAsSubtitlesVtt = async (
                     );
                     debug({ vttContent, cells, includeStyles });
 
-            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
             const fileName = basename(file.fsPath).replace(".codex", "") || "unknown";
-            const exportFileName = `${fileName}_${timestamp}.vtt`;
+            const exportFileName = toExportFileName(fileName, ".vtt");
             const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
 
             await vscode.workspace.fs.writeFile(exportFile, Buffer.from(vttContent));
@@ -2155,8 +2141,7 @@ async function exportCodexContentAsDelimited(
                 }
 
                 // Write file
-                const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                const exportFileName = `${currentBookCode}_${timestamp}.${fileExtension}`;
+                const exportFileName = toExportFileName(currentBookCode, `.${fileExtension}`);
                 const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
                 await vscode.workspace.fs.writeFile(exportFile, Buffer.from(content));
 
@@ -2226,7 +2211,6 @@ async function exportCodexContentAsBacktranslations(
         const exportFolder = vscode.Uri.file(userSelectedPath);
         await vscode.workspace.fs.createDirectory(exportFolder);
 
-        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
         const fileGroups = new Map<string, Array<{ cellId: string; bt: any; }>>();
         let skipped = 0;
 
@@ -2293,7 +2277,10 @@ async function exportCodexContentAsBacktranslations(
                 }
 
                 const fileName = basename(targetPath, ".codex");
-                const exportFile = vscode.Uri.joinPath(exportFolder, `${fileName}_backtranslations_${timestamp}.csv`);
+                const exportFile = vscode.Uri.joinPath(
+                    exportFolder,
+                    `${toExportFileBaseName(fileName)}_backtranslations.csv`
+                );
                 await vscode.workspace.fs.writeFile(exportFile, Buffer.from(content));
                 filesWritten++;
             } catch (error) {

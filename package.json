@@ -487,6 +487,11 @@
                 "category": "Codex Maintenance"
             },
             {
+                "command": "codex-editor-extension.repairSubtitleOverlapOverwrite",
+                "title": "Codex: Repair Subtitle Cells Overwritten by a Sub-Cue",
+                "category": "Codex Maintenance"
+            },
+            {
                 "command": "codex-editor-extension.runCommentsMigration",
                 "title": "Codex: Migrate Legacy Comments",
                 "category": "Codex Maintenance"

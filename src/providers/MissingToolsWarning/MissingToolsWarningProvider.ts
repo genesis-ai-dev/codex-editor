@@ -273,6 +273,11 @@ export class MissingToolsWarningProvider {
         const { setAudioToolMode } = await import("../../utils/toolPreferences");
         const current = getAudioToolMode();
         const next = current === "auto" ? "builtin" : "auto";
+        if (next === "auto" && current !== "auto") {
+            await setAudioToolMode(next);
+            await this._handleDownloadTool("ffmpeg");
+            return;
+        }
         await setAudioToolMode(next);
 
         const { checkTools } = await import("../../utils/toolsManager");
@@ -291,6 +296,11 @@ export class MissingToolsWarningProvider {
         const { setGitToolMode } = await import("../../utils/toolPreferences");
         const current = getGitToolMode();
         const next = current === "auto" ? "builtin" : "auto";
+        if (next === "auto" && current !== "auto") {
+            await setGitToolMode(next);
+            await this._handleDownloadTool("git");
+            return;
+        }
         await setGitToolMode(next);
 
         const { checkTools } = await import("../../utils/toolsManager");
@@ -323,6 +333,12 @@ export class MissingToolsWarningProvider {
         const { setSqliteToolMode } = await import("../../utils/toolPreferences");
         const current = getSqliteToolMode();
         const next = current === "auto" ? "builtin" : "auto";
+
+        if (next === "auto" && current !== "auto") {
+            await setSqliteToolMode(next);
+            await this._handleDownloadTool("sqlite");
+            return;
+        }
 
         // If switching to the WASM fallback, ensure it's initialized
         if (next === "builtin") {
@@ -504,6 +520,7 @@ export class MissingToolsWarningProvider {
             gitToolMode: getGitToolMode(),
             sqliteToolMode: getSqliteToolMode(),
             platformUnsupported: updated.platformUnsupported,
+            nativePlatformSupported: updated.nativePlatformSupported,
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
     }
@@ -651,6 +668,7 @@ export class MissingToolsWarningProvider {
             nativeSqliteAvailable: result.nativeSqliteAvailable,
             ffmpeg: result.ffmpeg,
             platformUnsupported: result.platformUnsupported,
+            nativePlatformSupported: result.nativePlatformSupported,
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
     }
@@ -668,6 +686,7 @@ export class MissingToolsWarningProvider {
             gitToolMode: getGitToolMode(),
             sqliteToolMode: getSqliteToolMode(),
             platformUnsupported: result.platformUnsupported,
+            nativePlatformSupported: result.nativePlatformSupported,
             ...flags,
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
@@ -693,6 +712,7 @@ export class MissingToolsWarningProvider {
             nativeSqliteAvailable: result.nativeSqliteAvailable,
             ffmpeg: result.ffmpeg,
             platformUnsupported: result.platformUnsupported,
+            nativePlatformSupported: result.nativePlatformSupported,
             mode,
         };
 

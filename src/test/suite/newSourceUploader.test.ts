@@ -214,6 +214,36 @@ suite("NewSourceUploaderProvider Test Suite", () => {
         assert.strictEqual(result.metadata.corpusMarker, "NT", "Should preserve corpusMarker");
     });
 
+    test("convertToNotebookPreview preserves round-trip metadata and drops binary import payloads", async () => {
+        const processedNotebook = {
+            name: "Story 1",
+            cells: [],
+            metadata: {
+                id: "test-obs",
+                originalFileName: "01.md",
+                sourceFile: "01.md",
+                importerType: "obs",
+                createdAt: new Date().toISOString(),
+                corpusMarker: "obs",
+                obsStory: '{"storyNumber":1}',
+                storyNumber: 1,
+                originalFileData: new ArrayBuffer(8),
+                docxDocument: "large transient XML",
+                sourceMetadata: { recursively: "duplicated" },
+            },
+        };
+
+        const convertToNotebookPreview = (provider as any).convertToNotebookPreview.bind(provider);
+        const result = await convertToNotebookPreview(processedNotebook);
+
+        assert.strictEqual(result.metadata.obsStory, '{"storyNumber":1}');
+        assert.strictEqual(result.metadata.storyNumber, 1);
+        assert.strictEqual(result.metadata.originalFileName, "01.md");
+        assert.strictEqual(result.metadata.originalFileData, undefined);
+        assert.strictEqual(result.metadata.docxDocument, undefined);
+        assert.strictEqual(result.metadata.sourceMetadata, undefined);
+    });
+
     test("convertToNotebookPreview converts USFM codes to full names for OT books during import", async () => {
         // Skip if no workspace folder
         if (!vscode.workspace.workspaceFolders?.[0]) {
@@ -462,4 +492,3 @@ suite("NewSourceUploaderProvider Test Suite", () => {
         );
     });
 });
-
