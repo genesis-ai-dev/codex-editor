@@ -3963,15 +3963,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             for (const [panelUri, panel] of this.webviewPanels.entries()) {
                 if (this.isMatchingFilePair(targetDocumentUri, panelUri)) {
-                    const docUri = panelUri;
-                    const rev = this.getDocumentRevision(docUri);
-                    const currentPosition = this.currentMilestoneSubsectionMap.get(docUri);
-                    safePostMessageToPanel(panel, {
-                        type: "refreshCurrentPage",
-                        rev,
-                        milestoneIndex: currentPosition?.milestoneIndex ?? 0,
-                        subsectionIndex: currentPosition?.subsectionIndex ?? 0,
-                    });
+                    await sendMilestoneRefreshToWebview(targetDocument, panel, this);
+                    this.updateMilestoneProgressForDocument(targetDocument);
                     break;
                 }
             }
@@ -4121,7 +4114,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     /**
      * Updates milestone progress for a specific document
      */
-    private updateMilestoneProgressForDocument(document: CodexCellDocument) {
+    public updateMilestoneProgressForDocument(document: CodexCellDocument) {
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const validationCount = config.get("validationCount", 1);
         const validationCountAudio = config.get("validationCountAudio", 1);
