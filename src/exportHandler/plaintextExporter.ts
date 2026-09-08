@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { basename } from "path";
 import { extractVerseRefFromLine } from "../utils/verseRefUtils";
 import { readCodexNotebookFromUri, getActiveCells, isContentCellType } from "./exportHandlerUtils";
+import { toExportFileName } from "./exportFileNameUtils";
 import type { ExportOptions } from "./exportHandler";
 import type { ExportProgressReporter } from "./exportProgress";
 
@@ -123,12 +124,9 @@ export async function exportCodexContentAsPlaintext(
                 exportContent += chapterContent + "\n\n";
             }
 
-            const timestamp = new Date()
-                .toISOString()
-                .replace(/[:.]/g, "-");
             const fileName =
                 basename(file.fsPath).replace(".codex", "") || "unknown";
-            const exportFileName = `${fileName}_${timestamp}.txt`;
+            const exportFileName = toExportFileName(fileName, ".txt");
             const exportFile = vscode.Uri.joinPath(
                 exportFolder,
                 exportFileName

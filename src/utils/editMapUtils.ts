@@ -342,13 +342,11 @@ export function addProjectMetadataEdit(
         metadata.edits = [];
     }
 
-    const currentTimestamp = Date.now();
-
     // Create the new edit entry
     const newEdit = {
         editMap,
         value,
-        timestamp: currentTimestamp,
+        timestamp: Date.now(),
         type: EditType.USER_EDIT,
         author,
     };

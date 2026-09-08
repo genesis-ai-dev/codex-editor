@@ -53,14 +53,14 @@ export async function createNewWorkspaceAndProject(context?: vscode.ExtensionCon
     }
 
     const projectName = sanitizeProjectName(projectNameInput);
-    
+
     // Check if user input already has a valid UUID suffix - if so, use it instead of generating new
     const existingUuid = extractProjectIdFromFolderName(projectName);
     const projectId = existingUuid || generateProjectId();
-    
+
     // Only append projectId if name doesn't already end with it
-    const fullProjectName = projectName.endsWith(`-${projectId}`) 
-        ? projectName 
+    const fullProjectName = projectName.endsWith(`-${projectId}`)
+        ? projectName
         : `${projectName}-${projectId}`;
 
     if (projectName !== projectNameInput) {

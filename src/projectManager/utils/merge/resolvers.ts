@@ -15,6 +15,10 @@ import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory, ProjectUserVersionEntry } from "../../../../types/index.d";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
+import {
+    mergeNativeToolStatusEntries,
+    mergeNativeToolStatusHistory,
+} from "../../../utils/nativeToolStatus";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
 import { formatJsonForNotebookFile } from "../../../utils/notebookFileFormattingUtils";
 import { ORPHANED_PROJECT_FILES } from "../../../utils/fileUtils";
@@ -2006,6 +2010,21 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             // Fallback to starting with ours if no edit history
             resolvedMetadata = JSON.parse(JSON.stringify(ours));
         }
+
+        // nativeToolStatus is a timestamped per-user snapshot, not an edit
+        // history field. Merge it independently so concurrent users are
+        // preserved and the newest snapshot wins for the same username.
+        resolvedMetadata.meta = {
+            ...(resolvedMetadata.meta || {}),
+            nativeToolStatus: mergeNativeToolStatusEntries(
+                ours.meta?.nativeToolStatus,
+                theirs.meta?.nativeToolStatus,
+            ),
+            nativeToolStatusHistory: mergeNativeToolStatusHistory(
+                ours.meta?.nativeToolStatusHistory,
+                theirs.meta?.nativeToolStatusHistory,
+            ),
+        };
 
         // 1. Resolve initiateRemoteUpdatingFor (Complex Merge Logic)
         // Helper to extract and normalize updating list
