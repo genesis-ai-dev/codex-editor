@@ -1,5 +1,8 @@
 import * as vscode from "vscode";
-import { ConflictFile } from "../../../../src/projectManager/utils/merge/types";
+import {
+    ConflictFile,
+    MergeSnapshot,
+} from "../../../../src/projectManager/utils/merge/types";
 import { ResolvedFile } from "../../../../src/projectManager/utils/merge/resolvers";
 
 // Add ImportType type
@@ -162,9 +165,14 @@ export interface FrontierAPI {
         blocked?: boolean;
         allChangedFilePaths?: string[];
         remoteChangedFilePaths?: string[];
+        mergeSnapshot?: MergeSnapshot;
         uploadedLfsFiles?: string[];
     }>;
-    completeMerge: (resolvedFiles: ResolvedFile[], workspacePath: string | undefined) => Promise<void>;
+    completeMerge: (
+        resolvedFiles: ResolvedFile[],
+        workspacePath: string | undefined,
+        snapshot?: MergeSnapshot
+    ) => Promise<void>;
     onSyncStatusChange: (
         callback: (status: { status: 'started' | 'completed' | 'error' | 'skipped', message?: string; }) => void
     ) => vscode.Disposable;

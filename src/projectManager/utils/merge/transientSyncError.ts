@@ -8,6 +8,19 @@
 export const BLOB_READ_FAILED_PREFIX = "BLOB_READ_FAILED:";
 
 /**
+ * Cross-repo marker thrown by frontier-authentication's completeMerge guard
+ * (frontier-authentication/src/git/mergeSnapshot.ts) when the local or remote
+ * branch moved between conflict analysis and completeMerge — typically another
+ * team member pushed while this client was resolving conflicts. Frontier makes
+ * no merge commit in that case and the resolved files are still on disk, so
+ * the correct recovery is to re-run the whole sync: the resolutions get
+ * committed as local work, then re-analysed and re-resolved against the new
+ * remote head. MUST stay in lock-step with frontier-authentication; both repos
+ * assert the literal in tests.
+ */
+export const MERGE_STATE_CHANGED_MARKER = "MERGE_STATE_CHANGED";
+
+/**
  * Error class for sync failures that are safe to retry automatically.
  *
  * Thrown by:
@@ -30,6 +43,9 @@ export class TransientSyncError extends Error {
  * before surfacing to the user. Covers:
  *  - TransientSyncError class (codex-editor-thrown)
  *  - BLOB_READ_FAILED_PREFIX sentinel (frontier-auth-thrown, cross-extension)
+ *  - MERGE_STATE_CHANGED_MARKER (frontier-auth-thrown when the remote moved
+ *    during conflict resolution; matched by substring because Frontier wraps
+ *    it as "Complete merge operation failed: MERGE_STATE_CHANGED: ...")
  *  - Network errors and push-rejection errors (existing transient set preserved
  *    from the previous in-place classifier inside the completeMerge catch)
  */
@@ -39,6 +55,7 @@ export function isRetriableSyncError(err: unknown): boolean {
     const msg = err.message;
     return (
         msg.startsWith(BLOB_READ_FAILED_PREFIX) ||
+        msg.includes(MERGE_STATE_CHANGED_MARKER) ||
         msg.includes("non-fast-forward") ||
         msg.includes("failed to push") ||
         msg.includes("Failed to push") ||
