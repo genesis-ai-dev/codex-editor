@@ -4394,7 +4394,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         completionConfig,
                         cancellationToken,
                         true, // returnHTML
-                        isBatchOperation
+                        isBatchOperation,
+                        {
+                            enforceHtmlStructure:
+                                currentDocument.getNotebookMetadata().enforceHtmlStructure === true,
+                        },
                     );
 
                     // Check for cancellation before updating document - this is crucial to prevent cell population
