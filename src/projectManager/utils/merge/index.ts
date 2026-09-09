@@ -303,6 +303,11 @@ export async function stageAndCommitAllAndSync(
 
                 // Use the shared classifier so completeMerge retries stay aligned
                 // with the outer transient-error policy (single source of truth).
+                // This includes Frontier's MERGE_STATE_CHANGED guard: another
+                // client pushed between our conflict analysis and completeMerge,
+                // so Frontier made no merge commit. The resolved files are still
+                // on disk; re-running the whole sync commits them as local work,
+                // then re-analyses and re-resolves against the new remote head.
                 if (isRetriableSyncError(completeMergeError) && retryCount < 3) {
                     debug(`⚠️ Transient completeMerge failure, retrying... (attempt ${retryCount + 1}/3)`);
 

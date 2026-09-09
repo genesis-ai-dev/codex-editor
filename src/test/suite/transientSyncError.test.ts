@@ -1,6 +1,7 @@
 import * as assert from "assert";
 import {
     BLOB_READ_FAILED_PREFIX,
+    MERGE_STATE_CHANGED_MARKER,
     TransientSyncError,
     isRetriableSyncError,
     isUserSurfacedError,
@@ -38,6 +39,35 @@ suite("transientSyncError - retry classifier contract", () => {
     test("classifies plain Error with literal BLOB_READ_FAILED: prefix as retriable", () => {
         const err = new Error("BLOB_READ_FAILED: remote HEAD blob unreadable for files/target/JUD.codex");
         assert.strictEqual(isRetriableSyncError(err), true);
+    });
+
+    test("MERGE_STATE_CHANGED_MARKER is exactly the cross-repo wire string", () => {
+        // DO NOT CHANGE THIS LITERAL without also updating:
+        //  - frontier-authentication: src/git/mergeSnapshot.ts (assertMergeSnapshot)
+        //  - frontier-authentication tests asserting /MERGE_STATE_CHANGED:/
+        assert.strictEqual(MERGE_STATE_CHANGED_MARKER, "MERGE_STATE_CHANGED");
+    });
+
+    test("classifies Frontier's MERGE_STATE_CHANGED completeMerge rejection as retriable", () => {
+        // Raw form thrown by assertMergeSnapshot in frontier-authentication when
+        // another client pushed between our conflict analysis and completeMerge.
+        assert.strictEqual(
+            isRetriableSyncError(new Error(
+                "MERGE_STATE_CHANGED: Local or remote history changed during conflict resolution. " +
+                "No merge commit was created; sync must analyse the new changes before retrying."
+            )),
+            true
+        );
+        // Wrapped form as it actually crosses the extension boundary:
+        // GitService.completeMerge re-throws with a prefix, so this must match
+        // by substring rather than prefix.
+        assert.strictEqual(
+            isRetriableSyncError(new Error(
+                "Complete merge operation failed: MERGE_STATE_CHANGED: Local or remote history " +
+                "changed during conflict resolution."
+            )),
+            true
+        );
     });
 
     test("classifies network/push-rejection errors as retriable", () => {
