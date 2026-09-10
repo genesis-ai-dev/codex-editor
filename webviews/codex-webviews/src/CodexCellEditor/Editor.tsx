@@ -1765,18 +1765,14 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             {showHistoryModal && (
                 <div
                     style={{
-                        position: "fixed",
-                        top: "50%",
-                        left: "50%",
-                        transform: "translate(-50%, -50%)",
+                        marginTop: "16px",
                         backgroundColor: "var(--vscode-editor-background)",
                         padding: "20px",
                         border: "1px solid var(--vscode-editor-foreground)",
                         borderRadius: "4px",
-                        zIndex: 1000,
                         maxHeight: "80vh",
                         overflowY: "auto",
-                        width: "calc(100vw - 40px)",
+                        width: "100%",
                         boxSizing: "border-box",
                     }}
                 >
