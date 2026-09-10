@@ -1766,7 +1766,8 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 <div
                     style={{
                         position: "absolute",
-                        inset: "16px",
+                        inset: "16px 16px auto",
+                        maxHeight: "calc(100% - 32px)",
                         zIndex: 20,
                         backgroundColor: "var(--vscode-editor-background)",
                         padding: "20px",
