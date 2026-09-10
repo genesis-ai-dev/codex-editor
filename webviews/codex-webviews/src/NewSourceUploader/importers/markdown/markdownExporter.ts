@@ -14,6 +14,14 @@ export interface MarkdownExportCell {
         segmentIndex?: number;
         sourceSpan?: { start: number; end: number; };
         segmentType?: string;
+        originalMarkdown?: string;
+        type?: string;
+        data?: {
+            originalText?: string;
+            merged?: boolean;
+            deleted?: boolean;
+            hidden?: boolean;
+        };
     };
 }
 
@@ -41,6 +49,10 @@ export function exportMarkdownWithTranslations(
         if (cell.kind !== 2) {
             continue;
         }
+        const data = cell.metadata?.data;
+        if (data?.merged || data?.deleted || data?.hidden || cell.metadata?.type === "milestone") {
+            continue;
+        }
         const span = cell.metadata?.sourceSpan;
         if (!span || typeof span.start !== "number" || typeof span.end !== "number") {
             continue;
@@ -52,6 +64,17 @@ export function exportMarkdownWithTranslations(
             continue;
         }
 
+        const sourceWitness = cell.metadata?.originalMarkdown ?? data?.originalText;
+        if (sourceWitness !== undefined) {
+            const normalize = (value: string) => value.replace(/\r\n/g, "\n").trimEnd();
+            const actualSource = canonicalSource.slice(span.start, span.end);
+            if (normalize(actualSource) !== normalize(sourceWitness)) {
+                throw new Error(
+                    `Cannot safely export Markdown cell ${cell.metadata?.id ?? "unknown"}: ` +
+                    `its sourceSpan no longer matches the imported source text.`
+                );
+            }
+        }
         const htmlSource = cell.value ?? cell.content ?? "";
         const translated = htmlTranslationToMarkdownForRoundTrip(htmlSource);
         if (skipEmpty && !translated) {
@@ -70,7 +93,13 @@ export function exportMarkdownWithTranslations(
         replacements.push({ start: span.start, end: span.end, text });
     }
 
-    replacements.sort((a, b) => b.start - a.start);
+    replacements.sort((a, b) => a.start - b.start);
+    for (let index = 1; index < replacements.length; index++) {
+        if (replacements[index].start < replacements[index - 1].end) {
+            throw new Error("Cannot safely export Markdown: active source spans overlap.");
+        }
+    }
+    replacements.reverse();
 
     let out = canonicalSource;
     for (const { start, end, text } of replacements) {

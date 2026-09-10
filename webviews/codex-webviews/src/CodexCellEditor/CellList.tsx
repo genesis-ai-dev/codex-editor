@@ -30,7 +30,7 @@ import SourceCellContext from "./contextProviders/SourceCellContext";
 import CommentsBadge from "./CommentsBadge";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { sanitizeQuillHtml } from "./utils";
-import { compareHtmlStructure, getStructureMismatchDescription } from "./utils/htmlStructureValidator";
+import { getHtmlStructureRepairDiff, getStructureMismatchDescription } from "./utils/htmlStructureValidator";
 import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import type { AudioAvailability } from "./utils/audioViewMode";
 
@@ -312,13 +312,13 @@ const CellList: React.FC<CellListProps> = ({
             const targetHtml = cell.cellContent;
             if (!sourceHtml || !targetHtml) continue;
 
-            const diff = compareHtmlStructure(sourceHtml, targetHtml);
+            const diff = getHtmlStructureRepairDiff(sourceHtml, targetHtml, metadata);
             if (!diff.isMatch) {
                 errors.set(cellId, getStructureMismatchDescription(diff));
             }
         }
         return errors;
-    }, [workingTranslationUnits, enforceHtmlStructure, isSourceText, sourceCellMap]);
+    }, [workingTranslationUnits, enforceHtmlStructure, isSourceText, sourceCellMap, metadata?.importerType, metadata?.corpusMarker]);
 
     // Convert arrays to Sets for faster lookups
     const translationQueueSet = useMemo(() => new Set(translationQueue), [translationQueue]);

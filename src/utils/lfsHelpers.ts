@@ -2,19 +2,11 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 import * as crypto from "crypto";
-import { getAuthApi } from "../extension";
+import { parsePointerContent, isLfsPointerContent, type LFSPointer } from "./lfsPointerUtils";
+export { parsePointerContent, isLfsPointerContent, type LFSPointer } from "./lfsPointerUtils";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[LFSHelpers]", ...args) : () => { };
-
-/**
- * LFS Pointer structure
- */
-export interface LFSPointer {
-    oid: string;
-    size: number;
-    version: string;
-}
 
 /**
  * Check if a file is an LFS pointer file
@@ -56,42 +48,6 @@ export async function parsePointerFile(filePath: string): Promise<LFSPointer | n
         return parsePointerContent(text);
     } catch (error) {
         debug(`Error parsing pointer file: ${filePath}`, error);
-        return null;
-    }
-}
-
-/**
- * Parse LFS pointer content string
- * @param content - Content of the pointer file
- * @returns LFS pointer data or null if invalid
- */
-export function parsePointerContent(content: string): LFSPointer | null {
-    try {
-        // Check for version
-        const versionMatch = content.match(/version (https:\/\/git-lfs\.github\.com\/spec\/v\d+)/);
-        if (!versionMatch) {
-            return null;
-        }
-
-        // Extract OID
-        const oidMatch = content.match(/oid sha256:([a-f0-9]{64})/i);
-        if (!oidMatch) {
-            return null;
-        }
-
-        // Extract size
-        const sizeMatch = content.match(/size (\d+)/);
-        if (!sizeMatch) {
-            return null;
-        }
-
-        return {
-            version: versionMatch[1],
-            oid: oidMatch[1],
-            size: parseInt(sizeMatch[1], 10),
-        };
-    } catch (error) {
-        debug("Error parsing pointer content", error);
         return null;
     }
 }
@@ -309,18 +265,6 @@ export async function isLocalUnsyncedFile(
 }
 
 /**
- * Check if a Uint8Array contains an LFS pointer (not the actual file content).
- * Useful for validating file content before processing.
- */
-export function isLfsPointerContent(data: Uint8Array): boolean {
-    if (data.length > 400) {
-        return false;
-    }
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(data);
-    return text.includes('version https://git-lfs.github.com/spec/v1');
-}
-
-/**
  * Resolve a Git LFS pointer file by downloading the actual content.
  *
  * Uses the Frontier Authentication extension's `downloadLFSFile` API to
@@ -346,6 +290,7 @@ export async function resolveLfsPointerFile(
             `[LFS] Resolving pointer for "${path.basename(filePath)}" (oid: ${pointer.oid.substring(0, 12)}..., expected size: ${pointer.size} bytes)`,
         );
 
+        const { getAuthApi } = await import("../extension");
         const authApi = getAuthApi();
         if (!authApi?.downloadLFSFile) {
             return {

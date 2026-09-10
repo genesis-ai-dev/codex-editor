@@ -83,6 +83,7 @@ export interface SpreadsheetNotebookMetadata extends ProcessedNotebookMetadataBa
     columnHeaders?: string[];
     sourceColumnIndex?: number;
     originalFileContent?: string;
+    hasHeader?: boolean;
 }
 
 export interface SmartSegmenterNotebookMetadata extends ProcessedNotebookMetadataBase {
@@ -267,4 +268,3 @@ export type ProcessedNotebookMetadataByImporter = {
     biblica: BiblicaNotebookMetadata;
     macula: MaculaNotebookMetadata;
 };
-
