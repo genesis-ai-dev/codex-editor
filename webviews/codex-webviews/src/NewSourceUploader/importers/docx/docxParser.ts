@@ -42,8 +42,8 @@ const XML_PARSER_OPTIONS = {
 // Helper to compute SHA-256 hash
 async function computeSHA256(input: string | ArrayBuffer): Promise<string> {
     const data = typeof input === 'string'
-        ? new TextEncoder().encode(input).buffer
-        : input;
+        ? new TextEncoder().encode(input)
+        : new Uint8Array(input);
 
     const cryptoObj: any = (globalThis as any).crypto;
     if (cryptoObj?.subtle?.digest) {
