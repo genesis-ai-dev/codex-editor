@@ -12,7 +12,7 @@ import {
     extractSliceByVerseRange,
 } from "../chapterBlocks";
 import { buildBibleVerseIndex } from "../surgicalSwap";
-import { bookStory, chapterVerse, introNote, pDc1Boundary } from "./boundaryTestHelpers";
+import { bookStory, chapterVerse, introNote, packedVerses, pDc1Boundary } from "./boundaryTestHelpers";
 
 const NO_STYLE = "CharacterStyle/$ID/[No character style]";
 
@@ -842,5 +842,114 @@ describe("structureSwap", () => {
         expect(buildBibleVerseIndex(xml).get("HAB|3|19")?.text).toContain(
             "Portuguese 3:19"
         );
+    });
+
+    it("clips a Bible paragraph that straddles a study note so pre-note verses do not leak after the note", () => {
+        // English GEN 8: notes sit between 8:14 and 8:15. Portuguese packs
+        // 8:6-17 in one paragraph; without clipStart the post-note span takes
+        // that whole paragraph and 6-14 reappear in the note block.
+        const study = bookStory(
+            "GEN",
+            packedVerses("8", [
+                { verse: "1", text: "English 8:1." },
+                { verse: "5", text: "English 8:5." },
+            ], "ParagraphStyle/text%3ap_dc1", true) +
+                packedVerses("8", [
+                    { verse: "6", text: "English 8:6." },
+                    { verse: "14", text: "English 8:14." },
+                ]) +
+                introNote("6:1 – 8:14 study note.") +
+                packedVerses("8", [
+                    { verse: "15", text: "English 8:15." },
+                    { verse: "22", text: "English 8:22." },
+                ])
+        );
+        const bible = bookStory(
+            "GEN",
+            packedVerses("8", [
+                { verse: "1", text: "Portuguese 8:1." },
+                { verse: "5", text: "Portuguese 8:5." },
+            ], "ParagraphStyle/text%3ap_dc1", true) +
+                packedVerses("8", [
+                    { verse: "6", text: "Portuguese 8:6 raven." },
+                    { verse: "14", text: "Portuguese 8:14 dry land." },
+                    { verse: "15", text: "Portuguese 8:15 leave the ark." },
+                    { verse: "17", text: "Portuguese 8:17." },
+                ]) +
+                packedVerses("8", [
+                    { verse: "18", text: "Portuguese 8:18." },
+                    { verse: "22", text: "Portuguese 8:22." },
+                ])
+        );
+
+        const plan = buildVersificationPlan(study, bible);
+        const { xml } = applyStructureSwapToStudyXml(
+            study,
+            buildBibleChapterBlockIndex(bible),
+            { bibleStoryXml: bible, versificationPlan: plan }
+        );
+
+        expect(xml).toContain("6:1 – 8:14 study note.");
+        expect(xml).toContain("Portuguese 8:14 dry land.");
+        expect(xml).toContain("Portuguese 8:15 leave the ark.");
+        expect(xml).not.toContain("English 8:14.");
+        expect(xml).not.toContain("English 8:15.");
+
+        const noteAt = xml.indexOf("6:1 – 8:14 study note.");
+        const afterNote = xml.slice(noteAt);
+        expect(afterNote).toContain("Portuguese 8:15 leave the ark.");
+        expect(afterNote).not.toContain("Portuguese 8:6 raven.");
+        expect(afterNote).not.toContain("Portuguese 8:14 dry land.");
+
+        const beforeNote = xml.slice(0, noteAt);
+        expect(beforeNote).toContain("Portuguese 8:14 dry land.");
+        expect(beforeNote).not.toContain("Portuguese 8:15 leave the ark.");
+
+        // The verse run must still end with a paragraph return, or InDesign
+        // prints the note as a continuation of verse 14 in the note's style.
+        const notePsrAt = xml.lastIndexOf("<ParagraphStyleRange", noteAt);
+        expect(xml.slice(0, notePsrAt)).toMatch(
+            /<Br\s*\/?>\s*(?:<\/CharacterStyleRange>\s*)*<\/ParagraphStyleRange>\s*$/
+        );
+    });
+
+    it("keeps the paragraph return when a slice is cut mid-paragraph", () => {
+        const block = packedVerses("8", [
+            { verse: "6", text: "Verse six." },
+            { verse: "14", text: "Verse fourteen." },
+            { verse: "15", text: "Verse fifteen." },
+        ]);
+
+        const cut = extractSliceByVerseRange(block, 6, 14);
+        expect(cut).toContain("Verse fourteen.");
+        expect(cut).not.toContain("Verse fifteen.");
+        expect(cut).toMatch(
+            /<Br\s*\/?>\s*(?:<\/CharacterStyleRange>\s*)*<\/ParagraphStyleRange>\s*$/
+        );
+
+        // A whole paragraph already carries its own return; do not add a second.
+        const whole = extractSliceByVerseRange(block, 6, 15);
+        expect((whole.match(/<Br\b/g) ?? []).length).toBe(1);
+    });
+
+    it("extractSliceByVerseRange can start mid-paragraph at firstVerse", () => {
+        const block = packedVerses("8", [
+            { verse: "6", text: "Verse six." },
+            { verse: "14", text: "Verse fourteen." },
+            { verse: "15", text: "Verse fifteen." },
+            { verse: "17", text: "Verse seventeen." },
+        ]);
+        const head = extractSliceByVerseRange(block, 6, 14);
+        expect(head).toContain("Verse six.");
+        expect(head).toContain("Verse fourteen.");
+        expect(head).not.toContain("Verse fifteen.");
+
+        const tail = extractSliceByVerseRange(block, 15, 17, {
+            clipStartAtFirstVerse: true,
+        });
+        expect(tail).toContain("Verse fifteen.");
+        expect(tail).toContain("Verse seventeen.");
+        expect(tail).not.toContain("Verse six.");
+        expect(tail).not.toContain("Verse fourteen.");
     });
 });

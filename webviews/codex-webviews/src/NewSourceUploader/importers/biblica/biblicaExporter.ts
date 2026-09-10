@@ -22,9 +22,15 @@ import {
 } from './types';
 import {
     applySegmentTranslationToParagraphBlock,
+    extractSegmentStylesFromParagraphXml,
     findParagraphBlockInStoryXml,
     mergeSplitCellTranslations,
 } from '../common/contentSegmentUtils';
+import type { SegmentRange } from '../common/contentSegmentUtils';
+import {
+    getVerseMarkerSegmentIndexes,
+    splitSegmentsAtLineBreaks,
+} from './biblicaImportUtils';
 
 // Import JSZip for Node.js environment
 import JSZip from 'jszip';
@@ -185,6 +191,7 @@ import {
     applyBibleSwapWithShared,
     buildBibleSwapSharedResources,
     deserializeVersificationPlan,
+    normalizeBibleStoryXmlGlyphs,
     type BibleSwapMode,
     type SerializedVersificationPlan,
     type SwapStats,
@@ -890,12 +897,20 @@ export async function exportIdmlRoundtrip(
             return storyXml;
         }
 
+        // Verse delimiters are hidden from the editor, so they always read as
+        // "emptied by the translator"; IDML needs them to bound each verse.
+        const verseMarkerSegmentIndexes = getVerseMarkerSegmentIndexes(
+            update.contentSegments ?? [],
+            extractSegmentStylesFromParagraphXml(located.block)
+        );
+
         const updatedBlock = applySegmentTranslationToParagraphBlock(
             located.block,
             translatedHtml,
             update.contentSegments,
             xmlEscape,
-            update.structuralApostropheSegmentIndexes
+            update.structuralApostropheSegmentIndexes,
+            verseMarkerSegmentIndexes
         );
 
         if (updatedBlock === located.block) {
@@ -907,6 +922,39 @@ export async function exportIdmlRoundtrip(
             updatedBlock +
             storyXml.slice(located.end)
         );
+    };
+
+    /**
+     * Which paragraph slots each split cell owns. The importer cuts a paragraph
+     * into cells with `splitSegmentsAtLineBreaks`, so replaying that split
+     * recovers the exact ranges — and unlike inferring them from the surviving
+     * spans, it still covers a run the translator emptied at a cell edge.
+     * Returns undefined if the split no longer lines up with the cells, letting
+     * the merge fall back to its own inference.
+     */
+    const resolveSplitCellRanges = (
+        sorted: ParagraphUpdate[],
+        base: ParagraphUpdate
+    ): (SegmentRange | undefined)[] | undefined => {
+        const breakBefore = base.contentSegmentBreakBefore;
+        if (!Array.isArray(breakBefore) || breakBefore.length === 0) {
+            return undefined;
+        }
+
+        const groups = splitSegmentsAtLineBreaks(base.contentSegments ?? [], breakBefore);
+        if (groups.length !== sorted.length) {
+            return undefined;
+        }
+
+        return sorted.map((item) => {
+            const group = groups[item.segmentIndex ?? -1];
+            return group
+                ? {
+                      start: group.startIndex,
+                      end: group.startIndex + group.segments.length - 1,
+                  }
+                : undefined;
+        });
     };
 
     const coalesceSplitSurgicalUpdates = (updates: ParagraphUpdate[]): ParagraphUpdate[] => {
@@ -951,7 +999,8 @@ export async function exportIdmlRoundtrip(
             const mergedHtml = mergeSplitCellTranslations(
                 sorted.map((item) => item.translatedHtml ?? item.translated),
                 base.contentSegments ?? [],
-                base.contentSegmentBreakBefore
+                base.contentSegmentBreakBefore,
+                resolveSplitCellRanges(sorted, base)
             );
 
             coalesced.push({
@@ -1913,13 +1962,16 @@ function aggregateSwapResult(
 
         async function spliceBibleSwapIntoZip(
             studyZip: JSZip,
-            bibleStoryXml: string,
+            rawBibleStoryXml: string,
             swapMode: BibleSwapMode,
             parallelRunner?: BibleSwapParallelRunner,
             serializedPlan?: SerializedVersificationPlan,
             language?: string,
             studyVolume?: string
         ): Promise<BibleSwapReport> {
+    // Every swap path reads the Bible from here, so this is the one place the
+    // Bible's own glyphs have to be reconciled with the study Bible's fonts.
+    const bibleStoryXml = normalizeBibleStoryXmlGlyphs(rawBibleStoryXml);
     const studyStoryKeys = Object.keys(studyZip.files).filter(
         (name) => name.startsWith("Stories/") && name.endsWith(".xml")
     );

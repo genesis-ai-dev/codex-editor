@@ -682,7 +682,8 @@ export function buildStructureSwapSplices(
                         bibleChapterIndex,
                         span.book,
                         trimmed,
-                        stripSubheader
+                        stripSubheader,
+                        { clipStartAtFirstVerse: true }
                     ),
                     span.blockXml,
                     span.chapter
@@ -771,7 +772,8 @@ export function buildStructureSwapSplices(
             const rawReplacement = extractSliceByVerseRange(
                 bibleChapterXml,
                 span.firstVerse,
-                span.lastVerse
+                span.lastVerse,
+                { clipStartAtFirstVerse: true }
             );
             const replacement = rawReplacement
                 ? collapseRedundantProseInBlockXml(rawReplacement)

@@ -41,6 +41,34 @@ export function chapterVerse(
 </ParagraphStyleRange>`;
 }
 
+/** Several verses packed into one paragraph (Portuguese GEN 8:6–17, etc.). */
+export function packedVerses(
+    chapter: string,
+    parts: Array<{ verse: string; text: string }>,
+    paraStyle = "ParagraphStyle/text%3ap",
+    includeChapterMarker = false
+): string {
+    const chapterMarker = includeChapterMarker
+        ? `<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/meta%3ac"><Content>${chapter}:</Content></CharacterStyleRange>`
+        : "";
+    const body = parts
+        .map(
+            ({ verse, text }) =>
+                `<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/cv%3av"><Content>${verse}</Content></CharacterStyleRange>
+  <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/meta%3av"><Content>${verse}</Content></CharacterStyleRange>
+  <CharacterStyleRange AppliedCharacterStyle="${NO_STYLE}"><Content>${text}</Content></CharacterStyleRange>
+  <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/meta%3av"><Content>${verse}</Content></CharacterStyleRange>`
+        )
+        .join("\n  ");
+    // The trailing `<Br />` is the paragraph return; IDML paragraphs end with it
+    // rather than with the closing ParagraphStyleRange tag.
+    return `<ParagraphStyleRange AppliedParagraphStyle="${paraStyle}">
+  ${chapterMarker}
+  ${body}
+  <CharacterStyleRange AppliedCharacterStyle="${NO_STYLE}"><Br /></CharacterStyleRange>
+</ParagraphStyleRange>`;
+}
+
 /** Two-chapter boundary packed into one `p_dc1` paragraph (real study convention). */
 export function pDc1Boundary(
     closeChapter: string,

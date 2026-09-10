@@ -82,6 +82,22 @@ export function isBiblicaRunningHeadStyle(paragraphStyle: string): boolean {
 }
 
 /**
+ * The book's name, as it is printed outside the text itself.
+ *
+ * Each book opens with a metadata block InDesign draws the page furniture from: meta:h
+ * feeds the running head at the top of every page, and meta:toc1–3 feed the long, short
+ * and abbreviated contents entries. They read "Joshua", "Joshua", "Joshua", "Jos" — real
+ * words that have to be translated, unlike the neighbouring meta:bk ("JOS") and meta:id
+ * ("JOS - New International Readerʼs Version…"), which are identifiers the importer and
+ * USFM tooling match on and which must stay as they are.
+ */
+const BOOK_NAME_STYLE_PATTERN = /(?:^|\/)meta(?:%3a|:)(?:h|toc[123])$/i;
+
+export function isBiblicaBookNameStyle(paragraphStyle: string): boolean {
+    return BOOK_NAME_STYLE_PATTERN.test(paragraphStyle);
+}
+
+/**
  * Turn division heading text into a milestone label. Soft hyphens are typesetting hints
  * in the IDML text ("Sto\u00adries about Jesus") and must not leak into the label.
  */
@@ -134,6 +150,35 @@ export function getStructuralApostropheSegmentIndexes(
         }
     }
     return indexes;
+}
+
+/**
+ * Apostrophe slots whose two halves can be shown to the translator as one run.
+ *
+ * "Hamanʼs" reaches us as three slots because InDesign sets the apostrophe in its own
+ * font. Offered as three runs, a translator writes the phrase into the first and leaves
+ * the others empty, which strands their English on export and pushes every later run out
+ * of position — the source of the misplaced bold. Joining the halves gives them the word
+ * as a word, and the paragraph then has as many runs as the translation needs.
+ *
+ * Only where both halves carry the same character style. A dozen straddle a style
+ * boundary ("God" as a key term against a plain "s people") and joining those would
+ * decide, wrongly, that the whole phrase is a key term.
+ */
+export function getJoinableApostropheSegmentIndexes(
+    apostropheIndexes: number[],
+    segmentStyles?: string[],
+    breakBefore?: boolean[]
+): number[] {
+    return apostropheIndexes.filter((index) => {
+        const opening = segmentStyles?.[index - 1];
+        const closing = segmentStyles?.[index + 1];
+        if (index < 1 || !opening || !closing || opening !== closing) {
+            return false;
+        }
+        // A line break ends the cell, so the halves belong to different cells.
+        return !breakBefore?.[index] && !breakBefore?.[index + 1];
+    });
 }
 
 export function omitSegmentsAtIndexes(segments: string[], indexes: number[]): string[] {

@@ -37,6 +37,8 @@ export {
 
 export { buildChapterBlockIndex } from "./chapterBlocks";
 
+export { normalizeBibleStoryXmlGlyphs } from "./bibleTextNormalization";
+
 export {
     buildCompatVerseIndex,
     serializeCompatVerseIndex,

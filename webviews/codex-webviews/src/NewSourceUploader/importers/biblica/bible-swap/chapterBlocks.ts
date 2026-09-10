@@ -703,6 +703,31 @@ export function preserveStudyChapterMarker(
     );
 }
 
+const PARAGRAPH_RETURN_CSR =
+    '<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]"><Br /></CharacterStyleRange>';
+
+/**
+ * IDML writes the paragraph return as a `<Br />` at the end of a paragraph's
+ * last CharacterStyleRange; `</ParagraphStyleRange>` alone does not end a
+ * paragraph. A slice cut mid-paragraph leaves that `<Br />` behind in the Bible
+ * block, so the study paragraph that follows the replacement — usually an
+ * `intro:*` note — is joined onto the verse text and printed in the note's
+ * style (Portuguese GEN 8 packs 6-17 in one paragraph while the study breaks
+ * for its `6:1 – 8:14` note after verse 14).
+ */
+function appendParagraphReturn(sliceXml: string): string {
+    if (/<Br\s*\/?>\s*(?:<\/CharacterStyleRange>\s*)*$/i.test(sliceXml)) {
+        return sliceXml;
+    }
+    const opened = (sliceXml.match(/<CharacterStyleRange\b/g) ?? []).length;
+    const closed = (sliceXml.match(/<\/CharacterStyleRange>/g) ?? []).length;
+    // A slice that stopped inside a character range carries the return there;
+    // one that stopped between ranges needs a range of its own to hold it.
+    return opened > closed
+        ? `${sliceXml}<Br />`
+        : `${sliceXml}${PARAGRAPH_RETURN_CSR}`;
+}
+
 export interface ExtractSliceOptions {
     /**
      * Start the slice at `firstVerse` even when it shares a paragraph with
@@ -894,8 +919,14 @@ export function extractSliceByVerseRange(
         lastVerse + 1
     );
     if (sliceEnd <= sliceStart) return "";
+
+    const cutMidParagraph = getParagraphIndex(blockXml).some(
+        (para) => sliceEnd > para.fullStart && sliceEnd < para.fullEnd
+    );
+    const sliceXml = clippedOpenTag + blockXml.slice(sliceStart, sliceEnd);
+
     return balanceParagraphStyleRanges(
-        clippedOpenTag + blockXml.slice(sliceStart, sliceEnd)
+        cutMidParagraph ? appendParagraphReturn(sliceXml) : sliceXml
     );
 }
 
