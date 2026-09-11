@@ -1,8 +1,9 @@
 /**
  * Builds notebook cells from parsed Biblica Study Bible IDML stories.
  *
- * Only intro/* note paragraphs become cells; verse paragraphs are scanned to derive the
- * chapter-range milestone label and globalReferences that get attached to those notes.
+ * The intro/* note paragraphs, the meta:h/toc book-name block and the head/* scripture
+ * headings become cells; verse paragraphs are scanned to derive the chapter-range milestone
+ * label and globalReferences that get attached to them.
  *
  * Front/back matter volumes (see isBiblicaFrontBackMatterDocument) hold no scripture, so
  * they run in "all styles" mode where every text-bearing paragraph becomes a cell.
@@ -26,6 +27,7 @@ import {
     isBiblicaMajorSectionHeadingStyle,
     isBiblicaNoteSectionStyle,
     isBiblicaRunningHeadStyle,
+    isBiblicaScriptureHeadingStyle,
     isStructuralOnlyContent,
     splitSegmentsAtLineBreaks,
     getJoinableApostropheSegmentIndexes,
@@ -271,18 +273,19 @@ export async function createCellsFromStories(
 
             // --- From here on, this is a non-verse paragraph ---
 
-            // Study volumes take the intro/* notes plus the book-name block each book opens
-            // with; the rest of the meta/* metadata and the scripture headings are either
-            // identifiers or come from the Bible swap. Front/back matter has no note styles to
-            // speak of, so it takes any paragraph that carries text and only drops the
-            // auto-generated running heads.
+            // Study volumes take the intro/* notes, the book-name block each book opens with,
+            // and the head/* headings that sit in the scripture flow; the rest of the meta/*
+            // metadata is identifiers, and the text/* scripture itself comes from the Bible
+            // swap. Front/back matter has no note styles to speak of, so it takes any
+            // paragraph that carries text and only drops the auto-generated running heads.
             if (includeAllTextStyles) {
                 if (isBiblicaRunningHeadStyle(paragraphStyle)) {
                     continue;
                 }
             } else if (
                 !isBiblicaNoteSectionStyle(paragraphStyle) &&
-                !isBiblicaBookNameStyle(paragraphStyle)
+                !isBiblicaBookNameStyle(paragraphStyle) &&
+                !isBiblicaScriptureHeadingStyle(paragraphStyle)
             ) {
                 continue;
             }

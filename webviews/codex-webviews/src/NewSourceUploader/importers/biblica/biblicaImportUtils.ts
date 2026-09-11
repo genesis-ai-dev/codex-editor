@@ -74,6 +74,30 @@ export function isBiblicaMajorSectionHeadingStyle(paragraphStyle: string): boole
 }
 
 /**
+ * Headings that sit in the scripture flow rather than the notes.
+ *
+ * head:s* section titles ("Paul serves the Gentiles"), head:cl chapter labels ("Psalm 1"),
+ * head:d* descriptive titles (the psalm superscriptions), head:ms/head:mr division headings
+ * and references ("Book I", "Psalms 1–41"), head:sp speaker labels in Song of Songs and
+ * head:qa acrostic letters in Psalm 119.
+ *
+ * They are the publisher's own words, not scripture, and the Bible swap retains them
+ * instead of overwriting them from the incoming Bible (see isSectionHeadingParagraphStyle
+ * in bible-swap/chapterBlocks.ts), so their text has to come from the translator and they
+ * need cells of their own. The verse paragraphs around them are still skipped, and a
+ * heading that carries chapter/verse markers is handled as a verse paragraph before this
+ * is consulted.
+ *
+ * Anchored so the blank spacer styles that merely end in "head" (b_head, bb_head) and the
+ * meta:rh running heads stay out.
+ */
+const SCRIPTURE_HEADING_STYLE_PATTERN = /(?:^|\/)head(?:%3a|:)/i;
+
+export function isBiblicaScriptureHeadingStyle(paragraphStyle: string): boolean {
+    return SCRIPTURE_HEADING_STYLE_PATTERN.test(paragraphStyle);
+}
+
+/**
  * Running heads (meta:rh) repeat the section marker and page number on every page. InDesign
  * regenerates them from the layout, so they hold no translatable text of their own.
  */

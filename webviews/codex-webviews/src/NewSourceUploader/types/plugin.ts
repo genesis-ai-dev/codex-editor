@@ -1,5 +1,5 @@
 import { NotebookPair, ProcessedNotebook } from './common';
-import type { CustomNotebookCellData } from 'types';
+import type { CustomNotebookCellData, ReimportCandidate, ReimportDecision } from 'types';
 import { WizardContext } from './wizard';
 import React from 'react';
 
@@ -490,6 +490,28 @@ export interface OverwriteResponseMessage {
     originalMessage: WriteNotebooksMessage;
 }
 
+/**
+ * Provider -> webview: one or more files in this batch were already imported
+ * into the project. Carries a dry-run change report per file so the review
+ * step can say exactly what each choice would do.
+ *
+ * The original message is echoed back with the decision (the same round-trip
+ * the overwrite confirmation uses), so the provider re-runs the import from
+ * pristine data rather than from previews the dry-run merge has touched.
+ */
+export interface ReimportDecisionRequiredMessage {
+    command: 'reimportDecisionRequired';
+    candidates: ReimportCandidate[];
+    originalMessage: WriteNotebooksMessage;
+}
+
+/** Webview -> provider: how to handle each already-imported file. */
+export interface ReimportDecisionMessage {
+    command: 'reimportDecision';
+    decisions: ReimportDecision[];
+    originalMessage: WriteNotebooksMessage;
+}
+
 export interface DownloadResourceMessage {
     command: 'downloadResource';
     pluginId: string;
@@ -674,4 +696,4 @@ export interface AudioUriResponseMessage {
     error?: string;
 }
 
-export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | ImportStartedMessage | ImportEndedMessage | OverwriteConfirmationMessage | OverwriteResponseMessage | DownloadResourceMessage | DownloadResourceProgressMessage | DownloadResourceCompleteMessage | StartTranslatingMessage | OpenImportedFileMessage | SaveFileMessage | SelectAudioFileMessage | ReprocessAudioFileMessage | AudioFileSelectedMessage | AudioFileForProcessingMessage | ReprocessAudioInWebviewMessage | AudioProcessingCompleteMessage | RequestAudioSegmentMessage | AudioSegmentResponseMessage | RequestAudioUriMessage | AudioUriResponseMessage | FinalizeAudioImportMessage | AudioImportProgressMessage | AudioImportCompleteMessage | UpdateAudioSegmentsMessage | AudioSegmentsUpdatedMessage;
+export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | ImportStartedMessage | ImportEndedMessage | OverwriteConfirmationMessage | OverwriteResponseMessage | ReimportDecisionRequiredMessage | ReimportDecisionMessage | DownloadResourceMessage | DownloadResourceProgressMessage | DownloadResourceCompleteMessage | StartTranslatingMessage | OpenImportedFileMessage | SaveFileMessage | SelectAudioFileMessage | ReprocessAudioFileMessage | AudioFileSelectedMessage | AudioFileForProcessingMessage | ReprocessAudioInWebviewMessage | AudioProcessingCompleteMessage | RequestAudioSegmentMessage | AudioSegmentResponseMessage | RequestAudioUriMessage | AudioUriResponseMessage | FinalizeAudioImportMessage | AudioImportProgressMessage | AudioImportCompleteMessage | UpdateAudioSegmentsMessage | AudioSegmentsUpdatedMessage;

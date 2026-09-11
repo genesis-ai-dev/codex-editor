@@ -334,6 +334,36 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     // Methods to manipulate the document data
+    /**
+     * Clear the `needsResolution` flag an update import set on a cell.
+     *
+     * Recorded as an edit for the same reason the import records setting it:
+     * the sync merge resolves each field from the newest entry in the cell's
+     * edit history, so a silent field change would be reverted from a remote
+     * copy that still has the flag set.
+     *
+     * Invalidates the milestone index cache because the navigation's warning
+     * counts are derived from these flags.
+     */
+    private clearNeedsResolution(
+        cell: CustomNotebookCellData,
+        timestamp: number
+    ): void {
+        const data = cell.metadata?.data as { needsResolution?: boolean; } | undefined;
+        if (data?.needsResolution !== true) return;
+
+        data.needsResolution = false;
+        (cell.metadata.edits ??= []).push({
+            editMap: EditMapUtils.dataNeedsResolution(),
+            value: false,
+            timestamp,
+            type: EditType.USER_EDIT,
+            author: this._author,
+            validatedBy: [],
+        });
+        this.invalidateMilestoneIndexCache();
+    }
+
     public async updateCellContent(
         cellId: string,
         newContent: string,
@@ -510,6 +540,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
             validatedBy,
             ...(generationId ? { generationId } : {}),
         });
+
+        // Writing the cell by hand IS the resolution for a cell an update
+        // import flagged, so clear the flag and drop it out of the milestone
+        // navigation's warning counts.
+        if (shouldUpdateValue && editType === EditType.USER_EDIT) {
+            this.clearNeedsResolution(cellToUpdate, currentTimestamp);
+        }
 
         // Record the edit 
         // not being used ???
@@ -1712,8 +1749,22 @@ export class CodexCellDocument implements vscode.CustomDocument {
         startCellIndex: number,
         endCellIndex: number
     ): string[] {
+        return this.getRootContentCellsInRange(startCellIndex, endCellIndex)
+            .map((cell) => cell.metadata?.id)
+            .filter((id): id is string => Boolean(id));
+    }
+
+    /**
+     * The cells behind `getRootContentCellIdsInRange`, in the same order. Used
+     * where the cell itself is needed rather than just its id (e.g. counting
+     * cells flagged for re-resolution).
+     */
+    private getRootContentCellsInRange(
+        startCellIndex: number,
+        endCellIndex: number
+    ): CustomNotebookCellData[] {
         const cells = this._documentData.cells || [];
-        const rootIds: string[] = [];
+        const roots: CustomNotebookCellData[] = [];
         for (let i = startCellIndex; i < endCellIndex; i++) {
             const cell = cells[i];
             if (
@@ -1725,13 +1776,46 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 const parentId =
                     cell.metadata?.parentId ??
                     (cell.metadata?.data as { parentId?: string; } | undefined)?.parentId;
-                if (!parentId) {
-                    const id = cell.metadata?.id;
-                    if (id) rootIds.push(id);
+                if (!parentId && cell.metadata?.id) {
+                    roots.push(cell);
                 }
             }
         }
-        return rootIds;
+        return roots;
+    }
+
+    /**
+     * Fill in `unresolvedCellCount` on each milestone and its subdivisions.
+     *
+     * Cells carry `data.needsResolution` after an update import changed their
+     * source content, so the existing translation may no longer line up. The
+     * milestone navigation renders a warning marker on any section holding
+     * one, which is how the user finds them in a large document.
+     */
+    private annotateUnresolvedCounts(
+        milestones: MilestoneInfo[],
+        endOfLastMilestone: number
+    ): void {
+        const isUnresolved = (cell: CustomNotebookCellData): boolean =>
+            (cell.metadata?.data as { needsResolution?: boolean; } | undefined)?.needsResolution === true;
+
+        milestones.forEach((milestone, index) => {
+            const endCellIndex = milestones[index + 1]?.cellIndex ?? endOfLastMilestone;
+            const roots = this.getRootContentCellsInRange(milestone.cellIndex, endCellIndex);
+            const flags = roots.map(isUnresolved);
+            const total = flags.reduce((count, flagged) => count + (flagged ? 1 : 0), 0);
+            // Keep the field absent when there is nothing to flag, so the
+            // webview's "does this section need attention" check stays a
+            // simple truthiness test.
+            if (total > 0) milestone.unresolvedCellCount = total;
+
+            for (const subdivision of milestone.subdivisions ?? []) {
+                const subdivisionTotal = flags
+                    .slice(subdivision.startRootIndex, subdivision.endRootIndex)
+                    .reduce((count, flagged) => count + (flagged ? 1 : 0), 0);
+                if (subdivisionTotal > 0) subdivision.unresolvedCellCount = subdivisionTotal;
+            }
+        });
     }
 
     /**
@@ -1922,6 +2006,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 cellsPerPage,
                 maxSubdivisionLength,
             });
+            this.annotateUnresolvedCounts([virtualMilestone], cells.length);
 
             const result: MilestoneIndex = {
                 milestones: [virtualMilestone],
@@ -1951,6 +2036,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 maxSubdivisionLength
             );
         }
+        this.annotateUnresolvedCounts(milestones, cells.length);
 
         const result: MilestoneIndex = {
             milestones,

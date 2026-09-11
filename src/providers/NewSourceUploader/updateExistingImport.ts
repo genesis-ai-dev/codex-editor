@@ -8,12 +8,20 @@
  */
 
 import * as vscode from "vscode";
+import { randomUUID } from "crypto";
 import type { CodexNotebookAsJSONData, NotebookPreview } from "../../../types";
 import { findOriginalFileByHash, loadOriginalFilesRegistry } from "./originalFileUtils";
-import { writeNotebook } from "./codexFIleCreateUtils";
+import {
+    collectExistingDisplayNames,
+    getUniqueDisplayName,
+    writeNotebook,
+} from "./codexFIleCreateUtils";
+import { createStandardizedFilename } from "../../utils/bookNameUtils";
 import { isDocxFormattingContext } from "../../../sharedUtils/docxHtmlFormatting";
 import {
     mergeReimportedNotebookPair,
+    type ReimportCellChange,
+    type ReimportMergeResult,
     type ReimportMergeStats,
     type ReimportNotebook,
 } from "./reimportMerge";
@@ -23,6 +31,8 @@ export interface ExistingImportPair {
     displayName: string;
     sourceUri: vscode.Uri;
     codexUri: vscode.Uri;
+    /** Target cells that already have a translation. Used to rank duplicates. */
+    translationCount: number;
 }
 
 const resolvePairForBaseName = async (
@@ -48,18 +58,25 @@ const resolvePairForBaseName = async (
         return null;
     }
 
-    let displayName = baseName;
-    try {
-        const content = await vscode.workspace.fs.readFile(sourceUri);
-        const notebook = JSON.parse(new TextDecoder().decode(content));
-        if (typeof notebook?.metadata?.fileDisplayName === "string") {
-            displayName = notebook.metadata.fileDisplayName;
+    const readDisplayName = async (uri: vscode.Uri): Promise<string | undefined> => {
+        try {
+            const notebook = JSON.parse(
+                new TextDecoder().decode(await vscode.workspace.fs.readFile(uri)),
+            );
+            const name = notebook?.metadata?.fileDisplayName;
+            return typeof name === "string" && name.trim() !== "" ? name.trim() : undefined;
+        } catch {
+            return undefined;
         }
-    } catch {
-        // Display name is cosmetic; fall back to the base name.
-    }
+    };
 
-    return { notebookBaseName: baseName, displayName, sourceUri, codexUri };
+    // Navigation shows the display name from either side of the pair; prefer
+    // the source, then the target, so names like "GEN-DEU (Biblica)" and
+    // "NEW GEN-DEU" are what the user picks from.
+    const displayName =
+        (await readDisplayName(sourceUri)) ?? (await readDisplayName(codexUri)) ?? baseName;
+
+    return { notebookBaseName: baseName, displayName, sourceUri, codexUri, translationCount: 0 };
 };
 
 export interface ExistingImportMatches {
@@ -139,17 +156,12 @@ export const findExistingImportPairs = async (
         return pairs;
     };
 
-    // Fast path: the registry answers the common cases without touching any
-    // notebook files (a first-time import should not pay for a full scan).
+    // Collect every pair that came from this original file. The registry is
+    // the fast path, but a Biblica project can have duplicate imports that
+    // never made it into `referencedBy` (older imports, "import as new",
+    // a previous updated copy). The metadata scan finds those so the user
+    // can pick "GEN-DEU (Biblica)" vs "NEW GEN-DEU" by display name.
     const entry = await findOriginalFileByHash(workspaceFolder, originalFileHash);
-    const registryHashPairs = await resolveAll(entry?.referencedBy ?? []);
-    if (registryHashPairs.length > 0) {
-        return { matchedBy: "content", pairs: registryHashPairs };
-    }
-
-    // Registry entries for other hashes that were imported under this name
-    // (a changed document gets a new hash and a suffixed stored filename, but
-    // keeps its requested name in `originalNames`).
     const registryNameBaseNames: string[] = [];
     if (originalFileName) {
         try {
@@ -165,19 +177,45 @@ export const findExistingImportPairs = async (
         }
     }
 
-    // Slow path: scan source notebook metadata (registry missing or stale).
     const { hashBaseNames, nameBaseNames } = await scanSourceMetadata(
         workspaceFolder,
         originalFileHash,
         originalFileName,
     );
-    const hashPairs = await resolveAll(hashBaseNames);
+    const hashPairs = await resolveAll([...(entry?.referencedBy ?? []), ...hashBaseNames]);
     if (hashPairs.length > 0) {
-        return { matchedBy: "content", pairs: hashPairs };
+        return { matchedBy: "content", pairs: await preferPairWithMostTranslations(hashPairs) };
     }
 
     const namePairs = await resolveAll([...registryNameBaseNames, ...nameBaseNames]);
-    return namePairs.length > 0 ? { matchedBy: "fileName", pairs: namePairs } : null;
+    return namePairs.length > 0
+        ? { matchedBy: "fileName", pairs: await preferPairWithMostTranslations(namePairs) }
+        : null;
+};
+
+/**
+ * When the same original file produced several pairs (a previous blank
+ * "updated" copy sitting next to the real translated one), default to the
+ * pair that actually has translations.
+ */
+const preferPairWithMostTranslations = async (
+    pairs: ExistingImportPair[],
+): Promise<ExistingImportPair[]> => {
+    const scored = await Promise.all(
+        pairs.map(async (pair) => {
+            try {
+                const notebook = await readNotebook(pair.codexUri);
+                const translationCount = (notebook.cells ?? []).filter(
+                    (cell) => typeof cell.value === "string" && cell.value.trim() !== "",
+                ).length;
+                return { ...pair, translationCount };
+            } catch {
+                return pair;
+            }
+        }),
+    );
+    scored.sort((a, b) => b.translationCount - a.translationCount || a.displayName.localeCompare(b.displayName));
+    return scored;
 };
 
 export interface UpdateExistingImportResult {
@@ -188,38 +226,126 @@ export interface UpdateExistingImportResult {
 }
 
 /**
- * Rebuild an existing pair from a freshly parsed pair, carrying translations
- * over, and write the result back to the existing file paths.
+ * What the user chose to do with a re-imported file.
  *
- * No on-disk backup is made: any `.codex`/`.source` copy inside the workspace
+ * - `new`: ignore the existing pair and create a separate, untranslated pair.
+ * - `overwrite`: rebuild the existing pair in place.
+ * - `copy`: leave the existing pair untouched and write the rebuilt result to
+ *   a new pair that carries the existing translations.
+ */
+export type ReimportMode = "new" | "overwrite" | "copy";
+
+const readNotebook = async (uri: vscode.Uri): Promise<ReimportNotebook> =>
+    JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(uri))) as ReimportNotebook;
+
+/**
+ * Run the merge without writing anything, to show the user what an update
+ * would do before they commit to it.
+ *
+ * The merge mutates its inputs (it re-parents fresh cells onto old ids), so
+ * everything is cloned first — the caller's previews must stay pristine for
+ * the real run.
+ */
+export const previewExistingImportUpdate = async (
+    pair: ExistingImportPair,
+    newSource: NotebookPreview,
+    newCodex: NotebookPreview,
+): Promise<{ stats: ReimportMergeStats; changes: ReimportCellChange[]; }> => {
+    const { stats, changes } = mergeReimportedNotebookPair(
+        await readNotebook(pair.sourceUri),
+        await readNotebook(pair.codexUri),
+        structuredClone(newSource) as unknown as ReimportNotebook,
+        structuredClone(newCodex) as unknown as ReimportNotebook,
+    );
+    return { stats, changes };
+};
+
+/**
+ * Rebase a merged pair onto a brand-new notebook identity so it can be written
+ * alongside the pair it was derived from.
+ *
+ * `mergeNotebookMetadata` deliberately preserves the existing pair's identity
+ * fields (id, display name, file paths) because the normal update writes back
+ * over the same files. A copy has to replace all four, or it would claim the
+ * original's identity and the project would end up with two notebooks fighting
+ * over the same paths.
+ */
+const rebaseMergedPairAsCopy = async (
+    workspaceFolder: vscode.WorkspaceFolder,
+    pair: ExistingImportPair,
+    merged: ReimportMergeResult,
+    sourceName: string,
+): Promise<{ sourceUri: vscode.Uri; codexUri: vscode.Uri; displayName: string; }> => {
+    const notebookId = randomUUID();
+    const displayName = getUniqueDisplayName(
+        `${pair.displayName} (updated)`,
+        await collectExistingDisplayNames(workspaceFolder),
+    );
+
+    // Biblica is not a "biblical importer type" (it keeps document filenames
+    // rather than book codes), so the pair is named by id like other documents.
+    const baseName = `${sourceName}-(${notebookId})`;
+    const sourceUri = vscode.Uri.joinPath(
+        workspaceFolder.uri,
+        ".project",
+        "sourceTexts",
+        await createStandardizedFilename(baseName, ".source", false),
+    );
+    const codexUri = vscode.Uri.joinPath(
+        workspaceFolder.uri,
+        "files",
+        "target",
+        await createStandardizedFilename(baseName, ".codex", false),
+    );
+
+    for (const notebook of [merged.mergedSource, merged.mergedCodex]) {
+        const metadata = (notebook.metadata ??= {});
+        metadata.id = notebookId;
+        metadata.fileDisplayName = displayName;
+        metadata.sourceFsPath = sourceUri.fsPath;
+        metadata.codexFsPath = codexUri.fsPath;
+    }
+
+    return { sourceUri, codexUri, displayName };
+};
+
+/**
+ * Rebuild an existing pair from a freshly parsed pair, carrying translations
+ * over.
+ *
+ * In `overwrite` mode the result is written back over the existing files. No
+ * on-disk backup is made: any `.codex`/`.source` copy inside the workspace
  * would be picked up by the `**\/*.codex` scans (export lists, migrations,
  * indexing) and show up as a duplicate document. Recovery is covered by the
  * merge itself being non-destructive — removed cells are soft-deleted
  * tombstones that retain their content and edit history in the same file.
+ *
+ * In `copy` mode the existing pair is left exactly as it is and the result is
+ * written to a new pair under its own identity, which is the safe option when
+ * an update flags a lot of cells for re-resolution.
  */
 export const updateExistingImportPair = async (
     pair: ExistingImportPair,
     newSource: NotebookPreview,
     newCodex: NotebookPreview,
+    mode: Extract<ReimportMode, "overwrite" | "copy"> = "overwrite",
 ): Promise<UpdateExistingImportResult> => {
-    const decoder = new TextDecoder();
-    const existingSource = JSON.parse(
-        decoder.decode(await vscode.workspace.fs.readFile(pair.sourceUri)),
-    ) as ReimportNotebook;
-    const existingCodex = JSON.parse(
-        decoder.decode(await vscode.workspace.fs.readFile(pair.codexUri)),
-    ) as ReimportNotebook;
+    const existingSource = await readNotebook(pair.sourceUri);
+    const existingCodex = await readNotebook(pair.codexUri);
 
-    const { mergedSource, mergedCodex, stats } = mergeReimportedNotebookPair(
+    const merged = mergeReimportedNotebookPair(
         existingSource,
         existingCodex,
         newSource as unknown as ReimportNotebook,
         newCodex as unknown as ReimportNotebook,
     );
+    const { mergedSource, mergedCodex, stats } = merged;
 
     // A different sentence split cannot safely split an existing translation.
     // Keep this guard DOCX-specific; other importers retain their current flow.
-    if (isDocxFormattingContext(existingSource.metadata) && stats.droppedTranslations > 0) {
+    // A copy leaves the original pair intact, so there is nothing to lose and
+    // nothing to warn about.
+    if (mode === "overwrite" && isDocxFormattingContext(existingSource.metadata) && stats.droppedTranslations > 0) {
         const choice = await vscode.window.showWarningMessage(
             `Updating "${pair.displayName}" would hide ${stats.droppedTranslations} translated cell(s) whose source segments could not be matched.`,
             {
@@ -235,20 +361,41 @@ export const updateExistingImportPair = async (
         }
     }
 
-    const reimportContext = {
+    const reimportContext: Record<string, unknown> = {
         timestamp: new Date().toISOString(),
         stats,
     };
-    for (const merged of [mergedSource, mergedCodex]) {
-        const metadata = (merged.metadata ??= {});
+    if (mode === "copy") {
+        // Provenance: which pair this copy was derived from, so a later
+        // re-import can tell the two apart.
+        reimportContext.copiedFrom = pair.notebookBaseName;
+    }
+    for (const notebook of [mergedSource, mergedCodex]) {
+        const metadata = (notebook.metadata ??= {});
         metadata.importContext = {
             ...((metadata.importContext as Record<string, unknown>) ?? {}),
             lastReimport: reimportContext,
         };
     }
 
-    await writeNotebook(pair.sourceUri, mergedSource as unknown as CodexNotebookAsJSONData);
-    await writeNotebook(pair.codexUri, mergedCodex as unknown as CodexNotebookAsJSONData);
+    let { sourceUri, codexUri } = pair;
+    if (mode === "copy") {
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(pair.sourceUri);
+        if (!workspaceFolder) {
+            throw new Error("Cannot create an updated copy outside a workspace folder");
+        }
+        const rebased = await rebaseMergedPairAsCopy(
+            workspaceFolder,
+            pair,
+            merged,
+            newSource.name,
+        );
+        sourceUri = rebased.sourceUri;
+        codexUri = rebased.codexUri;
+    }
 
-    return { sourceUri: pair.sourceUri, codexUri: pair.codexUri, stats };
+    await writeNotebook(sourceUri, mergedSource as unknown as CodexNotebookAsJSONData);
+    await writeNotebook(codexUri, mergedCodex as unknown as CodexNotebookAsJSONData);
+
+    return { sourceUri, codexUri, stats };
 };

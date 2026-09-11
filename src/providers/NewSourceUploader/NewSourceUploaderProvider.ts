@@ -5,7 +5,7 @@ import { promisify } from "util";
 import { exec } from "child_process";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
-import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage, SelectAudioFileMessage, ReprocessAudioFileMessage, RequestAudioSegmentMessage, FinalizeAudioImportMessage, UpdateAudioSegmentsMessage, SaveFileMessage, AudioProcessingCompleteMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
+import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, ReimportDecisionMessage, WriteNotebooksWithAttachmentsMessage, SelectAudioFileMessage, ReprocessAudioFileMessage, RequestAudioSegmentMessage, FinalizeAudioImportMessage, UpdateAudioSegmentsMessage, SaveFileMessage, AudioProcessingCompleteMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
 import {
     handleSelectAudioFile,
     handleReprocessAudioFile,
@@ -33,7 +33,8 @@ import { removeLocalizedBooksJsonIfPresent as removeLocalizedBooksJson } from ".
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 import { MetadataManager } from "../../utils/metadataManager";
 import { openCodexDocumentWithSourcePair } from "../../utils/openCodexDocumentWithSourcePair";
-import type { ExistingImportPair } from "./updateExistingImport";
+import type { ExistingImportMatches, ExistingImportPair } from "./updateExistingImport";
+import type { ReimportCandidate, ReimportDecision } from "../../../types";
 import {
     applyTranslationToNotebook,
     describeTranslationImport,
@@ -235,6 +236,20 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         }
                     } else {
                         webviewPanel.webview.postMessage({ command: "importCancelled" });
+                    }
+                } else if (message.command === "reimportDecision") {
+                    const response = message as ReimportDecisionMessage;
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.beginImportInProgress();
+                    try {
+                        await this.handleWriteNotebooksForced(
+                            response.originalMessage,
+                            token,
+                            webviewPanel,
+                            response.decisions
+                        );
+                    } finally {
+                        syncManager.endImportInProgress();
                     }
                 } else if (message.command === "writeTranslation") {
                     const syncManager = SyncManager.getInstance();
@@ -939,6 +954,19 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
     /**
  * Converts a ProcessedNotebook to NotebookPreview format
  */
+    /**
+     * Flush unsaved editor changes to disk. Re-import merges read the existing
+     * pair from disk, so without this a translation the user just typed would
+     * be invisible to the merge and reported as missing.
+     */
+    private async saveOpenEditors(): Promise<void> {
+        try {
+            await vscode.commands.executeCommand("workbench.action.files.saveAll");
+        } catch (error) {
+            console.warn("[NewSourceUploader] saveAll before update failed:", error);
+        }
+    }
+
     private async convertToNotebookPreview(processedNotebook: ProcessedNotebook): Promise<NotebookPreview> {
         const cells: CodexCell[] = processedNotebook.cells.map(processedCell => ({
             kind: vscode.NotebookCellKind.Code,
@@ -1139,7 +1167,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
     private async handleWriteNotebooksForced(
         message: WriteNotebooksMessage,
         token: vscode.CancellationToken,
-        webviewPanel: vscode.WebviewPanel
+        webviewPanel: vscode.WebviewPanel,
+        /**
+         * The user's answers for files that were already imported. Absent on
+         * the first pass: the provider then posts a `reimportDecisionRequired`
+         * message and returns, and the webview calls back in with decisions.
+         */
+        reimportDecisions?: ReimportDecision[]
     ): Promise<void> {
         const reportProgress = (stage: string) => {
             webviewPanel.webview.postMessage({ command: "importProgress", stage });
@@ -1298,12 +1332,51 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             }
         }
 
-        // Detect re-imports: the original file's content hash already maps to an
-        // existing notebook pair in this project. Offer to update that pair in
-        // place (fixes cells from the fresh parse, preserves translations)
-        // instead of creating a duplicate pair.
-        const updateTargets = new Map<number, ExistingImportPair>();
-        const skippedPairs = new Set<number>();
+        // The first pass deletes `originalFileData` before echoing the
+        // message to the review step (the IDML bytes must not round-trip
+        // through the webview). The confirm pass therefore has the hash on
+        // metadata but no bytes — without recovering it here, re-import
+        // detection finds nothing, the merge is skipped, and a brand-new
+        // empty pair is written. That is why "Create new updated file"
+        // produced a blank target even when the original had translations.
+        if (workspaceFolder) {
+            for (let pairIdx = 0; pairIdx < message.notebookPairs.length; pairIdx++) {
+                if (originalFileHashes.has(pairIdx)) continue;
+                const metadata = message.notebookPairs[pairIdx].source.metadata as unknown as
+                    | Record<string, unknown>
+                    | undefined;
+                const hash = metadata?.originalFileHash;
+                if (typeof hash !== "string" || hash === "") continue;
+                const requestedFileName =
+                    (typeof metadata?.originalFileName === "string" && metadata.originalFileName) ||
+                    (typeof metadata?.originalName === "string" && metadata.originalName) ||
+                    "document";
+                originalFileHashes.set(pairIdx, { hash, requestedFileName });
+                pairsWithOriginalFiles.add(pairIdx);
+            }
+        }
+
+        // Convert ProcessedNotebooks to NotebookPreview format
+        const sourceNotebooks = await Promise.all(
+            message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.source))
+        );
+        const codexNotebooks = await Promise.all(
+            message.notebookPairs.map(async pair => {
+                // For codex notebooks, remove the original file data to avoid duplication
+                const codexPair = { ...pair.codex };
+                if ("originalFileData" in codexPair.metadata && codexPair.metadata.originalFileData) {
+                    codexPair.metadata = { ...codexPair.metadata };
+                    delete codexPair.metadata.originalFileData;
+                }
+                return await this.convertToNotebookPreview(codexPair);
+            })
+        );
+
+        // Detect re-imports: the original file's content hash (or its name)
+        // already maps to an existing notebook pair in this project. On the
+        // first pass we hand the webview a change report per matched file and
+        // return; the review step sends the user's choices back and we resume.
+        const matchesByPair = new Map<number, ExistingImportMatches>();
         if (workspaceFolder) {
             const { findExistingImportPairs } = await import('./updateExistingImport');
             for (const [pairIdx, originalFile] of originalFileHashes) {
@@ -1332,89 +1405,85 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 // Use the filename the user selected, not the deduplicated
                 // attachment filename (e.g. "document(1).docx"). Changed-file
                 // re-import detection is keyed by the requested original name.
-                const fileName = originalFile.requestedFileName;
-                const matches = await findExistingImportPairs(workspaceFolder, originalFile.hash, fileName);
-                if (!matches) continue;
-
-                const displayFileName = fileName || "This document";
-                const summary = matches.matchedBy === "content"
-                    ? `"${displayFileName}" was already imported as "${matches.pairs[0].displayName}".`
-                    : `"${displayFileName}" looks like a new version of "${matches.pairs[0].displayName}" (the content has changed since it was imported).`;
-                const choice = await vscode.window.showInformationMessage(
-                    summary,
-                    {
-                        modal: true,
-                        detail: "Update the existing import to rebuild its cells from this file while keeping existing translations, or import it again as a separate copy.",
-                    },
-                    "Update Existing",
-                    "Import as New Copy"
+                const matches = await findExistingImportPairs(
+                    workspaceFolder,
+                    originalFile.hash,
+                    originalFile.requestedFileName,
                 );
-                if (choice === undefined) {
-                    skippedPairs.add(pairIdx);
-                    continue;
-                }
-                if (choice !== "Update Existing") continue;
-
-                let chosenPair = matches.pairs[0];
-                if (matches.pairs.length > 1) {
-                    const picked = await vscode.window.showQuickPick(
-                        matches.pairs.map(pair => ({
-                            label: pair.displayName,
-                            description: pair.notebookBaseName,
-                            pair,
-                        })),
-                        { placeHolder: `Several imports match "${displayFileName}" — choose which one to update` }
-                    );
-                    if (!picked) {
-                        skippedPairs.add(pairIdx);
-                        continue;
-                    }
-                    chosenPair = picked.pair;
-                }
-                updateTargets.set(pairIdx, chosenPair);
+                if (matches) matchesByPair.set(pairIdx, matches);
             }
         }
 
-        if (skippedPairs.size === message.notebookPairs.length) {
-            webviewPanel.webview.postMessage({ command: "importCancelled" });
+        if (matchesByPair.size > 0 && !reimportDecisions) {
+            // Flush unsaved editor changes so the dry run reports against the
+            // user's latest translations, not a stale copy on disk.
+            await this.saveOpenEditors();
+
+            const { previewExistingImportUpdate } = await import('./updateExistingImport');
+            const candidates: ReimportCandidate[] = [];
+            for (const [pairIdx, matches] of matchesByPair) {
+                const options: ReimportCandidate["options"] = [];
+                for (const pair of matches.pairs) {
+                    const { stats, changes } = await previewExistingImportUpdate(
+                        pair,
+                        sourceNotebooks[pairIdx],
+                        codexNotebooks[pairIdx],
+                    );
+                    options.push({
+                        notebookBaseName: pair.notebookBaseName,
+                        displayName: pair.displayName,
+                        translationCount: pair.translationCount,
+                        stats,
+                        changes,
+                    });
+                }
+                const defaultOption = options[0];
+                if (!defaultOption) continue;
+                candidates.push({
+                    pairIdx,
+                    fileName: originalFileHashes.get(pairIdx)?.requestedFileName || "This document",
+                    matchedBy: matches.matchedBy,
+                    options,
+                    stats: defaultOption.stats,
+                    changes: defaultOption.changes,
+                });
+            }
+            webviewPanel.webview.postMessage({
+                command: "reimportDecisionRequired",
+                candidates,
+                originalMessage: message,
+            });
             return;
+        }
+
+        // Resolve the user's choices into the pairs to update and how.
+        const updateTargets = new Map<number, { pair: ExistingImportPair; mode: "overwrite" | "copy"; }>();
+        for (const decision of reimportDecisions ?? []) {
+            if (decision.mode === "new") continue;
+            const matches = matchesByPair.get(decision.pairIdx);
+            if (!matches) continue;
+            const pair = decision.notebookBaseName
+                ? matches.pairs.find(p => p.notebookBaseName === decision.notebookBaseName)
+                : matches.pairs[0];
+            if (pair) updateTargets.set(decision.pairIdx, { pair, mode: decision.mode });
         }
 
         reportProgress("creating");
 
-        // Convert ProcessedNotebooks to NotebookPreview format
-        const sourceNotebooks = await Promise.all(
-            message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.source))
-        );
-        const codexNotebooks = await Promise.all(
-            message.notebookPairs.map(async pair => {
-                // For codex notebooks, remove the original file data to avoid duplication
-                const codexPair = { ...pair.codex };
-                if ("originalFileData" in codexPair.metadata && codexPair.metadata.originalFileData) {
-                    codexPair.metadata = { ...codexPair.metadata };
-                    delete codexPair.metadata.originalFileData;
-                }
-                return await this.convertToNotebookPreview(codexPair);
-            })
-        );
-
-        // Update existing pairs in place (re-imports the user chose to update)
+        // Update existing pairs (re-imports the user chose to update)
         const allFiles: Array<{ pairIdx: number; sourceUri: vscode.Uri; codexUri: vscode.Uri; }> = [];
         if (workspaceFolder && updateTargets.size > 0) {
             // Flush unsaved editor changes to disk first so the merge reads the
             // user's latest translations (custom editors save via saveAll too).
-            try {
-                await vscode.commands.executeCommand("workbench.action.files.saveAll");
-            } catch (error) {
-                console.warn("[NewSourceUploader] saveAll before update failed:", error);
-            }
+            await this.saveOpenEditors();
 
             const { updateExistingImportPair } = await import('./updateExistingImport');
-            for (const [pairIdx, existingPair] of updateTargets) {
+            for (const [pairIdx, { pair: existingPair, mode }] of updateTargets) {
                 const result = await updateExistingImportPair(
                     existingPair,
                     sourceNotebooks[pairIdx],
-                    codexNotebooks[pairIdx]
+                    codexNotebooks[pairIdx],
+                    mode
                 );
                 if (result.cancelled) continue;
                 allFiles.push({ pairIdx, sourceUri: result.sourceUri, codexUri: result.codexUri });
@@ -1423,7 +1492,16 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 const removedNote = stats.droppedOldCells > 0
                     ? ` ${stats.droppedOldCells} cell(s) no longer in the document were removed${stats.droppedTranslations > 0 ? ` (${stats.droppedTranslations} had translations)` : ""}.`
                     : "";
-                const summaryText = `Updated "${existingPair.displayName}": ${stats.matchedCells} of ${stats.totalNewCells} cell(s) matched, ${stats.translationsCarried} translation(s) preserved.${removedNote}`;
+                const flaggedNote = stats.flaggedCells > 0
+                    ? ` ${stats.flaggedCells} cell(s) changed and need review.`
+                    : "";
+                const insertedNote = stats.insertedCells > 0
+                    ? ` ${stats.insertedCells} new cell(s) added.`
+                    : "";
+                const action = mode === "copy"
+                    ? `Created an updated copy of "${existingPair.displayName}"`
+                    : `Updated "${existingPair.displayName}"`;
+                const summaryText = `${action}: ${stats.matchedCells} of ${stats.totalNewCells} cell(s) matched, ${stats.translationsCarried} translation(s) preserved.${insertedNote}${flaggedNote}${removedNote}`;
                 if (stats.droppedTranslations > 0) {
                     // Translated content was hidden; the tombstoned cells keep
                     // it recoverable inside the file itself.
@@ -1455,7 +1533,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         // Create brand-new pairs for the remaining imports
         const createIndices = message.notebookPairs
             .map((_, idx) => idx)
-            .filter(idx => !updateTargets.has(idx) && !skippedPairs.has(idx));
+            .filter(idx => !updateTargets.has(idx));
         const createdFiles = createIndices.length > 0
             ? await createNoteBookPair({
                 token,

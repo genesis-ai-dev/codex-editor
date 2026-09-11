@@ -11,7 +11,9 @@ import {
     defaultCellAligner,
     CellAligner,
     ImportedContent,
+    ReimportDecisionRequiredMessage,
 } from "./types/plugin";
+import type { ReimportDecision } from "types";
 import {
     WizardState,
     WizardStep,
@@ -31,6 +33,7 @@ import { SourceFileSelection } from "./components/SourceFileSelection";
 import { EmptySourceState } from "./components/EmptySourceState";
 import { PluginSelection } from "./components/PluginSelection";
 import { ImportProgressView } from "./components/ImportProgressView";
+import { ReimportReviewStep } from "./components/ReimportReviewStep";
 import { SystemMessageStep } from "../components/SystemMessageStep";
 import { deriveTargetPathFromSource } from "../../../../sharedUtils";
 import { createDownloadHelper } from "./utils/downloadHelper";
@@ -160,6 +163,18 @@ const NewSourceUploader: React.FC = () => {
                         },
                     };
                 });
+            } else if (message.command === "reimportDecisionRequired") {
+                // The batch contains files already in the project. Pause the
+                // import and let the user decide per file.
+                const response = message as ReimportDecisionRequiredMessage;
+                setImportComplete(false);
+                setWizardState((prev) => ({
+                    ...prev,
+                    currentStep: "reimport-review",
+                    reimportCandidates: response.candidates,
+                    pendingWriteMessage: response.originalMessage,
+                    importProgress: undefined,
+                }));
             } else if (message.command === "importCancelled") {
                 setImportComplete(false);
                 setWizardState((prev) => ({
@@ -169,6 +184,8 @@ const NewSourceUploader: React.FC = () => {
                     selectedSourceDetails: undefined,
                     selectedPlugin: undefined,
                     importProgress: undefined,
+                    reimportCandidates: undefined,
+                    pendingWriteMessage: undefined,
                 }));
             } else if (message.command === "notification") {
                 const { type, message: notificationMessage } = message;
@@ -435,6 +452,50 @@ const NewSourceUploader: React.FC = () => {
         },
         [wizardState]
     );
+
+    const handleReimportDecisions = useCallback(
+        (decisions: ReimportDecision[]) => {
+            const originalMessage = wizardState.pendingWriteMessage;
+            if (!originalMessage) return;
+
+            const importName = originalMessage.notebookPairs[0]?.source.name || "unknown";
+            setImportComplete(false);
+            setWizardState((prev) => ({
+                ...prev,
+                currentStep: "importing",
+                reimportCandidates: undefined,
+                pendingWriteMessage: undefined,
+                importProgress: {
+                    stage: "preparing",
+                    count: originalMessage.notebookPairs.length,
+                    importName,
+                },
+            }));
+
+            const message: ProviderMessage = {
+                command: "reimportDecision",
+                decisions,
+                originalMessage,
+            };
+            vscode.postMessage(message);
+            notifyImportEnded();
+        },
+        [wizardState.pendingWriteMessage]
+    );
+
+    const handleCancelReimport = useCallback(() => {
+        setWizardState((prev) => ({
+            ...prev,
+            currentStep: prev.selectedIntent === "target" ? "target-selection" : "source-import",
+            selectedSourceForTarget: undefined,
+            selectedSourceDetails: undefined,
+            selectedPlugin: undefined,
+            reimportCandidates: undefined,
+            pendingWriteMessage: undefined,
+            importProgress: undefined,
+        }));
+        setIsDirty(false);
+    }, []);
 
     const handleTranslationComplete = useCallback(
         (alignedContent: AlignedCell[], sourceFilePath: string) => {
@@ -714,6 +775,16 @@ const NewSourceUploader: React.FC = () => {
                     existingSourceCount={wizardState.projectInventory.sourceFiles.length}
                     onSelectPlugin={handleSelectPlugin}
                     onBack={handleBack}
+                />
+            );
+
+        case "reimport-review":
+            if (!wizardState.reimportCandidates?.length) return null;
+            return (
+                <ReimportReviewStep
+                    candidates={wizardState.reimportCandidates}
+                    onConfirm={handleReimportDecisions}
+                    onCancel={handleCancelReimport}
                 />
             );
 
