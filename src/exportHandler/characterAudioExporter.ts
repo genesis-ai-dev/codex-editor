@@ -1,6 +1,7 @@
+import { normalizeCharacterLabel } from "./characterGrouping";
 import * as vscode from "vscode";
 import { basename } from "path";
-import { CodexNotebookAsJSONData } from "@types";
+import { CodexNotebookAsJSONData, CharacterGroupingOptions } from "@types";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import * as os from "os";
@@ -147,7 +148,8 @@ interface CharacterGroup {
 function groupClipsByCharacter(
     cells: CodexNotebookAsJSONData["cells"],
     workspaceFolder: vscode.WorkspaceFolder,
-    milestoneFilter?: number[]
+    milestoneFilter?: number[],
+    options?: CharacterGroupingOptions
 ): { groups: Map<string, CharacterGroup>; skipped: number; } {
     const groups = new Map<string, CharacterGroup>();
     let skipped = 0;
@@ -184,9 +186,7 @@ function groupClipsByCharacter(
             : vscode.Uri.joinPath(workspaceFolder.uri, srcPath);
 
         const resolvedLabel = resolveCellLabel(cell);
-        const labelStr = resolvedLabel && resolvedLabel.trim() !== ""
-            ? resolvedLabel
-            : "unlabeled";
+        const labelStr = normalizeCharacterLabel(resolvedLabel, options);
         const key = sanitizeFileComponent(labelStr.toLowerCase()) || "unlabeled";
 
         if (!groups.has(key)) groups.set(key, { label: labelStr, clips: [] });
@@ -358,7 +358,7 @@ async function resolveSourcesToLocalFiles(
     return resolved;
 }
 
-export interface CharacterExportOptions {
+export interface CharacterExportOptions extends CharacterGroupingOptions {
     format?: CharacterAudioFormat;
     selectedMilestonesByFile?: Record<string, number[]>;
 }
@@ -464,7 +464,8 @@ export async function exportAudioByCharacter(
             const { groups, skipped } = groupClipsByCharacter(
                 notebook.cells,
                 workspaceFolder,
-                milestoneFilter
+                milestoneFilter,
+                options
             );
             skippedCellsTotal += skipped;
 
@@ -626,7 +627,8 @@ interface PreviewBuckets {
 // Scan every active labelled cell — with or without audio — so the preview can
 // surface characters that exist in the script but haven't been recorded yet.
 function scanCharactersForPreview(
-    cells: CodexNotebookAsJSONData["cells"]
+    cells: CodexNotebookAsJSONData["cells"],
+    options?: CharacterGroupingOptions
 ): Map<string, PreviewBuckets> {
     const buckets = new Map<string, PreviewBuckets>();
     for (const cell of cells) {
@@ -635,9 +637,7 @@ function scanCharactersForPreview(
         if (!cellId) continue;
 
         const resolvedLabel = resolveCellLabel(cell);
-        const labelStr = resolvedLabel && resolvedLabel.trim() !== ""
-            ? resolvedLabel
-            : "unlabeled";
+        const labelStr = normalizeCharacterLabel(resolvedLabel, options);
         const key = sanitizeFileComponent(labelStr.toLowerCase()) || "unlabeled";
 
         if (!buckets.has(key)) {
@@ -678,7 +678,8 @@ function scanCharactersForPreview(
  * strips. Does not require ffmpeg or write any files.
  */
 export async function getCharacterAudioPreview(
-    filesToExport: string[]
+    filesToExport: string[],
+    options?: CharacterGroupingOptions
 ): Promise<CharacterPreviewResult> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -710,7 +711,7 @@ export async function getCharacterAudioPreview(
             continue;
         }
 
-        const buckets = scanCharactersForPreview(notebook.cells);
+        const buckets = scanCharactersForPreview(notebook.cells, options);
 
         const characters: CharacterPreviewCharacter[] = [];
         let skippedCells = 0;

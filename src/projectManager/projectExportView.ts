@@ -1,3 +1,4 @@
+import { DEFAULT_IGNORED_CHARACTER_SUFFIXES } from "../exportHandler/characterGrouping";
 import { CodexExportFormat, exportCodexContent, checkSubtitleOverlapsAndConfirm } from "../exportHandler/exportHandler";
 import { createWebviewReporter, type ExportProgressReporter } from "../exportHandler/exportProgress";
 import * as fs from "fs";
@@ -249,7 +250,8 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
         targetLanguage,
         codiconsUri,
         fileGroups,
-        initialExportFolder
+        initialExportFolder,
+        context.workspaceState.get<string[]>("projectExport.ignoredCharacterSuffixes", DEFAULT_IGNORED_CHARACTER_SUFFIXES)
     );
 
     panel.webview.onDidReceiveMessage(async (message) => {
@@ -528,13 +530,20 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                 );
                 break;
             }
+            case "saveCharacterGrouping": {
+                if (Array.isArray(message.ignoredCharacterSuffixes) && message.ignoredCharacterSuffixes.every((value: unknown) => typeof value === "string")) {
+                    await context.workspaceState.update("projectExport.ignoredCharacterSuffixes", message.ignoredCharacterSuffixes);
+                }
+                break;
+            }
             case "previewCharacterAudio": {
                 try {
                     const { getCharacterAudioPreview } = await import(
                         "../exportHandler/characterAudioExporter"
                     );
                     const preview = await getCharacterAudioPreview(
-                        (message.filesToExport as string[]) || []
+                        (message.filesToExport as string[]) || [],
+                        message.options
                     );
                     safePostMessageToPanel(
                         panel,
@@ -590,7 +599,8 @@ function getWebviewContent(
     targetLanguage: unknown,
     codiconsUri: vscode.Uri,
     fileGroups: FileGroup[],
-    initialExportFolder: string | null
+    initialExportFolder: string | null,
+    ignoredCharacterSuffixes: string[] = DEFAULT_IGNORED_CHARACTER_SUFFIXES
 ) {
     const hasLanguages = sourceLanguage && targetLanguage;
 
@@ -1839,6 +1849,17 @@ function getWebviewContent(
                                                         <option value="opus">Opus (lossy, smallest)</option>
                                                     </select>
                                                 </label>
+                                                <label onclick="event.stopPropagation()" style="display:flex; align-items:center; gap:8px;">
+                                                    <input type="checkbox" id="separateByCameraAngles" onchange="saveCharacterGroupingOptions()" />
+                                                    Separate by Camera Angles
+                                                </label>
+                                                <p style="margin:0; font-size:0.9em;">Unchecked: combine labels after removing the markers below. Checked: keep the full character label.</p>
+                                                <div onclick="event.stopPropagation()">
+                                                    <label for="ignoredCharacterSuffixes">Trailing markers to ignore (one per line)</label>
+                                                    <textarea id="ignoredCharacterSuffixes" rows="4" oninput="saveCharacterGroupingOptions()" style="display:block; width:100%; box-sizing:border-box; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border);">${DEFAULT_IGNORED_CHARACTER_SUFFIXES.join("\n")}</textarea>
+                                                    <p style="margin:4px 0; font-size:0.9em;">Add or remove lines to customize. Matching ignores letter case and includes parentheses. An empty list keeps all markers. Labels in your project stay unchanged.</p>
+                                                    <button type="button" class="secondary" onclick="resetCharacterGroupingOptions()">Reset markers to defaults</button>
+                                                </div>
                                                 <button type="button" class="secondary" onclick="event.stopPropagation(); openCharacterPreview();" style="align-self:flex-start;">
                                                     <i class="codicon codicon-preview"></i>
                                                     Preview characters
@@ -3945,6 +3966,37 @@ function getWebviewContent(
                     controls.style.display = selectedAudioMode === 'audio-by-character' ? 'flex' : 'none';
                 }
 
+                function getCharacterGroupingOptions() {
+                    return {
+                        separateByCameraAngles: document.getElementById('separateByCameraAngles').checked,
+                        ignoredCharacterSuffixes: document.getElementById('ignoredCharacterSuffixes').value
+                            .split(String.fromCharCode(10)).map(value => value.trim()).filter(Boolean)
+                    };
+                }
+
+                function saveCharacterGroupingOptions() {
+                    const options = getCharacterGroupingOptions();
+                    document.getElementById('ignoredCharacterSuffixes').disabled = options.separateByCameraAngles;
+                    vscode.setState({ ...(vscode.getState() || {}), characterGrouping: options });
+                    vscode.postMessage({ command: 'saveCharacterGrouping', ignoredCharacterSuffixes: options.ignoredCharacterSuffixes });
+                }
+
+                function resetCharacterGroupingOptions() {
+                    document.getElementById('ignoredCharacterSuffixes').value = ${JSON.stringify(DEFAULT_IGNORED_CHARACTER_SUFFIXES)}.join(String.fromCharCode(10));
+                    saveCharacterGroupingOptions();
+                }
+
+                const savedCharacterGrouping = (vscode.getState() || {}).characterGrouping || {
+                    ignoredCharacterSuffixes: ${JSON.stringify(ignoredCharacterSuffixes).replace(/</g, "\\u003c")}
+                };
+                if (savedCharacterGrouping && document.getElementById('separateByCameraAngles')) {
+                    document.getElementById('separateByCameraAngles').checked = savedCharacterGrouping.separateByCameraAngles === true;
+                    if (Array.isArray(savedCharacterGrouping.ignoredCharacterSuffixes)) {
+                        document.getElementById('ignoredCharacterSuffixes').value = savedCharacterGrouping.ignoredCharacterSuffixes.join(String.fromCharCode(10));
+                    }
+                    saveCharacterGroupingOptions();
+                }
+
                 function openCharacterPreview() {
                     if (selectedFiles.size === 0) return;
                     const body = document.getElementById('characterPreviewBody');
@@ -3959,6 +4011,7 @@ function getWebviewContent(
                     if (popup) popup.classList.add('visible');
                     vscode.postMessage({
                         command: 'previewCharacterAudio',
+                        options: getCharacterGroupingOptions(),
                         filesToExport: Array.from(selectedFiles)
                     });
                 }
@@ -4255,6 +4308,7 @@ function getWebviewContent(
                         options.includeTimestamps = selectedAudioMode === 'audio-timestamps';
                         options.consolidateByCharacter = selectedAudioMode === 'audio-by-character';
                         if (options.consolidateByCharacter) {
+                            Object.assign(options, getCharacterGroupingOptions());
                             const fmtEl = document.getElementById('characterAudioFormat');
                             options.consolidatedAudioFormat = (fmtEl && fmtEl.value) ? fmtEl.value : 'flac';
                         }
