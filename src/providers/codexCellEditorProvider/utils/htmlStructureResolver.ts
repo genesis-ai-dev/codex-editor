@@ -3,6 +3,7 @@ import {
     compareHtmlStructure,
     extractPlainTextFromHtml,
     tryDeterministicStructureFix,
+    type HtmlStructureOptions,
 } from "../../../../sharedUtils/htmlStructureUtils";
 import type { CompletionConfig } from "../../../utils/llmUtils";
 import type { CodexCellDocument } from "../codexDocument";
@@ -73,9 +74,10 @@ export const verifyResolvedContent = (
     sourceHtml: string,
     originalTargetHtml: string,
     resolvedHtml: string,
+    options?: HtmlStructureOptions,
 ): string | null => {
     if (!resolvedHtml) return null;
-    if (!compareHtmlStructure(sourceHtml, resolvedHtml).isMatch) return null;
+    if (!compareHtmlStructure(sourceHtml, resolvedHtml, options).isMatch) return null;
 
     const sourceText = extractPlainTextFromHtml(sourceHtml);
     const originalText = extractPlainTextFromHtml(originalTargetHtml);
@@ -102,18 +104,21 @@ export const resolveHtmlStructurePair = async (
         prompt: Array<{ role: "system" | "user"; content: string }>,
         config: CompletionConfig,
     ) => Promise<{ content: string }>,
+    options?: HtmlStructureOptions,
 ): Promise<StructureResolveOutcome> => {
     if (!sourceHtml?.trim() || !targetHtml?.trim()) {
         return { status: "missing-content" };
     }
 
-    if (compareHtmlStructure(sourceHtml, targetHtml).isMatch) {
-        return { status: "already-matched" };
-    }
-
-    const deterministicFix = tryDeterministicStructureFix(sourceHtml, targetHtml);
+    // Deterministic first: DOCX attribute-only repairs can succeed even when
+    // the tag skeleton already compares as a match.
+    const deterministicFix = tryDeterministicStructureFix(sourceHtml, targetHtml, options);
     if (deterministicFix !== null) {
         return { status: "resolved", content: deterministicFix, method: "deterministic" };
+    }
+
+    if (compareHtmlStructure(sourceHtml, targetHtml, options).isMatch) {
+        return { status: "already-matched" };
     }
 
     try {
@@ -125,7 +130,7 @@ export const resolveHtmlStructurePair = async (
             completionConfig,
             callLLMOverride,
         );
-        const verified = verifyResolvedContent(sourceHtml, targetHtml, llmResult);
+        const verified = verifyResolvedContent(sourceHtml, targetHtml, llmResult, options);
         if (verified !== null) {
             return { status: "resolved", content: verified, method: "llm" };
         }
@@ -155,7 +160,13 @@ export const resolveCellHtmlStructure = async (
         return { status: "missing-content" };
     }
 
-    return resolveHtmlStructurePair(sourceHtml, targetCell.cellContent, config);
+    return resolveHtmlStructurePair(
+        sourceHtml,
+        targetCell.cellContent,
+        config,
+        undefined,
+        document.getNotebookMetadata(),
+    );
 };
 
 export const getSourceCellContent = async (cellId: string): Promise<string | null> => {
@@ -192,9 +203,7 @@ export const maybeRepairStructureDeterministically = async (
 
     const sourceHtml = await getSourceCellContent(cellId);
     if (!sourceHtml) return html;
-    if (compareHtmlStructure(sourceHtml, html).isMatch) return html;
-
-    return tryDeterministicStructureFix(sourceHtml, html) ?? html;
+    return tryDeterministicStructureFix(sourceHtml, html, metadata) ?? html;
 };
 
 export type AutoResolveHtmlStructureOptions = {
@@ -230,13 +239,13 @@ export const maybeAutoResolveHtmlStructure = async (
         return translatedHtml;
     }
 
-    if (compareHtmlStructure(sourceHtml, translatedHtml).isMatch) {
-        return translatedHtml;
-    }
-
-    const deterministicFix = tryDeterministicStructureFix(sourceHtml, translatedHtml);
+    const deterministicFix = tryDeterministicStructureFix(sourceHtml, translatedHtml, metadata);
     if (deterministicFix !== null) {
         return deterministicFix;
+    }
+
+    if (compareHtmlStructure(sourceHtml, translatedHtml, metadata).isMatch) {
+        return translatedHtml;
     }
 
     try {
@@ -245,7 +254,7 @@ export const maybeAutoResolveHtmlStructure = async (
         options?.onResolving?.();
         const resolveWithLLM = options?.resolveWithLLM ?? resolveHtmlStructureWithLLM;
         const llmResult = await resolveWithLLM(sourceHtml, translatedHtml, completionConfig);
-        return verifyResolvedContent(sourceHtml, translatedHtml, llmResult) ?? translatedHtml;
+        return verifyResolvedContent(sourceHtml, translatedHtml, llmResult, metadata) ?? translatedHtml;
     } catch (error) {
         console.error("[maybeAutoResolveHtmlStructure] Error:", error);
         return translatedHtml;

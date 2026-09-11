@@ -116,6 +116,23 @@ export const setSqliteToolMode = async (mode: SqliteToolMode): Promise<void> => 
 };
 
 /**
+ * "builtin" is a session-level compatibility choice. On the next extension
+ * activation, retry optimized tools unless the user explicitly selected the
+ * persistent "force-builtin" lock.
+ */
+export const resetTemporaryBuiltinModesOnStartup = async (): Promise<void> => {
+    if (getAudioToolMode() === "builtin") {
+        await setAudioToolMode("auto");
+    }
+    if (getGitToolMode() === "builtin") {
+        await setGitToolMode("auto");
+    }
+    if (getSqliteToolMode() === "builtin") {
+        await setSqliteToolMode("auto");
+    }
+};
+
+/**
  * Determines whether to use the native SQLite (node_sqlite3) backend.
  * Returns true only when the preference is "auto" AND the native binary
  * has been loaded.  When mode is "builtin", always returns false so the

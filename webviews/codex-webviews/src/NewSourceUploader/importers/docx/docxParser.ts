@@ -423,23 +423,23 @@ export class DocxParser {
 
         try {
             // Bold
-            if (this.findElement(rPrElement, 'w:b')) {
+            if (this.isToggleElementEnabled(this.findElement(rPrElement, 'w:b'))) {
                 props.bold = true;
             }
 
             // Italic
-            if (this.findElement(rPrElement, 'w:i')) {
+            if (this.isToggleElementEnabled(this.findElement(rPrElement, 'w:i'))) {
                 props.italic = true;
             }
 
             // Underline
             const u = this.findElement(rPrElement, 'w:u');
-            if (u) {
+            if (this.isToggleElementEnabled(u)) {
                 props.underline = u['@_w:val'] || true;
             }
 
             // Strike
-            if (this.findElement(rPrElement, 'w:strike')) {
+            if (this.isToggleElementEnabled(this.findElement(rPrElement, 'w:strike'))) {
                 props.strike = true;
             }
 
@@ -544,8 +544,14 @@ export class DocxParser {
             return null;
         }
 
-        if (element[tagName]) {
-            return Array.isArray(element[tagName]) ? element[tagName][0] : element[tagName];
+        if (Object.prototype.hasOwnProperty.call(element, tagName)) {
+            const value = Array.isArray(element[tagName])
+                ? element[tagName][0]
+                : element[tagName];
+            // fast-xml-parser represents an empty OOXML toggle such as
+            // `<w:i/>` as an empty string. Preserve its presence with a
+            // truthy object so run formatting is not silently discarded.
+            return value === '' || value === null || value === undefined ? {} : value;
         }
 
         // Search in children
@@ -565,6 +571,14 @@ export class DocxParser {
         }
 
         return null;
+    }
+
+    /** Word on/off properties are enabled when present unless explicitly off. */
+    private isToggleElementEnabled(element: unknown): boolean {
+        if (!element || typeof element !== 'object') return false;
+        const value = '@_w:val' in element ? element['@_w:val'] : undefined;
+        if (value === undefined || value === null || value === '') return true;
+        return !['0', 'false', 'off', 'none'].includes(String(value).toLowerCase());
     }
 
     /**
@@ -638,4 +652,3 @@ export class DocxParser {
         }
     }
 }
-

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNetworkState } from "@uidotdev/usehooks";
 
 import { Button } from "./ui/button";
@@ -40,6 +40,34 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
 }) => {
     const network = useNetworkState();
     const isOnline = network?.online ?? true;
+    const [isSyncRequestPending, setIsSyncRequestPending] = useState(false);
+    const syncRequestPendingRef = useRef(false);
+    const syncStartedRef = useRef(false);
+
+    const clearPendingSyncRequest = useCallback(() => {
+        syncRequestPendingRef.current = false;
+        syncStartedRef.current = false;
+        setIsSyncRequestPending(false);
+    }, []);
+
+    useEffect(() => {
+        if (isSyncInProgress) {
+            syncStartedRef.current = true;
+        } else if (syncStartedRef.current) {
+            clearPendingSyncRequest();
+        }
+    }, [isSyncInProgress, clearPendingSyncRequest]);
+
+    useEffect(() => {
+        if (!isSyncRequestPending) return;
+
+        // Avoid leaving the control locked forever if the host rejects the
+        // request before a sync-status update can be emitted.
+        const fallback = window.setTimeout(clearPendingSyncRequest, 30_000);
+        return () => window.clearTimeout(fallback);
+    }, [isSyncRequestPending, clearPendingSyncRequest]);
+
+    const isSyncButtonBusy = isSyncInProgress || isSyncRequestPending;
 
     return (
         <Card
@@ -69,13 +97,22 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                             } else if (!isAuthenticated) {
                                 onLogin();
                             } else {
-                                onTriggerSync();
+                                if (syncRequestPendingRef.current || isSyncInProgress) return;
+
+                                syncRequestPendingRef.current = true;
+                                setIsSyncRequestPending(true);
+                                try {
+                                    onTriggerSync();
+                                } catch (error) {
+                                    clearPendingSyncRequest();
+                                    throw error;
+                                }
                             }
                         }}
                         disabled={
                             (!isGitAvailable && !onDownloadSyncRuntime) ||
                             (isGitAvailable && (
-                                isSyncInProgress ||
+                                isSyncButtonBusy ||
                                 isImportInProgress ||
                                 !isOnline ||
                                 !isFrontierExtensionEnabled

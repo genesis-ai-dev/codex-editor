@@ -8,12 +8,14 @@
  * 
  * Supports both spreadsheet-csv and spreadsheet-tsv importer types.
  */
+import { splitDelimitedRecords } from './csvRecordUtils';
 
 export interface SpreadsheetCell {
     id: string;
     value: string;
     metadata: {
         id?: string;
+        type?: string;
         data?: {
             rowIndex?: number;
             originalRowValues?: string[];
@@ -35,6 +37,7 @@ export interface SpreadsheetNotebookMetadata {
     sourceColumnIndex?: number;
     columnCount?: number;
     importerType?: string;
+    hasHeader?: boolean;
 }
 
 /**
@@ -140,7 +143,7 @@ export function exportSpreadsheetWithTranslations(
     for (const cell of cells) {
         const rowIndex = cell.metadata?.data?.rowIndex;
         const data = cell.metadata?.data;
-        if (data?.merged || data?.deleted || data?.hidden) {
+        if (data?.merged || data?.deleted || data?.hidden || cell.metadata?.type === 'milestone') {
             continue;
         }
         const translation = stripHtmlTags(cell.value || '');
@@ -164,49 +167,38 @@ export function exportSpreadsheetWithTranslations(
 
         // Remove BOM if present (UTF-8 BOM: EF BB BF)
         let cleanContent = originalFileContent;
+        let byteOrderMark = '';
         if (cleanContent.charCodeAt(0) === 0xFEFF) {
+            byteOrderMark = '\uFEFF';
             cleanContent = cleanContent.substring(1);
-            console.log(`[Spreadsheet Export] Removed BOM from content`);
+            console.log(`[Spreadsheet Export] Preserving BOM from original content`);
         }
 
-        // Handle both Unix (\n) and Windows (\r\n) line endings
-        const lines = cleanContent.split(/\r?\n/);
-        const outputLines: string[] = [];
+        const records = splitDelimitedRecords(cleanContent);
+        const outputRecords: string[] = [];
+        const dataStartIndex = metadata.hasHeader === false ? 0 : 1;
 
-        console.log(`[Spreadsheet Export] File has ${lines.length} lines`);
+        console.log(`[Spreadsheet Export] File has ${records.length} logical records`);
 
-        // First line is ALWAYS the header - keep it EXACTLY as is
-        if (lines.length > 0) {
-            const headerLine = lines[0];
-            // Keep header line unchanged - DO NOT parse or modify it
-            outputLines.push(headerLine);
-            console.log(`[Spreadsheet Export] Preserved header (${headerLine.length} chars): "${headerLine.substring(0, 100)}${headerLine.length > 100 ? '...' : ''}"`);
+        for (let i = 0; i < dataStartIndex && i < records.length; i++) {
+            outputRecords.push(records[i].content + records[i].ending);
         }
 
-        // Process data rows (skip first line which is header)
-        for (let i = 1; i < lines.length; i++) {
-            const line = lines[i];
-
-            // Skip empty lines at the end
-            if (!line.trim() && i === lines.length - 1) {
+        for (let i = dataStartIndex; i < records.length; i++) {
+            const record = records[i];
+            if (!record.content.trim()) {
+                outputRecords.push(record.content + record.ending);
                 continue;
             }
 
-            // Skip completely empty lines
-            if (!line.trim()) {
-                outputLines.push(line);
-                continue;
-            }
-
-            // Data row index (0-based, excluding header)
-            const dataRowIndex = i - 1;
+            const dataRowIndex = i - dataStartIndex;
 
             // Check if we have a translation for this row
             const translation = translationsByRow.get(dataRowIndex);
 
             if (translation) {
                 // Parse the line to replace the source column
-                const fields = parseCSVLine(line, delimiter);
+                const fields = parseCSVLine(record.content, delimiter);
 
                 if (effectiveSourceColumnIndex < fields.length) {
                     // Replace the source column with the translation
@@ -215,15 +207,15 @@ export function exportSpreadsheetWithTranslations(
 
                 // Rebuild the line with proper escaping
                 const outputLine = fields.map(f => escapeField(f, delimiter)).join(delimiter);
-                outputLines.push(outputLine);
+                outputRecords.push(outputLine + record.ending);
             } else {
                 // No translation for this row - keep it exactly as is
-                outputLines.push(line);
+                outputRecords.push(record.content + record.ending);
             }
         }
 
-        console.log(`[Spreadsheet Export] Output ${outputLines.length} lines (1 header + ${outputLines.length - 1} data rows)`);
-        return outputLines.join('\n');
+        console.log(`[Spreadsheet Export] Output ${outputRecords.length} logical records`);
+        return byteOrderMark + outputRecords.join('');
     }
 
     // Fallback: reconstruct from cell metadata (for legacy imports without originalFileContent)
@@ -250,7 +242,12 @@ export function exportSpreadsheetWithTranslations(
         const cellData = cell.metadata?.data;
         const originalRowValues = cellData?.originalRowValues;
         const cellSourceColumnIndex = cellData?.sourceColumnIndex ?? sourceColumnIndex;
-        const isInactive = !!(cellData?.merged || cellData?.deleted || cellData?.hidden);
+        const isInactive = !!(
+            cellData?.merged ||
+            cellData?.deleted ||
+            cellData?.hidden ||
+            cell.metadata?.type === 'milestone'
+        );
         // For inactive cells, keep the original row values (treat as untranslated)
         const translation = isInactive ? '' : stripHtmlTags(cell.value || '');
 

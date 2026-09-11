@@ -2611,8 +2611,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             const sourceCell = await vscode.commands.executeCommand(
                 "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
                 cellId
-            ) as { cellId: string; content: string; } | null;
-            contentIsEmpty = !sourceCell || !sourceCell.content || (sourceCell.content.replace(/<[^>]*>/g, "").trim() === "");
+            ) as { cellId: string; content: string; } | null | undefined;
+            // An undefined result means the source lookup command is not
+            // registered (common in isolated tests), not that the source is
+            // empty. Only a registered command returning null indicates that
+            // transcription preflight may be needed.
+            contentIsEmpty = sourceCell !== undefined
+                && (!sourceCell || !sourceCell.content || (sourceCell.content.replace(/<[^>]*>/g, "").trim() === ""));
         } catch (e) {
             console.warn("getSourceCellByCellIdFromAllSourceCells unavailable; skipping transcription preflight");
             contentIsEmpty = false;
@@ -4644,7 +4649,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 console.warn("No workspace folder found, skipping paired file visibility toggle");
             }
 
-            updateWebview();
+            // Refresh cells (hidden dropped from normal view) and progress in place.
+            // updateWebview() only sends refreshCurrentPage once the webview is ready,
+            // which does not push a new milestoneProgress payload.
+            await sendMilestoneRefreshToWebview(document, webviewPanel, provider);
+            provider.updateMilestoneProgressForDocument(document);
         } catch (error) {
             console.error("Error toggling cell visibility:", cellId, error);
             vscode.window.showErrorMessage(

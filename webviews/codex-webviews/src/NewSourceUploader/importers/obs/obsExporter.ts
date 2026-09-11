@@ -125,6 +125,15 @@ export function collectObsTranslationsFromCells(
     for (let i = 0; i < codexCells.length; i++) {
         const cell = codexCells[i];
         const meta = cell.metadata;
+        if (
+            meta?.data?.merged ||
+            meta?.data?.deleted ||
+            meta?.data?.hidden ||
+            meta?.type === 'milestone'
+        ) {
+            console.log(`[OBS Exporter] Skipping cell ${i} - inactive cell`);
+            continue;
+        }
 
         // Log cell info for debugging
         console.log(`[OBS Exporter] Cell ${i}: kind=${cell.kind}, segmentType=${meta?.segmentType}, segmentIndex=${meta?.segmentIndex}`);
@@ -315,6 +324,12 @@ export function extractObsStoryFromCells(
         if (cell.kind !== 2) continue;
 
         const meta = cell.metadata;
+        if (
+            meta?.data?.merged ||
+            meta?.data?.deleted ||
+            meta?.data?.hidden ||
+            meta?.type === 'milestone'
+        ) continue;
         const segmentIndex = meta?.segmentIndex ?? 0;
 
         if (!segmentMap.has(segmentIndex)) {
@@ -374,4 +389,3 @@ export function extractObsStoryFromCells(
         sourceReference,
     };
 }
-

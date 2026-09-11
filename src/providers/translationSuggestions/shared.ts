@@ -3,6 +3,7 @@ import { ChatMessage, MinimalCellResult, TranslationPair } from "../../../types"
 import { CodexNotebookReader } from "../../serializer";
 import { CodexCellTypes } from "../../../types/enums";
 import { tokenizeText } from "../../utils/nlpUtils";
+import type { IdmlTranslationSegment } from "./idmlStructuredTranslation";
 
 export async function fetchFewShotExamples(
   sourceContent: string,
@@ -216,9 +217,11 @@ export function buildMessages(
   currentCellSourceContent: string,
   allowHtml: boolean = false,
   exampleFormat: string = "source-and-target",
-  sourceLanguage: string | null = null
+  sourceLanguage: string | null = null,
+  structuredSegments: readonly IdmlTranslationSegment[] | null = null,
 ): ChatMessage[] {
   let systemMessage = chatSystemMessage || `You are a helpful assistant`;
+  const usesStructuredSegments = Boolean(structuredSegments?.length);
 
   if (exampleFormat === "target-only") {
     systemMessage += `\n\nReference translations are provided in XML <target> tags. Use these as examples of the translation style and patterns you should follow.`;
@@ -226,7 +229,9 @@ export function buildMessages(
     systemMessage += `\n\nInput sections for examples and context are provided in XML. Only use values within <source> and <target> tags.`;
   }
   // Preserve line breaks and specify output format
-  if (allowHtml) {
+  if (usesStructuredSegments) {
+    systemMessage += `\n\nTranslate all segments as one connected passage. Return only a JSON object matching the required response schema, with exactly one {index, translation} item for every source segment. Do not return HTML, XML, Markdown fences, or commentary. Keep wording in its corresponding segment when natural, but you may redistribute wording between segment translations when target-language grammar requires it. Empty segment translations are allowed only when wording has been moved to another required segment.`;
+  } else if (allowHtml) {
     systemMessage += `\n\nYou may include inline HTML tags when appropriate (e.g., <span>, <i>, <b>) consistent with examples. Preserve original line breaks from <currentTask><source> by returning text with the same number of lines separated by newline characters.`;
   } else {
     systemMessage += `\n\nReturn plain text only (no XML/HTML). Preserve original line breaks from <currentTask><source> by returning text with the same number of lines separated by newline characters.`;
@@ -238,20 +243,34 @@ export function buildMessages(
   systemMessage += `\n\n1. Analyze the provided reference data to understand the translation patterns and style.`;
   systemMessage += `\n2. Complete the partial or complete translation of the line.`;
   systemMessage += `\n3. Ensure your translation fits seamlessly with the existing partial translation.`;
-  systemMessage += `\n4. Provide only the completed translation without any additional commentary or metadata.`;
+  systemMessage += usesStructuredSegments
+    ? `\n4. Provide only the completed segment translations in the required JSON structure.`
+    : `\n4. Provide only the completed translation without any additional commentary or metadata.`;
   systemMessage += `\n5. Translate only into the target language ${targetLanguage || ""}.`;
   systemMessage += `\n6. Pay careful attention to the provided reference data.`;
   systemMessage += `\n7. If in doubt, err on the side of literalness.`;
-  if (allowHtml) {
+  if (allowHtml && !usesStructuredSegments) {
     systemMessage += `\n8. If the project has any styles, return HTML with the appropriate tags or classes as per the examples in the translation memory.`;
   }
 
-  systemMessage += `\n\nWrap your final translation in <final_answer>...</final_answer> XML tags. Do not include any other XML tags in your response outside of these tags.`;
+  if (!usesStructuredSegments) {
+    systemMessage += `\n\nWrap your final translation in <final_answer>...</final_answer> XML tags. Do not include any other XML tags in your response outside of these tags.`;
+  }
 
   const contextXml = `<context>\n${precedingContextPairs.filter(Boolean).join("\n")}\n</context>`;
-  const currentTaskXml = allowHtml
-    ? `<currentTask><source>${wrapCdata(currentCellSourceContent)}</source></currentTask>`
-    : `<currentTask><source>${xmlEscape(currentCellSourceContent)}</source></currentTask>`;
+  const currentTask = usesStructuredSegments
+    ? JSON.stringify({
+      fullSourceText: currentCellSourceContent,
+      segments: structuredSegments!.map((segment) => ({
+        index: segment.index,
+        sourceText: segment.sourceText,
+        characterStyle: segment.characterStyle ?? null,
+        separatorBefore: segment.separatorBefore,
+      })),
+    }, null, 2)
+    : allowHtml
+      ? `<currentTask><source>${wrapCdata(currentCellSourceContent)}</source></currentTask>`
+      : `<currentTask><source>${xmlEscape(currentCellSourceContent)}</source></currentTask>`;
 
   const userMessage = [
     "## Instructions",
@@ -260,8 +279,8 @@ export function buildMessages(
     fewShotExamples,
     "## Current Context (XML)",
     contextXml,
-    "## Current Task (XML)",
-    currentTaskXml,
+    usesStructuredSegments ? "## Current Task (JSON)" : "## Current Task (XML)",
+    currentTask,
   ].join("\n\n");
 
   return [
@@ -305,4 +324,3 @@ export async function writeDebugMessages(messages: ChatMessage[], response: stri
     new TextEncoder().encode(messagesContent + "\n\nAPI Response:\n" + response)
   );
 }
-

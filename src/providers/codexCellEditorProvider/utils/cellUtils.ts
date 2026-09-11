@@ -52,6 +52,16 @@ export function extractParentCellIdFromParatext(paratextCellId: string, cellMeta
     return null;
 }
 
+export function isNotebookCellHidden(cell: {
+    metadata?: { data?: { hidden?: boolean; }; };
+}): boolean {
+    return cell.metadata?.data?.hidden === true;
+}
+
+export function isQuillCellHidden(cell: Pick<QuillCellContent, "hidden" | "data">): boolean {
+    return Boolean(cell.hidden || (cell.data as { hidden?: boolean; } | undefined)?.hidden);
+}
+
 /**
  * Converts a CustomNotebookCellData cell to QuillCellContent format.
  * 

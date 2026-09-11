@@ -121,6 +121,8 @@ export interface TargetFileResponseMessage {
     sourceFilePath: string;
     targetFilePath: string;
     targetCells: any[];
+    /** Cells of the .source notebook — the authoritative timings/context for aligners. */
+    sourceCells?: any[];
 }
 
 export interface TargetFileErrorMessage {
