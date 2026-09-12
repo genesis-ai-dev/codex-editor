@@ -14,6 +14,14 @@ suite("Character audio export grouping", () => {
             assert.strictEqual(normalizeCharacterLabel(`Alex ${suffix}`), "Alex");
         }
     });
+    test("matches marker case only when requested", () => {
+        const options = { matchCharacterMarkerCase: true, ignoredCharacterSuffixes: ["(ON)"] };
+        assert.strictEqual(normalizeCharacterLabel("Alex (ON)", options), "Alex");
+        assert.strictEqual(normalizeCharacterLabel("Alex (on)", options), "Alex (on)");
+        assert.strictEqual(normalizeCharacterLabel("Alex (On)", options), "Alex (On)");
+        assert.strictEqual(normalizeCharacterLabel("Alex (on)", { ...options, matchCharacterMarkerCase: false }), "Alex");
+        assert.strictEqual(normalizeCharacterLabel("Alex (ON)", { ...options, separateByCameraAngles: true }), "Alex (ON)");
+    });
     test("preserves full labels when separating camera angles", () => {
         assert.strictEqual(normalizeCharacterLabel("Alex (ON)", { separateByCameraAngles: true }), "Alex (ON)");
     });
@@ -68,6 +76,13 @@ suite("Character audio preview grouping", () => {
             }
             const custom = await getCharacterAudioPreview([file], { ignoredCharacterSuffixes: ["(ON)", "(Off)"] });
             assert.strictEqual(custom.files[0].characters.length, 3);
+            const lowerMarkers = ["(on)", "(off)", "(mixed)", "(group)"];
+            const insensitive = await getCharacterAudioPreview([file], { ignoredCharacterSuffixes: lowerMarkers });
+            assert.strictEqual(insensitive.files[0].characters.length, 1);
+            const sensitive = await getCharacterAudioPreview([file], {
+                ignoredCharacterSuffixes: lowerMarkers, matchCharacterMarkerCase: true,
+            });
+            assert.strictEqual(sensitive.files[0].characters.length, 4);
             assert.strictEqual(await fs.readFile(file, "utf8"), notebook);
         } finally {
             sandbox.restore();

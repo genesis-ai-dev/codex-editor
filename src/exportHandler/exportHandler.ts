@@ -1558,6 +1558,7 @@ export async function exportCodexContent(
                     format: options?.consolidatedAudioFormat,
                     separateByCameraAngles: options?.separateByCameraAngles,
                     ignoredCharacterSuffixes: options?.ignoredCharacterSuffixes,
+                    matchCharacterMarkerCase: options?.matchCharacterMarkerCase,
                     selectedMilestonesByFile: options?.selectedMilestonesByFile,
                 }, token));
             } else {
@@ -1605,6 +1606,7 @@ export async function exportCodexContent(
                 format: options?.consolidatedAudioFormat,
                 separateByCameraAngles: options?.separateByCameraAngles,
                 ignoredCharacterSuffixes: options?.ignoredCharacterSuffixes,
+                matchCharacterMarkerCase: options?.matchCharacterMarkerCase,
                 selectedMilestonesByFile: options?.selectedMilestonesByFile,
             }, token));
         } else {

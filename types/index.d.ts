@@ -2926,7 +2926,7 @@ export type MessagesToProjectExportView =
 
 export type MessagesFromProjectExportView =
     | { command: "previewCharacterAudio"; filesToExport: string[]; options?: CharacterGroupingOptions; }
-    | { command: "saveCharacterGrouping"; ignoredCharacterSuffixes: string[]; }
+    | { command: "saveCharacterGrouping"; ignoredCharacterSuffixes: string[]; matchCharacterMarkerCase?: boolean; }
     | { command: "selectExportPath"; }
     | { command: "openProjectSettings"; }
     | { command: "export"; format: string; userSelectedPath: string; filesToExport: string[]; options?: Record<string, unknown>; }
@@ -2940,6 +2940,8 @@ export type MessagesFromProjectExportView =
 /** Options shared by character audio preview and export. */
 export interface CharacterGroupingOptions {
     separateByCameraAngles?: boolean;
+    /** Match marker letter case exactly; false by default. */
+    matchCharacterMarkerCase?: boolean;
     /** Literal trailing markers to ignore; an empty list preserves every marker. */
     ignoredCharacterSuffixes?: string[];
 }

@@ -12,10 +12,11 @@ export function normalizeCharacterLabel(
 
     const suffixes = (options.ignoredCharacterSuffixes ?? DEFAULT_IGNORED_CHARACTER_SUFFIXES)
         .filter((suffix) => typeof suffix === "string" && suffix.trim().length > 0)
-        .map((suffix) => suffix.trim().toLowerCase())
+        .map((suffix) => options.matchCharacterMarkerCase ? suffix.trim() : suffix.trim().toLowerCase())
         .sort((a, b) => b.length - a.length);
     while (result) {
-        const suffix = suffixes.find((candidate) => result.toLowerCase().endsWith(candidate));
+        const matchLabel = options.matchCharacterMarkerCase ? result : result.toLowerCase();
+        const suffix = suffixes.find((candidate) => matchLabel.endsWith(candidate));
         if (!suffix) break;
         result = result.slice(0, -suffix.length).trimEnd();
     }

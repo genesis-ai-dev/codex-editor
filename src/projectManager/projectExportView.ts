@@ -251,7 +251,8 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
         codiconsUri,
         fileGroups,
         initialExportFolder,
-        context.workspaceState.get<string[]>("projectExport.ignoredCharacterSuffixes", DEFAULT_IGNORED_CHARACTER_SUFFIXES)
+        context.workspaceState.get<string[]>("projectExport.ignoredCharacterSuffixes", DEFAULT_IGNORED_CHARACTER_SUFFIXES),
+        context.workspaceState.get<boolean>("projectExport.matchCharacterMarkerCase", false)
     );
 
     panel.webview.onDidReceiveMessage(async (message) => {
@@ -533,6 +534,7 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
             case "saveCharacterGrouping": {
                 if (Array.isArray(message.ignoredCharacterSuffixes) && message.ignoredCharacterSuffixes.every((value: unknown) => typeof value === "string")) {
                     await context.workspaceState.update("projectExport.ignoredCharacterSuffixes", message.ignoredCharacterSuffixes);
+                    await context.workspaceState.update("projectExport.matchCharacterMarkerCase", message.matchCharacterMarkerCase === true);
                 }
                 break;
             }
@@ -600,7 +602,8 @@ function getWebviewContent(
     codiconsUri: vscode.Uri,
     fileGroups: FileGroup[],
     initialExportFolder: string | null,
-    ignoredCharacterSuffixes: string[] = DEFAULT_IGNORED_CHARACTER_SUFFIXES
+    ignoredCharacterSuffixes: string[] = DEFAULT_IGNORED_CHARACTER_SUFFIXES,
+    matchCharacterMarkerCase = false
 ) {
     const hasLanguages = sourceLanguage && targetLanguage;
 
@@ -2038,7 +2041,11 @@ function getWebviewContent(
                     <div id="characterIgnoredMarkersControls">
                         <label for="ignoredCharacterSuffixes">Markers to ignore</label>
                         <textarea id="ignoredCharacterSuffixes" rows="4" oninput="saveCharacterGroupingOptions()" aria-describedby="characterMarkersHelp" style="display:block; width:100%; box-sizing:border-box; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border);">${DEFAULT_IGNORED_CHARACTER_SUFFIXES.join("\n")}</textarea>
-                        <p id="characterMarkersHelp" style="margin:4px 0;">One ending per line, including parentheses. Letter case doesn’t matter.</p>
+                        <p id="characterMarkersHelp" style="margin:4px 0;">Enter one marker per line, exactly as it appears at the end of the label—for example, (ON) or ON.</p>
+                        <label style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="matchCharacterMarkerCase" onchange="saveCharacterGroupingOptions()" />
+                            Match letter case
+                        </label>
                     </div>
                 </div>
                 <div class="popup-footer">
@@ -3991,6 +3998,7 @@ function getWebviewContent(
                 function getCharacterGroupingOptions() {
                     return {
                         separateByCameraAngles: document.getElementById('separateByCameraAngles').checked,
+                        matchCharacterMarkerCase: document.getElementById('matchCharacterMarkerCase').checked,
                         ignoredCharacterSuffixes: document.getElementById('ignoredCharacterSuffixes').value
                             .split(String.fromCharCode(10)).map(value => value.trim()).filter(Boolean)
                     };
@@ -4005,19 +4013,22 @@ function getWebviewContent(
                         ? 'Use the full character label for each track. No markers are ignored.'
                         : 'Combine labels by ignoring the markers below.';
                     vscode.setState({ ...(vscode.getState() || {}), characterGrouping: options });
-                    vscode.postMessage({ command: 'saveCharacterGrouping', ignoredCharacterSuffixes: options.ignoredCharacterSuffixes });
+                    vscode.postMessage({ command: 'saveCharacterGrouping', ignoredCharacterSuffixes: options.ignoredCharacterSuffixes, matchCharacterMarkerCase: options.matchCharacterMarkerCase });
                 }
 
                 function resetCharacterGroupingOptions() {
+                    document.getElementById('matchCharacterMarkerCase').checked = false;
                     document.getElementById('ignoredCharacterSuffixes').value = ${JSON.stringify(DEFAULT_IGNORED_CHARACTER_SUFFIXES)}.join(String.fromCharCode(10));
                     saveCharacterGroupingOptions();
                 }
 
                 const savedCharacterGrouping = (vscode.getState() || {}).characterGrouping || {
+                    matchCharacterMarkerCase: ${JSON.stringify(matchCharacterMarkerCase)},
                     ignoredCharacterSuffixes: ${JSON.stringify(ignoredCharacterSuffixes).replace(/</g, "\\u003c")}
                 };
                 if (savedCharacterGrouping && document.getElementById('separateByCameraAngles')) {
                     document.getElementById('separateByCameraAngles').checked = savedCharacterGrouping.separateByCameraAngles === true;
+                    document.getElementById('matchCharacterMarkerCase').checked = savedCharacterGrouping.matchCharacterMarkerCase === true;
                     if (Array.isArray(savedCharacterGrouping.ignoredCharacterSuffixes)) {
                         document.getElementById('ignoredCharacterSuffixes').value = savedCharacterGrouping.ignoredCharacterSuffixes.join(String.fromCharCode(10));
                     }
