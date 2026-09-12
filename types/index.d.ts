@@ -2925,6 +2925,8 @@ export type MessagesToProjectExportView =
     | { command: "retryCompleted"; summary?: ExportSummaryPayload; error?: string; cancelled?: boolean; };
 
 export type MessagesFromProjectExportView =
+    | { command: "previewCharacterAudio"; filesToExport: string[]; options?: CharacterGroupingOptions; }
+    | { command: "saveCharacterGrouping"; ignoredCharacterSuffixes: string[]; matchCharacterMarkerCase?: boolean; }
     | { command: "selectExportPath"; }
     | { command: "openProjectSettings"; }
     | { command: "export"; format: string; userSelectedPath: string; filesToExport: string[]; options?: Record<string, unknown>; }
@@ -2934,3 +2936,12 @@ export type MessagesFromProjectExportView =
     | { command: "openCellInEditor"; cellId: string; filePath: string; }
     | { command: "retryExport"; audioOutputPath: string; targets: { cellId: string; codexPath: string; }[]; options?: Record<string, unknown>; }
     | { command: "cancel"; };
+
+/** Options shared by character audio preview and export. */
+export interface CharacterGroupingOptions {
+    separateByCameraAngles?: boolean;
+    /** Match marker letter case exactly; false by default. */
+    matchCharacterMarkerCase?: boolean;
+    /** Literal trailing markers to ignore; an empty list preserves every marker. */
+    ignoredCharacterSuffixes?: string[];
+}
