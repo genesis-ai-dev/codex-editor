@@ -1127,6 +1127,7 @@ function getWebviewContent(
                 .popup-file-list div { padding: 2px 0; display: flex; align-items: center; }
                 #characterOptionsDialog { color:var(--vscode-foreground); max-width:min(440px, calc(100vw - 48px)); max-height:80vh; overflow-y:auto; }
                 #characterOptionsDialog:not([open]) { display:none; }
+                #characterOptionsDialog [hidden] { display:none; }
                 #characterOptionsDialog::backdrop { background:rgba(0, 0, 0, 0.5); }
                 .popup-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-shrink: 0; }
 
@@ -2033,15 +2034,15 @@ function getWebviewContent(
                         <input type="checkbox" id="separateByCameraAngles" onchange="saveCharacterGroupingOptions()" />
                         Separate by Camera Angles per Character
                     </label>
-                    <p style="margin:0;">Keep camera-angle labels as separate tracks instead of combining them.</p>
-                    <div>
+                    <p id="characterGroupingHelp" style="margin:0;" aria-live="polite">Combine labels by ignoring the markers below.</p>
+                    <div id="characterIgnoredMarkersControls">
                         <label for="ignoredCharacterSuffixes">Markers to ignore</label>
                         <textarea id="ignoredCharacterSuffixes" rows="4" oninput="saveCharacterGroupingOptions()" aria-describedby="characterMarkersHelp" style="display:block; width:100%; box-sizing:border-box; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border);">${DEFAULT_IGNORED_CHARACTER_SUFFIXES.join("\n")}</textarea>
                         <p id="characterMarkersHelp" style="margin:4px 0;">One ending per line, including parentheses. Letter case doesn’t matter.</p>
                     </div>
                 </div>
                 <div class="popup-footer">
-                    <button type="button" class="secondary" onclick="resetCharacterGroupingOptions()">Reset defaults</button>
+                    <button id="resetCharacterMarkers" type="button" class="secondary" onclick="resetCharacterGroupingOptions()">Reset defaults</button>
                     <button type="button" onclick="document.getElementById('characterOptionsDialog').close()">Done</button>
                 </div>
             </dialog>
@@ -3998,6 +3999,11 @@ function getWebviewContent(
                 function saveCharacterGroupingOptions() {
                     const options = getCharacterGroupingOptions();
                     document.getElementById('ignoredCharacterSuffixes').disabled = options.separateByCameraAngles;
+                    document.getElementById('characterIgnoredMarkersControls').hidden = options.separateByCameraAngles;
+                    document.getElementById('resetCharacterMarkers').hidden = options.separateByCameraAngles;
+                    document.getElementById('characterGroupingHelp').textContent = options.separateByCameraAngles
+                        ? 'Use the full character label for each track. No markers are ignored.'
+                        : 'Combine labels by ignoring the markers below.';
                     vscode.setState({ ...(vscode.getState() || {}), characterGrouping: options });
                     vscode.postMessage({ command: 'saveCharacterGrouping', ignoredCharacterSuffixes: options.ignoredCharacterSuffixes });
                 }
