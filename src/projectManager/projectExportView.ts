@@ -1852,7 +1852,10 @@ function getWebviewContent(
                                                         <option value="opus">Opus (lossy, smallest)</option>
                                                     </select>
                                                 </label>
-                                                <button type="button" class="secondary" onclick="event.stopPropagation(); document.getElementById('characterOptionsDialog').showModal();" style="align-self:flex-start;">Options…</button>
+                                                <button type="button" class="secondary" onclick="event.stopPropagation(); document.getElementById('characterOptionsDialog').showModal();" style="align-self:flex-start;" aria-haspopup="dialog" aria-controls="characterOptionsDialog">
+                                                    <i class="codicon codicon-settings-gear" aria-hidden="true"></i>
+                                                    Character options…
+                                                </button>
                                                 <button type="button" class="secondary" onclick="event.stopPropagation(); openCharacterPreview();" style="align-self:flex-start;">
                                                     <i class="codicon codicon-preview"></i>
                                                     Preview characters
@@ -2028,7 +2031,7 @@ function getWebviewContent(
                 <div class="popup-body" style="gap:12px;">
                     <label style="display:flex; align-items:center; gap:8px;">
                         <input type="checkbox" id="separateByCameraAngles" onchange="saveCharacterGroupingOptions()" />
-                        Separate by Camera Angles
+                        Separate by Camera Angles per Character
                     </label>
                     <p style="margin:0;">Keep camera-angle labels as separate tracks instead of combining them.</p>
                     <div>
