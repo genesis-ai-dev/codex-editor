@@ -2044,7 +2044,7 @@ function getWebviewContent(
                         <p id="characterMarkersHelp" style="margin:4px 0;">Enter one marker per line, exactly as it appears at the end of the label—for example, (ON) or ON.</p>
                         <label style="display:flex; align-items:center; gap:8px;">
                             <input type="checkbox" id="matchCharacterMarkerCase" onchange="saveCharacterGroupingOptions()" />
-                            Match letter case
+                            Case sensitive
                         </label>
                     </div>
                 </div>
