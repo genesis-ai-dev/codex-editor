@@ -1225,6 +1225,73 @@ export async function applyMediaStrategy(
 }
 
 /**
+ * Find files/ entries that still hold real bytes instead of valid LFS pointers.
+ * Native filesystem reads are batched so a large stream-only project containing
+ * thousands of correct pointer stubs can be verified without serial VS Code FS
+ * round trips.
+ */
+export async function findRealMediaFiles(filesDir: string): Promise<string[]> {
+    const realMediaFiles: string[] = [];
+    const pendingDirectories: Array<{ absolutePath: string; relativePath: string; }> = [
+        { absolutePath: filesDir, relativePath: "" },
+    ];
+    const BATCH_SIZE = 250;
+
+    while (pendingDirectories.length > 0) {
+        const current = pendingDirectories.pop()!;
+        let entries: fs.Dirent[];
+        try {
+            entries = await fs.promises.readdir(current.absolutePath, { withFileTypes: true });
+        } catch {
+            continue;
+        }
+
+        const files: Array<{ absolutePath: string; relativePath: string; }> = [];
+        for (const entry of entries) {
+            if (entry.name.startsWith(".")) {
+                continue;
+            }
+            const absolutePath = path.join(current.absolutePath, entry.name);
+            const relativePath = current.relativePath
+                ? path.join(current.relativePath, entry.name)
+                : entry.name;
+            if (entry.isDirectory()) {
+                pendingDirectories.push({ absolutePath, relativePath });
+            } else if (entry.isFile()) {
+                files.push({ absolutePath, relativePath });
+            }
+        }
+
+        for (let start = 0; start < files.length; start += BATCH_SIZE) {
+            const batch = files.slice(start, start + BATCH_SIZE);
+            const results = await Promise.all(
+                batch.map(async (file): Promise<string | null> => {
+                    try {
+                        const stat = await fs.promises.stat(file.absolutePath);
+                        if (stat.size > 400) {
+                            return file.relativePath;
+                        }
+                        const content = await fs.promises.readFile(file.absolutePath, "utf8");
+                        return parsePointerContent(content) ? null : file.relativePath;
+                    } catch {
+                        // Cleanup is best effort. A file that disappears or becomes
+                        // unreadable during the scan must not block sync completion.
+                        return null;
+                    }
+                })
+            );
+            for (const result of results) {
+                if (result) {
+                    realMediaFiles.push(result);
+                }
+            }
+        }
+    }
+
+    return realMediaFiles;
+}
+
+/**
  * Clean up media files after sync for stream-only mode
  * Replaces newly uploaded files in attachments/files with their pointer versions to save disk space
  * 
@@ -1232,7 +1299,8 @@ export async function applyMediaStrategy(
  * This function only handles files that were just uploaded during this sync operation.
  * 
  * @param projectUri - URI of the project
- * @param uploadedFiles - List of files that were uploaded during sync. If empty/undefined, nothing to clean up.
+ * @param uploadedFiles - List of files that were uploaded during sync. If empty/undefined,
+ * checks files/ for real media left by compatibility and project-swap flows.
  */
 export async function postSyncCleanup(projectUri: vscode.Uri, uploadedFiles?: string[]): Promise<void> {
     try {
@@ -1243,15 +1311,19 @@ export async function postSyncCleanup(projectUri: vscode.Uri, uploadedFiles?: st
             return;
         }
 
-        // If no files were reported as uploaded, fall back to a pointer scan
+        // Empty/omitted upload information still needs a compatibility pass for
+        // project swaps and older Frontier versions. Scan files/ directly and
+        // retain only entries that contain real bytes. This avoids sending every
+        // already-correct pointer through the much more expensive replacement
+        // path, which kept large projects in "Finishing up" for minutes.
         if (!uploadedFiles || uploadedFiles.length === 0) {
-            debug("No files uploaded during sync, scanning pointers for cleanup");
-            const pointersDir = path.join(projectUri.fsPath, ".project", "attachments", "pointers");
-            const pointerRelPaths = await findAllPointerFiles(pointersDir);
-            if (pointerRelPaths.length === 0) {
+            debug("No uploaded files reported, checking for real media that needs cleanup");
+            const filesDir = path.join(projectUri.fsPath, ".project", "attachments", "files");
+            const realMediaRelPaths = await findRealMediaFiles(filesDir);
+            if (realMediaRelPaths.length === 0) {
                 return;
             }
-            const pointerPaths = pointerRelPaths.map((relPath) =>
+            const pointerPaths = realMediaRelPaths.map((relPath) =>
                 path.join(".project", "attachments", "pointers", relPath)
             );
             await replaceSpecificFilesWithPointers(projectUri.fsPath, pointerPaths);

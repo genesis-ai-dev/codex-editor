@@ -4649,7 +4649,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 console.warn("No workspace folder found, skipping paired file visibility toggle");
             }
 
-            updateWebview();
+            // Refresh cells (hidden dropped from normal view) and progress in place.
+            // updateWebview() only sends refreshCurrentPage once the webview is ready,
+            // which does not push a new milestoneProgress payload.
+            await sendMilestoneRefreshToWebview(document, webviewPanel, provider);
+            provider.updateMilestoneProgressForDocument(document);
         } catch (error) {
             console.error("Error toggling cell visibility:", cellId, error);
             vscode.window.showErrorMessage(
