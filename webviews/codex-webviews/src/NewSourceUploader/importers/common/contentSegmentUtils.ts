@@ -525,6 +525,94 @@ export function moveReferenceRunSpilloverToBody(
     return result;
 }
 
+/** Trailing clause marks that leaked onto a key-term / bold run: "Davi.", "Jeoacaz,". */
+const BOLD_THEN_PUNCT = /^(.*\p{L}\p{M}*)(\s*[.,;:!?…]+)\s*$/u;
+const ENDS_WITH_CLAUSE_PUNCT = /[.,;:!?…]\s*$/u;
+
+/**
+ * Key-term and other emphasised character styles whose leftover punctuation
+ * should sit in the following plain run, not in the bold itself.
+ */
+function isEmphasizedCharacterStyle(style: string | undefined): boolean {
+    if (!style) {
+        return false;
+    }
+    const normalized = style.replace(/%3a/gi, ":").toLowerCase();
+    return (
+        /(?:^|[/:])(?:k_)?xt(?:$|[/:_])/i.test(normalized) ||
+        normalized.includes("bold") ||
+        /(?:^|[/:])bd(?:$|[/:_])/i.test(normalized)
+    );
+}
+
+function destinationAlreadyHasPunct(destination: string, punct: string): boolean {
+    const marks = punct.replace(/\s+/gu, "");
+    const leading = /^\s*([.,;:!?…]+)/u.exec(destination)?.[1] ?? "";
+    return leading.length > 0 && marks.length > 0 && leading[0] === marks[0];
+}
+
+/**
+ * Leftover "." / "," (and the rest of the clause marks) that slid onto a
+ * bold or key-term run.
+ *
+ * IDML keeps "David" in a `k_xt` run and the following "." or "," in the
+ * plain run after it. When the translation needs fewer runs, the mark is
+ * packed onto the name — InDesign then prints **Davi.** / **Jeoacaz,**. The
+ * name itself is still in place (the original run has letters and no
+ * trailing mark), so the extra punctuation is handed to the next run.
+ *
+ * Headings that are two bold slots on purpose (`1:1–31` / `Isaiah`) are
+ * left alone: the destination is emphasised as well, so there is no plain
+ * run to receive the mark.
+ */
+export function moveBoldPunctuationSpilloverToBody(
+    translatedSegments: string[],
+    originalSegments: string[],
+    blockedIndexes?: Set<number>,
+    segmentStyles?: string[]
+): string[] {
+    const result = [...translatedSegments];
+
+    for (let index = 0; index < result.length; index++) {
+        const destination = index + 1;
+        if (blockedIndexes?.has(index) || blockedIndexes?.has(destination)) {
+            continue;
+        }
+
+        const original = originalSegments[index] ?? "";
+        if (!original.trim() || !/\p{L}/u.test(original) || ENDS_WITH_CLAUSE_PUNCT.test(original)) {
+            continue;
+        }
+
+        const hasStyles = (segmentStyles?.length ?? 0) > 0;
+        if (hasStyles && !isEmphasizedCharacterStyle(segmentStyles?.[index])) {
+            continue;
+        }
+        if (hasStyles && isEmphasizedCharacterStyle(segmentStyles?.[destination])) {
+            continue;
+        }
+
+        const spillover = BOLD_THEN_PUNCT.exec(result[index] ?? "");
+        if (!spillover) {
+            continue;
+        }
+
+        const body = result[destination];
+        if (!body?.trim()) {
+            continue;
+        }
+
+        const word = spillover[1];
+        const punct = spillover[2].replace(/\s+$/u, "");
+        result[index] = word;
+        if (!destinationAlreadyHasPunct(body, punct)) {
+            result[destination] = `${punct.replace(/^\s+/u, "")}${body}`;
+        }
+    }
+
+    return result;
+}
+
 /**
  * Apply translated segments to one paragraph block without touching any other XML.
  *
@@ -576,10 +664,12 @@ export function applySegmentTranslationToParagraphBlock(
             : []
     );
     const forceClear = new Set(forceClearIndexes);
-    const reflowed = moveReferenceRunSpilloverToBody(
-        translatedSegments,
+    const blocked = new Set([...forceClear, ...(preserveSegmentIndexes ?? [])]);
+    const reflowed = moveBoldPunctuationSpilloverToBody(
+        moveReferenceRunSpilloverToBody(translatedSegments, originals, blocked),
         originals,
-        new Set([...forceClear, ...(preserveSegmentIndexes ?? [])])
+        blocked,
+        extractSegmentStylesFromParagraphXml(paragraphBlock)
     );
     const clearedSegments = reflowed.map((text, index) =>
         forceClear.has(index) ? "" : text

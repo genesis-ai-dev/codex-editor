@@ -4,6 +4,7 @@ import {
     expandForceClearWithUntranslatedFollowers,
     findAbandonedSegmentIndexes,
     mergeSplitCellTranslations,
+    moveBoldPunctuationSpilloverToBody,
     moveReferenceRunSpilloverToBody,
 } from '../common/contentSegmentUtils';
 
@@ -253,6 +254,65 @@ describe('key-term runs folded into one translated slot', () => {
     });
 });
 
+describe('bold punctuation trimmed off a key-term slot on export', () => {
+    const davidParagraph = `<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/intro%3aipi">
+    <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/k_xt">
+        <Content>David</Content>
+    </CharacterStyleRange>
+    <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]">
+        <Content>. The king of Israel.</Content>
+    </CharacterStyleRange>
+</ParagraphStyleRange>`;
+
+    it('writes the leftover period into the following plain Content slot', () => {
+        const html =
+            '<p class="indesign-paragraph">' +
+            '<span class="idml-segment" data-segment-index="0">Davi.</span>' +
+            '<span class="idml-eoc" data-eoc="1"></span>' +
+            '<span class="idml-segment" data-segment-index="1"> O rei de Israel.</span>' +
+            '</p>';
+
+        const result = applySegmentTranslationToParagraphBlock(
+            davidParagraph,
+            html,
+            ['David', '. The king of Israel.']
+        );
+
+        expect(result).toContain('<Content>Davi</Content>');
+        expect(result).toContain('<Content>. O rei de Israel.</Content>');
+        expect(result).not.toContain('<Content>Davi.</Content>');
+        expect(result).toContain('k_xt');
+    });
+
+    it('does not rewrite a heading whose two bold slots already match', () => {
+        const headingParagraph = `<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/intro%3aimt1">
+    <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/bold%3astyle">
+        <Content>1:1–31</Content>
+    </CharacterStyleRange>
+    <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/bold%3astyle">
+        <Content>Isaiah</Content>
+    </CharacterStyleRange>
+</ParagraphStyleRange>`;
+
+        const html =
+            '<p class="indesign-paragraph">' +
+            '<span class="idml-segment" data-segment-index="0">1:1–31</span>' +
+            '<span class="idml-eoc" data-eoc="1"></span>' +
+            '<span class="idml-segment" data-segment-index="1">Isaías</span>' +
+            '</p>';
+
+        const result = applySegmentTranslationToParagraphBlock(
+            headingParagraph,
+            html,
+            ['1:1–31', 'Isaiah']
+        );
+
+        expect(result).toContain('<Content>1:1–31</Content>');
+        expect(result).toContain('<Content>Isaías</Content>');
+        expect(result).toContain('bold%3astyle');
+    });
+});
+
 describe('folded runs in paragraphs split across cells', () => {
     const originalSegments = ['North­ern king­dom:', ' The land of Israel', 'Judah:', ' The south'];
     // One cell per glossary entry, split at the line break before index 2.
@@ -385,6 +445,127 @@ describe('moveReferenceRunSpilloverToBody', () => {
         const segments = ['4:1 – 5:32 A ', 'linhagem '];
         expect(
             moveReferenceRunSpilloverToBody(segments, ['4:1 – 5:32', ' The '], new Set([1]))
+        ).toEqual(segments);
+    });
+});
+
+describe('moveBoldPunctuationSpilloverToBody', () => {
+    const keyTermThenPlain = ['CharacterStyle/k_xt', 'CharacterStyle/$ID/[No character style]'];
+    const twoBoldHeading = ['CharacterStyle/bold%3astyle', 'CharacterStyle/bold%3astyle'];
+
+    it('hands the leftover period back to the plain run after a key term', () => {
+        expect(
+            moveBoldPunctuationSpilloverToBody(
+                ['Davi.', ' O rei'],
+                ['David', ' The king'],
+                undefined,
+                keyTermThenPlain
+            )
+        ).toEqual(['Davi', '. O rei']);
+    });
+
+    it('hands the leftover comma back to the plain run after a key term', () => {
+        expect(
+            moveBoldPunctuationSpilloverToBody(
+                ['Jeoacaz,', ' rei de Judá'],
+                ['Jehoahaz', ' king of Judah'],
+                undefined,
+                keyTermThenPlain
+            )
+        ).toEqual(['Jeoacaz', ', rei de Judá']);
+    });
+
+    it('strips leftover marks when the next run already opens with them', () => {
+        expect(
+            moveBoldPunctuationSpilloverToBody(
+                ['Davi.', '. O rei'],
+                ['David', '. The king'],
+                undefined,
+                keyTermThenPlain
+            )
+        ).toEqual(['Davi', '. O rei']);
+    });
+
+    it('leaves a key-term run the translation kept clean', () => {
+        const segments = ['Davi', '. O rei'];
+        expect(
+            moveBoldPunctuationSpilloverToBody(
+                segments,
+                ['David', '. The king'],
+                undefined,
+                keyTermThenPlain
+            )
+        ).toEqual(segments);
+    });
+
+    it('leaves punctuation that was already on the English key-term run', () => {
+        const segments = ['Davi.', ' The rest'];
+        expect(
+            moveBoldPunctuationSpilloverToBody(
+                segments,
+                ['David.', ' The rest'],
+                undefined,
+                keyTermThenPlain
+            )
+        ).toEqual(segments);
+    });
+
+    it('will not overwrite a following run that still falls back to English', () => {
+        const segments = ['Davi.', ''];
+        expect(
+            moveBoldPunctuationSpilloverToBody(
+                segments,
+                ['David', '. The king'],
+                undefined,
+                keyTermThenPlain
+            )
+        ).toEqual(segments);
+    });
+
+    it('skips blocked destinations such as verse delimiters', () => {
+        const segments = ['Davi.', ' O rei'];
+        expect(
+            moveBoldPunctuationSpilloverToBody(
+                segments,
+                ['David', ' The king'],
+                new Set([1]),
+                keyTermThenPlain
+            )
+        ).toEqual(segments);
+    });
+
+    it('does not move punctuation onto a second bold heading slot', () => {
+        const segments = ['1:1–31', 'Isaías'];
+        expect(
+            moveBoldPunctuationSpilloverToBody(
+                segments,
+                ['1:1–31', 'Isaiah'],
+                undefined,
+                twoBoldHeading
+            )
+        ).toEqual(segments);
+    });
+
+    it('does not steal a leftover mark from a heading onto the next bold slot', () => {
+        expect(
+            moveBoldPunctuationSpilloverToBody(
+                ['Isaías.', 'Profeta'],
+                ['Isaiah', 'Prophet'],
+                undefined,
+                twoBoldHeading
+            )
+        ).toEqual(['Isaías.', 'Profeta']);
+    });
+
+    it('leaves leftover punctuation on a plain run', () => {
+        const segments = ['Adão.', ' O próximo'];
+        expect(
+            moveBoldPunctuationSpilloverToBody(
+                segments,
+                ['Adam', ' The next'],
+                undefined,
+                ['CharacterStyle/$ID/[No character style]', 'CharacterStyle/$ID/[No character style]']
+            )
         ).toEqual(segments);
     });
 });
