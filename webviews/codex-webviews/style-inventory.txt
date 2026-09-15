@@ -1,0 +1,181 @@
+﻿
+ RUN  v2.1.9 C:/Users/marti/Desktop/FrontierRnD/Codex/codex-editor/webviews/codex-webviews
+
+node.exe : [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline 
+data, please update: `npm i baseline-browser-mapping@latest -D`
+At C:\Users\marti\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([baseline-brows...ping@latest -D`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(node:18200) [DEP0056] DeprecationWarning: The `util.isString` API is deprecated.  Please use `typeof arg === 
+"string"` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-style-inventory.debug.test.ts > Portuguese style inventory > lists paragraph styles per volume
+
+===== STUDY (English IDML, all volumes) (75 styles)
+  text%3aq2 | paras=11320 withVerse=7805 | He created them to be like himself. He created them as male and female
+  text%3aq1 | paras=11195 withVerse=7433 | 27 27So God created human be┬¡ings in his own likeness.
+  b | paras=2659 withVerse=0 | 
+  text%3ap | paras=2156 withVerse=2138 | 3 3God said, ÔÇÿLet there be light.ÔÇÖ And there was light.3 4 4God saw th
+  b_poetry | paras=1220 withVerse=0 | 
+  intro%3aimi | paras=825 withVerse=2 | Old Tes┬¡ta┬¡ment: The record of sto┬¡ries and teach┬¡ings that Israelites
+  intro%3aipi | paras=751 withVerse=2 | 1:1 ÔÇô 2:25 Genesis is the first book in the Old Tes┬¡ta┬¡ment in the Bib
+  text%3ali1 | paras=516 withVerse=476 | 3 3When Adam was 130 years old, he had a son who was like him. He name
+  text%3ap_dc2 | paras=514 withVerse=514 | 11 <?ACE 3?>1 11:1The whole world had only one lan┬¡guage, and ev┬¡ery┬¡o
+  text%3ali2 | paras=373 withVerse=331 | Gomer, Magog, Madai, Javan, Tubal, Meshek and Tiras.2
+  text%3ap_dc1 | paras=366 withVerse=366 | 1 <?ACE 3?>1 1:1In the be┬¡gin┬¡ning, God created the heavens and the ea
+  intro%3aili1 | paras=297 withVerse=0 | Genesis is an ac┬¡count of the be┬¡gin┬¡ning of the world and of the na┬¡t
+  intro%3ais1 | paras=264 withVerse=0 | What is the book of Genesis?
+  text%3ali4 | paras=241 withVerse=238 | 8 8Cush was the father of Nimrod. Nimrod be┬¡came a mighty hero on the 
+  head%3acl | paras=150 withVerse=0 | Psalm 1
+  text%3am | paras=129 withVerse=124 | 24 24That╩╝s why a man leaves his father and mother and is joined to hi
+  head%3ad_h | paras=116 withVerse=0 | A psalm of David when he ran away from his son Absalom.
+  b_embed | paras=101 withVerse=0 | 
+  text%3aq1_dc2 | paras=80 withVerse=80 | 32 <?ACE 3?>1 32:1Heavens, listen to me. Then I will speak.
+  intro%3aio1 | paras=74 withVerse=0 | The be┬¡gin┬¡ning of cre┬¡ation, human be┬¡ings and sin (1 ÔÇô 3).The story 
+  meta%3aid | paras=66 withVerse=0 | GEN - New International Readers Version 2014 (Anglicised)
+  meta%3abk | paras=66 withVerse=0 | GEN
+  meta%3ah | paras=66 withVerse=0 | Genesis
+  meta%3atoc1 | paras=66 withVerse=0 | Genesis
+  meta%3atoc2 | paras=66 withVerse=0 | Genesis
+  meta%3atoc3 | paras=66 withVerse=0 | Gen
+  intro%3aimt1 | paras=66 withVerse=0 | Genesis
+  intro%3aiot | paras=66 withVerse=0 | Outline
+  intro%3aie | paras=66 withVerse=60 | 50:26
+  text%3apm | paras=65 withVerse=63 | ÔÇÿThe na┬¡tion of Israel is your brother. They say, ÔÇ£You know about all 
+  b_head | paras=54 withVerse=0 | 
+  text%3aq1_dc1 | paras=48 withVerse=48 | 2 <?ACE 3?>1 2:1My son, ac┬¡cept my words.
+  b_list | paras=47 withVerse=0 | 
+  bb | paras=38 withVerse=0 | 
+  head%3asp | paras=36 withVerse=0 | A Shulammite woman says to King Solomon,
+  text%3aqr | paras=26 withVerse=26 | His faith┬¡ful love con┬¡tin┬¡ues for ever.1
+  text%3ali3 | paras=22 withVerse=20 | 23 23Bethuel be┬¡came the father of Rebekah.
+  head%3aqa | paras=21 withVerse=0 | Îæ Beth
+  b_pc | paras=20 withVerse=0 | 
+  text%3apmo | paras=18 withVerse=14 | 23 23ÔÇÿCyrus, the king of Persia, says,
+  text%3api1 | paras=17 withVerse=16 | 3 3The Israelites started out from Rameses on the 15th day of the firs
+  b_pmo | paras=17 withVerse=0 | 
+  text%3aqm2 | paras=15 withVerse=7 | Come in together with the ark.
+  text%3aqm1 | paras=14 withVerse=5 | 41 41ÔÇÿLord God, rise up and come to your resting place.
+  text%3apr | paras=12 withVerse=12 | Then all the peo┬¡ple will say, ÔÇÿAmen!ÔÇÖ15
+  text%3ali4_dc2 | paras=11 withVerse=11 | 10 <?ACE 3?>1 10:1Here is the story of Shem, Ham and Japheth. They wer
+  text%3apc | paras=10 withVerse=9 | Set ap┬¡art for the Lord.36
+  text%3ap_fj | paras=9 withVerse=9 | 30 30Then Moses spoke to the peo┬¡ple of Israel. He said, ÔÇÿThe Lord has
+  head%3ams1 | paras=9 withVerse=0 | Purpose
+  text%3ali4_dc1 | paras=7 withVerse=7 | 1 <?ACE 3?>1 1:1Here are the names of Israel╩╝s chil┬¡dren who went to E
+  text%3aqc | paras=6 withVerse=5 | Amen and Amen.41:13
+  intro%3aimt2 | paras=5 withVerse=0 | Israel╩╝s covenant history
+  intro%3aip | paras=5 withVerse=0 | The books of the Old Tes┬¡ta┬¡ment from Genesis to Esther record sto┬¡rie
+  meta%3aeot | paras=5 withVerse=0 | <?ACE 3?>
+  $ID/NormalParagraphStyle | paras=5 withVerse=0 | 
+  text%3ali1_dc1 | paras=5 withVerse=5 | 1 <?ACE 3?>1 1:1Adam, Seth, Enosh,1
+  head%3ams | paras=5 withVerse=0 | Book I
+  head%3amr_h | paras=5 withVerse=0 | Psalms 1ÔÇö41
+  intro%3aim | paras=5 withVerse=0 | Psalms 1 through 41 are part of the first sec┬¡tion of Psalms. This sec
+  head%3as1 | paras=5 withVerse=0 | Paul serves the Gentiles
+  text%3ali | paras=3 withVerse=3 | 3 3ÔÇÿDo not put any other gods in place of me.3
+  text%3ali1_litl | paras=2 withVerse=2 | 9 9the king of Jericho <?ACE 8?>one the king of Ai, which is near Beth
+  b_poetry.embed | paras=2 withVerse=0 | 
+  text%3aq3 | paras=2 withVerse=2 | They do all this be┬¡cause you are fol┬¡low┬¡ers of the Son of Man.22
+  text%3ali1_dc2 | paras=1 withVerse=1 | 16 <?ACE 3?>1 16:1The land given to the two tribes in the fam┬¡ily line
+  head%3aqa_h | paras=1 withVerse=0 | ÎÉ Aleph
+  bb_head | paras=1 withVerse=0 | 
+  text%3apmo_dc1 | paras=1 withVerse=1 | 4 <?ACE 3?>1 4:1I, King Neb┬¡u┬¡chad┬¡nez┬¡zar, am writ┬¡ing this letter.
+  head%3ad_dc1 | paras=1 withVerse=1 | 3 <?ACE 3?>1 3:1This is a prayer of Habakkuk the prophet. It is on shi
+  head%3ad | paras=1 withVerse=0 | This prayer is for the director of music. It should be sung while bein
+  intro%3aipi last | paras=1 withVerse=0 | The sec┬¡ond main point of God╩╝s mes┬¡sages to Zechariah was about bring
+  intro%3aili2 | paras=1 withVerse=0 | first jour┬¡ney (Ac┬¡ts 13 ÔÇô 14),sec┬¡ond jour┬¡ney (Ac┬¡ts 15:36 ÔÇô 18:22),
+  b_pmc | paras=1 withVerse=0 | 
+  text%3apmc | paras=1 withVerse=1 | Farewell.29
+  text%3ami | paras=1 withVerse=1 | 15 15ÔÇÿLook! I am com┬¡ing like a thief! Blessed is any┬¡one who stays aw
+
+===== BIBLE (Portuguese, all volumes) (78 styles)
+  text%3aq2 | paras=11041 withVerse=7816 | ├á imagem de Deus o criou; homem e mulher os criou.27
+  text%3aq1 | paras=10869 withVerse=7530 | 27 27Ent├úo, Deus criou o ser humano ├á sua imagem,
+  text%3ap | paras=5594 withVerse=5329 | 2 2A terra era sem forma e vazia; havia tre┬¡vas sobre as ├íguas pro┬¡fun
+  text%3ap_sd | paras=3678 withVerse=2953 | ÔÇò Haja luz.
+  b | paras=2521 withVerse=0 | 
+  title%3as1 | paras=1884 withVerse=0 | O princ├¡pio
+  b_poetry | paras=1008 withVerse=0 | 
+  text%3ali1 | paras=558 withVerse=502 | 3 3Aos cento e trinta anos, Ad├úo gerou um filho ├á sua seme┬¡lhan├ºa, con
+  text%3ap_dc2 | paras=509 withVerse=509 | 11 <?ACE 3?>1 11.1No mundo todo, havia apenas uma l├¡n┬¡gua, um s├│ idiom
+  text%3ali2 | paras=416 withVerse=369 | G├┤mer, Mago┬¡gue, Madai, Jav├ú, Tubal, Mese┬¡que e Tir├ís.2
+  text%3ap_dc1 | paras=339 withVerse=339 | 1 <?ACE 3?>1 1.1No prin┬¡c├¡┬¡pio, Deus criou os c├®us e a terra.1
+  title%3ar_h | paras=223 withVerse=0 | (Lc 3.23ÔÇæ38)
+  title%3acl | paras=145 withVerse=0 | Salmo 2
+  text%3alf | paras=133 withVerse=132 | 8 8Cuxe foi o pai de Nin┬¡rode, o pri┬¡meiro pode┬¡roso guer┬¡reiro na ter
+  text%3am | paras=131 withVerse=127 | 24 24Por essa raz├úo, o homem dei┬¡xar├í pai e m├úe e se unir├í ├á sua mulhe
+  text%3alh | paras=123 withVerse=122 | 21 21Sem, irm├úo mais velho de Jaf├®, tamb├®m gerou filhos. Sem foi o ant
+  title%3ad_h | paras=116 withVerse=0 | Salmo de Davi, quando fugiu do seu filho Absal├úo.
+  title%3aqa | paras=109 withVerse=0 | Îæ B├¬t
+  b_embed | paras=88 withVerse=0 | 
+  text%3apm | paras=84 withVerse=82 | ÔÇò Assim diz o teu irm├úo Israel: ÔÇ£Tu sabes de todas as difi┬¡cul┬¡dades q
+  text%3aq1_dc2 | paras=80 withVerse=80 | 32 <?ACE 3?>1 32.1ÔÇ£Escutem, ├│ c├®us, e eu falarei;
+  meta%3aid | paras=66 withVerse=0 | GEN - Portuguese (Brazil): Nova Vers├úo Internacional
+  meta%3arem | paras=66 withVerse=0 | Copyright ┬® 1993, 2000, 2011, 2023 by Biblica, Inc.
+  meta%3abk | paras=66 withVerse=0 | GEN
+  meta%3ah | paras=66 withVerse=0 | G├¬nesis
+  meta%3atoc1 | paras=66 withVerse=0 | G├¬nesis
+  meta%3atoc2 | paras=66 withVerse=0 | G├¬nesis
+  meta%3atoc3 | paras=66 withVerse=0 | Gn
+  title%3amt1 | paras=66 withVerse=0 | G├¬nesis
+  intro%3aie | paras=66 withVerse=0 | 
+  meta%3aeot | paras=65 withVerse=0 | <?ACE 3?>
+  title%3as2 | paras=61 withVerse=0 | Os jafetitas
+  text%3aq1_dc1 | paras=45 withVerse=45 | 5 <?ACE 3?>1 5.1ÔÇ£Clame, se quiser, mas quem o ouvir├í?
+  text%3apo | paras=44 withVerse=41 | 7 7A todos os que est├úo em Roma, amados de Deus, chama┬¡dos para serem 
+  b_po | paras=42 withVerse=0 | 
+  bb | paras=41 withVerse=1 | 1.22
+  title%3asp | paras=36 withVerse=0 | A amada
+  text%3aqr | paras=26 withVerse=26 | o seu amor leal dura para sempre.1
+  text%3ali3 | paras=23 withVerse=21 | Hez┬¡rom e Hamul.12
+  b_pc | paras=20 withVerse=0 | 
+  text%3ali2_tl | paras=18 withVerse=18 | Par├│s <?ACE 8?>2.1723 4 4Sefa┬¡tias <?ACE 8?>3724 5 5Ar├í <?ACE 8?>7755
+  text%3api1 | paras=15 withVerse=15 | 3 3Os israe┬¡li┬¡tas par┬¡tiram de Rames┬¡s├®s no d├®cimo quinto dia do pri┬¡
+  text%3apo_dc1 | paras=15 withVerse=15 | 1 <?ACE 3?>1 1.1Paulo, servo de Cristo Jesus, cha┬¡mado para ser ap├│s┬¡t
+  text%3aqm1 | paras=14 withVerse=6 | 41 41ÔÇ£Agora, levanta-te, ├│ Senhor Deus, e vem para o teu lugar de desc
+  text%3aqm2 | paras=14 withVerse=8 | tu e a arca do teu poder.
+  text%3apmo | paras=13 withVerse=12 | 23 23ÔÇ£Assim diz Ciro, rei da P├®rsia:
+  text%3apr | paras=12 withVerse=12 | Todo o povo dir├í: ÔÇ£Am├®m!ÔÇØ.15
+  text%3alh_dc2 | paras=10 withVerse=10 | 10 <?ACE 3?>1 10.1Este ├® o regis┬¡tro dos des┬¡cen┬¡dentes de Sem, Cam e 
+  text%3ap_fj | paras=10 withVerse=9 | 25 25Passaram┬¡-se sete dias depois que o
+  text%3apc | paras=10 withVerse=9 | Con┬¡sa┬¡grado ao Senhor.36
+  title%3ams1 | paras=9 withVerse=0 | Prop├│sito e tema
+  text%3ap_dc1_fn | paras=8 withVerse=8 | 8 <?ACE 3?>Senhor feriu o Nilo.7.25 1 8.1O Senhor falou a Moi┬¡s├®s:
+  text%3alh_dc1 | paras=7 withVerse=7 | 1 <?ACE 3?>1 1.1Estes s├úo os nomes dos filhos de Israel que entra┬¡ram 
+  text%3aqc | paras=7 withVerse=7 | Am├®m e am├®m!41.13
+  #base.text | paras=6 withVerse=0 | 
+  text%3aq1_dc1_fn | paras=6 withVerse=6 | 9 <?ACE 3?>1 9.1Ah, se a minha cabe├ºa fosse uma fonte de ├ígua,
+  text%3aq3 | paras=5 withVerse=3 | pois o teu Deus te ajudar├íÔÇØ.
+  title%3ams | paras=5 withVerse=0 | LIVRO I
+  title%3amr_h | paras=5 withVerse=0 | Salmos 1ÔÇô41
+  title%3acl_h | paras=5 withVerse=0 | Salmo 1
+  b_list | paras=4 withVerse=0 | 
+  text%3ali1_dc1 | paras=4 withVerse=4 | 1 <?ACE 3?>1 1.1Ad├úo, Sete, Enos,1
+  text%3ap_dc2_fn | paras=3 withVerse=3 | 22 <?ACE 3?>1 22.1ÔÇ£Se algu├®m rou┬¡bar um boi ou uma ove┬¡lha e abat├¬┬¡-lo
+  text%3ali1_dc1_fn | paras=2 withVerse=2 | 6 <?ACE 3?>1 6.1Estes foram os filhos de Levi:
+  text%3aq1_dc2_fn | paras=2 withVerse=2 | 41 <?ACE 3?>1 41.1ÔÇ£Voc├¬ consegue pescar com anzol o Leviat├ú
+  title%3as2_h | paras=2 withVerse=0 | Ditado 1
+  b_dc | paras=2 withVerse=0 | 
+  title%3as3 | paras=2 withVerse=0 | Daniel interpreta o sonho do rei
+  text%3ami | paras=2 withVerse=2 | 28 28Eu lhe darei a mesma auto┬¡ri┬¡dade que recebi do meu Pai. Tamb├®m l
+  text%3ali1_dc2 | paras=1 withVerse=1 | 16 <?ACE 3?>1 16.1As terras distri┬¡bu├¡das aos des┬¡cen┬¡dentes de Jos├® i
+  text%3ali1_tl | paras=1 withVerse=1 | tige┬¡las de ouro <?ACE 8?>30 tige┬¡las de prata <?ACE 8?>1.000 uten┬¡s├¡l
+  title%3aqa_h | paras=1 withVerse=0 | ÎÉ ├ülef
+  title%3as1_h | paras=1 withVerse=0 | Advert├¬ncia contra o engano
+  text%3apmo_dc1_fn | paras=1 withVerse=1 | 4 <?ACE 3?>1 4.1O rei Nabu┬¡co┬¡do┬¡no┬¡sor,
+  text%3aq2_dc1 | paras=1 withVerse=1 | 7 <?ACE 3?>1 7.1e me disponho a curar Israel,
+  title%3ad_h_dc1 | paras=1 withVerse=1 | 3 <?ACE 3?> 1 3.1 Ora├º├úo do profeta Habacuque. De acordo com shiguiono
+  title%3ad | paras=1 withVerse=1 | Para o mestre de m├║sica. Para os meus instrumentos de cordas.3.19
+  text%3apmc | paras=1 withVerse=1 | Que tudo v├í bem com voc├¬s.29
+
+ Ô£ô src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-style-inventory.debug.test.ts (1 test) 194344ms
+   Ô£ô Portuguese style inventory > lists paragraph styles per volume 194343ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:24:36
+   Duration  197.20s (transform 252ms, setup 32ms, collect 401ms, tests 194.34s, environment 1.26s, prepare 207ms)
+

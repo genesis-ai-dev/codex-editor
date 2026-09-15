@@ -355,8 +355,8 @@ function padSegmentArray(
  */
 export function findParagraphBlockInStoryXml(
     storyXml: string,
-    options: { paragraphId?: string; paragraphOrder?: number }
-): { block: string; start: number; end: number } | null {
+    options: { paragraphId?: string; paragraphOrder?: number; }
+): { block: string; start: number; end: number; } | null {
     const blocks = listParagraphBlocksInDocumentOrder(storyXml);
     if (options.paragraphId) {
         const escapedId = escapeRegExp(options.paragraphId);
@@ -381,14 +381,252 @@ export function findParagraphBlockInStoryXml(
 }
 
 /**
+ * Apostrophes are their own <Content> slot, so "Aaron's walking stick" is
+ * three slots: "Aaron" / "'" / "s walking stick". Translators replace the
+ * headword with the full target phrase ("O cajado de Arão") and the English
+ * tail is left unmatched. Clear that untranslated follower with the apostrophe
+ * so export does not emit “O cajado de Arão:s walking stick”.
+ */
+export function expandForceClearWithUntranslatedFollowers(
+    forceClearIndexes: number[] | undefined,
+    originalSegments: string[],
+    translatedSegments: string[]
+): number[] {
+    const expanded = [...(forceClearIndexes ?? [])];
+    const seen = new Set(expanded);
+
+    for (const index of forceClearIndexes ?? []) {
+        const follower = index + 1;
+        if (follower >= originalSegments.length || seen.has(follower)) {
+            continue;
+        }
+
+        const original = originalSegments[follower] ?? "";
+        if (original.trim() === "") {
+            continue;
+        }
+
+        const translated = translatedSegments[follower] ?? "";
+        const independentlyTranslated =
+            translated.trim() !== "" && translated !== original;
+        if (independentlyTranslated) {
+            continue;
+        }
+
+        expanded.push(follower);
+        seen.add(follower);
+    }
+
+    return expanded;
+}
+
+/**
+ * Slots the translator emptied by folding their text into a neighbouring run.
+ *
+ * IDML gives every character style its own <Content> slot, so "Ahijah the
+ * prophet" arrives as three slots (key term / plain / key term). A translator
+ * who renders the whole phrase in the first slot leaves the other two empty,
+ * and falling back to the source text there prints the English straight back
+ * into the translated note ("Aías the prophetpara ser rei…").
+ *
+ * The same folding strands the tail of a paragraph. Structural apostrophes give
+ * the English extra slots ("Hamanʼs" is three), so a translation that renders
+ * the paragraph in fewer runs runs out of slots early and every remaining one is
+ * left empty. `parsedSegments` ends at the last slot the cell actually rendered a
+ * span for, which separates the two cases: an empty entry within that range was
+ * emitted as empty on purpose, while anything past it is simply unknown and keeps
+ * its source text. Slots before the first translated run keep it too — nothing
+ * has been written yet for them to have been folded into.
+ */
+export function findAbandonedSegmentIndexes(
+    originalSegments: string[],
+    parsedSegments: string[],
+    preserveSegmentIndexes?: number[]
+): number[] {
+    const preserve = new Set(preserveSegmentIndexes ?? []);
+    const isFilled = (index: number): boolean =>
+        (parsedSegments[index] ?? "").trim().length > 0;
+
+    const abandoned: number[] = [];
+    let filledBefore = false;
+    for (let index = 0; index < originalSegments.length; index++) {
+        if (isFilled(index)) {
+            filledBefore = true;
+            continue;
+        }
+        if (!filledBefore || index >= parsedSegments.length || preserve.has(index)) {
+            continue;
+        }
+        if ((originalSegments[index] ?? "").trim().length > 0) {
+            abandoned.push(index);
+        }
+    }
+
+    return abandoned;
+}
+
+function mergeIndexLists(...lists: number[][]): number[] {
+    return [...new Set(lists.flat())].sort((a, b) => a - b);
+}
+
+/** A run of digits and punctuation, then the first word: "4:1 – 5:32 A ". */
+const REFERENCE_THEN_WORDS = /^([^\p{L}]*\p{Nd}[^\p{L}]*)(\p{L}[\s\S]*)$/u;
+const digitsOf = (value: string): string => value.replace(/[^\p{Nd}]/gu, "");
+
+/**
+ * Note body text that slid forward into the passage reference styling it.
+ *
+ * A note opens with its reference in a bold run of its own ("4:1 – 5:32") and
+ * the body starts in the next run. Where the translation needs fewer runs than
+ * the English — Portuguese opening "A linhagem" against an English "The" that
+ * sits in its own run before the key term — the reflow packs the body's first
+ * word into the reference run, and export prints it bold: "4:1 – 5:32 A".
+ *
+ * References are digits, so the source run holds no letters whatsoever. Letters
+ * the translation left there are body text, and the run after it is where they
+ * were headed. Requiring the reference itself to have survived in place keeps
+ * this to that repair and away from paragraphs whose runs are wholly shifted.
+ */
+export function moveReferenceRunSpilloverToBody(
+    translatedSegments: string[],
+    originalSegments: string[],
+    blockedIndexes?: Set<number>
+): string[] {
+    const result = [...translatedSegments];
+
+    for (let index = 0; index < result.length; index++) {
+        const destination = index + 1;
+        if (blockedIndexes?.has(index) || blockedIndexes?.has(destination)) {
+            continue;
+        }
+
+        const original = originalSegments[index] ?? "";
+        if (!original.trim() || /\p{L}/u.test(original) || !/\p{Nd}/u.test(original)) {
+            continue;
+        }
+
+        const spillover = REFERENCE_THEN_WORDS.exec(result[index] ?? "");
+        if (!spillover || digitsOf(spillover[1]) !== digitsOf(original)) {
+            continue;
+        }
+
+        // Only hand the words to a run the translator already wrote in; an empty
+        // one still falls back to its English source, which we would be erasing.
+        const body = result[destination];
+        if (!body?.trim()) {
+            continue;
+        }
+
+        const reference = spillover[1].replace(/\s+$/u, "");
+        result[index] = reference;
+        result[destination] = `${spillover[1].slice(reference.length)}${spillover[2]}${body}`;
+    }
+
+    return result;
+}
+
+/** Trailing clause marks that leaked onto a key-term / bold run: "Davi.", "Jeoacaz,". */
+const BOLD_THEN_PUNCT = /^(.*\p{L}\p{M}*)(\s*[.,;:!?…]+)\s*$/u;
+const ENDS_WITH_CLAUSE_PUNCT = /[.,;:!?…]\s*$/u;
+
+/**
+ * Key-term and other emphasised character styles whose leftover punctuation
+ * should sit in the following plain run, not in the bold itself.
+ */
+function isEmphasizedCharacterStyle(style: string | undefined): boolean {
+    if (!style) {
+        return false;
+    }
+    const normalized = style.replace(/%3a/gi, ":").toLowerCase();
+    return (
+        /(?:^|[/:])(?:k_)?xt(?:$|[/:_])/i.test(normalized) ||
+        normalized.includes("bold") ||
+        /(?:^|[/:])bd(?:$|[/:_])/i.test(normalized)
+    );
+}
+
+function destinationAlreadyHasPunct(destination: string, punct: string): boolean {
+    const marks = punct.replace(/\s+/gu, "");
+    const leading = /^\s*([.,;:!?…]+)/u.exec(destination)?.[1] ?? "";
+    return leading.length > 0 && marks.length > 0 && leading[0] === marks[0];
+}
+
+/**
+ * Leftover "." / "," (and the rest of the clause marks) that slid onto a
+ * bold or key-term run.
+ *
+ * IDML keeps "David" in a `k_xt` run and the following "." or "," in the
+ * plain run after it. When the translation needs fewer runs, the mark is
+ * packed onto the name — InDesign then prints **Davi.** / **Jeoacaz,**. The
+ * name itself is still in place (the original run has letters and no
+ * trailing mark), so the extra punctuation is handed to the next run.
+ *
+ * Headings that are two bold slots on purpose (`1:1–31` / `Isaiah`) are
+ * left alone: the destination is emphasised as well, so there is no plain
+ * run to receive the mark.
+ */
+export function moveBoldPunctuationSpilloverToBody(
+    translatedSegments: string[],
+    originalSegments: string[],
+    blockedIndexes?: Set<number>,
+    segmentStyles?: string[]
+): string[] {
+    const result = [...translatedSegments];
+
+    for (let index = 0; index < result.length; index++) {
+        const destination = index + 1;
+        if (blockedIndexes?.has(index) || blockedIndexes?.has(destination)) {
+            continue;
+        }
+
+        const original = originalSegments[index] ?? "";
+        if (!original.trim() || !/\p{L}/u.test(original) || ENDS_WITH_CLAUSE_PUNCT.test(original)) {
+            continue;
+        }
+
+        const hasStyles = (segmentStyles?.length ?? 0) > 0;
+        if (hasStyles && !isEmphasizedCharacterStyle(segmentStyles?.[index])) {
+            continue;
+        }
+        if (hasStyles && isEmphasizedCharacterStyle(segmentStyles?.[destination])) {
+            continue;
+        }
+
+        const spillover = BOLD_THEN_PUNCT.exec(result[index] ?? "");
+        if (!spillover) {
+            continue;
+        }
+
+        const body = result[destination];
+        if (!body?.trim()) {
+            continue;
+        }
+
+        const word = spillover[1];
+        const punct = spillover[2].replace(/\s+$/u, "");
+        result[index] = word;
+        if (!destinationAlreadyHasPunct(body, punct)) {
+            result[destination] = `${punct.replace(/^\s+/u, "")}${body}`;
+        }
+    }
+
+    return result;
+}
+
+/**
  * Apply translated segments to one paragraph block without touching any other XML.
+ *
+ * `preserveSegmentIndexes` names slots that are hidden from the editor but must
+ * keep their source value — Biblica's chapter/verse delimiters, which IDML needs
+ * to bound each verse.
  */
 export function applySegmentTranslationToParagraphBlock(
     paragraphBlock: string,
     translatedHtml: string,
     originalSegments?: string[],
     xmlEscape?: (value: string) => string,
-    forceClearSegmentIndexes?: number[]
+    forceClearSegmentIndexes?: number[],
+    preserveSegmentIndexes?: number[]
 ): string {
     const escape = xmlEscape ?? defaultXmlEscape;
     const xmlSegments = extractContentSegmentsFromParagraphXml(paragraphBlock);
@@ -407,8 +645,33 @@ export function applySegmentTranslationToParagraphBlock(
         originals
     );
 
-    const forceClear = new Set(forceClearSegmentIndexes ?? []);
-    const clearedSegments = translatedSegments.map((text, index) =>
+    // Emptied slots are only recognisable before `resolveTranslatedSegments`
+    // refills them from the source; without spans there is no per-slot signal.
+    const parsedSegments = parseSegmentsFromCellHtml(translatedHtml);
+
+    const forceClearIndexes = mergeIndexLists(
+        expandForceClearWithUntranslatedFollowers(
+            forceClearSegmentIndexes,
+            originals,
+            translatedSegments
+        ),
+        parsedSegments
+            ? findAbandonedSegmentIndexes(
+                originals,
+                parsedSegments,
+                preserveSegmentIndexes
+            )
+            : []
+    );
+    const forceClear = new Set(forceClearIndexes);
+    const blocked = new Set([...forceClear, ...(preserveSegmentIndexes ?? [])]);
+    const reflowed = moveBoldPunctuationSpilloverToBody(
+        moveReferenceRunSpilloverToBody(translatedSegments, originals, blocked),
+        originals,
+        blocked,
+        extractSegmentStylesFromParagraphXml(paragraphBlock)
+    );
+    const clearedSegments = reflowed.map((text, index) =>
         forceClear.has(index) ? "" : text
     );
 
@@ -417,7 +680,7 @@ export function applySegmentTranslationToParagraphBlock(
         clearedSegments,
         escape,
         originals,
-        forceClearSegmentIndexes
+        forceClearIndexes
     );
 }
 
@@ -431,10 +694,10 @@ export function applySegmentTranslationToParagraphBlock(
  */
 function listParagraphBlocksInDocumentOrder(
     storyXml: string
-): Array<{ block: string; start: number; end: number; openTag: string }> {
+): Array<{ block: string; start: number; end: number; openTag: string; }> {
     const collect = (requireStoryWrapper: boolean) => {
-        const found: Array<{ block: string; start: number; end: number; openTag: string }> = [];
-        const openStack: Array<{ start: number; openTag: string }> = [];
+        const found: Array<{ block: string; start: number; end: number; openTag: string; }> = [];
+        const openStack: Array<{ start: number; openTag: string; }> = [];
         let inStory = !requireStoryWrapper;
         let storyDepth = 0;
 
@@ -535,7 +798,7 @@ export function isStructuralBreakParagraph(paragraph: IDMLParagraph): boolean {
     if (combined.includes("\n")) {
         return true;
     }
-    const dataAfter = (paragraph.paragraphStyleRange as { dataAfter?: string[] })?.dataAfter;
+    const dataAfter = (paragraph.paragraphStyleRange as { dataAfter?: string[]; })?.dataAfter;
     return Array.isArray(dataAfter) && dataAfter.length > 0;
 }
 
@@ -610,6 +873,11 @@ export function buildSegmentedParagraphHtml(
         totalSegmentCount?: number;
         /** Original segment indexes to omit from editor HTML (structural apostrophes). */
         skipSegmentIndexes?: number[];
+        /**
+         * Indexes that split a single word, to be folded into the run that opened it
+         * along with the run that follows them.
+         */
+        joinSegmentIndexes?: number[];
     }
 ): string {
     if (segments.length === 0) {
@@ -619,32 +887,52 @@ export function buildSegmentedParagraphHtml(
     const segmentIndexOffset = options?.segmentIndexOffset ?? 0;
     const totalSegmentCount = options?.totalSegmentCount ?? segments.length;
     const skipIndexes = new Set(options?.skipSegmentIndexes ?? []);
+    const joinIndexes = new Set(options?.joinSegmentIndexes ?? []);
     const defaultStyle = "CharacterStyle/$ID/[No character style]";
-    const spanParts: string[] = [];
-    let previousVisibleIndex = -1;
+
+    // IDML sets the apostrophe of "Hamanʼs" in its own font, so the word arrives as
+    // three slots. A joined slot keeps its text but gives up its own span, and so does
+    // the slot after it, leaving the translator one run holding the whole word.
+    const runs: Array<{ index: number; style: string; text: string; lineBreak: boolean; }> = [];
+    let joinFollowing = false;
 
     for (let i = 0; i < segments.length; i++) {
-        if (skipIndexes.has(segmentIndexOffset + i)) {
+        const index = segmentIndexOffset + i;
+        const openRun = runs[runs.length - 1];
+        const joinsWord = joinIndexes.has(index) && openRun !== undefined;
+
+        if (openRun && (joinsWord || joinFollowing)) {
+            openRun.text += segments[i] ?? "";
+            joinFollowing = joinsWord;
             continue;
         }
 
-        const segmentText = segments[i] ?? "";
-        const charStyle = segmentStyles?.[i] ?? defaultStyle;
-
-        if (previousVisibleIndex >= 0) {
-            const isLineBreak = breakBefore?.[i] ?? false;
-            if (isLineBreak) {
-                spanParts.push(`<br class="idml-eoc" data-eoc="1" />`);
-            } else {
-                spanParts.push(`<span class="idml-eoc" data-eoc="1" aria-hidden="true"></span>`);
-            }
+        joinFollowing = false;
+        if (skipIndexes.has(index)) {
+            continue;
         }
 
-        spanParts.push(
-            `<span class="idml-segment" data-segment-index="${segmentIndexOffset + i}" data-character-style="${escapeHtml(charStyle)}">${escapeHtml(segmentText)}</span>`
-        );
-        previousVisibleIndex = i;
+        runs.push({
+            index,
+            style: segmentStyles?.[i] ?? defaultStyle,
+            text: segments[i] ?? "",
+            lineBreak: breakBefore?.[i] ?? false,
+        });
     }
+
+    const spanParts: string[] = [];
+    runs.forEach((run, position) => {
+        if (position > 0) {
+            spanParts.push(
+                run.lineBreak
+                    ? `<br class="idml-eoc" data-eoc="1" />`
+                    : `<span class="idml-eoc" data-eoc="1" aria-hidden="true"></span>`
+            );
+        }
+        spanParts.push(
+            `<span class="idml-segment" data-segment-index="${run.index}" data-character-style="${escapeHtml(run.style)}">${escapeHtml(run.text)}</span>`
+        );
+    });
 
     if (spanParts.length === 0) {
         return "";
@@ -663,7 +951,7 @@ export function parseSegmentsFromCellHtml(html: string): string[] | null {
 
     const spanRegex =
         /<span[^>]*\bdata-segment-index=["'](\d+)["'][^>]*>([\s\S]*?)<\/span>/gi;
-    const indexed: { index: number; text: string }[] = [];
+    const indexed: { index: number; text: string; }[] = [];
     let match: RegExpExecArray | null;
     while ((match = spanRegex.exec(html)) !== null) {
         const index = Number.parseInt(match[1], 10);
@@ -744,29 +1032,57 @@ export function resolveTranslatedSegments(
     return mergeTranslatedSegments([trimmed], expectedSegmentCount, originalSegments);
 }
 
+/** Inclusive range of paragraph slots that one split cell is responsible for. */
+export interface SegmentRange {
+    start: number;
+    end: number;
+}
+
+/**
+ * Fallback when the caller cannot say which slots a cell owns: its filled spans
+ * bound it. Gaps at the edges then stay with the scaffold, so a run emptied
+ * right at a cell boundary keeps its source text rather than being dropped.
+ */
+function inferRangeFromFilledSlots(parsed: string[]): SegmentRange | undefined {
+    const filled = parsed
+        .map((text, index) => (text.trim().length > 0 ? index : -1))
+        .filter((index) => index >= 0);
+    return filled.length === 0
+        ? undefined
+        : { start: filled[0], end: filled[filled.length - 1] };
+}
+
 /**
  * Merge translated HTML from multiple cells that split one paragraph at line breaks.
  * Preserves original segment indices for surgical export.
+ *
+ * Within the slots a cell owns, an empty span means the translator folded that
+ * run into a neighbour; blanking it here is what lets the export step tell a
+ * folded run apart from an untranslated one. Slots outside the cell's range
+ * belong to a sibling cell and keep their scaffold value.
  */
 export function mergeSplitCellTranslations(
     cellHtmlList: string[],
     originalSegments: string[],
-    breakBefore?: boolean[]
+    breakBefore?: boolean[],
+    cellRanges?: (SegmentRange | undefined)[]
 ): string {
     const merged = [...originalSegments];
 
-    for (const html of cellHtmlList) {
+    cellHtmlList.forEach((html, cellIndex) => {
         const parsed = parseSegmentsFromCellHtml(html);
         if (!parsed) {
-            continue;
+            return;
         }
-        for (let i = 0; i < parsed.length; i++) {
-            const text = parsed[i];
-            if (typeof text === "string" && text.trim().length > 0) {
-                merged[i] = text;
-            }
+        const range = cellRanges?.[cellIndex] ?? inferRangeFromFilledSlots(parsed);
+        if (!range) {
+            return;
         }
-    }
+        const last = Math.min(range.end, merged.length - 1);
+        for (let i = Math.max(range.start, 0); i <= last; i++) {
+            merged[i] = parsed[i] ?? "";
+        }
+    });
 
     return buildSegmentedParagraphHtml(merged, "", "", undefined, breakBefore, {
         totalSegmentCount: originalSegments.length,
