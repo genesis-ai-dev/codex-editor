@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { canonicalizeParagraphStyle } from "../paragraphStyleRoles";
+import { canonicalizeParagraphStyle, isHeadingRoleTitleStyle } from "../paragraphStyleRoles";
 
 describe("canonicalizeParagraphStyle", () => {
     it("maps Bible heading-role title styles onto the study's head vocabulary", () => {
@@ -36,5 +36,15 @@ describe("canonicalizeParagraphStyle", () => {
         for (const style of unchanged) {
             expect(canonicalizeParagraphStyle(style)).toBe(style);
         }
+    });
+});
+
+describe("isHeadingRoleTitleStyle", () => {
+    it("recognises Bible section headings and leaves book titles out", () => {
+        expect(isHeadingRoleTitleStyle("ParagraphStyle/title%3as1")).toBe(true);
+        expect(isHeadingRoleTitleStyle("title:s2_h")).toBe(true);
+        expect(isHeadingRoleTitleStyle("ParagraphStyle/title%3amt1")).toBe(false);
+        expect(isHeadingRoleTitleStyle("ParagraphStyle/head%3as1")).toBe(false);
+        expect(isHeadingRoleTitleStyle("ParagraphStyle/#base.title")).toBe(false);
     });
 });

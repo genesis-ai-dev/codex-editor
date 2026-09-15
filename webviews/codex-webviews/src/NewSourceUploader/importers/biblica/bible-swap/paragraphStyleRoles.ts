@@ -30,13 +30,18 @@
  * `mt*` book title. Matches at the start of the style name or after a `/`, so
  * both bare and `ParagraphStyle/`-qualified names are handled.
  */
-const HEADING_TITLE_PREFIX = /(^|\/)title(%3a|:)(?!mt)/gi;
+const HEADING_TITLE_PREFIX = /(^|\/)title(%3a|:)(?!mt)/i;
+
+/** True for Bible `title:*` styles that play the same role as study `head:*`. */
+export function isHeadingRoleTitleStyle(style: string): boolean {
+    return !!style && HEADING_TITLE_PREFIX.test(style);
+}
 
 /** Rewrite heading-role `title:*` styles to their `head:*` equivalent. */
 export function canonicalizeParagraphStyle(style: string): string {
     if (!style || !/title/i.test(style)) return style;
     return style.replace(
-        HEADING_TITLE_PREFIX,
+        /(^|\/)title(%3a|:)(?!mt)/gi,
         (_match, lead: string, separator: string) => `${lead}head${separator}`
     );
 }

@@ -191,6 +191,7 @@ import {
     applyBibleSwapWithShared,
     buildBibleSwapSharedResources,
     deserializeVersificationPlan,
+    mergeBibleHeadingStylesIntoStudyStylesXml,
     normalizeBibleStoryXmlGlyphs,
     type BibleSwapMode,
     type SerializedVersificationPlan,
@@ -1881,6 +1882,23 @@ async function applyBibleSwapPass(
     }
 
     const bibleZip = await JSZip.loadAsync(toTightZipBytes(bibleIdmlData));
+
+    // Structure swap copies Bible `title:s1` headings into the Study stories.
+    // Those styles live only in the Bible package; without them InDesign
+    // falls back to body text (Charis SIL Regular) instead of Source Sans 3
+    // Semibold. Merge the missing heading-role styles before rewriting stories.
+    const studyStylesFile = studyZip.file("Resources/Styles.xml");
+    const bibleStylesFile = bibleZip.file("Resources/Styles.xml");
+    if (studyStylesFile && bibleStylesFile) {
+        const studyStylesXml = await studyStylesFile.async("string");
+        const mergedStylesXml = mergeBibleHeadingStylesIntoStudyStylesXml(
+            studyStylesXml,
+            await bibleStylesFile.async("string")
+        );
+        if (mergedStylesXml !== studyStylesXml) {
+            studyZip.file("Resources/Styles.xml", mergedStylesXml);
+        }
+    }
 
     // Find largest Stories/*.xml inside the Bible IDML.
     let bibleStoryKey: string | null = null;
