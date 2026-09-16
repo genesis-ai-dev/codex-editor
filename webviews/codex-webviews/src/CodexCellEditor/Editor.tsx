@@ -1915,29 +1915,34 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                                     marginBottom: "4px",
                                                     fontSize: "0.9em",
                                                     color: "var(--vscode-descriptionForeground)",
+                                                    direction: "ltr",
                                                     display: "flex",
                                                     flexWrap: "wrap",
                                                     minWidth: 0,
                                                     justifyContent: "space-between",
-                                                    alignItems: "center",
+                                                    alignItems: "flex-start",
                                                     gap: "8px",
                                                 }}
                                             >
+                                                <span style={{ minWidth: 0, flex: "1 1 160px", direction: props.textDirection }}>
+                                                    {new Date(entry.timestamp).toLocaleString()} by {entry.author}
+                                                </span>
                                                 <div
                                                     style={{
                                                         display: "flex",
                                                         flexWrap: "wrap",
                                                         minWidth: 0,
-                                                        flex: "1 1 160px",
-                                                        alignItems: "center",
+                                                        maxWidth: "100%",
+                                                        width: "max-content",
+                                                        justifyContent: "left",
+                                                        direction: props.textDirection,
                                                         gap: "8px",
+                                                        alignItems: "center",
                                                     }}
                                                 >
-                                                    <span style={{ minWidth: 0 }}>
-                                                        {new Date(entry.timestamp).toLocaleString()} by {entry.author}
-                                                    </span>
                                                     <span
                                                         style={{
+                                                            flexShrink: 0,
                                                             fontSize: "0.75em",
                                                             padding: "2px 6px",
                                                             borderRadius: "9px",
@@ -1950,16 +1955,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                                     >
                                                         {typeLabel}
                                                     </span>
-                                                </div>
-                                                <div
-                                                    style={{
-                                                        display: "flex",
-                                                        flexWrap: "wrap",
-                                                        minWidth: 0,
-                                                        gap: "8px",
-                                                        alignItems: "center",
-                                                    }}
-                                                >
                                                     {isCurrentVersion ? (
                                                         <span
                                                             style={{
