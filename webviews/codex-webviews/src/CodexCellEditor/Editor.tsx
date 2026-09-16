@@ -1,6 +1,7 @@
 import React, {
     useRef,
     useEffect,
+    useLayoutEffect,
     useMemo,
     useState,
     useContext,
@@ -10,6 +11,7 @@ import React, {
 import Quill, { Delta, Op } from "quill";
 import "quill/dist/quill.snow.css";
 import { installPreserveWhitespaceMatcher } from "./utils/preserveWhitespace";
+import { historyNeedsStackedLayout } from "./utils/historyLayout";
 import { restoreTrailingBlankLine } from "./utils/preserveTrailingBlankLines";
 import { getCleanedHtml } from "./utils";
 import {
@@ -378,6 +380,23 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const [showHistoryModal, setShowHistoryModal] = useState(false);
     const [historyTab, setHistoryTab] = useState<"history" | "llm-previews">("history");
     const [editHistoryForCell, setEditHistoryForCell] = useState<EditHistory[]>(props.editHistory);
+    const historyPanelRef = useRef<HTMLDivElement>(null);
+    const [stackHistoryStatuses, setStackHistoryStatuses] = useState(false);
+
+    useLayoutEffect(() => {
+        const panel = historyPanelRef.current;
+        if (!showHistoryModal || !panel) return;
+        const updateLayout = () => setStackHistoryStatuses(historyNeedsStackedLayout(panel));
+        updateLayout();
+        const observer = new ResizeObserver(updateLayout);
+        observer.observe(panel);
+        document.fonts?.addEventListener("loadingdone", updateLayout);
+        return () => {
+            observer.disconnect();
+            document.fonts?.removeEventListener("loadingdone", updateLayout);
+        };
+    }, [showHistoryModal, historyTab, editHistoryForCell, props.textDirection]);
+
 
     const visibleHistory = editHistoryForCell
         .filter(isValueEdit)
@@ -1775,6 +1794,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             </div>
             {showHistoryModal && (
                 <div
+                    ref={historyPanelRef}
                     style={{
                         position: "absolute",
                         inset: "16px 16px auto",
@@ -1911,20 +1931,21 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                             }}
                                         >
                                             <div
+                                                className="codex-history-entry-header"
                                                 style={{
                                                     marginBottom: "4px",
                                                     fontSize: "0.9em",
                                                     color: "var(--vscode-descriptionForeground)",
                                                     direction: "ltr",
                                                     display: "flex",
-                                                    flexWrap: "wrap",
+                                                    flexDirection: stackHistoryStatuses ? "column" : "row",
                                                     minWidth: 0,
                                                     justifyContent: "space-between",
                                                     alignItems: "flex-start",
                                                     gap: "8px",
                                                 }}
                                             >
-                                                <span style={{ minWidth: 0, flex: "1 1 160px", direction: props.textDirection }}>
+                                                <span className="codex-history-entry-author" style={{ minWidth: 0, flex: stackHistoryStatuses ? "0 1 auto" : "1 1 160px", direction: props.textDirection }}>
                                                     {new Date(entry.timestamp).toLocaleString()} by {entry.author}
                                                 </span>
                                                 <div

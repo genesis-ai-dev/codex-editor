@@ -4747,21 +4747,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     return (
         <Card className="w-full max-w-4xl shadow-xl" style={{ direction: textDirection }}>
-            <CardHeader className="border-b p-4 flex flex-row flex-nowrap items-center justify-between gap-3 space-y-0">
-                <div className="flex flex-row flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-col justify-center gap-2 pr-3">
+            <CardHeader className="border-b p-4 flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+                <div className="flex min-w-0 max-w-full flex-row flex-wrap items-center justify-between gap-3">
+                    <div className="flex min-w-0 max-w-full flex-col justify-center gap-2 pr-3">
                         <div
-                            className="flex items-center gap-2"
+                            className="flex min-w-0 items-center gap-2"
                             role="button"
                             aria-label="Cell id and label"
                         >
                             {cellType !== CodexCellTypes.PARATEXT &&
                                 cellType !== CodexCellTypes.MILESTONE && (
                                     <div
-                                        className="flex items-center gap-x-1"
+                                        className="flex min-w-0 items-center gap-x-1"
                                         title="Edit cell label"
                                     >
-                                        <span className="text-lg font-semibold muted-foreground">
+                                        <span className="min-w-0 [overflow-wrap:anywhere] text-lg font-semibold muted-foreground">
                                             {displayEditableLabel()}
                                         </span>
                                         <Button
@@ -4789,9 +4789,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     </div>
                     <div className="flex items-center gap-3 ml-auto pl-3 md:pl-4 flex-shrink-0" />
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
                     {/* Right-aligned utility buttons: AI, History, Settings */}
-                    <div className="flex items-center gap-2 mr-2">
+                    <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2 mr-2">
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
@@ -5122,7 +5122,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     className="w-full"
                 >
                     <TabsList
-                        className="flex w-full"
+                        className="flex w-full flex-wrap"
                         style={{ justifyContent: "stretch", display: "flex" }}
                     >
                         {cellType !== CodexCellTypes.PARATEXT &&
