@@ -1,19 +1,15 @@
 import * as vscode from "vscode";
-import { execFile as execFileCb } from "child_process";
-import { promisify } from "util";
-import * as fs from "fs";
 import { isNativeSqliteReady } from "./nativeSqlite";
 import { isDatabaseReady } from "./sqliteDatabaseFactory";
 import { getAudioToolMode, getGitToolMode, getSqliteToolMode } from "./toolPreferences";
 import {
-    getFfmpegBinaryPath,
+    verifyFfmpegAvailable,
     isFfmpegNativeAssetSupported,
     isFfmpegNativelySupported,
 } from "./ffmpegManager";
 import { isSqliteNativelySupported } from "./sqliteNativeBinaryManager";
 import type { FrontierAPI } from "../../webviews/codex-webviews/src/StartupFlow/types";
 
-const execFile = promisify(execFileCb);
 
 export interface ToolCheckResult {
     git: boolean;
@@ -71,7 +67,7 @@ export async function checkTools(
 
     let ffmpeg = false;
     try {
-        ffmpeg = await verifyBinaryAvailable("ffmpeg", context);
+        ffmpeg = await verifyFfmpegAvailable(context);
     } catch (e) {
         console.error("[toolsManager] ffmpeg check threw:", e);
     }
@@ -282,33 +278,4 @@ export function isAudioToolRequired(
     context: vscode.ExtensionContext,
 ): boolean {
     return context.globalState.get<boolean>(REQUIRED_TOOLS_FFMPEG_KEY) ?? false;
-}
-
-/**
- * Verify that the extension-owned FFmpeg binary is present and executable.
- * Only checks the downloaded binary in extension globalStorage — never
- * falls back to system-installed binaries on the PATH.
- *
- * The path is resolved via `getFfmpegBinaryPath` in ffmpegManager, which is
- * the single source of truth for the versioned binary location.
- */
-async function verifyBinaryAvailable(
-    tool: "ffmpeg",
-    context: vscode.ExtensionContext,
-): Promise<boolean> {
-    const downloadedPath = getFfmpegBinaryPath(context);
-    if (downloadedPath && fs.existsSync(downloadedPath) && (await canExecute(downloadedPath))) {
-        return true;
-    }
-
-    return false;
-}
-
-async function canExecute(binaryPath: string): Promise<boolean> {
-    try {
-        await execFile(binaryPath, ["-version"], { timeout: 5000 });
-        return true;
-    } catch {
-        return false;
-    }
 }
