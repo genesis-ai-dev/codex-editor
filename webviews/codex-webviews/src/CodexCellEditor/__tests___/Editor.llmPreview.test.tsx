@@ -1,9 +1,9 @@
 import React from "react";
 import { describe, it, expect, beforeEach, beforeAll, vi } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { EditHistory } from "../../../../../types";
 import { EditType } from "../../../../../types/enums";
-import Editor from "../Editor";
+import Editor, { EditorHandles } from "../Editor";
 
 // Mock the VSCode API
 const mockVscode = {
@@ -347,5 +347,29 @@ describe("Editor LLM Preview Flag Tests", () => {
             },
             { timeout: 3000 }
         );
+    });
+});
+
+
+describe("Editor history empty states", () => {
+    it.each(["metadata", "history", "preview"])("handles %s-only edits when switching tabs", (kind) => {
+        const ref = React.createRef<EditorHandles>();
+        const entry: EditHistory = kind === "metadata"
+            ? { editMap: ["metadata", "cellLabel"], value: "Speaker", timestamp: 1, type: EditType.USER_EDIT }
+            : { editMap: ["value"], value: "Recorded text", timestamp: 1, type: EditType.USER_EDIT, preview: kind === "preview" };
+        const view = render(
+            <Editor ref={ref} currentLineId="history-cell" initialValue="Current text"
+                editHistory={[entry]} textDirection="ltr"
+                setIsEditingFootnoteInline={vi.fn()} isEditingFootnoteInline={false} />
+        );
+        act(() => ref.current?.showEditHistory());
+        expect(Boolean(view.queryByText("No text edit history available"))).toBe(kind !== "history");
+        expect(Boolean(view.queryByText("Recorded text"))).toBe(kind === "history");
+        fireEvent.click(view.getByRole("button", { name: "LLM Previews" }));
+        expect(Boolean(view.queryByText("No LLM previews available"))).toBe(kind !== "preview");
+        expect(Boolean(view.queryByText("Recorded text"))).toBe(kind === "preview");
+        fireEvent.click(view.getByRole("button", { name: "History", exact: true }));
+        expect(Boolean(view.queryByText("No text edit history available"))).toBe(kind !== "history");
+        view.unmount();
     });
 });
