@@ -2037,6 +2037,23 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                         </div>
                                     );
                                 })
+                        ) : historyTab === "history" ? (
+                            <div
+                                style={{
+                                    padding: "12px",
+                                    border: "1px solid var(--vscode-editor-foreground)",
+                                    backgroundColor: "var(--vscode-editor-selectionBackground)",
+                                    overflowWrap: "anywhere",
+                                }}
+                            >
+                                <div style={{ marginBottom: "8px" }}>Current Version</div>
+                                <div style={{ whiteSpace: "pre-wrap" }}>
+                                    {stripHtmlAndDecode(props.initialValue) || "Empty cell"}
+                                </div>
+                                <div style={{ marginTop: "8px", fontSize: "0.85em", color: "var(--vscode-descriptionForeground)" }}>
+                                    No recorded text edits. Showing the current saved text.
+                                </div>
+                            </div>
                         ) : (
                             <div
                                 style={{
@@ -2044,9 +2061,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                     color: "var(--vscode-descriptionForeground)",
                                 }}
                             >
-                                {historyTab === "llm-previews"
-                                    ? "No LLM previews available"
-                                    : "No text edit history available"}
+                                No LLM previews available
                             </div>
                         )}
                     </div>

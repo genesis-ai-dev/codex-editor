@@ -1,9 +1,9 @@
 import React from "react";
-import { describe, it, expect, beforeEach, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll, afterEach, vi } from "vitest";
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { EditHistory } from "../../../../../types";
 import { EditType } from "../../../../../types/enums";
-import Editor, { EditorHandles } from "../Editor";
+import Editor, { type EditorHandles } from "../Editor";
 
 // Mock the VSCode API
 const mockVscode = {
@@ -351,25 +351,39 @@ describe("Editor LLM Preview Flag Tests", () => {
 });
 
 
-describe("Editor history empty states", () => {
-    it.each(["metadata", "history", "preview"])("handles %s-only edits when switching tabs", (kind) => {
+describe("History current-version fallback", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => {
+        vi.clearAllTimers();
+        vi.useRealTimers();
+    });
+    it.each(["none", "metadata", "preview", "recorded", "empty"])("shows the correct history for %s entries", (kind) => {
         const ref = React.createRef<EditorHandles>();
-        const entry: EditHistory = kind === "metadata"
-            ? { editMap: ["metadata", "cellLabel"], value: "Speaker", timestamp: 1, type: EditType.USER_EDIT }
-            : { editMap: ["value"], value: "Recorded text", timestamp: 1, type: EditType.USER_EDIT, preview: kind === "preview" };
-        const view = render(
-            <Editor ref={ref} currentLineId="history-cell" initialValue="Current text"
-                editHistory={[entry]} textDirection="ltr"
-                setIsEditingFootnoteInline={vi.fn()} isEditingFootnoteInline={false} />
-        );
+        const initialValue = kind === "empty" ? "" : "<p>Current saved text</p>";
+        const editHistory: EditHistory[] = kind === "none" || kind === "empty" ? [] : [{
+            editMap: kind === "metadata" ? ["metadata", "cellLabel"] : ["value"],
+            value: kind === "metadata" ? "Speaker" : "Recorded text",
+            timestamp: 1,
+            type: EditType.USER_EDIT,
+            preview: kind === "preview",
+        }];
+        const view = render(<Editor ref={ref} currentLineId="fallback-cell" initialValue={initialValue}
+            editHistory={editHistory} textDirection="ltr"
+            setIsEditingFootnoteInline={vi.fn()} isEditingFootnoteInline={false} />);
         act(() => ref.current?.showEditHistory());
-        expect(Boolean(view.queryByText("No text edit history available"))).toBe(kind !== "history");
-        expect(Boolean(view.queryByText("Recorded text"))).toBe(kind === "history");
+        const fallback = "No recorded text edits. Showing the current saved text.";
+        expect(Boolean(view.queryByText(fallback))).toBe(kind !== "recorded");
+        if (kind !== "recorded") {
+            expect(view.getByText("Current Version")).toBeTruthy();
+            expect(view.getByText(kind === "empty" ? "Empty cell" : "Current saved text")).toBeTruthy();
+        }
         fireEvent.click(view.getByRole("button", { name: "LLM Previews" }));
+        expect(view.queryByText(fallback)).toBeNull();
         expect(Boolean(view.queryByText("No LLM previews available"))).toBe(kind !== "preview");
         expect(Boolean(view.queryByText("Recorded text"))).toBe(kind === "preview");
         fireEvent.click(view.getByRole("button", { name: "History", exact: true }));
-        expect(Boolean(view.queryByText("No text edit history available"))).toBe(kind !== "history");
+        expect(Boolean(view.queryByText(fallback))).toBe(kind !== "recorded");
+        expect(Boolean(view.queryByText("Recorded text"))).toBe(kind === "recorded");
         view.unmount();
     });
 });
