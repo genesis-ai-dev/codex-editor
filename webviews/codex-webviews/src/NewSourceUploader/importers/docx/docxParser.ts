@@ -41,6 +41,8 @@ const XML_PARSER_OPTIONS = {
 
 // Helper to compute SHA-256 hash
 async function computeSHA256(input: string | ArrayBuffer): Promise<string> {
+    // Pass a byte view: some crypto hosts reject raw ArrayBuffers created in
+    // another JavaScript context (for example ZIP buffers in jsdom tests).
     const data = typeof input === 'string'
         ? new TextEncoder().encode(input)
         : new Uint8Array(input);
@@ -109,7 +111,7 @@ export class DocxParser {
             this.debugLog(`File hash: ${originalHash}`);
 
             // Unzip DOCX file
-            const zip = await JSZip.loadAsync(arrayBuffer);
+            const zip = await JSZip.loadAsync(new Uint8Array(arrayBuffer));
 
             // Extract main document XML
             const documentXmlFile = zip.file('word/document.xml');
