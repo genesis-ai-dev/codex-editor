@@ -1,6 +1,7 @@
 import React, {
     useRef,
     useEffect,
+    useLayoutEffect,
     useMemo,
     useState,
     useContext,
@@ -10,6 +11,7 @@ import React, {
 import Quill, { Delta, Op } from "quill";
 import "quill/dist/quill.snow.css";
 import { installPreserveWhitespaceMatcher } from "./utils/preserveWhitespace";
+import { historyNeedsStackedLayout } from "./utils/historyLayout";
 import { restoreTrailingBlankLine } from "./utils/preserveTrailingBlankLines";
 import { getCleanedHtml } from "./utils";
 import {
@@ -378,6 +380,34 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const [showHistoryModal, setShowHistoryModal] = useState(false);
     const [historyTab, setHistoryTab] = useState<"history" | "llm-previews">("history");
     const [editHistoryForCell, setEditHistoryForCell] = useState<EditHistory[]>(props.editHistory);
+    const historyPanelRef = useRef<HTMLDivElement>(null);
+    const [stackHistoryStatuses, setStackHistoryStatuses] = useState(false);
+
+    useLayoutEffect(() => {
+        const panel = historyPanelRef.current;
+        if (!showHistoryModal || !panel) return;
+        const updateLayout = () => setStackHistoryStatuses(historyNeedsStackedLayout(panel));
+        updateLayout();
+        const observer = new ResizeObserver(updateLayout);
+        observer.observe(panel);
+        document.fonts?.addEventListener("loadingdone", updateLayout);
+        return () => {
+            observer.disconnect();
+            document.fonts?.removeEventListener("loadingdone", updateLayout);
+        };
+    }, [showHistoryModal, historyTab, editHistoryForCell, props.textDirection]);
+
+
+    const visibleHistory = editHistoryForCell
+        .filter(isValueEdit)
+        .slice()
+        .reverse()
+        .filter((entry) => historyTab === "llm-previews" ? entry.preview === true : entry.preview !== true)
+        .filter((entry, index, entries) => {
+            if (historyTab === "llm-previews") return true;
+            const nextEntry = entries[index - 1];
+            return !(entry.type === "llm-generation" && nextEntry?.type === "user-edit" && entry.value === nextEntry.value);
+        });
 
     const [footnoteCount, setFootnoteCount] = useState(1);
     const [characterCount, setCharacterCount] = useState(0);
@@ -1764,19 +1794,18 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             </div>
             {showHistoryModal && (
                 <div
+                    ref={historyPanelRef}
                     style={{
-                        position: "fixed",
-                        top: "50%",
-                        left: "50%",
-                        transform: "translate(-50%, -50%)",
+                        position: "absolute",
+                        inset: "16px 16px auto",
+                        maxHeight: "calc(100% - 32px)",
+                        zIndex: 20,
                         backgroundColor: "var(--vscode-editor-background)",
                         padding: "20px",
                         border: "1px solid var(--vscode-editor-foreground)",
                         borderRadius: "4px",
-                        zIndex: 1000,
-                        maxHeight: "80vh",
                         overflowY: "auto",
-                        width: "calc(100vw - 40px)",
+                        overflowWrap: "anywhere",
                         boxSizing: "border-box",
                     }}
                 >
@@ -1804,7 +1833,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         </button>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
                             <button
                                 onClick={() => setHistoryTab("history")}
                                 style={{
@@ -1845,34 +1874,8 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             </button>
                         </div>
 
-                        {editHistoryForCell && editHistoryForCell.length > 0 ? (
-                            [...editHistoryForCell]
-                                .filter(isValueEdit)
-                                .reverse()
-                                .filter((entry, index, array) => {
-                                    // Separate tabs: previews vs non-previews
-                                    const isPreview =
-                                        (entry as any).preview === true ||
-                                        (entry.type === "llm-generation" &&
-                                            (entry as any).preview === true);
-                                    if (historyTab === "llm-previews") {
-                                        return isPreview;
-                                    } else {
-                                        // Main history: exclude previews; keep non-preview LLM edits
-                                        return !isPreview;
-                                    }
-                                })
-                                .filter((entry, index, array) => {
-                                    // In the main history, still hide llm-generation entries that are identical to the next user-edit
-                                    if (historyTab === "llm-previews") return true;
-                                    const nextEntry = array[index - 1];
-                                    return !(
-                                        entry.type === "llm-generation" &&
-                                        nextEntry?.type === "user-edit" &&
-                                        entry.value === nextEntry.value
-                                    );
-                                })
-                                .map((entry, index, array) => {
+                        {visibleHistory.length > 0 ? (
+                            visibleHistory.map((entry, index, array) => {
                                     const previousEntry = array[index + 1];
 
                                     // Determine display styling by edit type
@@ -1928,27 +1931,39 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                             }}
                                         >
                                             <div
+                                                className="codex-history-entry-header"
                                                 style={{
                                                     marginBottom: "4px",
                                                     fontSize: "0.9em",
                                                     color: "var(--vscode-descriptionForeground)",
+                                                    direction: "ltr",
                                                     display: "flex",
+                                                    flexDirection: stackHistoryStatuses ? "column" : "row",
+                                                    minWidth: 0,
                                                     justifyContent: "space-between",
-                                                    alignItems: "center",
+                                                    alignItems: "flex-start",
                                                     gap: "8px",
                                                 }}
                                             >
+                                                <span className="codex-history-entry-author" style={{ minWidth: 0, flex: stackHistoryStatuses ? "0 1 auto" : "1 1 160px", direction: props.textDirection }}>
+                                                    {new Date(entry.timestamp).toLocaleString()} by {entry.author}
+                                                </span>
                                                 <div
                                                     style={{
                                                         display: "flex",
-                                                        alignItems: "center",
+                                                        flexWrap: "wrap",
+                                                        minWidth: 0,
+                                                        maxWidth: "100%",
+                                                        width: "max-content",
+                                                        justifyContent: "left",
+                                                        direction: props.textDirection,
                                                         gap: "8px",
+                                                        alignItems: "center",
                                                     }}
                                                 >
-                                                    {new Date(entry.timestamp).toLocaleString()} by{" "}
-                                                    {entry.author}
                                                     <span
                                                         style={{
+                                                            flexShrink: 0,
                                                             fontSize: "0.75em",
                                                             padding: "2px 6px",
                                                             borderRadius: "9px",
@@ -1961,14 +1976,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                                     >
                                                         {typeLabel}
                                                     </span>
-                                                </div>
-                                                <div
-                                                    style={{
-                                                        display: "flex",
-                                                        gap: "8px",
-                                                        alignItems: "center",
-                                                    }}
-                                                >
                                                     {isCurrentVersion ? (
                                                         <span
                                                             style={{
@@ -2030,6 +2037,23 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                         </div>
                                     );
                                 })
+                        ) : historyTab === "history" ? (
+                            <div
+                                style={{
+                                    padding: "12px",
+                                    border: "1px solid var(--vscode-editor-foreground)",
+                                    backgroundColor: "var(--vscode-editor-selectionBackground)",
+                                    overflowWrap: "anywhere",
+                                }}
+                            >
+                                <div style={{ marginBottom: "8px" }}>Current Version</div>
+                                <div style={{ whiteSpace: "pre-wrap" }}>
+                                    {stripHtmlAndDecode(props.initialValue) || "Empty cell"}
+                                </div>
+                                <div style={{ marginTop: "8px", fontSize: "0.85em", color: "var(--vscode-descriptionForeground)" }}>
+                                    No recorded text edits. Showing the current saved text.
+                                </div>
+                            </div>
                         ) : (
                             <div
                                 style={{
@@ -2037,7 +2061,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                     color: "var(--vscode-descriptionForeground)",
                                 }}
                             >
-                                No edit history available
+                                No LLM previews available
                             </div>
                         )}
                     </div>
