@@ -1,0 +1,263 @@
+﻿node.exe : [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline 
+data, please update: `npm i baseline-browser-mapping@latest -D`
+At C:\Users\marti\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([baseline-brows...ping@latest -D`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+ RUN  v2.1.9 C:/Users/marti/Desktop/FrontierRnD/Codex/codex-editor/webviews/codex-webviews
+
+(node:29744) [DEP0056] DeprecationWarning: The `util.isString` API is deprecated.  Please use `typeof arg === 
+"string"` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > GEN-DEU
+
+===== GEN-DEU: 100% accuracy, 4 issues =====
+verses study=5845 bible=5849 export=5849
+  Wrong Text (4): GEN 29:14, GEN 35:22, EXO 7:25, EXO 8:1
+
+--- GEN 29:14 [Wrong Text]
+  study : Then Laban said to him, ÔÇÿYou are my own flesh and blood.ÔÇÖJacob stayed with Laban for a whole month.
+  bible : Ent├úo, Lab├úo lhe disse:ÔÇò Voc├¬ ├® osso dos meus ossos e carne da minha carne.Jac├│ casa com Lia e com RaquelJ├í fa
+  export: Ent├úo, Lab├úo lhe disse:ÔÇò Voc├¬ ├® osso dos meus ossos e carne da minha carne.J├í fazia um m├¬s que Jac├│ estava na 
+
+--- GEN 35:22 [Wrong Text]
+  study : While Israel was living in that area, Reuben went in and slept with Bilhah. She was the concubine of Reubens f
+  bible : Na ├®poca em que Israel vivia naquela regi├úo, R├║ben deitou-se com Bila, concubina do seu pai, e Israel soube di
+  export: Na ├®poca em que Israel vivia naquela regi├úo, R├║ben deitou-se com Bila, concubina do seu pai, e Israel soube di
+
+--- EXO 7:25 [Wrong Text]
+  study : Seven days passed after the struck the River Nile.
+  bible : Passaram-se sete dias depois que o feriu o Nilo.
+  export: Passaram-se sete dias depois que o
+
+--- EXO 8:1 [Wrong Text]
+  study : Then the said to Moses, ÔÇÿGo to Pharaoh. Tell him, ÔÇ£The says, ÔÇÿLet my people go. Then they will be able to wors
+  bible : O falou a Mois├®s: corresponde a 7.26ÔÇæ29, e corresponde a 8.1ÔÇæ28.ÔÇò V├í ao fara├│ e diga-lhe que assim diz o : ÔÇ£De
+  export: O falou a Mois├®s:ÔÇò V├í ao fara├│ e diga-lhe que assim diz o : ÔÇ£Deixe o meu povo ir para prestar-me culto.
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > JOS-EST
+
+===== JOS-EST: 100% accuracy, 12 issues =====
+verses study=7000 bible=7014 export=7013
+  Should Be Added (1): RUT 4:22
+  Wrong Text (11): 1SA 4:1, 1SA 6:21, 1SA 13:23, 1SA 14:1, 1SA 25:1, 2SA 19:8, 1KI 19:9, 2KI 5:19, 2KI 24:20, 2CH 35:27, NEH 7:73
+
+--- RUT 4:22 [Should Be Added]
+  study : 
+  bible : Obede gerou Jess├®; Jess├® gerou Davi.
+  export: 
+
+--- 1SA 4:1 [Wrong Text]
+  study : And Samuel gave those messages to all the Israelites.The Israelites went out to fight against the Philistines.
+  bible : A palavra de Samuel espalhou-se por todo o Israel.Os filisteus tomam a arcaNessa ├®poca, os israelitas sa├¡ram ├á
+  export: A palavra de Samuel espalhou-se por todo o Israel.Nessa ├®poca, os israelitas sa├¡ram ├á guerra contra os filiste
+
+--- 1SA 6:21 [Wrong Text]
+  study : Then messengers were sent to the people of Kiriath Jearim. The messengers said, ÔÇÿThe
+  bible : Ent├úo, enviaram mensageiros ao povo de Quiriate-Jearim, dizendo: ÔÇ£Os filisteus devolveram a arca do . Venham e
+  export: Ent├úo, enviaram mensageiros ao povo de Quiriate-Jearim, dizendo: ÔÇ£Os filisteus devolveram a arca do . Venham e
+
+--- 1SA 13:23 [Wrong Text]
+  study : A group of Philistine soldiers had gone out to the pass at Mikmash.
+  bible : Aconteceu que um destacamento filisteufoi para o desfiladeiro de Micm├ís.
+  export: Aconteceu que um destacamento filisteu
+
+--- 1SA 14:1 [Wrong Text]
+  study : One day Jonathan, the son of Saul, spoke to the young man carrying his armour. ÔÇÿCome onÔÇÖ, he said. ÔÇÿLets go ov
+  bible : Certo dia, J├┤natas, filho de Saul, disse ao seu jovem escudeiro:ÔÇò Vamos ao destacamento filisteu, do outro lad
+  export: Certo dia, J├┤natas, filho de Saul, disse ao seu jovem escudeiro:Ele, por├®m, n├úo contou isso ao seu pai.
+
+--- 1SA 25:1 [Wrong Text]
+  study : When Samuel died, the whole nation of Israel gathered together. They were filled with sorrow because he was de
+  bible : Samuel morreu, e todo o Israel se reuniu e o pranteou; e o sepultaram onde tinha vivido, em Ram├í.Davi, Nabal e
+  export: Samuel morreu, e todo o Israel se reuniu e o pranteou; e o sepultaram onde tinha vivido, em Ram├í.Depois, Davi 
+
+--- 2SA 19:8 [Wrong Text]
+  study : So the king got up and took his seat in the entrance of the city gate. His men were told, ÔÇÿThe king is sitting
+  bible : Ent├úo, o rei levantou-se e sentou-se ├á porta da cidade. Quando o ex├®rcito soube que o rei estava sentado ├á por
+  export: Ent├úo, o rei levantou-se e sentou-se ├á porta da cidade. Quando o ex├®rcito soube que o rei estava sentado ├á por
+
+--- 1KI 19:9 [Wrong Text]
+  study : There he went into a cave and spent the night.A message came to Elijah from the . He said, ÔÇÿElijah, what are y
+  bible : Ali entrou em uma caverna e passou a noite.O aparece a EliasEis que a palavra do veio a ele:ÔÇò O que voc├¬ est├í 
+  export: Ali entrou em uma caverna e passou a noite.ÔÇò O que voc├¬ est├í fazendo aqui, Elias?
+
+--- 2KI 5:19 [Wrong Text]
+  study : ÔÇÿGo in peace,ÔÇÖ Elisha said.Naaman started out on his way.
+  bible : Eliseu disse:ÔÇò V├í em paz.O castigo de GeaziQuando Naam├ú j├í estava a certa dist├óncia,
+  export: Eliseu disse:ÔÇò V├í em paz.Quando Naam├ú j├í estava a certa dist├óncia,
+
+--- 2KI 24:20 [Wrong Text]
+  study : The enemies of Jerusalem and Judah attacked them because the was angry. In the end the threw them out of his l
+  bible : Por causa da ira do , tudo isso aconteceu a Jerusal├®m e a Jud├í; por fim, ele os lan├ºou para longe da sua prese
+  export: Por causa da ira do , tudo isso aconteceu a Jerusal├®m e a Jud├í; por fim, ele os lan├ºou para longe da sua prese
+
+--- 2CH 35:27 [Wrong Text]
+  study : All the events from beginning to end are written down. They are written in the records of the kings of Israel 
+  bible : todos os acontecimentos, do in├¡cio ao fim, constam nos registros hist├│ricos dos reis de Israele de Jud├í.
+  export: todos os acontecimentos, do in├¡cio ao fim, constam nos registros hist├│ricos dos reis de Israel
+
+--- NEH 7:73 [Wrong Text]
+  study : The priests and Levites made their homes in their own towns. So did the musicians, the temple servants and the
+  bible : Os sacerdotes, os levitas, os porteiros, os m├║sicos e os servidores do templo estabeleceram-se nas suas pr├│pri
+  export: Os sacerdotes, os levitas, os porteiros, os m├║sicos e os servidores do templo estabeleceram-se nas suas pr├│pri
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > JOB-SNG
+
+===== JOB-SNG: 100% accuracy, 6 issues =====
+verses study=4705 bible=4750 export=4750
+  Wrong Text (5): SNG 1:4, SNG 5:1, SNG 5:2, SNG 6:13, SNG 8:5
+  Added (Wrong Text) (1): SNG 7:9
+
+--- SNG 1:4 [Wrong Text]
+  study : Take me away with you. Let us hurry! King Solomon, bring me into your palace.ÔÇÖThe other women say, ÔÇÿKing Solom
+  bible : Leve-me com voc├¬! Vamos depressa! Leve-me o rei para os seus aposentos!Coro Estamos alegres e felizes por sua 
+  export: Leve-me com voc├¬! Vamos depressa! Leve-me o rei para os seus aposentos! Com toda a raz├úo elas o amam!
+
+--- SNG 5:1 [Wrong Text]
+  study : ÔÇÿMy bride, I have come into my garden. My sister, Ive gathered my myrrh and my spice. Ive eaten my honeycomb a
+  bible : Entrei no meu jardim, minha irm├ú, minha noiva. Ajuntei a minha mirra com as minhas especiarias, comi o meu fav
+  export: Entrei no meu jardim, minha irm├ú, minha noiva. Ajuntei a minha mirra com as minhas especiarias, comi o meu fav
+
+--- SNG 5:2 [Wrong Text]
+  study : ÔÇÿI slept, but my heart was awake. Listen! The one who loves me is knocking. He says, ÔÇ£My sister, I love you. O
+  bible : Eu dormia, mas o meu cora├º├úo estava desperto. Escutem! O meu amado est├í batendo.O amado Abra-me a porta, minha
+  export: Eu dormia, mas o meu cora├º├úo estava desperto. Escutem! O meu amado est├í batendo. e o meu cabelo, do sereno da 
+
+--- SNG 6:13 [Wrong Text]
+  study : ÔÇÿCome back to us. Come back, Shulammite woman. Come back to us. Come back. Then we can look at you.ÔÇÖThe king s
+  bible : Volte, volte, Sulamita! Volte, volte, para que a contemplemos.O amado Por que voc├¬s querem contemplar a Sulami
+  export: Volte, volte, Sulamita! Volte, volte, para que a contemplemos. como na dan├ºa de Maanaim?
+
+--- SNG 7:9 [Added (Wrong Text)]
+  study : 
+  bible : e a sua boca como o melhor vinho!A amada Sim, vinho que flui para o meu amado, que desliza suavemente entre os
+  export: e a sua boca como o melhor vinho! que desliza suavemente entre os l├íbios e os dentes.
+
+--- SNG 8:5 [Wrong Text]
+  study : ÔÇÿWho is this woman coming up from the desert? Shes leaning on the one who loves her.ÔÇÖThe woman says to the kin
+  bible : Quem ├® esta que vem subindo do deserto, apoiada no seu amado?A amada Debaixo da macieira eu o despertei; ali e
+  export: Quem ├® esta que vem subindo do deserto, apoiada no seu amado? ali esteve a sua m├úe em trabalho de parto, ali s
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > ISA-MAL
+
+===== ISA-MAL: 100% accuracy, 7 issues =====
+verses study=5437 bible=5450 export=5448
+  Wrong Text (4): JER 38:28, DAN 10:21, JON 1:17, JON 2:2
+  Missing from Export (1): LAM 1:22
+  Unchanged (English) (1): HAB 3:1
+  Should Be Added (1): HAB 3:19
+
+--- JER 38:28 [Wrong Text]
+  study : Jeremiah remained in the courtyard of the guard. He stayed there until the day Jerusalem was captured.Here is 
+  bible : Jeremias permaneceu no p├ítio da guarda at├® o dia em que Jerusal├®m foi conquistada.A queda de Jerusal├®mFoi assi
+  export: Jeremias permaneceu no p├ítio da guarda at├® o dia em que Jerusal├®m foi conquistada.
+
+--- LAM 1:22 [Missing from Export]
+  study : ÔÇÿPlease pay attention to all their sinful ways. Punish them as you have punished me. You judged me because I h
+  bible : ÔÇ£Que toda a maldade deles seja conhecida diante de ti. Faz com eles o que fizeste comigo por causa de todos os
+  export: 
+
+--- DAN 10:21 [Wrong Text]
+  study : But first I will tell you what is written in theBook of Truth. No one gives me any help against those princes 
+  bible : Mas antes revelarei a voc├¬ o que est├í escrito no livro da verdade. E nessa luta ningu├®m me ajuda contra eles, 
+  export: Mas antes revelarei a voc├¬ o que est├í escrito no livro da verdade. E nessa luta ningu├®m me ajuda contra eles, 
+
+--- JON 1:17 [Wrong Text]
+  study : Now the sent a huge fish to swallow Jonah. And Jonah was in the belly of the fish forthree days and three nigh
+  bible : O fez que um grande peixe engolisse Jonas, e ele ficou no ventre do peixe tr├¬s dias e tr├¬s noites.
+  export: O fez que um grande peixe engolisse Jonas, e ele ficou no ventre do peixe
+
+--- JON 2:2 [Wrong Text]
+  study : He said, ÔÇÿWhen I was in trouble, I called out to the . And he answered me. When I was deep in the place of the
+  bible : e disse: corresponde a 1.17, e corresponde a 2.2ÔÇæ11. ÔÇ£No meu desespero, clamei ao , e ele me respondeu. Do She
+  export: e disse: e ouviste o meu clamor.
+
+--- HAB 3:1 [Unchanged (English)]
+  study : This is a prayer of Habakkuk the prophet. It is on . Here is what he said.
+  bible : Ora├º├úo do profeta Habacuque. De acordo com .
+  export: This is a prayer of Habakkuk the prophet. It is on . Here is what he said.
+
+--- HAB 3:19 [Should Be Added]
+  study : 
+  bible : O , o Soberano, ├® a minha for├ºa; ele faz os meus p├®s como os do cervo e faz-me andar nos meus lugares altos.Pa
+  export: 
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > MAT-JOHN
+
+===== MAT-JOHN: 100% accuracy, 2 issues =====
+verses study=3757 bible=3740 export=3740
+  Wrong Text (2): MRK 6:6, JHN 19:16
+
+--- MRK 6:6 [Wrong Text]
+  study : He was amazed because they had no faith.Jesus went around teaching from village to village.
+  bible : E ficou admirado por causa da incredulidade deles.Jesus envia os Doze(Mt 10.1,5ÔÇæ14; Lc 9.1ÔÇæ6)Jesus passou a pe
+  export: E ficou admirado por causa da incredulidade deles.Jesus passou a percorrer os povoados, ensinando.
+
+--- JHN 19:16 [Wrong Text]
+  study : Finally, Pilate handed Jesus over to them to be nailed to a cross. Pilate allowed the soldiers to treat Jesus 
+  bible : Ent├úo, Pilatos o entregou a eles para ser crucificado.A crucifica├º├úo(Mt 27.32ÔÇæ44; Mc 15.21ÔÇæ32; Lc 23.26ÔÇæ43)Ass
+  export: Ent├úo, Pilatos o entregou a eles para ser crucificado.Assim, os soldados encarregaram-se de Jesus.
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > ACT-REV
+
+===== ACT-REV: 100% accuracy, 8 issues =====
+verses study=4141 bible=4162 export=4162
+  Wrong Text (8): ACT 8:1, ACT 9:19, ACT 10:23, ACT 12:19, 1CO 10:33, 1CO 12:31, 2CO 1:24, EPH 4:32
+
+--- ACT 8:1 [Wrong Text]
+  study : And Saul had agreed with the Sanhedrin that Stephen should die.On that day the church in Jerusalem began to be
+  bible : E Saulo estava ali, consentindo na morte de Est├¬v├úo.A persegui├º├úo e a dispers├úo da igrejaNaquela ocasi├úo, dese
+  export: E Saulo estava ali, consentindo na morte de Est├¬v├úo.Naquela ocasi├úo, desencadeou-se grande persegui├º├úo contra 
+
+--- ACT 9:19 [Wrong Text]
+  study : After eating some food, he got his strength back. Saul was committed to serving and obeying God. He strongly b
+  bible : e, depois de comer, recuperou as for├ºas.Saulo em Damasco e em Jerusal├®mSaulo passou v├írios dias com os disc├¡pu
+  export: e, depois de comer, recuperou as for├ºas.Saulo passou v├írios dias com os disc├¡pulos em Damasco.
+
+--- ACT 10:23 [Wrong Text]
+  study : Then Peter invited the men into the house to be his guests.The next day Peter went with the three men. Some of
+  bible : Pedro os convidou a entrar e os hospedou.Pedro na casa de Corn├®lioNo dia seguinte, Pedro partiu com eles, e al
+  export: Pedro os convidou a entrar e os hospedou.No dia seguinte, Pedro partiu com eles, e alguns dos irm├úos de Jope o
+
+--- ACT 12:19 [Wrong Text]
+  study : So Herod had them look everywhere for Peter. But they didnt find him. Then Herod questioned the guards closely
+  bible : Fazendo uma busca completa e n├úo o encontrando, Herodes fez uma investiga├º├úo entre os guardas e ordenou que fo
+  export: Fazendo uma busca completa e n├úo o encontrando, Herodes fez uma investiga├º├úo entre os guardas e ordenou que fo
+
+--- 1CO 10:33 [Wrong Text]
+  study : Follow my example. I try to please everyone in every way. Im not looking out forwhat is good for me. Im lookin
+  bible : Assim como eu tamb├®m procuro agradar a todos, de todas as formas, e n├úo procuro o meu pr├│prio bem, mas o bem d
+  export: Assim como eu tamb├®m procuro agradar a todos, de todas as formas, e n├úo procuro o meu pr├│prio bem, mas o bem d
+
+--- 1CO 12:31 [Wrong Text]
+  study : But above all, you should want the more important gifts. Paul described several ways that the church is like a
+  bible : Entretanto, busquem com dedica├º├úo os melhores dons. A excel├¬ncia do amorPasso agora a mostrar a voc├¬s um camin
+  export: Entretanto, busquem com dedica├º├úo os melhores dons. Passo agora a mostrar a voc├¬s um caminho ainda mais excele
+
+--- 2CO 1:24 [Wrong Text]
+  study : Your faith is not under our control. You remain strong in your own faith. Butwe work together with you for you
+  bible : N├úo que tenhamos dom├¡nio sobre a f├® de voc├¬s, mas cooperamos com voc├¬s para que tenham alegria, pois ├® pela f├®
+  export: N├úo que tenhamos dom├¡nio sobre a f├® de voc├¬s, mas cooperamos com voc├¬s para que tenham alegria, pois ├® pela f├®
+
+--- EPH 4:32 [Wrong Text]
+  study : Be kind and tender to one another. Forgiveone another, just as God forgave you because of what Christ has done
+  bible : Sejam bondosos e compassivos uns para com os outros, perdoando-se mutuamente, como Deus osperdoou em Cristo.
+  export: Sejam bondosos e compassivos uns para com os outros, perdoando-se mutuamente, como Deus os
+
+ Ô£ô src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts (6 tests) 562656ms
+   Ô£ô Portuguese full validation > GEN-DEU 77910ms
+   Ô£ô Portuguese full validation > JOS-EST 131604ms
+   Ô£ô Portuguese full validation > JOB-SNG 110985ms
+   Ô£ô Portuguese full validation > ISA-MAL 155341ms
+   Ô£ô Portuguese full validation > MAT-JOHN 32181ms
+   Ô£ô Portuguese full validation > ACT-REV 54634ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  17:00:44
+   Duration  564.86s (transform 248ms, setup 33ms, collect 398ms, tests 562.66s, environment 1.14s, prepare 234ms)
+

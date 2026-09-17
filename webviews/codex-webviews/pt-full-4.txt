@@ -1,0 +1,97 @@
+﻿
+ RUN  v2.1.9 C:/Users/marti/Desktop/FrontierRnD/Codex/codex-editor/webviews/codex-webviews
+
+node.exe : [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline 
+data, please update: `npm i baseline-browser-mapping@latest -D`
+At C:\Users\marti\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([baseline-brows...ping@latest -D`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(node:30184) [DEP0056] DeprecationWarning: The `util.isString` API is deprecated.  Please use `typeof arg === 
+"string"` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > GEN-DEU
+
+===== GEN-DEU: 100% accuracy, 0 issues =====
+verses study=5845 bible=5849 export=5849
+
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > JOS-EST
+
+===== JOS-EST: 100% accuracy, 2 issues =====
+verses study=7000 bible=7014 export=7013
+  Should Be Added (1): RUT 4:22
+  Wrong Text (1): 1SA 14:1
+
+--- RUT 4:22 [Should Be Added] bibleLen=36 exportLen=0 divergeAt=0
+  common: ÔÇª
+  bibleÔåÆ: Obede gerou Jess├®; Jess├® gerou Davi.
+  exportÔåÆ: 
+
+--- 1SA 14:1 [Wrong Text] bibleLen=151 exportLen=103 divergeAt=64
+  common: ÔÇªo dia, J├┤natas, filho de Saul, disse ao seu jovem escudeiro:
+  bibleÔåÆ: ÔÇò Vamos ao destacamento filisteu, do outro lado.Ele, por├®m, n├úo contou isso ao seu pai.
+  exportÔåÆ: Ele, por├®m, n├úo contou isso ao seu pai.
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > JOB-SNG
+
+===== JOB-SNG: 100% accuracy, 0 issues =====
+verses study=4705 bible=4750 export=4750
+
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > ISA-MAL
+
+===== ISA-MAL: 100% accuracy, 4 issues =====
+verses study=5437 bible=5450 export=5448
+  Missing from Export (1): LAM 1:22
+  Wrong Text (1): JON 2:2
+  Unchanged (English) (1): HAB 3:1
+  Should Be Added (1): HAB 3:19
+
+--- LAM 1:22 [Missing from Export] bibleLen=180 exportLen=0 divergeAt=0
+  common: ÔÇª
+  bibleÔåÆ: ÔÇ£Que toda a maldade deles seja conhecida diante de ti. Faz com eles o que fizeste comigo por causa de todos os meus peca
+  exportÔåÆ: 
+
+--- JON 2:2 [Wrong Text] bibleLen=157 exportLen=76 divergeAt=53
+  common: ÔÇªe disse: corresponde a 1.17, e corresponde a 2.2ÔÇæ11. 
+  bibleÔåÆ: ÔÇ£No meu desespero, clamei ao , e ele me respondeu. Do Sheol, gritei por socorro, e ouviste o meu clamor.
+  exportÔåÆ: e ouviste o meu clamor.
+
+--- HAB 3:1 [Unchanged (English)] bibleLen=44 exportLen=74 divergeAt=0
+  common: ÔÇª
+  bibleÔåÆ: Ora├º├úo do profeta Habacuque. De acordo com .
+  exportÔåÆ: This is a prayer of Habakkuk the prophet. It is on . Here is what he said.
+
+--- HAB 3:19 [Should Be Added] bibleLen=169 exportLen=0 divergeAt=0
+  common: ÔÇª
+  bibleÔåÆ: O , o Soberano, ├® a minha for├ºa; ele faz os meus p├®s como os do cervo e faz-me andar nos meus lugares altos.Para o mestr
+  exportÔåÆ: 
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > MAT-JOHN
+
+===== MAT-JOHN: 100% accuracy, 0 issues =====
+verses study=3757 bible=3740 export=3740
+
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > ACT-REV
+
+===== ACT-REV: 100% accuracy, 0 issues =====
+verses study=4141 bible=4162 export=4162
+
+
+ Ô£ô src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts (6 tests) 546202ms
+   Ô£ô Portuguese full validation > GEN-DEU 77441ms
+   Ô£ô Portuguese full validation > JOS-EST 127768ms
+   Ô£ô Portuguese full validation > JOB-SNG 106929ms
+   Ô£ô Portuguese full validation > ISA-MAL 150942ms
+   Ô£ô Portuguese full validation > MAT-JOHN 31036ms
+   Ô£ô Portuguese full validation > ACT-REV 52085ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  18:22:32
+   Duration  548.98s (transform 269ms, setup 35ms, collect 420ms, tests 546.20s, environment 1.21s, prepare 237ms)
+
