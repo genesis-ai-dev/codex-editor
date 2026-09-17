@@ -68,36 +68,49 @@ export async function migrateFfmpegStorage(root: string, builds: FfmpegPlatformB
             candidates.push(path.join(root, entry.name, executable));
         }
     }
+    // Delete every recognized obsolete executable before reusing or downloading
+    // the current build. A failed removal aborts installation rather than keeping
+    // an old executable available as an accidental fallback.
     for (const file of candidates) {
         if (!await exists(file)) { continue; }
         const stat = await fs.promises.lstat(file);
         const build = stat.isFile() ? identifyFfmpegBuild(builds, await computeFileHash(file)) : undefined;
-        if (!build) {
+        if (build && build.id !== builds.current.id) {
+            await fs.promises.unlink(file);
+        }
+    }
+    for (const file of candidates) {
+        if (!await exists(file)) { continue; }
+        if (!await matchesFfmpegBuild(file, builds.current)) {
             await quarantine(root, file);
             continue;
         }
-        const target = ffmpegBuildPath(root, build);
+        const target = ffmpegBuildPath(root, builds.current);
         await directory(path.dirname(target));
         if (file !== target) {
-            if (await exists(target)) {
-                if (await matchesFfmpegBuild(target, build)) {
-                    // A verified duplicate is the only legacy executable we discard.
-                    await fs.promises.unlink(file);
-                } else {
-                    // Two known builds can have swapped folders. Preserve and
-                    // reclassify the displaced build instead of stranding it.
-                    const targetStat = await fs.promises.lstat(target);
-                    const displaced = targetStat.isFile()
-                        ? identifyFfmpegBuild(builds, await computeFileHash(target)) : undefined;
-                    const preserved = await quarantine(root, target);
-                    if (displaced) { candidates.push(preserved); }
-                    await fs.promises.rename(file, target);
-                }
+            if (await matchesFfmpegBuild(target, builds.current)) {
+                await fs.promises.unlink(file);
             } else {
+                if (await exists(target)) { await quarantine(root, target); }
                 await fs.promises.rename(file, target);
             }
         }
-        writeIdentity(path.dirname(target), build);
+        writeIdentity(path.dirname(target), builds.current);
+    }
+    // Remove stale identity markers and empty legacy folders, preserving other
+    // contents rather than recursively deleting a directory based on its name.
+    const activeDir = path.dirname(ffmpegBuildPath(root, builds.current));
+    for (const dir of new Set(candidates.map(file => path.dirname(file)))) {
+        if (dir === activeDir || await exists(path.join(dir, executable))) { continue; }
+        for (const marker of ["sha256.txt", "build.json"]) {
+            const file = path.join(dir, marker);
+            if (await exists(file) && (await fs.promises.lstat(file)).isFile()) {
+                await fs.promises.unlink(file);
+            }
+        }
+        if (dir !== root && (await fs.promises.readdir(dir)).length === 0) {
+            await fs.promises.rmdir(dir);
+        }
     }
 }
 

@@ -43,8 +43,9 @@ The other packages' GPL label alone does not complete that redistribution work.
   Never infer actual FFmpeg version from an old npm-version folder.
 - Scan the flat legacy executable, known old folders, and version-shaped folders.
   Hash before executing. Match only builds for the effective OS/architecture.
-- Known old binaries stay in/move to their historical package-version folder.
-  They are not accepted as the active build, even if placed in its folder.
+- Known obsolete binaries are deleted before installing or reusing the current
+  build, even if placed in its folder. Removal failure aborts installation.
+  Stale identity markers and empty legacy folders are removed; unrelated files stay.
 - Known current bytes move into their active folder without a download. This
   includes Apple Silicon's package 4.1.5, whose actual FFmpeg version is 4.4.
 - Unknown/corrupt files are preserved under `quarantine/` with their original
@@ -53,12 +54,13 @@ The other packages' GPL label alone does not complete that redistribution work.
   overrides the trusted hashes compiled into the extension.
 - Download into a private staging directory, handle bounded HTTPS redirects and
   errors, hash the executable, check its version/filter options/encoders, then
-  rename it into place. Failed staging directories are removed; old builds stay.
+  rename it into place. Failed staging directories are removed. Obsolete builds are not retained.
 - Concurrent requests in one extension host share the install. Subsequent lookups
   use a verified cache with file identity/change detection. Tool reset, file
   deletion or modification invalidates that cache. Tools Status uses the same
   verification rules and does not download anything.
-- On a failed upgrade, return unavailable so existing callers can use their
+- If downloading fails after cleanup, no old executable remains as a fallback.
+  Return unavailable so existing callers can use their
   limited audio fallback or report the unavailable export. Never silently use an
   old/bundled/system executable for a feature that needs newer filter options.
 

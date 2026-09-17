@@ -50,26 +50,26 @@ suite("FFmpeg build identity and migration", () => {
     });
 
     for (const platform of ["win32-x64", "darwin-x64", "darwin-arm64", "linux-x64", "linux-arm64", "linux-arm"]) {
-        test(`${platform}: flat old executable is categorized as old, never as 4.4`, async () => {
+        test(`${platform}: flat obsolete executable is deleted, never labeled as 4.4`, async () => {
             const builds = fixtures(platform);
             const flat = path.join(root, ffmpegExecutableName(builds.current));
             await put(flat, "old");
             await put(path.join(root, "sha256.txt"), builds.current.sha256);
             await put(path.join(root, "notes.txt"), "keep");
             await migrateFfmpegStorage(root, builds);
-            assert.strictEqual(await fs.readFile(ffmpegBuildPath(root, builds.previous[0]), "utf8"), "old");
+            await assert.rejects(fs.access(ffmpegBuildPath(root, builds.previous[0])));
             await assert.rejects(fs.access(ffmpegBuildPath(root, builds.current)));
             assert.strictEqual(await fs.readFile(path.join(root, "notes.txt"), "utf8"), "keep");
             await migrateFfmpegStorage(root, builds); // idempotent
         });
     }
 
-    test("Windows ARM64 legacy executable uses x64 catalog and .exe paths", async () => {
+    test("Windows ARM64 obsolete x64 executable is deleted", async () => {
         const effective = resolveFfmpegBuilds("win32", "arm64")!.current.platform;
         const builds = fixtures(effective);
         await put(path.join(root, "ffmpeg.exe"), "old");
         await migrateFfmpegStorage(root, builds);
-        assert.strictEqual(await fs.readFile(path.join(root, "4.1.0", "ffmpeg.exe"), "utf8"), "old");
+        await assert.rejects(fs.access(path.join(root, "4.1.0", "ffmpeg.exe")));
     });
 
     test("Apple Silicon reuses 4.4 from the old 4.1.5 package folder without downloading", async () => {
@@ -90,16 +90,18 @@ suite("FFmpeg build identity and migration", () => {
         assert.strictEqual(await fs.readFile(ffmpegBuildPath(root, builds.current), "utf8"), "new");
     });
 
-    test("an old executable mislabeled as the current build is moved back before upgrading", async () => {
+    test("an old executable mislabeled as current is deleted before downloading", async () => {
         const builds = fixtures();
         await put(ffmpegBuildPath(root, builds.current), "old");
         let calls = 0;
         await ensureFfmpegBuild(root, builds, { validate, download: async (_, stage) => {
             calls++;
+            await assert.rejects(fs.access(ffmpegBuildPath(root, builds.previous[0])));
+            await assert.rejects(fs.access(ffmpegBuildPath(root, builds.current)));
             await put(path.join(stage, "ffmpeg"), "new");
         } });
         assert.strictEqual(calls, 1);
-        assert.strictEqual(await fs.readFile(ffmpegBuildPath(root, builds.previous[0]), "utf8"), "old");
+        await assert.rejects(fs.access(ffmpegBuildPath(root, builds.previous[0])));
         assert.strictEqual(await fs.readFile(ffmpegBuildPath(root, builds.current), "utf8"), "new");
     });
 
@@ -129,13 +131,28 @@ suite("FFmpeg build identity and migration", () => {
         assert.strictEqual(await fs.readFile(path.join(root, "unrelated", "ffmpeg"), "utf8"), "untouched");
     });
 
-    test("swapped old and new folders are both recategorized without needing a download", async () => {
+    test("swapped folders retain only the current binary without needing a download", async () => {
         const builds = fixtures();
         await put(ffmpegBuildPath(root, builds.previous[0]), "new");
         await put(ffmpegBuildPath(root, builds.current), "old");
         await ensureFfmpegBuild(root, builds, { download: neverDownload, validate });
-        assert.strictEqual(await fs.readFile(ffmpegBuildPath(root, builds.previous[0]), "utf8"), "old");
+        await assert.rejects(fs.access(ffmpegBuildPath(root, builds.previous[0])));
         assert.strictEqual(await fs.readFile(ffmpegBuildPath(root, builds.current), "utf8"), "new");
+    });
+
+    test("failed upgrade leaves no obsolete executable, cleans metadata, and preserves unrelated files", async () => {
+        const builds = fixtures();
+        const old = ffmpegBuildPath(root, builds.previous[0]);
+        await put(old, "old");
+        await put(path.join(path.dirname(old), "sha256.txt"), hash("old"));
+        await put(path.join(path.dirname(old), "build.json"), "{}");
+        await put(path.join(path.dirname(old), "notes.txt"), "keep");
+        await assert.rejects(ensureFfmpegBuild(root, builds, { attempts: 1, download: async () => {
+            await assert.rejects(fs.access(old));
+            throw new Error("offline");
+        } }), /offline/);
+        assert.deepStrictEqual(await fs.readdir(path.dirname(old)), ["notes.txt"]);
+        await assert.rejects(fs.access(ffmpegBuildPath(root, builds.current)));
     });
 
     test("a hash mismatch retries but is never executed or installed", async () => {
