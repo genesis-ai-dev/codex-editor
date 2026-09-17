@@ -8,6 +8,7 @@ import * as os from "os";
 import * as fs from "fs";
 import * as path from "path";
 import { getFFmpegPath } from "../utils/ffmpegManager";
+import { buildCharacterAudioFilter } from "./characterAudioFilter";
 import { EditMapUtils } from "../utils/editMapUtils";
 import {
     sanitizeFileComponent,
@@ -234,19 +235,7 @@ async function renderCharacterTrack(
     // Build filter_complex: each clip gets resampled to mono 48k, delayed to its
     // cell's startTime, then mixed onto a silent base trimmed to this character's
     // last endTime. `amix duration=first` clamps the result to the base length.
-    const filterLines: string[] = [];
-    for (let i = 0; i < clips.length; i++) {
-        const inputIdx = i + 1; // input 0 is the silent base
-        const delayMs = clips[i].startMs;
-        filterLines.push(
-            `[${inputIdx}:a]aresample=${sampleRate},aformat=channel_layouts=mono:sample_fmts=s16,adelay=${delayMs}:all=1[a${inputIdx}]`
-        );
-    }
-    const mixInputs = ["[0:a]", ...clips.map((_, i) => `[a${i + 1}]`)].join("");
-    filterLines.push(
-        `${mixInputs}amix=inputs=${clips.length + 1}:duration=first:normalize=0[out]`
-    );
-    const filterScript = filterLines.join(";\n");
+    const filterScript = buildCharacterAudioFilter(clips.map(clip => clip.startMs), sampleRate);
 
     const tempDir = os.tmpdir();
     const uniq = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
