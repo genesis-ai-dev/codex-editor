@@ -82,6 +82,43 @@ suite("FFmpeg manager verification paths", () => {
         assert.strictEqual(await verifyFfmpegAvailable(context), false);
     });
 
+    for (const runtime of ["win32-x64", "win32-arm64", "darwin-x64", "darwin-arm64", "linux-x64", "linux-arm64", "linux-arm"]) {
+        test(`${runtime}: validation migrates its historical package path and cleans it even with a cached current binary`, async () => {
+            const [platform, arch] = runtime.split("-");
+            const effective = runtime === "win32-arm64" ? "win32-x64" : `${platform}-${arch}`;
+            const actual = catalog.FFMPEG_BUILDS.find(item => item.current.platform === effective)!;
+            const legacy = actual.previous[0] ?? actual.current;
+            const builds = {
+                current: { ...actual.current, sha256: createHash("sha256").update("verified").digest("hex") },
+                previous: actual.previous.map(build => ({ ...build, sha256: createHash("sha256").update("old").digest("hex") })),
+            };
+            (catalog.resolveFfmpegBuilds as sinon.SinonStub).returns(builds);
+            const storageRoot = path.join(root, "ffmpeg");
+            const oldDir = path.join(storageRoot, legacy.packageVersion!);
+            const current = storage.ffmpegBuildPath(storageRoot, builds.current);
+            const putLegacy = async () => {
+                await fs.mkdir(oldDir, { recursive: true });
+                await fs.writeFile(path.join(oldDir, catalog.ffmpegExecutableName(legacy)), actual.previous.length ? "old" : "verified");
+                await fs.writeFile(path.join(oldDir, "package.json"), JSON.stringify({ name: `@ffmpeg-installer/${effective}`, version: legacy.packageVersion }));
+                await fs.writeFile(path.join(oldDir, "README.md"), "legacy package");
+            };
+            await putLegacy();
+            assert.strictEqual(await verifyFfmpegAvailable(context), actual.previous.length === 0);
+            await assert.rejects(fs.access(oldDir));
+            assert.strictEqual(install.callCount, 0); // Validation never downloads.
+            await fs.mkdir(path.dirname(current), { recursive: true });
+            await fs.writeFile(current, "verified");
+            assert.strictEqual(await verifyFfmpegAvailable(context), true);
+            await putLegacy();
+            assert.strictEqual(await verifyFfmpegAvailable(context), true);
+            await assert.rejects(fs.access(oldDir));
+            await putLegacy();
+            assert.strictEqual(await downloadFFmpeg(context), current);
+            await assert.rejects(fs.access(oldDir));
+            assert.strictEqual(install.callCount, 0); // Reuse current bytes after cleanup.
+        });
+    }
+
     test("reset during installation does not repopulate the cache", async () => {
         install.callsFake(async () => {
             await fs.mkdir(path.dirname(binary), { recursive: true });

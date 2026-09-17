@@ -59,7 +59,9 @@ The other packages' GPL label alone does not complete that redistribution work.
 - Concurrent requests in one extension host share the install. Subsequent lookups
   use a verified cache with file identity/change detection. Tool reset, file
   deletion or modification invalidates that cache. Tools Status uses the same
-  verification rules and does not download anything.
+  verification rules and does not download anything. Both validation and download
+  resolution migrate the historical per-platform paths before accepting a cached
+  current binary; concurrent migration requests share one operation.
 - If downloading fails after cleanup, no old executable remains as a fallback.
   Return unavailable so existing callers can use their
   limited audio fallback or report the unavailable export. Never silently use an

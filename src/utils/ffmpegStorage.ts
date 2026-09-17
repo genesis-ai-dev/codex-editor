@@ -57,7 +57,20 @@ async function quarantine(root: string, file: string): Promise<string> {
  * using only executable hashes for the effective architecture. Never run legacy
  * code, trust its marker, or move unrelated files/directories into a build folder.
  */
-export async function migrateFfmpegStorage(root: string, builds: FfmpegPlatformBuilds): Promise<void> {
+const migrations = new Map<string, Promise<void>>();
+
+export function migrateFfmpegStorage(root: string, builds: FfmpegPlatformBuilds): Promise<void> {
+    const key = ffmpegBuildPath(root, builds.current);
+    const running = migrations.get(key);
+    if (running) { return running; }
+    const migration = migrateStorage(root, builds).finally(() => {
+        if (migrations.get(key) === migration) { migrations.delete(key); }
+    });
+    migrations.set(key, migration);
+    return migration;
+}
+
+async function migrateStorage(root: string, builds: FfmpegPlatformBuilds): Promise<void> {
     await directory(root);
     const known = [builds.current, ...builds.previous];
     const versionNames = new Set(known.flatMap(build => [build.storageVersion, ...(build.legacyStorageVersions ?? [])]));

@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 import { resolveFfmpegBuilds } from "./ffmpegBuilds";
-import { ensureFfmpegBuild, ffmpegBuildPath, matchesFfmpegBuild } from "./ffmpegStorage";
+import { ensureFfmpegBuild, ffmpegBuildPath, matchesFfmpegBuild, migrateFfmpegStorage } from "./ffmpegStorage";
 import { validateFfmpegBuild } from "./ffmpegValidation";
 
 interface VerifiedBinary {
@@ -50,14 +50,16 @@ export interface DownloadFFmpegOptions {
     showProgress?: boolean;
 }
 
-/** Read-only Tools Status check: never download or execute an unknown binary. */
+/** Migrate legacy paths before validation; never download or execute unknown bytes. */
 export async function verifyFfmpegAvailable(context: vscode.ExtensionContext): Promise<boolean> {
     const builds = resolveFfmpegBuilds();
     const binary = getFfmpegBinaryPath(context);
     if (!builds || !binary) { return false; }
-    if (cachedPath(binary)) { return true; }
     const generation = cacheGeneration;
     try {
+        await migrateFfmpegStorage(path.join(context.globalStorageUri.fsPath, "ffmpeg"), builds);
+        if (generation !== cacheGeneration) { return false; }
+        if (cachedPath(binary)) { return true; }
         const before = fingerprint(binary);
         if (!before || !await matchesFfmpegBuild(binary, builds.current)) { return false; }
         await validateFfmpegBuild(binary, builds.current);
@@ -78,10 +80,12 @@ async function resolveBinary(root: string, showProgress: boolean): Promise<strin
     if (getAudioToolMode() === "force-builtin") { return null; }
     const builds = resolveFfmpegBuilds();
     if (!builds) { return null; }
-    const cached = cachedPath(ffmpegBuildPath(root, builds.current));
-    if (cached) { return cached; }
     const generation = cacheGeneration;
     try {
+        await migrateFfmpegStorage(root, builds);
+        if (generation !== cacheGeneration || getAudioToolMode() === "force-builtin") { return null; }
+        const cached = cachedPath(ffmpegBuildPath(root, builds.current));
+        if (cached) { return cached; }
         const install = (progress?: vscode.Progress<{ message?: string }>) => ensureFfmpegBuild(root, builds, {
             report: message => progress?.report({ message }),
         });
