@@ -97,12 +97,28 @@ export async function migrateFfmpegStorage(root: string, builds: FfmpegPlatformB
         }
         writeIdentity(path.dirname(target), builds.current);
     }
-    // Remove stale identity markers and empty legacy folders, preserving other
+    // Remove stale identity/package metadata and empty legacy folders, preserving other
     // contents rather than recursively deleting a directory based on its name.
     const activeDir = path.dirname(ffmpegBuildPath(root, builds.current));
     for (const dir of new Set(candidates.map(file => path.dirname(file)))) {
         if (dir === activeDir || await exists(path.join(dir, executable))) { continue; }
-        for (const marker of ["sha256.txt", "build.json"]) {
+        const metadata = ["sha256.txt", "build.json"];
+        // Older installers extracted the entire npm package. Recognize its
+        // identity before removing its ancillary files, not just its binary.
+        const packageFile = path.join(dir, "package.json");
+        if (dir !== root && await exists(packageFile) && (await fs.promises.lstat(packageFile)).isFile()) {
+            try {
+                const pkg = JSON.parse(await fs.promises.readFile(packageFile, "utf8")) as { name?: string; version?: string };
+                if (known.some(build => build.packageVersion && pkg.name === `@ffmpeg-installer/${build.platform}`
+                    && pkg.version === build.packageVersion
+                    && [build.storageVersion, ...(build.legacyStorageVersions ?? [])].includes(path.basename(dir)))) {
+                    metadata.push("package.json", "README.md", "LICENSE", "LICENSE.md", "LICENSE.txt", ".DS_Store");
+                }
+            } catch (error) {
+                if (!(error instanceof SyntaxError)) { throw error; }
+            }
+        }
+        for (const marker of metadata) {
             const file = path.join(dir, marker);
             if (await exists(file) && (await fs.promises.lstat(file)).isFile()) {
                 await fs.promises.unlink(file);

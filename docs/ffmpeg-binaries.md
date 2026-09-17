@@ -45,7 +45,8 @@ The other packages' GPL label alone does not complete that redistribution work.
   Hash before executing. Match only builds for the effective OS/architecture.
 - Known obsolete binaries are deleted before installing or reusing the current
   build, even if placed in its folder. Removal failure aborts installation.
-  Stale identity markers and empty legacy folders are removed; unrelated files stay.
+  Stale identity markers, recognized npm package metadata/readmes/licenses, and
+  empty legacy folders are removed; unrelated files stay.
 - Known current bytes move into their active folder without a download. This
   includes Apple Silicon's package 4.1.5, whose actual FFmpeg version is 4.4.
 - Unknown/corrupt files are preserved under `quarantine/` with their original

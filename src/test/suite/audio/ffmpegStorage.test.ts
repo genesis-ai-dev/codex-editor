@@ -76,11 +76,15 @@ suite("FFmpeg build identity and migration", () => {
         const base = fixtures("darwin-arm64");
         const builds = { current: { ...base.current, packageVersion: "4.1.5", legacyStorageVersions: ["4.1.5"] }, previous: [] };
         await put(path.join(root, "4.1.5", "ffmpeg"), "new");
+        await put(path.join(root, "4.1.5", "package.json"), JSON.stringify({ name: "@ffmpeg-installer/darwin-arm64", version: "4.1.5" }));
+        await put(path.join(root, "4.1.5", "README.md"), "npm package readme");
+        await put(path.join(root, "4.1.5", ".DS_Store"), "finder metadata");
         const result = await ensureFfmpegBuild(root, builds, { download: neverDownload, validate });
         assert.strictEqual(result, ffmpegBuildPath(root, builds.current));
         const metadata = JSON.parse(await fs.readFile(path.join(path.dirname(result), "build.json"), "utf8"));
         assert.strictEqual(metadata.packageVersion, "4.1.5");
         assert.strictEqual(metadata.ffmpegVersion, "4.4");
+        await assert.rejects(fs.access(path.join(root, "4.1.5")));
     });
 
     test("a flat new executable is reused, even with no local hash marker", async () => {
