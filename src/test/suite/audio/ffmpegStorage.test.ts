@@ -49,6 +49,27 @@ suite("FFmpeg build identity and migration", () => {
         assert.strictEqual(identifyFfmpegBuild(apple, resolveFfmpegBuilds("darwin", "x64")!.current.sha256), undefined);
     });
 
+    test("runtime matrix preserves original package pins and rejects unsupported combinations", () => {
+        const expected: Record<string, string> = {
+            "win32-x64": "4.1.0", "win32-arm64": "4.1.0", "darwin-x64": "4.1.0",
+            "darwin-arm64": "4.1.5", "linux-x64": "4.1.0", "linux-arm64": "4.1.4", "linux-arm": "4.1.3",
+        };
+        for (const platform of ["win32", "darwin", "linux", "freebsd"]) {
+            for (const arch of ["x64", "arm64", "arm", "ia32", "riscv64", "ppc64"]) {
+                const key = `${platform}-${arch}`;
+                const builds = resolveFfmpegBuilds(platform, arch);
+                if (!expected[key]) { assert.strictEqual(builds, undefined, key); continue; }
+                assert.ok(builds, key);
+                const effective = key === "win32-arm64" ? "win32-x64" : key;
+                assert.strictEqual(builds.current.platform, effective);
+                assert.strictEqual((builds.previous[0] ?? builds.current).packageVersion, expected[key]);
+                assert.strictEqual(ffmpegExecutableName(builds.current), platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+                const url = builds.current.download!.url;
+                assert.ok(url.endsWith(effective === "darwin-arm64" ? "darwin-arm64-4.1.5.tgz" : `${effective}.gz`), key);
+            }
+        }
+    });
+
     for (const platform of ["win32-x64", "darwin-x64", "darwin-arm64", "linux-x64", "linux-arm64", "linux-arm"]) {
         test(`${platform}: flat obsolete executable is deleted, never labeled as 4.4`, async () => {
             const builds = fixtures(platform);
@@ -63,6 +84,59 @@ suite("FFmpeg build identity and migration", () => {
             await migrateFfmpegStorage(root, builds); // idempotent
         });
     }
+
+    for (const entry of FFMPEG_BUILDS) {
+        test(`${entry.current.platform}: renamed and flat package leftovers are cleaned using identity`, async () => {
+            const legacy = entry.previous[0] ?? entry.current;
+            const builds = {
+                current: { ...entry.current, sha256: hash("new") },
+                previous: entry.previous.map(build => ({ ...build, sha256: hash("old") })),
+            };
+            for (const name of ["4.1.3", "renamed-package", ""]) {
+                const dir = path.join(root, name);
+                await put(path.join(dir, ffmpegExecutableName(legacy)), entry.previous.length ? "old" : "new");
+                await put(path.join(dir, "package.json"), JSON.stringify({ name: `@ffmpeg-installer/${legacy.platform}`, version: legacy.packageVersion }));
+                await put(path.join(dir, "README.md"), "legacy readme");
+                await migrateFfmpegStorage(root, builds);
+                if (name) { await assert.rejects(fs.access(dir)); }
+                else { await assert.rejects(fs.access(path.join(root, "package.json"))); }
+            }
+        });
+    }
+
+    test("every foreign platform hash is rejected, even when all report FFmpeg 4.4", async () => {
+        for (const target of FFMPEG_BUILDS) {
+            for (const foreign of FFMPEG_BUILDS.filter(item => item !== target)) {
+                for (const build of [foreign.current, ...foreign.previous]) {
+                    assert.strictEqual(identifyFfmpegBuild(target, build.sha256), undefined);
+                }
+                const caseRoot = path.join(root, `${target.current.platform}-${foreign.current.platform}`);
+                const builds = { current: { ...target.current, sha256: hash(target.current.platform) }, previous: [] };
+                const binary = ffmpegBuildPath(caseRoot, builds.current);
+                await put(binary, foreign.current.platform);
+                await assert.rejects(ensureFfmpegBuild(caseRoot, builds, {
+                    attempts: 1,
+                    download: async (_, stage) => put(path.join(stage, ffmpegExecutableName(builds.current)), foreign.current.platform),
+                    validate: async () => assert.fail("A foreign build must never execute"),
+                }), /SHA-256 mismatch/);
+                await assert.rejects(fs.access(binary));
+            }
+        }
+    });
+
+    test("invalid or unrelated package metadata cannot block migration or authorize cleanup", async () => {
+        const builds = fixtures();
+        for (const [i, metadata] of ["null", "{broken", JSON.stringify({ name: "unrelated", version: "4.1.0" })].entries()) {
+            const dir = path.join(root, `4.1.${i}`);
+            await put(path.join(dir, "package.json"), metadata);
+            await put(path.join(dir, "README.md"), "keep");
+        }
+        await put(path.join(root, "ffmpeg"), "new");
+        await ensureFfmpegBuild(root, builds, { download: neverDownload, validate });
+        for (let i = 0; i < 3; i++) {
+            assert.strictEqual(await fs.readFile(path.join(root, `4.1.${i}`, "README.md"), "utf8"), "keep");
+        }
+    });
 
     test("Windows ARM64 obsolete x64 executable is deleted", async () => {
         const effective = resolveFfmpegBuilds("win32", "arm64")!.current.platform;

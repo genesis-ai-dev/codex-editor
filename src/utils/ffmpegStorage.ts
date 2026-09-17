@@ -52,6 +52,20 @@ async function quarantine(root: string, file: string): Promise<string> {
     return preserved;
 }
 
+/** Package metadata identifies cleanup leftovers, never executable trust. */
+async function isKnownPackage(dir: string, known: readonly FfmpegBuild[]): Promise<boolean> {
+    const file = path.join(dir, "package.json");
+    if (!await exists(file) || !(await fs.promises.lstat(file)).isFile()) { return false; }
+    try {
+        const pkg = JSON.parse(await fs.promises.readFile(file, "utf8")) as { name?: unknown; version?: unknown } | null;
+        return !!pkg && known.some(build => build.packageVersion
+            && pkg.name === `@ffmpeg-installer/${build.platform}` && pkg.version === build.packageVersion);
+    } catch (error) {
+        if (error instanceof SyntaxError) { return false; }
+        throw error;
+    }
+}
+
 /**
  * Classify flat installs, package-version folders and mislabeled version folders
  * using only executable hashes for the effective architecture. Never run legacy
@@ -77,7 +91,9 @@ async function migrateStorage(root: string, builds: FfmpegPlatformBuilds): Promi
     const executable = ffmpegExecutableName(builds.current);
     const candidates = [path.join(root, executable)];
     for (const entry of await fs.promises.readdir(root, { withFileTypes: true })) {
-        if (entry.isDirectory() && (versionNames.has(entry.name) || /^\d+\.\d+(?:[.\w-]*)$/.test(entry.name))) {
+        if (entry.isDirectory() && entry.name !== "quarantine" && !entry.name.startsWith(".install-")
+            && (versionNames.has(entry.name) || /^\d+\.\d+(?:[.\w-]*)$/.test(entry.name)
+                || await isKnownPackage(path.join(root, entry.name), known))) {
             candidates.push(path.join(root, entry.name, executable));
         }
     }
@@ -118,18 +134,8 @@ async function migrateStorage(root: string, builds: FfmpegPlatformBuilds): Promi
         const metadata = ["sha256.txt", "build.json"];
         // Older installers extracted the entire npm package. Recognize its
         // identity before removing its ancillary files, not just its binary.
-        const packageFile = path.join(dir, "package.json");
-        if (dir !== root && await exists(packageFile) && (await fs.promises.lstat(packageFile)).isFile()) {
-            try {
-                const pkg = JSON.parse(await fs.promises.readFile(packageFile, "utf8")) as { name?: string; version?: string };
-                if (known.some(build => build.packageVersion && pkg.name === `@ffmpeg-installer/${build.platform}`
-                    && pkg.version === build.packageVersion
-                    && [build.storageVersion, ...(build.legacyStorageVersions ?? [])].includes(path.basename(dir)))) {
-                    metadata.push("package.json", "README.md", "LICENSE", "LICENSE.md", "LICENSE.txt", ".DS_Store");
-                }
-            } catch (error) {
-                if (!(error instanceof SyntaxError)) { throw error; }
-            }
+        if (await isKnownPackage(dir, known)) {
+            metadata.push("README.md", "LICENSE", "LICENSE.md", "LICENSE.txt", ".DS_Store", "package.json");
         }
         for (const marker of metadata) {
             const file = path.join(dir, marker);
