@@ -1,3 +1,4 @@
+import { DEFAULT_IGNORED_CHARACTER_SUFFIXES } from "../exportHandler/characterGrouping";
 import { CodexExportFormat, exportCodexContent, checkSubtitleOverlapsAndConfirm } from "../exportHandler/exportHandler";
 import { createWebviewReporter, type ExportProgressReporter } from "../exportHandler/exportProgress";
 import * as fs from "fs";
@@ -249,7 +250,9 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
         targetLanguage,
         codiconsUri,
         fileGroups,
-        initialExportFolder
+        initialExportFolder,
+        context.workspaceState.get<string[]>("projectExport.ignoredCharacterSuffixes", DEFAULT_IGNORED_CHARACTER_SUFFIXES),
+        context.workspaceState.get<boolean>("projectExport.matchCharacterMarkerCase", false)
     );
 
     panel.webview.onDidReceiveMessage(async (message) => {
@@ -528,13 +531,21 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                 );
                 break;
             }
+            case "saveCharacterGrouping": {
+                if (Array.isArray(message.ignoredCharacterSuffixes) && message.ignoredCharacterSuffixes.every((value: unknown) => typeof value === "string")) {
+                    await context.workspaceState.update("projectExport.ignoredCharacterSuffixes", message.ignoredCharacterSuffixes);
+                    await context.workspaceState.update("projectExport.matchCharacterMarkerCase", message.matchCharacterMarkerCase === true);
+                }
+                break;
+            }
             case "previewCharacterAudio": {
                 try {
                     const { getCharacterAudioPreview } = await import(
                         "../exportHandler/characterAudioExporter"
                     );
                     const preview = await getCharacterAudioPreview(
-                        (message.filesToExport as string[]) || []
+                        (message.filesToExport as string[]) || [],
+                        message.options
                     );
                     safePostMessageToPanel(
                         panel,
@@ -590,7 +601,9 @@ function getWebviewContent(
     targetLanguage: unknown,
     codiconsUri: vscode.Uri,
     fileGroups: FileGroup[],
-    initialExportFolder: string | null
+    initialExportFolder: string | null,
+    ignoredCharacterSuffixes: string[] = DEFAULT_IGNORED_CHARACTER_SUFFIXES,
+    matchCharacterMarkerCase = false
 ) {
     const hasLanguages = sourceLanguage && targetLanguage;
 
@@ -1115,6 +1128,10 @@ function getWebviewContent(
                     overflow-y: auto;
                 }
                 .popup-file-list div { padding: 2px 0; display: flex; align-items: center; }
+                #characterOptionsDialog { color:var(--vscode-foreground); max-width:min(440px, calc(100vw - 48px)); max-height:80vh; overflow-y:auto; }
+                #characterOptionsDialog:not([open]) { display:none; }
+                #characterOptionsDialog [hidden] { display:none; }
+                #characterOptionsDialog::backdrop { background:rgba(0, 0, 0, 0.5); }
                 .popup-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-shrink: 0; }
 
                 /* Step 4: Exporting screen */
@@ -1829,7 +1846,7 @@ function getWebviewContent(
                                     <div class="format-option audio-option" data-audio-mode="audio-by-character">
                                         <div class="format-option-content">
                                             <strong>Consolidate by Character</strong>
-                                            <p>One file per character label. All files start at 0:00 so they drop into a DAW aligned; each is trimmed to that character's last spoken line. Named &lt;file&gt;_&lt;lang&gt;_&lt;character&gt;.&lt;ext&gt;.</p>
+                                            <p>One audio file per character, aligned from 0:00 and trimmed to their last line.</p>
                                             <div id="characterAudioControls" style="display:none; margin-top:8px; flex-direction:column; gap:6px;">
                                                 <label style="display:flex; align-items:center; gap:8px; font-size:0.9em;">
                                                     <span>Format:</span>
@@ -1839,6 +1856,10 @@ function getWebviewContent(
                                                         <option value="opus">Opus (lossy, smallest)</option>
                                                     </select>
                                                 </label>
+                                                <button type="button" class="secondary" onclick="event.stopPropagation(); document.getElementById('characterOptionsDialog').showModal();" style="align-self:flex-start;" aria-haspopup="dialog" aria-controls="characterOptionsDialog">
+                                                    <i class="codicon codicon-settings-gear" aria-hidden="true"></i>
+                                                    Character options…
+                                                </button>
                                                 <button type="button" class="secondary" onclick="event.stopPropagation(); openCharacterPreview();" style="align-self:flex-start;">
                                                     <i class="codicon codicon-preview"></i>
                                                     Preview characters
@@ -2003,6 +2024,35 @@ function getWebviewContent(
                     </div>
                 </div>
             </div>
+
+            <dialog id="characterOptionsDialog" class="popup-card" aria-labelledby="characterOptionsTitle">
+                <div class="popup-header" style="color:var(--vscode-foreground);">
+                    <h4 id="characterOptionsTitle">Character audio options</h4>
+                    <button type="button" class="popup-close" onclick="document.getElementById('characterOptionsDialog').close()" aria-label="Close character audio options">
+                        <i class="codicon codicon-close"></i>
+                    </button>
+                </div>
+                <div class="popup-body" style="gap:12px;">
+                    <label style="display:flex; align-items:center; gap:8px;">
+                        <input type="checkbox" id="separateByCameraAngles" onchange="saveCharacterGroupingOptions()" />
+                        Separate by Camera Angles per Character
+                    </label>
+                    <p id="characterGroupingHelp" style="margin:0;" aria-live="polite">Combine labels by ignoring the markers below.</p>
+                    <div id="characterIgnoredMarkersControls">
+                        <label for="ignoredCharacterSuffixes">Markers to ignore</label>
+                        <textarea id="ignoredCharacterSuffixes" rows="4" oninput="saveCharacterGroupingOptions()" aria-describedby="characterMarkersHelp" style="display:block; width:100%; box-sizing:border-box; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border);">${DEFAULT_IGNORED_CHARACTER_SUFFIXES.join("\n")}</textarea>
+                        <p id="characterMarkersHelp" style="margin:4px 0;">Enter one marker per line, exactly as it appears at the end of the label—for example, (ON) or ON.</p>
+                        <label style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="matchCharacterMarkerCase" onchange="saveCharacterGroupingOptions()" />
+                            Case sensitive
+                        </label>
+                    </div>
+                </div>
+                <div class="popup-footer">
+                    <button id="resetCharacterMarkers" type="button" class="secondary" onclick="resetCharacterGroupingOptions()">Reset defaults</button>
+                    <button type="button" onclick="document.getElementById('characterOptionsDialog').close()">Done</button>
+                </div>
+            </dialog>
 
             <div class="popup-overlay" id="characterPreviewPopup" onclick="if(event.target===this)closeCharacterPreviewPopup()">
                 <div class="popup-card wide">
@@ -3945,6 +3995,46 @@ function getWebviewContent(
                     controls.style.display = selectedAudioMode === 'audio-by-character' ? 'flex' : 'none';
                 }
 
+                function getCharacterGroupingOptions() {
+                    return {
+                        separateByCameraAngles: document.getElementById('separateByCameraAngles').checked,
+                        matchCharacterMarkerCase: document.getElementById('matchCharacterMarkerCase').checked,
+                        ignoredCharacterSuffixes: document.getElementById('ignoredCharacterSuffixes').value
+                            .split(String.fromCharCode(10)).map(value => value.trim()).filter(Boolean)
+                    };
+                }
+
+                function saveCharacterGroupingOptions() {
+                    const options = getCharacterGroupingOptions();
+                    document.getElementById('ignoredCharacterSuffixes').disabled = options.separateByCameraAngles;
+                    document.getElementById('characterIgnoredMarkersControls').hidden = options.separateByCameraAngles;
+                    document.getElementById('resetCharacterMarkers').hidden = options.separateByCameraAngles;
+                    document.getElementById('characterGroupingHelp').textContent = options.separateByCameraAngles
+                        ? 'Use the full character label for each track. No markers are ignored.'
+                        : 'Combine labels by ignoring the markers below.';
+                    vscode.setState({ ...(vscode.getState() || {}), characterGrouping: options });
+                    vscode.postMessage({ command: 'saveCharacterGrouping', ignoredCharacterSuffixes: options.ignoredCharacterSuffixes, matchCharacterMarkerCase: options.matchCharacterMarkerCase });
+                }
+
+                function resetCharacterGroupingOptions() {
+                    document.getElementById('matchCharacterMarkerCase').checked = false;
+                    document.getElementById('ignoredCharacterSuffixes').value = ${JSON.stringify(DEFAULT_IGNORED_CHARACTER_SUFFIXES)}.join(String.fromCharCode(10));
+                    saveCharacterGroupingOptions();
+                }
+
+                const savedCharacterGrouping = (vscode.getState() || {}).characterGrouping || {
+                    matchCharacterMarkerCase: ${JSON.stringify(matchCharacterMarkerCase)},
+                    ignoredCharacterSuffixes: ${JSON.stringify(ignoredCharacterSuffixes).replace(/</g, "\\u003c")}
+                };
+                if (savedCharacterGrouping && document.getElementById('separateByCameraAngles')) {
+                    document.getElementById('separateByCameraAngles').checked = savedCharacterGrouping.separateByCameraAngles === true;
+                    document.getElementById('matchCharacterMarkerCase').checked = savedCharacterGrouping.matchCharacterMarkerCase === true;
+                    if (Array.isArray(savedCharacterGrouping.ignoredCharacterSuffixes)) {
+                        document.getElementById('ignoredCharacterSuffixes').value = savedCharacterGrouping.ignoredCharacterSuffixes.join(String.fromCharCode(10));
+                    }
+                    saveCharacterGroupingOptions();
+                }
+
                 function openCharacterPreview() {
                     if (selectedFiles.size === 0) return;
                     const body = document.getElementById('characterPreviewBody');
@@ -3959,6 +4049,7 @@ function getWebviewContent(
                     if (popup) popup.classList.add('visible');
                     vscode.postMessage({
                         command: 'previewCharacterAudio',
+                        options: getCharacterGroupingOptions(),
                         filesToExport: Array.from(selectedFiles)
                     });
                 }
@@ -4255,6 +4346,7 @@ function getWebviewContent(
                         options.includeTimestamps = selectedAudioMode === 'audio-timestamps';
                         options.consolidateByCharacter = selectedAudioMode === 'audio-by-character';
                         if (options.consolidateByCharacter) {
+                            Object.assign(options, getCharacterGroupingOptions());
                             const fmtEl = document.getElementById('characterAudioFormat');
                             options.consolidatedAudioFormat = (fmtEl && fmtEl.value) ? fmtEl.value : 'flac';
                         }
