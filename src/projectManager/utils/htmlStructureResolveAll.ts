@@ -29,7 +29,13 @@ import {
 } from "../../providers/codexCellEditorProvider/utils/htmlStructureResolver";
 import type { CompletionConfig } from "../../utils/llmUtils";
 
-const CHECKPOINT_EVERY = 8;
+/**
+ * Checkpoint by elapsed time rather than cell count. Force mode resolves cells in
+ * microseconds, so a per-count checkpoint rewrote the same large file many times
+ * a second, and on Windows each rewrite races the antivirus/indexer scan of the
+ * previous one (EPERM on rename).
+ */
+const CHECKPOINT_INTERVAL_MS = 10_000;
 
 export interface HtmlStructureMismatch {
     cellId: string;
@@ -47,6 +53,8 @@ export interface HtmlStructureResolveFileSummary {
     resolvedTemplateFill: number;
     unresolved: number;
     missingContent: number;
+    /** Set when the notebook's final save failed; its resolves were not persisted. */
+    writeError?: string;
 }
 
 export interface HtmlStructureResolveRunResult {
@@ -210,6 +218,23 @@ const writeNotebook = async (
     await atomicWriteUriText(uri, new TextDecoder("utf-8").decode(bytes));
 };
 
+/** Save without aborting the run; a failed save is retried at the next checkpoint. */
+const tryWriteNotebook = async (
+    pair: NotebookPair,
+    summary: HtmlStructureResolveFileSummary,
+    serializer: CodexContentSerializer
+): Promise<boolean> => {
+    try {
+        await writeNotebook(pair.codexUri, pair.codexCells, pair.metadata, serializer);
+        summary.writeError = undefined;
+        return true;
+    } catch (error) {
+        console.warn(`[HtmlStructureResolveAll] Could not save ${pair.codexUri.fsPath}:`, error);
+        summary.writeError = error instanceof Error ? error.message : String(error);
+        return false;
+    }
+};
+
 const sourceUriForCodex = async (
     codexUri: vscode.Uri,
     metadata: Record<string, unknown>
@@ -317,10 +342,11 @@ export async function runHtmlStructureResolveAll(
         }
 
         let dirty = false;
+        let lastCheckpointAt = Date.now();
         for (let i = 0; i < mismatches.length; i++) {
             if (token?.isCancellationRequested) {
                 if (dirty) {
-                    await writeNotebook(pair.codexUri, pair.codexCells, pair.metadata, serializer);
+                    await tryWriteNotebook(pair, summary, serializer);
                 }
                 files.push(summary);
                 return { files, cancelled: true };
@@ -370,14 +396,16 @@ export async function runHtmlStructureResolveAll(
             );
             dirty = true;
 
-            if ((i + 1) % CHECKPOINT_EVERY === 0) {
-                await writeNotebook(pair.codexUri, pair.codexCells, pair.metadata, serializer);
-                dirty = false;
+            if (Date.now() - lastCheckpointAt >= CHECKPOINT_INTERVAL_MS) {
+                if (await tryWriteNotebook(pair, summary, serializer)) {
+                    dirty = false;
+                }
+                lastCheckpointAt = Date.now();
             }
         }
 
         if (dirty) {
-            await writeNotebook(pair.codexUri, pair.codexCells, pair.metadata, serializer);
+            await tryWriteNotebook(pair, summary, serializer);
         }
         files.push(summary);
     }
@@ -408,9 +436,14 @@ const formatRunMessage = (result: HtmlStructureResolveRunResult): string => {
     const remainingNote = totals.unresolved > 0
         ? ` ${totals.unresolved} still need Resolve — run the command again to continue.`
         : "";
+    const failedSaves = result.files.filter((file) => file.writeError);
+    const failedNote = failedSaves.length > 0
+        ? ` Could not save ${failedSaves.map((file) => file.displayName).join(", ")} ` +
+        `(file locked by another process) — close it in the editor and run the command again.`
+        : "";
     return (
         `${prefix}Resolved ${totals.resolved} cell(s) in ${totals.filesTouched} notebook(s).` +
-        `${rebuiltNote}${remainingNote}`
+        `${rebuiltNote}${remainingNote}${failedNote}`
     );
 };
 
