@@ -20,7 +20,11 @@
  * slot ends with), and only then by proportional length.
  */
 
-import { compareHtmlStructure, extractPlainTextFromHtml } from "./htmlStructureUtils";
+import {
+    compareHtmlStructure,
+    extractPlainTextFromHtml,
+    type HtmlStructureOptions,
+} from "./htmlStructureUtils";
 
 type Token =
     | { kind: "tag"; raw: string; }
@@ -345,9 +349,10 @@ export const fillSourceTemplateWithTranslation = (
 export const isSafeForcedRewrite = (
     sourceHtml: string,
     originalHtml: string,
-    rewrittenHtml: string
+    rewrittenHtml: string,
+    options?: HtmlStructureOptions
 ): boolean => {
-    if (!compareHtmlStructure(sourceHtml, rewrittenHtml).isMatch) return false;
+    if (!compareHtmlStructure(sourceHtml, rewrittenHtml, options).isMatch) return false;
     const squash = (html: string) => extractPlainTextFromHtml(html).replace(/\s+/g, "");
     return squash(originalHtml) === squash(rewrittenHtml);
 };

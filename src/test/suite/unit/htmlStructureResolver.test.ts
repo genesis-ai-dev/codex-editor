@@ -143,6 +143,55 @@ suite("htmlStructureResolver", () => {
         });
     });
 
+    suite("resolveCellHtmlStructure", () => {
+        let executeCommandStub: sinon.SinonStub;
+
+        setup(() => {
+            executeCommandStub = sinon.stub(vscode.commands, "executeCommand");
+        });
+
+        teardown(() => {
+            executeCommandStub.restore();
+        });
+
+        const idmlSource =
+            '<p class="indesign-paragraph"><span class="idml-segment" data-segment-index="0">1:1 </span>' +
+            '<span class="idml-segment" data-segment-index="1">In the beginning</span></p>';
+
+        const documentWithTarget = (target: string, importerType: string): CodexCellDocument => {
+            const document = createMockDocument(true, importerType);
+            document.getCellContent = () => ({
+                cellContent: target,
+                cellMarkers: ["cell-1"],
+                cellType: CodexCellTypes.TEXT,
+                editHistory: [],
+            });
+            return document;
+        };
+
+        test("rebuilds Biblica cells inside the source template without the LLM", async () => {
+            executeCommandStub.resolves({ cellId: "cell-1", content: idmlSource });
+            const target = '<p class="biblica-paragraph"><span class="idml-char">1:1 En el principio</span></p>';
+
+            const outcome = await resolveCellHtmlStructure("cell-1", documentWithTarget(target, "biblica"));
+
+            assert.strictEqual(outcome.status, "resolved");
+            if (outcome.status === "resolved") {
+                assert.strictEqual(outcome.method, "templateFill");
+                assert.ok(outcome.content.startsWith('<p class="indesign-paragraph">'));
+                assert.ok(outcome.content.includes("En el principio"));
+            }
+        });
+
+        test("reports already-matched Biblica cells without rewriting them", async () => {
+            executeCommandStub.resolves({ cellId: "cell-1", content: idmlSource });
+            const target = idmlSource.replace("In the beginning", "En el principio");
+
+            const outcome = await resolveCellHtmlStructure("cell-1", documentWithTarget(target, "biblica"));
+            assert.strictEqual(outcome.status, "already-matched");
+        });
+    });
+
     suite("maybeRepairStructureDeterministically", () => {
         let executeCommandStub: sinon.SinonStub;
 
