@@ -21,6 +21,23 @@ export function isBiblicaNoteSectionStyle(paragraphStyle: string): boolean {
 }
 
 /**
+ * Headings printed inside the scripture flow (the head/* styles).
+ *
+ * Unlike the verses around them, these are not swapped in from a Bible translation —
+ * they are set in the study Bible's own layout and have to be translated here. The
+ * Psalter is where they carry the most text: chapter labels ("Psalm 1", head:cl),
+ * superscriptions ("A psalm of David", head:d_h), speaker lines (head:sp), the
+ * acrostic letters of Psalm 119 (head:qa) and the five-book headings ("Book I",
+ * head:ms, with its range "Psalms 1—41", head:mr_h).
+ *
+ * Auto-generated running heads live in meta:rh, not here, so nothing repeated by the
+ * layout is picked up (see isBiblicaRunningHeadStyle).
+ */
+export function isBiblicaScriptureHeadingStyle(paragraphStyle: string): boolean {
+    return paragraphStyle.includes("head%3a") || paragraphStyle.includes("head:");
+}
+
+/**
  * Division headings (intro:imt2) introduce a group of books — "Stories about Jesus"
  * before Matthew, "Letters and messages" before Romans. InDesign places them inside the
  * following book's front matter, but they describe the whole group rather than that book.

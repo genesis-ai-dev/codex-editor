@@ -8,6 +8,7 @@ import {
     maybeAutoResolveHtmlStructure,
     maybeRepairStructureDeterministically,
     resolveCellHtmlStructure,
+    resolveHtmlStructurePair,
     resolveHtmlStructureWithLLM,
     stripMarkdownCodeFences,
     verifyResolvedContent,
@@ -88,6 +89,106 @@ suite("htmlStructureResolver", () => {
                 "<p>Amen</p>",
             );
             assert.strictEqual(result, "<p>Amen</p>");
+        });
+    });
+
+    suite("resolveHtmlStructurePair", () => {
+        test("returns already-matched when tags already agree", async () => {
+            const outcome = await resolveHtmlStructurePair("<p>Hello</p>", "<p>Hola</p>", mockConfig);
+            assert.strictEqual(outcome.status, "already-matched");
+        });
+
+        test("applies a deterministic wrap without calling the LLM", async () => {
+            const callLLM = sinon.stub().resolves({ content: "should not be called" });
+            const outcome = await resolveHtmlStructurePair(
+                "<p>Hello</p>",
+                "Hola",
+                mockConfig,
+                callLLM,
+            );
+            assert.strictEqual(outcome.status, "resolved");
+            if (outcome.status === "resolved") {
+                assert.strictEqual(outcome.method, "deterministic");
+                assert.strictEqual(outcome.content, "<p>Hola</p>");
+            }
+            assert.strictEqual(callLLM.callCount, 0);
+        });
+
+        test("uses the LLM when no deterministic fix applies, then verifies it", async () => {
+            const source =
+                '<p class="indesign-paragraph"><span class="idml-segment">Hello</span> <span class="idml-segment">world</span></p>';
+            const target = "<span>Hola mundo extra</span>";
+            const callLLM = sinon.stub().resolves({
+                content:
+                    '<p class="indesign-paragraph"><span class="idml-segment">Hola</span> <span class="idml-segment">mundo extra</span></p>',
+            });
+
+            const outcome = await resolveHtmlStructurePair(source, target, mockConfig, callLLM);
+
+            assert.strictEqual(outcome.status, "resolved");
+            if (outcome.status === "resolved") {
+                assert.strictEqual(outcome.method, "llm");
+            }
+            assert.strictEqual(callLLM.callCount, 1);
+        });
+
+        test("returns unresolved when the LLM output fails verification", async () => {
+            const source =
+                '<p class="indesign-paragraph"><span class="idml-segment">Hello</span> <span class="idml-segment">world</span></p>';
+            const target = "<span>Hola mundo extra</span>";
+            const callLLM = sinon.stub().resolves({ content: "<div>nope</div>" });
+
+            const outcome = await resolveHtmlStructurePair(source, target, mockConfig, callLLM);
+            assert.strictEqual(outcome.status, "unresolved");
+        });
+    });
+
+    suite("resolveCellHtmlStructure", () => {
+        let executeCommandStub: sinon.SinonStub;
+
+        setup(() => {
+            executeCommandStub = sinon.stub(vscode.commands, "executeCommand");
+        });
+
+        teardown(() => {
+            executeCommandStub.restore();
+        });
+
+        const idmlSource =
+            '<p class="indesign-paragraph"><span class="idml-segment" data-segment-index="0">1:1 </span>' +
+            '<span class="idml-segment" data-segment-index="1">In the beginning</span></p>';
+
+        const documentWithTarget = (target: string, importerType: string): CodexCellDocument => {
+            const document = createMockDocument(true, importerType);
+            document.getCellContent = () => ({
+                cellContent: target,
+                cellMarkers: ["cell-1"],
+                cellType: CodexCellTypes.TEXT,
+                editHistory: [],
+            });
+            return document;
+        };
+
+        test("rebuilds Biblica cells inside the source template without the LLM", async () => {
+            executeCommandStub.resolves({ cellId: "cell-1", content: idmlSource });
+            const target = '<p class="biblica-paragraph"><span class="idml-char">1:1 En el principio</span></p>';
+
+            const outcome = await resolveCellHtmlStructure("cell-1", documentWithTarget(target, "biblica"));
+
+            assert.strictEqual(outcome.status, "resolved");
+            if (outcome.status === "resolved") {
+                assert.strictEqual(outcome.method, "templateFill");
+                assert.ok(outcome.content.startsWith('<p class="indesign-paragraph">'));
+                assert.ok(outcome.content.includes("En el principio"));
+            }
+        });
+
+        test("reports already-matched Biblica cells without rewriting them", async () => {
+            executeCommandStub.resolves({ cellId: "cell-1", content: idmlSource });
+            const target = idmlSource.replace("In the beginning", "En el principio");
+
+            const outcome = await resolveCellHtmlStructure("cell-1", documentWithTarget(target, "biblica"));
+            assert.strictEqual(outcome.status, "already-matched");
         });
     });
 
