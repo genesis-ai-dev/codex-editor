@@ -1,3 +1,4 @@
+import type { CharacterGroupingOptions } from "../../types";
 import * as vscode from "vscode";
 import { basename } from "path";
 import * as path from "path";
@@ -247,7 +248,7 @@ export enum CodexExportFormat {
     BACKTRANSLATIONS = "backtranslations",
 }
 
-export interface ExportOptions {
+export interface ExportOptions extends CharacterGroupingOptions {
     skipValidation?: boolean;
     /** USFM: export unformatted paratext cells as \s1 section headings instead of \p paragraphs. */
     paratextAsHeadings?: boolean;
@@ -1555,6 +1556,9 @@ export async function exportCodexContent(
                 const { exportAudioByCharacter } = await import("./characterAudioExporter");
                 exportPromises.push(exportAudioByCharacter(wrapperPath, filesToExport, childReporter, {
                     format: options?.consolidatedAudioFormat,
+                    separateByCameraAngles: options?.separateByCameraAngles,
+                    ignoredCharacterSuffixes: options?.ignoredCharacterSuffixes,
+                    matchCharacterMarkerCase: options?.matchCharacterMarkerCase,
                     selectedMilestonesByFile: options?.selectedMilestonesByFile,
                 }, token));
             } else {
@@ -1600,6 +1604,9 @@ export async function exportCodexContent(
             const { exportAudioByCharacter } = await import("./characterAudioExporter");
             exportPromises.push(exportAudioByCharacter(audioPath, filesToExport, childReporter, {
                 format: options?.consolidatedAudioFormat,
+                separateByCameraAngles: options?.separateByCameraAngles,
+                ignoredCharacterSuffixes: options?.ignoredCharacterSuffixes,
+                matchCharacterMarkerCase: options?.matchCharacterMarkerCase,
                 selectedMilestonesByFile: options?.selectedMilestonesByFile,
             }, token));
         } else {

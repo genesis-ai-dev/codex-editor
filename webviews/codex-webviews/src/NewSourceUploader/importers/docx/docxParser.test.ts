@@ -1,5 +1,7 @@
+import { createHash, webcrypto } from "node:crypto";
+import { runInNewContext } from "node:vm";
 import JSZip from "jszip";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DocxParser } from "./docxParser";
 import { parseFile } from "./index";
 
@@ -44,5 +46,35 @@ describe("DOCX formatting detection", () => {
         expect(cell?.metadata?.data?.originalText).toBe("But the important thing is this: conscience depends on knowledge (italics mine).");
         expect(cell?.metadata?.paragraphIndex).toBe(0);
         expect(cell?.metadata?.paragraphMappingVersion).toBe("outermost-no-fallback-v1");
+    });
+});
+
+describe("DOCX hashing across JavaScript contexts", () => {
+    it("preserves SHA-256 when the crypto host rejects a foreign ArrayBuffer", async () => {
+        const file = await makeDocx('<w:p><w:r><w:t>Hash me</w:t></w:r></w:p>');
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const foreignBuffer = runInNewContext("new Uint8Array(bytes).buffer", { bytes });
+        const expectedHash = createHash("sha256").update(bytes).digest("hex");
+        // Model hosts that accept cross-context views but reject raw foreign buffers.
+        // Use real Web Crypto after validating the input; never replace the hash.
+        vi.stubGlobal("crypto", {
+            subtle: {
+                digest(algorithm: string, data: BufferSource) {
+                    if (!ArrayBuffer.isView(data) && !(data instanceof ArrayBuffer)) {
+                        throw new TypeError("digest input is not a recognized buffer");
+                    }
+                    return webcrypto.subtle.digest(algorithm, data);
+                },
+            },
+        });
+        try {
+            const parsed = await new DocxParser().parseDocx({
+                ...file, arrayBuffer: async () => foreignBuffer,
+            });
+            expect(parsed.originalHash).toBe(expectedHash);
+            expect(parsed.paragraphs[0].runs[0].content).toBe("Hash me");
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });
