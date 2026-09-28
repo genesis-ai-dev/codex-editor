@@ -1,0 +1,132 @@
+﻿
+ RUN  v2.1.9 C:/Users/marti/Desktop/FrontierRnD/Codex/codex-editor/webviews/codex-webviews
+
+node.exe : [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline 
+data, please update: `npm i baseline-browser-mapping@latest -D`
+At C:\Users\marti\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([baseline-brows...ping@latest -D`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(node:19828) [DEP0056] DeprecationWarning: The `util.isString` API is deprecated.  Please use `typeof arg === 
+"string"` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > GEN-DEU
+
+===== GEN-DEU: 100% accuracy, 0 issues =====
+verses study=5845 bible=5849 export=5849
+
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > JOS-EST
+
+===== JOS-EST: 100% accuracy, 5 issues =====
+verses study=7000 bible=7014 export=7013
+  Should Be Added (1): RUT 4:22
+  Wrong Text (4): 1SA 13:23, 1SA 14:1, 2CH 35:27, NEH 7:73
+
+--- RUT 4:22 [Should Be Added] bibleLen=36 exportLen=0 divergeAt=0
+  common: ÔÇª
+  bibleÔåÆ: Obede gerou Jess├®; Jess├® gerou Davi.
+  exportÔåÆ: 
+
+--- 1SA 13:23 [Wrong Text] bibleLen=72 exportLen=38 divergeAt=38
+  common: ÔÇªAconteceu que um destacamento filisteu
+  bibleÔåÆ: foi para o desfiladeiro de Micm├ís.
+  exportÔåÆ: 
+
+--- 1SA 14:1 [Wrong Text] bibleLen=151 exportLen=103 divergeAt=64
+  common: ÔÇªo dia, J├┤natas, filho de Saul, disse ao seu jovem escudeiro:
+  bibleÔåÆ: ÔÇò Vamos ao destacamento filisteu, do outro lado.Ele, por├®m, n├úo contou isso ao seu pai.
+  exportÔåÆ: Ele, por├®m, n├úo contou isso ao seu pai.
+
+--- 2CH 35:27 [Wrong Text] bibleLen=104 exportLen=94 divergeAt=94
+  common: ÔÇª ao fim, constam nos registros hist├│ricos dos reis de Israel
+  bibleÔåÆ: e de Jud├í.
+  exportÔåÆ: 
+
+--- NEH 7:73 [Wrong Text] bibleLen=273 exportLen=236 divergeAt=236
+  common: ÔÇª l├¬ a lei de Mois├®sQuando chegou o s├®timo m├¬s, os israelitas
+  bibleÔåÆ: tinham se instalado nas suas cidades.
+  exportÔåÆ: 
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > JOB-SNG
+
+===== JOB-SNG: 100% accuracy, 0 issues =====
+verses study=4705 bible=4750 export=4750
+
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > ISA-MAL
+
+===== ISA-MAL: 100% accuracy, 5 issues =====
+verses study=5437 bible=5450 export=5448
+  Wrong Text (2): JER 38:28, JON 2:2
+  Missing from Export (1): LAM 1:22
+  Unchanged (English) (1): HAB 3:1
+  Should Be Added (1): HAB 3:19
+
+--- JER 38:28 [Wrong Text] bibleLen=137 exportLen=102 divergeAt=102
+  common: ÔÇª o dia em que Jerusal├®m foi conquistada.A queda de Jerusal├®m
+  bibleÔåÆ: Foi assim que Jerusal├®m foi tomada:
+  exportÔåÆ: 
+
+--- LAM 1:22 [Missing from Export] bibleLen=180 exportLen=0 divergeAt=0
+  common: ÔÇª
+  bibleÔåÆ: ÔÇ£Que toda a maldade deles seja conhecida diante de ti. Faz com eles o que fizeste comigo por causa de todos os meus peca
+  exportÔåÆ: 
+
+--- JON 2:2 [Wrong Text] bibleLen=157 exportLen=76 divergeAt=53
+  common: ÔÇªe disse: corresponde a 1.17, e corresponde a 2.2ÔÇæ11. 
+  bibleÔåÆ: ÔÇ£No meu desespero, clamei ao , e ele me respondeu. Do Sheol, gritei por socorro, e ouviste o meu clamor.
+  exportÔåÆ: e ouviste o meu clamor.
+
+--- HAB 3:1 [Unchanged (English)] bibleLen=44 exportLen=74 divergeAt=0
+  common: ÔÇª
+  bibleÔåÆ: Ora├º├úo do profeta Habacuque. De acordo com .
+  exportÔåÆ: This is a prayer of Habakkuk the prophet. It is on . Here is what he said.
+
+--- HAB 3:19 [Should Be Added] bibleLen=169 exportLen=0 divergeAt=0
+  common: ÔÇª
+  bibleÔåÆ: O , o Soberano, ├® a minha for├ºa; ele faz os meus p├®s como os do cervo e faz-me andar nos meus lugares altos.Para o mestr
+  exportÔåÆ: 
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > MAT-JOHN
+
+===== MAT-JOHN: 100% accuracy, 0 issues =====
+verses study=3757 bible=3740 export=3740
+
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts > Portuguese full validation > ACT-REV
+
+===== ACT-REV: 100% accuracy, 3 issues =====
+verses study=4141 bible=4162 export=4162
+  Wrong Text (3): 1CO 10:33, 2CO 1:24, EPH 4:32
+
+--- 1CO 10:33 [Wrong Text] bibleLen=142 exportLen=119 divergeAt=119
+  common: ÔÇªormas, e n├úo procuro o meu pr├│prio bem, mas o bem de muitos,
+  bibleÔåÆ:  para que sejam salvos.
+  exportÔåÆ: 
+
+--- 2CO 1:24 [Wrong Text] bibleLen=132 exportLen=110 divergeAt=110
+  common: ÔÇªcooperamos com voc├¬s para que tenham alegria, pois ├® pela f├®
+  bibleÔåÆ: que permanecem firmes.
+  exportÔåÆ: 
+
+--- EPH 4:32 [Wrong Text] bibleLen=108 exportLen=90 divergeAt=90
+  common: ÔÇªns para com os outros, perdoando-se mutuamente, como Deus os
+  bibleÔåÆ: perdoou em Cristo.
+  exportÔåÆ: 
+
+ Ô£ô src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-full-validation.debug.test.ts (6 tests) 542023ms
+   Ô£ô Portuguese full validation > GEN-DEU 74952ms
+   Ô£ô Portuguese full validation > JOS-EST 126941ms
+   Ô£ô Portuguese full validation > JOB-SNG 105952ms
+   Ô£ô Portuguese full validation > ISA-MAL 150665ms
+   Ô£ô Portuguese full validation > MAT-JOHN 31182ms
+   Ô£ô Portuguese full validation > ACT-REV 52330ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  18:05:53
+   Duration  544.45s (transform 233ms, setup 29ms, collect 375ms, tests 542.02s, environment 992ms, prepare 214ms)
+

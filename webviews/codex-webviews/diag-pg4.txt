@@ -1,0 +1,98 @@
+﻿
+ RUN  v2.1.9 C:/Users/marti/Desktop/FrontierRnD/Codex/codex-editor/webviews/codex-webviews
+
+node.exe : [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline 
+data, please update: `npm i baseline-browser-mapping@latest -D`
+At C:\Users\marti\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([baseline-brows...ping@latest -D`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(node:8600) [DEP0056] DeprecationWarning: The `util.isString` API is deprecated.  Please use `typeof arg === "string"` 
+instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-plan-gap-diag.debug.test.ts > Portuguese plan gap diagnostics > JOS-EST
+
+@@@@@@ JOS-EST RUT 4
+  plan.chapterInserts[RUT|4]=[{"book":"RUT","chapter":"4","verse":"22"}]
+  plan.structureChapters[RUT|4]={"studyBook":"RUT","studyChapter":"4","studyVerseStart":1,"studyVerseEnd":21,"bibleSlices":[{"chapter":"4","firstVerse":1,"lastVerse":21}],"insertOnly":false}
+  bibleBlock: verses 1-22 len=33251
+    block para[0] text%3ap_dc1 :: "4 <?ACE 3?>1 4.1Enquanto isso, Boaz subiu ├á porta da cidade "
+    block para[1] text%3ap_sd :: "ÔÇò Meu amigo, venha c├í e sente┬¡-se."
+    block para[20] head%3as1 :: "A genealogia de Davi"
+    block para[21] text%3alh :: " 18 18Esta ├® a linha┬¡gem de Perez:"
+    block para[22] b :: ""
+    block para[23] text%3ali1 :: " Perez gerou Hez┬¡rom;18 19 19Hez┬¡rom gerou R├úo; R├úo gerou Am"
+  slice(..21) tail="adabe gerou Naassom; Naassom gerou Salmom; 20 21 21Salmom gerou Boaz; Boaz gerou Obede;21 "
+  slice(22) len=5898 text=" 21 21Salmom gerou Boaz; Boaz gerou Obede;21 22 22Obede gerou Jess├®; Jess├® gerou Davi.4.22"
+  export needle "gerou Jess" ÔåÆ paragraph 1156
+
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-plan-gap-diag.debug.test.ts > Portuguese plan gap diagnostics > ISA-MAL
+
+@@@@@@ ISA-MAL LAM 1
+  plan.chapterInserts[LAM|1]=[]
+  plan.structureChapters[LAM|1]={"studyBook":"LAM","studyChapter":"1","studyVerseStart":1,"studyVerseEnd":22,"bibleSlices":[{"chapter":"1","firstVerse":1,"lastVerse":22}],"insertOnly":false}
+  bibleBlock: verses 1-22 len=66639
+    block para[0] text%3aq1_dc1_fn :: "1 <?ACE 3?>1 1.1Como se senta solit├íria a grande cidade,"
+    block para[1] text%3aq2 :: " antes t├úo cheia de gente!"
+    block para[151] text%3aq1 :: " Os meus gemidos s├úo muitos,"
+    block para[152] text%3aq2 :: " e o meu cora├º├úo desfalece.ÔÇØ"
+    block para[153] bb :: "1.22"
+    block para[154] head%3aqa :: "ÎÉ ├ülef"
+  slice(..21) tail="o que fizeste. Quem dera trouxesses o dia que anunciaste para que eles ficassem como eu!21"
+  slice(22) len=2974 text="ausa de todos os meus pecados. Os meus gemidos s├úo muitos, e o meu cora├º├úo desfalece.ÔÇØ1.22"
+  export needle "toda a maldade deles" ÔåÆ paragraph -1
+  LAM 1:20 plan={"action":"replace","bible":{"book":"LAM","chapter":"1","verse":"20"}}
+      bibleIndex=subheader=false text="ÔÇ£V├¬, , como estou angustiada! Estou atormentada no"
+      validator study="ÔÇÿ, see how up┬¡set I am!\t\tI am suf┬¡fer┬¡ing dee"
+      validator bible="ÔÇ£V├¬, , como estou angustiada!\t\tEstou atorment" paraStyle=text%3aq1
+      validator export="ÔÇ£V├¬, , como estou angustiada!\t\tEstou atorment" paraStyle=text%3aq1
+  LAM 1:21 plan={"action":"replace","bible":{"book":"LAM","chapter":"1","verse":"21"}}
+      bibleIndex=subheader=false text="ÔÇ£Os meus lamentos t├¬m sido ouvidos, mas n├úo h├í nin"
+      validator study="ÔÇÿPeo┬¡ple have heard me groan.\t\tBut no one is "
+      validator bible="ÔÇ£Os meus lamentos t├¬m sido ouvidos,\t\tmas n├úo " paraStyle=text%3aq1
+      validator export="ÔÇ£Os meus lamentos t├¬m sido ouvidos,\t\tmas n├úo " paraStyle=text%3aq1
+  LAM 1:22 plan={"action":"replace","bible":{"book":"LAM","chapter":"1","verse":"22"}}
+      bibleIndex=subheader=false text="ÔÇ£Que toda a maldade deles seja conhecida diante de"
+      validator study="ÔÇÿPlease pay at┬¡ten┬¡tion to all their sin┬¡ful "
+      validator bible="ÔÇ£Que toda a┬ámaldade deles\t\tseja conhecida dia" paraStyle=text%3aq1
+      validator export="ÔÇ£Que toda a┬ámaldade deles\t\tseja conhecida dia" paraStyle=text%3aq1
+
+@@@@@@ ISA-MAL HAB 3
+  plan.chapterInserts[HAB|3]=[]
+  plan.structureChapters[HAB|3]={"studyBook":"HAB","studyChapter":"3","studyVerseStart":2,"studyVerseEnd":18,"bibleSlices":[{"chapter":"3","firstVerse":2,"lastVerse":18}],"insertOnly":false}
+  bibleBlock: verses 1-19 len=44093
+    block para[0] head%3ad_h_dc1 :: "3 <?ACE 3?> 1 3.1 Ora├º├úo do profeta Habacuque. De acordo com"
+    block para[1] text%3aq1 :: " 2 2Senhor, ouvi falar da tua fama;"
+    block para[66] text%3aq1 :: " 19 19O Senhor, o Soberano, ├® a minha for├ºa;"
+    block para[67] text%3aq2 :: " ele faz os meus p├®s como os do cervo"
+    block para[68] text%3aq2 :: " e faz-me andar nos meus lugares altos."
+    block para[69] head%3ad :: "Para o mestre de m├║sica. Para os meus instrumentos de cordas"
+  slice(..18) tail="los,17 18 18ainda assim eu exultarei no Senhor e me alegrarei no Deus da minha salva├º├úo.18"
+  slice(19) len=2332 text="r nos meus lugares altos.Para o mestre de m├║sica. Para os meus instrumentos de cordas.3.19"
+  export needle "instrumentos de cordas" ÔåÆ paragraph 2475
+
+ ÔØ» src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-plan-gap-diag.debug.test.ts (2 tests | 2 failed) 282176ms
+   ├ù Portuguese plan gap diagnostics > JOS-EST 129145ms
+     ÔåÆ getVerseNumbersInRegion is not defined
+   ├ù Portuguese plan gap diagnostics > ISA-MAL 153030ms
+     ÔåÆ getVerseNumbersInRegion is not defined
+
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ» Failed Tests 2 ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»
+
+ FAIL  src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-plan-gap-diag.debug.test.ts > Portuguese 
+plan gap diagnostics > JOS-EST
+ FAIL  src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-plan-gap-diag.debug.test.ts > Portuguese 
+plan gap diagnostics > ISA-MAL
+ReferenceError: getVerseNumbersInRegion is not defined
+ ÔØ» src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-plan-gap-diag.debug.test.ts:151:74
+
+
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[1/2]ÔÄ»
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  19:41:32
+   Duration  284.66s (transform 229ms, setup 31ms, collect 376ms, tests 282.18s, environment 1.01s, prepare 213ms)
+

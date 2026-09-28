@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-27T05:51:49.336Z",
+  "language": "russian",
+  "languageLabel": "Russian",
+  "volumeCount": 6,
+  "volumes": [
+    {
+      "studyVolume": "ACT-REV",
+      "studyFile": "ACT-REV.idml",
+      "bibleFile": "44ACT-66REV_russian.idml",
+      "projectedMatchPercent": 99.81,
+      "versesMapped": 4144,
+      "versesRemoved": 8,
+      "versesInserted": 32,
+      "totalRedirected": 36,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 30,
+      "mappingFile": "ACT-REV.mapping.json",
+      "elapsedSeconds": 51.7
+    },
+    {
+      "studyVolume": "GEN-DEU",
+      "studyFile": "GEN-DEU.idml",
+      "bibleFile": "01GEN-05DEU_russian.idml",
+      "projectedMatchPercent": 99.95,
+      "versesMapped": 5845,
+      "versesRemoved": 3,
+      "versesInserted": 6,
+      "totalRedirected": 0,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 9,
+      "mappingFile": "GEN-DEU.mapping.json",
+      "elapsedSeconds": 78.2
+    },
+    {
+      "studyVolume": "ISA-MAL",
+      "studyFile": "ISA-MAL.idml",
+      "bibleFile": "23ISA-39MAL_russian.idml",
+      "projectedMatchPercent": 99.89,
+      "versesMapped": 5458,
+      "versesRemoved": 6,
+      "versesInserted": 31,
+      "totalRedirected": 20,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 32,
+      "mappingFile": "ISA-MAL.mapping.json",
+      "elapsedSeconds": 142.9
+    },
+    {
+      "studyVolume": "JOB-SNG",
+      "studyFile": "JOB-SNG.idml",
+      "bibleFile": "18JOB-22SNG_russian.idml",
+      "projectedMatchPercent": 83.95,
+      "versesMapped": 4006,
+      "versesRemoved": 766,
+      "versesInserted": 843,
+      "totalRedirected": 0,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 153,
+      "mappingFile": "JOB-SNG.mapping.json",
+      "elapsedSeconds": 94.8
+    },
+    {
+      "studyVolume": "JOS-EST",
+      "studyFile": "JOS-EST.idml",
+      "bibleFile": "06JOS-17EST_russian.idml",
+      "projectedMatchPercent": 99.97,
+      "versesMapped": 7005,
+      "versesRemoved": 2,
+      "versesInserted": 14,
+      "totalRedirected": 0,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 16,
+      "mappingFile": "JOS-EST.mapping.json",
+      "elapsedSeconds": 129
+    },
+    {
+      "studyVolume": "MAT-JOHN",
+      "studyFile": "MAT-JOHN.idml",
+      "bibleFile": "40MAT-42JHN_russian.idml",
+      "projectedMatchPercent": 99.73,
+      "versesMapped": 3754,
+      "versesRemoved": 10,
+      "versesInserted": 25,
+      "totalRedirected": 0,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 13,
+      "mappingFile": "MAT-JOHN.mapping.json",
+      "elapsedSeconds": 29.1
+    }
+  ]
+}

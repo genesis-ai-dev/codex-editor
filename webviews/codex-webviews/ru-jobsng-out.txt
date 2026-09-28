@@ -1,0 +1,291 @@
+﻿
+ RUN  v2.1.9 C:/Users/marti/Desktop/FrontierRnD/Codex/codex-editor/webviews/codex-webviews
+
+node.exe : [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline 
+data, please update: `npm i baseline-browser-mapping@latest -D`
+At C:\Users\marti\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([baseline-brows...ping@latest -D`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(node:5856) [DEP0056] DeprecationWarning: The `util.isString` API is deprecated.  Please use `typeof arg === "string"` 
+instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/russian-jobsng-six.debug.test.ts > Russian JOB-SNG six validation issues > applies plan inserts and SNG 1:1 correctly
+PSA|8|10 {
+  has: true,
+  isSubheader: false,
+  text: 'ðôð¥Ðüð┐ð¥ð┤ð©, ð¢ð░Ðê ðÆð╗ð░ð┤Ðïð║ð░, ð║ð░ð║ ð▓ðÁð╗ð©ÐçðÁÐüÐéð▓ðÁð¢ð¢ð¥ ð©ð╝ÐÅ ðóð▓ð¥ðÁ ð¢ð░ ð▓ÐüðÁð╣ ðÀðÁð╝',
+  sig: 'text:q1|text:q2'
+}
+PSA|110|8 {
+  has: true,
+  isSubheader: false,
+  text: 'ðÆðÁÐçð¢ð¥ Ðéð▓ðÁÐÇð┤Ðï ð¥ð¢ð© ð© ð¥Ðüð¢ð¥ð▓ð░ð¢Ðï ð¢ð░ ð©ÐüÐéð©ð¢ðÁ ð© ð┐ÐÇð░ð▓ð¥ÐéðÁ.',
+  sig: 'text:q1|text:q2'
+}
+PSA|110|9 {
+  has: true,
+  isSubheader: false,
+  text: 'ðíð▓ð¥ðÁð╝Ðâ ð¢ð░ÐÇð¥ð┤Ðâ ð┐ð¥Ðüð╗ð░ð╗ ð×ð¢ ð©Ðüð║Ðâð┐ð╗ðÁð¢ð©ðÁ, ÐâÐüÐéð░ð¢ð¥ð▓ð©ð╗ ð¢ð░ð▓ðÁÐçð¢ð¥ ðíð▓ð¥ð╣ ðÀ',
+  sig: 'text:q1|text:q2'
+}
+PSA|110|10 {
+  has: true,
+  isSubheader: false,
+  text: 'ðØð░Ðçð░ð╗ð¥ ð╝Ðâð┤ÐÇð¥ÐüÐéð© ÔÇö ÐüÐéÐÇð░Ðà ð┐ðÁÐÇðÁð┤ ðôð¥Ðüð┐ð¥ð┤ð¥ð╝. ðáð░ðÀÐâð╝ð¢Ðï ÐéðÁ, ð║Ðéð¥ ð©Ðüð┐ð¥',
+  sig: 'text:q1|text:q2'
+}
+PSA|62|13 { has: false, isSubheader: undefined, text: undefined, sig: undefined }
+SNG|1|1 {
+  has: true,
+  isSubheader: false,
+  text: 'ðøÐâÐçÐêð░ÐÅ ð©ðÀ ð┐ðÁÐüðÁð¢ ðíð¥ð╗ð¥┬¡ð╝ð¥ð¢ð░. ðªðÁð╗Ðâð╣ ð╝ðÁð¢ÐÅ, ÐåðÁð╗Ðâð╣ ÐâÐüÐéð░ð╝ð© Ðüð▓ð¥ð©ð╝ð©, ',
+  sig: 'text:p_dc1|text:q1|text:q2'
+}
+SNG|1|2 {
+  has: true,
+  isSubheader: false,
+  text: 'ð┐ÐÇð©ÐÅÐéð¢ðÁð╣ ð░ÐÇð¥ð╝ð░Ðéð░ ð▒ð╗ð░ð│ð¥ð▓ð¥ð¢ð©ð╣ Ðéð▓ð¥ð©Ðà. ðÿð╝ÐÅ Ðéð▓ð¥ðÁ ð┐ð¥ð┤ð¥ð▒ð¢ð¥ ÐÇð░ðÀð╗ð©Ðéð¥ð╝',
+  sig: 'text:q1|text:q2'
+}
+plan inserts {
+  psa8: [ { book: 'PSA', chapter: '8', verse: '10' } ],
+  psa110: [
+    { book: 'PSA', chapter: '110', verse: '8' },
+    { book: 'PSA', chapter: '110', verse: '9' },
+    { book: 'PSA', chapter: '110', verse: '10' }
+  ],
+  psa62: undefined,
+  psa111: [ { book: 'PSA', chapter: '111', verse: '10' } ]
+}
+PSA 8 block { range: '1-10', len: 19975 }
+  slice 10 {
+  len: 1466,
+  snip: '<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/text%3aq1"> <CharacterStyleRange AppliedCharacterStyle="Chara'
+}
+  insertXml PSA 8 { len: 1466, hasText: true }
+PSA 110 block { range: '1-10', len: 15274 }
+  slice 8 {
+  len: 1307,
+  snip: '<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/text%3aq1"> <CharacterStyleRange AppliedCharacterStyle="Chara'
+}
+  slice 9 {
+  len: 1600,
+  snip: '<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/text%3aq1"> <CharacterStyleRange AppliedCharacterStyle="Chara'
+}
+  slice 10 {
+  len: 2075,
+  snip: '<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/text%3aq1"> <CharacterStyleRange AppliedCharacterStyle="Chara'
+}
+  insertXml PSA 110 { len: 4988, hasText: true }
+SNG1 study spans [
+  '1-1',   '2-4',
+  '4-7',   '8-8',
+  '9-11',  '12-14',
+  '15-15', '16-16',
+  '17-17'
+]
+SNG1 bible block {
+  range: '1-16',
+  hasPervaya: true,
+  hasTseluy: true,
+  hasLuchshaya: true
+}
+SNG1 slice {
+  len: 2709,
+  hasPervaya: true,
+  hasTseluy: true,
+  hasVed: true,
+  speakers: 1,
+  heads: 2
+}
+PSA110-related splices [
+  {
+    ch: '110',
+    range: '4997560-4997814',
+    len: 1286,
+    has8: false,
+    has9: false,
+    has10: false
+  },
+  {
+    ch: '110',
+    range: '4998083-5011018',
+    len: 15271,
+    has8: true,
+    has9: true,
+    has10: true
+  },
+  {
+    ch: '110',
+    range: '5034881-5035530',
+    len: 0,
+    has8: false,
+    has9: false,
+    has10: false
+  }
+]
+PSA8 splices [
+  { ch: '8', range: '287155-321365', len: 34298, has10: false },
+  { ch: '8', range: '1950886-1951138', len: 253, has10: false },
+  { ch: '8', range: '1951714-1966956', len: 19972, has10: true },
+  { ch: '8', range: '2011857-2013228', len: 0, has10: false },
+  { ch: '8', range: '6387757-6440325', len: 62651, has10: false },
+  { ch: '8', range: '7876920-7905365', len: 24256, has10: false },
+  { ch: '8', range: '8260281-8269566', len: 8591, has10: false },
+  { ch: '8', range: '8269837-8278727', len: 10304, has10: false },
+  { ch: '8', range: '8279269-8283759', len: 4508, has10: false },
+  { ch: '8', range: '8284037-8289764', len: 11156, has10: false },
+  { ch: '8', range: '8290029-8291641', len: 2058, has10: false },
+  { ch: '8', range: '8291907-8293999', len: 2257, has10: false }
+]
+swap stats {
+  replacedCount: 363,
+  skippedPsa: 0,
+  psalmSubheaderOffsets: 0,
+  psalmVersesInserted: 843,
+  missingFromBible: [],
+  extraInBibleAppended: [
+    { book: 'JOB', chapter: '38', verse: '41' },
+    { book: 'JOB', chapter: '39', verse: '31' },
+    { book: 'JOB', chapter: '39', verse: '32' },
+    { book: 'JOB', chapter: '39', verse: '33' },
+    { book: 'JOB', chapter: '39', verse: '34' },
+    { book: 'JOB', chapter: '39', verse: '35' },
+    { book: 'JOB', chapter: '40', verse: '25' },
+    { book: 'JOB', chapter: '40', verse: '26' },
+    { book: 'JOB', chapter: '40', verse: '27' },
+    { book: 'JOB', chapter: '42', verse: '17' },
+    { book: 'PSA', chapter: '3', verse: '9' },
+    { book: 'PSA', chapter: '4', verse: '9' },
+    { book: 'PSA', chapter: '5', verse: '13' },
+    { book: 'PSA', chapter: '6', verse: '11' },
+    { book: 'PSA', chapter: '7', verse: '18' },
+    { book: 'PSA', chapter: '8', verse: '10' },
+    { book: 'PSA', chapter: '9', verse: '20' },
+    { book: 'PSA', chapter: '9', verse: '21' },
+    { book: 'PSA', chapter: '9', verse: '22' },
+    { book: 'PSA', chapter: '9', verse: '23' },
+    { book: 'PSA', chapter: '9', verse: '24' },
+    { book: 'PSA', chapter: '9', verse: '25' },
+    { book: 'PSA', chapter: '9', verse: '26' },
+    { book: 'PSA', chapter: '9', verse: '27' },
+    { book: 'PSA', chapter: '9', verse: '28' },
+    { book: 'PSA', chapter: '9', verse: '29' },
+    { book: 'PSA', chapter: '9', verse: '30' },
+    { book: 'PSA', chapter: '9', verse: '31' },
+    { book: 'PSA', chapter: '9', verse: '32' },
+    { book: 'PSA', chapter: '9', verse: '33' },
+    { book: 'PSA', chapter: '9', verse: '34' },
+    { book: 'PSA', chapter: '9', verse: '35' },
+    { book: 'PSA', chapter: '9', verse: '36' },
+    { book: 'PSA', chapter: '9', verse: '37' },
+    { book: 'PSA', chapter: '9', verse: '38' },
+    { book: 'PSA', chapter: '9', verse: '39' },
+    { book: 'PSA', chapter: '11', verse: '8' },
+    { book: 'PSA', chapter: '11', verse: '9' },
+    { book: 'PSA', chapter: '13', verse: '7' },
+    { book: 'PSA', chapter: '15', verse: '6' },
+    { book: 'PSA', chapter: '15', verse: '7' },
+    { book: 'PSA', chapter: '15', verse: '8' },
+    { book: 'PSA', chapter: '15', verse: '9' },
+    { book: 'PSA', chapter: '15', verse: '10' },
+    { book: 'PSA', chapter: '15', verse: '11' },
+    { book: 'PSA', chapter: '16', verse: '12' },
+    { book: 'PSA', chapter: '16', verse: '13' },
+    { book: 'PSA', chapter: '16', verse: '14' },
+    { book: 'PSA', chapter: '16', verse: '15' },
+    { book: 'PSA', chapter: '17', verse: '16' },
+    { book: 'PSA', chapter: '17', verse: '17' },
+    { book: 'PSA', chapter: '17', verse: '18' },
+    { book: 'PSA', chapter: '17', verse: '19' },
+    { book: 'PSA', chapter: '17', verse: '20' },
+    { book: 'PSA', chapter: '17', verse: '21' },
+    { book: 'PSA', chapter: '17', verse: '22' },
+    { book: 'PSA', chapter: '17', verse: '23' },
+    { book: 'PSA', chapter: '17', verse: '24' },
+    { book: 'PSA', chapter: '17', verse: '25' },
+    { book: 'PSA', chapter: '17', verse: '26' },
+    { book: 'PSA', chapter: '17', verse: '27' },
+    { book: 'PSA', chapter: '17', verse: '28' },
+    { book: 'PSA', chapter: '17', verse: '29' },
+    { book: 'PSA', chapter: '17', verse: '30' },
+    { book: 'PSA', chapter: '17', verse: '31' },
+    { book: 'PSA', chapter: '17', verse: '32' },
+    { book: 'PSA', chapter: '17', verse: '33' },
+    { book: 'PSA', chapter: '17', verse: '34' },
+    { book: 'PSA', chapter: '17', verse: '35' },
+    { book: 'PSA', chapter: '17', verse: '36' },
+    { book: 'PSA', chapter: '17', verse: '37' },
+    { book: 'PSA', chapter: '17', verse: '38' },
+    { book: 'PSA', chapter: '17', verse: '39' },
+    { book: 'PSA', chapter: '17', verse: '40' },
+    { book: 'PSA', chapter: '17', verse: '41' },
+    { book: 'PSA', chapter: '17', verse: '42' },
+    { book: 'PSA', chapter: '17', verse: '43' },
+    { book: 'PSA', chapter: '17', verse: '44' },
+    { book: 'PSA', chapter: '17', verse: '45' },
+    { book: 'PSA', chapter: '17', verse: '46' },
+    { book: 'PSA', chapter: '17', verse: '47' },
+    { book: 'PSA', chapter: '17', verse: '48' },
+    { book: 'PSA', chapter: '17', verse: '49' },
+    { book: 'PSA', chapter: '17', verse: '50' },
+    { book: 'PSA', chapter: '17', verse: '51' },
+    { book: 'PSA', chapter: '20', verse: '10' },
+    { book: 'PSA', chapter: '20', verse: '11' },
+    { book: 'PSA', chapter: '20', verse: '12' },
+    { book: 'PSA', chapter: '20', verse: '13' },
+    { book: 'PSA', chapter: '20', verse: '14' },
+    { book: 'PSA', chapter: '21', verse: '14' },
+    { book: 'PSA', chapter: '21', verse: '15' },
+    { book: 'PSA', chapter: '21', verse: '16' },
+    { book: 'PSA', chapter: '21', verse: '17' },
+    { book: 'PSA', chapter: '21', verse: '18' },
+    { book: 'PSA', chapter: '21', verse: '19' },
+    { book: 'PSA', chapter: '21', verse: '20' },
+    { book: 'PSA', chapter: '21', verse: '21' },
+    { book: 'PSA', chapter: '21', verse: '22' },
+    { book: 'PSA', chapter: '21', verse: '23' },
+    ... 743 more items
+  ],
+  chaptersReplaced: 243,
+  chaptersMissing: []
+}
+export PSA|8|10 ðôð¥Ðüð┐ð¥ð┤ð©, ð¢ð░Ðê ðÆð╗ð░ð┤Ðïð║ð░, ð║ð░ð║ ð▓ðÁð╗ð©ÐçðÁÐüÐéð▓ðÁð¢ð¢ð¥ ð©ð╝ÐÅ ðóð▓ð¥ðÁ ð¢ð░ ð▓ÐüðÁð╣ ðÀðÁð╝ð╗ðÁ!
+export PSA|110|8 ðÆðÁÐçð¢ð¥ Ðéð▓ðÁÐÇð┤Ðï ð¥ð¢ð© ð© ð¥Ðüð¢ð¥ð▓ð░ð¢Ðï ð¢ð░ ð©ÐüÐéð©ð¢ðÁ ð© ð┐ÐÇð░ð▓ð¥ÐéðÁ.
+export PSA|110|9 ðíð▓ð¥ðÁð╝Ðâ ð¢ð░ÐÇð¥ð┤Ðâ ð┐ð¥Ðüð╗ð░ð╗ ð×ð¢ ð©Ðüð║Ðâð┐ð╗ðÁð¢ð©ðÁ, ÐâÐüÐéð░ð¢ð¥ð▓ð©ð╗ ð¢ð░ð▓ðÁÐçð¢ð¥ ðíð▓ð¥ð╣ ðÀð░ð▓ðÁÐé. ðòð│ð¥ 
+export PSA|110|10 ðØð░Ðçð░ð╗ð¥ ð╝Ðâð┤ÐÇð¥ÐüÐéð© ÔÇö ÐüÐéÐÇð░Ðà ð┐ðÁÐÇðÁð┤ ðôð¥Ðüð┐ð¥ð┤ð¥ð╝. ðáð░ðÀÐâð╝ð¢Ðï ÐéðÁ, ð║Ðéð¥ ð©Ðüð┐ð¥ð╗ð¢ÐÅðÁÐé ðòð│ð¥ 
+export PSA|62|13 undefined
+export SNG|1|1 ðøÐâÐçÐêð░ÐÅ ð©ðÀ ð┐ðÁÐüðÁð¢ ðíð¥ð╗ð¥┬¡ð╝ð¥ð¢ð░. ðªðÁð╗Ðâð╣ ð╝ðÁð¢ÐÅ, ÐåðÁð╗Ðâð╣ ÐâÐüÐéð░ð╝ð© Ðüð▓ð¥ð©ð╝ð©, ð▓ðÁð┤Ðî ð╗ÐÄð▒ð¥ð▓
+export SNG|1|2 ð┐ÐÇð©ÐÅÐéð¢ðÁð╣ ð░ÐÇð¥ð╝ð░Ðéð░ ð▒ð╗ð░ð│ð¥ð▓ð¥ð¢ð©ð╣ Ðéð▓ð¥ð©Ðà. ðÿð╝ÐÅ Ðéð▓ð¥ðÁ ð┐ð¥ð┤ð¥ð▒ð¢ð¥ ÐÇð░ðÀð╗ð©Ðéð¥ð╝Ðâ ð▒ð╗ð░ð│ð¥ð▓ð¥ð¢
+raw export has ðÆðÁÐçð¢ð¥ Ðéð▓ðÁÐÇð┤Ðï? true
+raw export has ð▓ðÁð╗ð©ÐçðÁÐüÐéð▓ðÁð¢ð¢ð¥? true
+raw export has ðªðÁð╗Ðâð╣? true
+raw export has ðƒðÁÐÇð▓ð░ÐÅ? true
+PSA110 export keys [
+  'PSA|110|1', 'PSA|110|2',
+  'PSA|110|3', 'PSA|110|4',
+  'PSA|110|5', 'PSA|110|6',
+  'PSA|110|7', 'PSA|110|8',
+  'PSA|110|9', 'PSA|110|10'
+]
+PSA8 export keys [
+  'PSA|8|1', 'PSA|8|2',
+  'PSA|8|3', 'PSA|8|4',
+  'PSA|8|5', 'PSA|8|6',
+  'PSA|8|7', 'PSA|8|8',
+  'PSA|8|9', 'PSA|8|10'
+]
+bible around ðªðÁð╗Ðâð╣ styles undefined liedCharacterStyle="CharacterStyle/meta%3av"> <Content>12</Content> </CharacterStyleRange> <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]"> <Content>ðªðÁð╗Ðâð╣ÐéðÁ ðíÐïð¢ð░,</Content> </CharacterStyleRange> <CharacterStyleRa
+bible around ðƒðÁÐÇð▓ð░ÐÅ styles [ 'AppliedParagraphStyle="ParagraphStyle/head%3as1"' ]  </ParagraphStyleRange> <ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/head%3as1"> <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]"> <Content>ðƒðÁÐÇð▓ð░ÐÅ ÐÇðÁÐçÐî ðÿð¥ð▓ð░</Content> <Br /> </CharacterStyleRange> </P
+
+ Ô£ô src/NewSourceUploader/importers/biblica/bible-swap/scripts/russian-jobsng-six.debug.test.ts (1 test) 72448ms
+   Ô£ô Russian JOB-SNG six validation issues > applies plan inserts and SNG 1:1 correctly 72447ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:06:50
+   Duration  75.23s (transform 249ms, setup 35ms, collect 423ms, tests 72.45s, environment 1.18s, prepare 243ms)
+

@@ -102,6 +102,10 @@ const milestoneTitles = (cells: ProcessedCell[]): string[] => {
 const cellText = (cell: ProcessedCell): string =>
     cell.content.replace(/<[^>]*>/g, "").replace(/\u00ad/g, "").trim();
 
+/** The original slot index each editable run in the cell is addressed by. */
+const segmentIndexes = (cell: ProcessedCell): number[] =>
+    [...cell.content.matchAll(/data-segment-index="(\d+)"/g)].map((m) => Number(m[1]));
+
 /** Locate a cell by its rendered text, failing the test if it was not imported. */
 const cellByText = (
     cells: ProcessedCell[],
@@ -207,6 +211,81 @@ describe("createCellsFromStories — division sections", () => {
             "1",
         ]);
         expect(milestoneTitles(cells)).toEqual(["Mark Preface", "Mark 1"]);
+    });
+});
+
+describe("createCellsFromStories — book names", () => {
+    // Every book opens with the metadata block InDesign draws its page furniture from.
+    const joshuaHead = [
+        paragraph("meta%3aid", "JOS - New International Readers Version"),
+        bookMarker("JOS"),
+        paragraph("meta%3ah", "Joshua"),
+        paragraph("meta%3atoc1", "Joshua"),
+        paragraph("meta%3atoc2", "Joshua"),
+        paragraph("meta%3atoc3", "Jos"),
+        paragraph("intro%3aimt1", "Joshua"),
+        paragraph("intro%3ais1", "What is the book of Joshua?"),
+    ];
+
+    it("takes the running head and contents entries so they can be translated", async () => {
+        const cells = await build(joshuaHead);
+
+        expect(cells.map(cellText)).toEqual([
+            "Joshua",
+            "Joshua",
+            "Joshua",
+            "Joshua",
+            "Jos",
+            "What is the book of Joshua?",
+        ]);
+    });
+
+    it("leaves the book code and file identifier alone", async () => {
+        const cells = await build(joshuaHead);
+
+        expect(cells.map(cellText)).not.toContain("JOS");
+        expect(cellText(cells[0])).not.toMatch(/Readers Version/);
+    });
+
+    it("puts them in the book preface, after the title they name", async () => {
+        const cells = await build(joshuaHead);
+
+        expect(cells.map((cell) => cell.metadata?.chapterNumber)).toEqual(
+            Array(6).fill("Preface")
+        );
+        expect(milestoneTitles(cells)).toEqual(["Joshua Preface"]);
+        // Reordering is for reading only: each cell still exports to its own paragraph.
+        const orders = cells.map(
+            (cell) => (cell.metadata?.data as any)?.relationships?.paragraphOrder
+        );
+        expect(orders).toEqual([6, 2, 3, 4, 5, 7]);
+    });
+
+    it("holds them back past a division heading that introduces the book", async () => {
+        const cells = await build([
+            bookMarker("MAT"),
+            paragraph("meta%3ah", "Matthew"),
+            paragraph("intro%3aimt2", "Sto\u00adries about Jesus"),
+            paragraph("intro%3aip", "The books from Matthew to Acts are stories about Jesus."),
+            paragraph("intro%3aimt1", "The Gospel of Matthew"),
+        ]);
+
+        const runningHead = cellByText(cells, (text) => text === "Matthew");
+        expect(runningHead.chapterNumber).toBe("Preface");
+        expect(runningHead.globalReferences).toEqual(["MAT"]);
+        expect(milestoneTitles(cells)).toEqual(["Stories about Jesus", "Matthew Preface"]);
+    });
+
+    it("does not hand a titleless book's names to the next book", async () => {
+        const cells = await build([
+            bookMarker("2JN"),
+            paragraph("meta%3ah", "2 John"),
+            bookMarker("3JN"),
+            paragraph("meta%3ah", "3 John"),
+            paragraph("intro%3aimt1", "3 John"),
+        ]);
+
+        expect(cells.map(cellText)).toEqual(["2 John", "3 John", "3 John"]);
     });
 });
 
@@ -343,7 +422,7 @@ describe("createCellsFromStories — front/back matter volumes", () => {
         ).toBeUndefined();
     });
 
-    it("still hides apostrophe slots for study notes", async () => {
+    it("gives a study note the apostrophe word as a single run", async () => {
         const cells = await build([
             styledParagraph("intro%3aipi", [
                 { style: "$ID/[No character style]", text: "Jacob" },
@@ -352,10 +431,26 @@ describe("createCellsFromStories — front/back matter volumes", () => {
             ]),
         ]);
 
-        expect(cellText(cells[0])).toBe("Jacobs sons");
+        expect(cellText(cells[0])).toBe("Jacob\u02BCs sons");
+        // One run, so a translator writing "os filhos de Jacó" leaves nothing stranded.
+        expect(segmentIndexes(cells[0])).toEqual([0]);
+        // The slot still has to be cleared on export; only the editor view changed.
         expect(
             cells[0].metadata?.data?.idmlStructure?.structuralApostropheSegmentIndexes
         ).toEqual([1]);
+    });
+
+    it("keeps halves apart when the apostrophe straddles a style boundary", async () => {
+        const cells = await build([
+            styledParagraph("intro%3aipi", [
+                { style: "k_xt", text: "God" },
+                { style: "source serif", text: "\u02BC" },
+                { style: "$ID/[No character style]", text: "s people" },
+            ]),
+        ]);
+
+        // Joining would make the whole phrase a key term.
+        expect(segmentIndexes(cells[0])).toEqual([0, 2]);
     });
 
     it("joins a heading split across lines with a space", async () => {

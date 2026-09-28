@@ -28,6 +28,8 @@ import {
     isBiblicaRunningHeadStyle,
     isStructuralOnlyContent,
     splitSegmentsAtLineBreaks,
+    getJoinableApostropheSegmentIndexes,
+    isBiblicaBookNameStyle,
     getStructuralApostropheSegmentIndexes,
     getVerseMarkerSegmentIndexes,
     mergeSegmentIndexes,
@@ -57,6 +59,46 @@ export function computeChapterRangeLabel(
     if (!hasEncounteredVerses || !firstChapter) return "Preface";
     if (!lastChapter || firstChapter === lastChapter) return firstChapter;
     return `${firstChapter}-${lastChapter}`;
+}
+
+/**
+ * Reading order that puts a book's name block after the title it names.
+ *
+ * IDML opens every book with meta:h and meta:toc1–3, and a division heading introducing a
+ * whole group of books ("Stories about Jesus") can sit between them and the book title.
+ * Taken in file order the names would open the book's own milestone ahead of the division
+ * that introduces it, and be scoped to no book at all. Held back until intro:imt1 they
+ * land in the book's preface alongside its title. Each entry carries its original
+ * position, which is what the exporter addresses paragraphs by.
+ */
+function orderBookNamesAfterTitle(
+    paragraphs: IDMLParagraph[]
+): Array<{ paragraph: IDMLParagraph; order: number; }> {
+    const ordered: Array<{ paragraph: IDMLParagraph; order: number; }> = [];
+    let pending: Array<{ paragraph: IDMLParagraph; order: number; }> = [];
+    const flush = () => {
+        ordered.push(...pending);
+        pending = [];
+    };
+
+    paragraphs.forEach((paragraph, order) => {
+        const style = paragraph.paragraphStyleRange?.appliedParagraphStyle ?? "";
+        if (isBiblicaBookNameStyle(style)) {
+            pending.push({ paragraph, order });
+            return;
+        }
+        // A book with no title of its own must not hand its names to the next book.
+        if (paragraph.metadata?.bookAbbreviation) {
+            flush();
+        }
+        ordered.push({ paragraph, order });
+        if (isBiblicaBookTitleStyle(style)) {
+            flush();
+        }
+    });
+
+    flush();
+    return ordered;
 }
 
 export async function createCellsFromStories(
@@ -91,8 +133,7 @@ export async function createCellsFromStories(
     };
 
     for (const story of stories) {
-        for (let i = 0; i < story.paragraphs.length; i++) {
-            const paragraph = story.paragraphs[i];
+        for (const { paragraph, order: i } of orderBookNamesAfterTitle(story.paragraphs)) {
             const paragraphStyle = paragraph.paragraphStyleRange.appliedParagraphStyle;
 
             const verseSegments = paragraph.metadata?.biblicaVerseSegments as
@@ -230,14 +271,19 @@ export async function createCellsFromStories(
 
             // --- From here on, this is a non-verse paragraph ---
 
-            // Only intro/* note styles become editable cells; skip meta running headers, TOC, etc.
-            // Front/back matter has no note styles to speak of, so it takes any paragraph that
-            // carries text and only drops the auto-generated running heads.
+            // Study volumes take the intro/* notes plus the book-name block each book opens
+            // with; the rest of the meta/* metadata and the scripture headings are either
+            // identifiers or come from the Bible swap. Front/back matter has no note styles to
+            // speak of, so it takes any paragraph that carries text and only drops the
+            // auto-generated running heads.
             if (includeAllTextStyles) {
                 if (isBiblicaRunningHeadStyle(paragraphStyle)) {
                     continue;
                 }
-            } else if (!isBiblicaNoteSectionStyle(paragraphStyle)) {
+            } else if (
+                !isBiblicaNoteSectionStyle(paragraphStyle) &&
+                !isBiblicaBookNameStyle(paragraphStyle)
+            ) {
                 continue;
             }
 
@@ -265,9 +311,20 @@ export async function createCellsFromStories(
                 structuralApostropheIndexes,
                 getVerseMarkerSegmentIndexes(contentSegments, allSegmentStyles)
             );
+            // Apostrophes that only split a word are folded into it rather than dropped,
+            // so the cell reads "Hamanʼs" and holds it in a single run.
+            const joinableApostropheIndexes = getJoinableApostropheSegmentIndexes(
+                structuralApostropheIndexes,
+                allSegmentStyles,
+                contentSegmentBreakBefore
+            );
+            const joinable = new Set(joinableApostropheIndexes);
+            const droppedSegmentIndexes = hiddenSegmentIndexes.filter(
+                (index) => !joinable.has(index)
+            );
             const visibleContentSegments = omitSegmentsAtIndexes(
                 contentSegments,
-                hiddenSegmentIndexes
+                droppedSegmentIndexes
             );
 
             const hasText = visibleContentSegments.some((segment) => segment.trim().length > 0);
@@ -277,7 +334,7 @@ export async function createCellsFromStories(
 
             // Flattened heading text used to derive milestone labels. A paragraph broken over
             // several IDML lines needs a space at each break, or the words run together.
-            const hiddenSegmentIndexSet = new Set(hiddenSegmentIndexes);
+            const hiddenSegmentIndexSet = new Set(droppedSegmentIndexes);
             const contentWithoutBreaks = contentSegments
                 .map((segment, index) => {
                     if (hiddenSegmentIndexSet.has(index)) {
@@ -373,7 +430,7 @@ export async function createCellsFromStories(
                 const isLastSegment = segmentIndex === totalLineGroups - 1;
                 const visibleSegments = omitSegmentsAtIndexes(
                     group.segments,
-                    hiddenSegmentIndexes
+                    droppedSegmentIndexes
                         .filter(
                             (idx) =>
                                 idx >= group.startIndex &&
@@ -415,6 +472,7 @@ export async function createCellsFromStories(
                         segmentIndexOffset: group.startIndex,
                         totalSegmentCount: contentSegments.length,
                         skipSegmentIndexes: hiddenSegmentIndexes,
+                        joinSegmentIndexes: joinableApostropheIndexes,
                     }
                 );
 

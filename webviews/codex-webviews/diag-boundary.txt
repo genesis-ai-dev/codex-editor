@@ -1,0 +1,81 @@
+﻿
+ RUN  v2.1.9 C:/Users/marti/Desktop/FrontierRnD/Codex/codex-editor/webviews/codex-webviews
+
+node.exe : [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline 
+data, please update: `npm i baseline-browser-mapping@latest -D`
+At C:\Users\marti\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([baseline-brows...ping@latest -D`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(node:16692) [DEP0056] DeprecationWarning: The `util.isString` API is deprecated.  Please use `typeof arg === 
+"string"` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+stdout | src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-boundary-diag.debug.test.ts > Portuguese boundary paragraph diagnostics > GEN-DEU
+
+@@@@@@ GEN-DEU :: "feriu o Nilo" ÔåÆ paragraph 1635
+
+  --- paragraph[1634] text%3ap_fj v=[25] body=2298555-2299255
+      chapterTransition=null
+      markers=
+      @2298559-2298678 cv%3av :: "25"
+      @2298682-2298803 cv%3av_sp :: " "
+      @2298807-2298928 meta%3av :: "25"
+      @2298932-2299101 $ID/[No character style] :: "Passaram┬¡-se sete dias depois que "
+      @2299105-2299252 $ID/[No character style] :: "o"
+
+  --- paragraph[1635] text%3ap_dc1_fn v=[1,25] body=2299356-2302813
+      chapterTransition=7
+      markers=ch7@2301497 ch8@2302134
+      @2299360-2299479 cv%3adc :: "8"
+      @2299483-2300940 notes%3af_call_dc :: ""
+      @2300944-2301069 cv%3adc_sp_fn :: " "
+      @2301073-2301217 $ID/[No character style] :: "<?ACE 3?>"
+      @2301221-2301340 nd :: "Senhor"
+      @2301344-2301493 $ID/[No character style] :: " feriu o Nilo."
+      @2301497-2301618 meta%3ac :: "7."
+      @2301622-2301743 meta%3av :: "25"
+      @2301747-2301883 $ID/[No character style] :: " "
+      @2301887-2302005 cv%3av :: "1"
+      @2302009-2302130 cv%3av_sp :: " "
+      @2302134-2302255 meta%3ac :: "8."
+      @2302259-2302379 meta%3av :: "1"
+      @2302383-2302520 $ID/[No character style] :: "O "
+      @2302524-2302643 nd :: "Senhor"
+      @2302647-2302810 $ID/[No character style] :: " falou a Moi┬¡s├®s:"
+
+  --- paragraph[1636] text%3ap_sd v=[1,2,3,4] body=2302910-2306343
+      chapterTransition=null
+      markers=
+      @2302914-2303091 $ID/[No character style] :: "ÔÇò V├í ao fara├│ e diga┬¡-lhe que assim diz o "
+      @2303095-2303214 nd :: "Senhor"
+      @2303218-2303399 $ID/[No character style] :: ": ÔÇ£Deixe o meu povo ir para prestar┬¡-me culto."
+      @2303403-2303523 meta%3av :: "1"
+      @2303527-2303663 $ID/[No character style] :: " "
+      @2303667-2303785 cv%3av :: "2"
+      @2303789-2303910 cv%3av_sp :: " "
+      @2303914-2304034 meta%3av :: "2"
+      @2304038-2304264 $ID/[No character style] :: "Se voc├¬ se recu┬¡sar a deix├í┬¡-lo ir, feri┬¡rei todo o seu ter┬¡ri┬¡t├│┬¡rio "
+      @2304268-2304388 meta%3av :: "2"
+      @2304392-2304528 $ID/[No character style] :: " "
+      @2304532-2304650 cv%3av :: "3"
+      @2304654-2304775 cv%3av_sp :: " "
+      @2304779-2304899 meta%3av :: "3"
+      @2304903-2305257 $ID/[No character style] :: "O Nilo ficar├í infes┬¡tado de r├ús. Elas subi┬¡r├úo e entra┬¡r├úo no seu pal├í"
+      @2305261-2305381 meta%3av :: "3"
+      @2305385-2305521 $ID/[No character style] :: " "
+      @2305525-2305643 cv%3av :: "4"
+      @2305647-2305768 cv%3av_sp :: " "
+      @2305772-2305892 meta%3av :: "4"
+      @2305896-2306090 $ID/[No character style] :: "As r├ús subi┬¡r├úo em voc├¬, nos seus ofi┬¡ciais e no seu povoÔÇØ."
+      @2306094-2306214 meta%3av :: "4"
+      @2306218-2306340 $ID/[No character style] :: ""
+
+ Ô£ô src/NewSourceUploader/importers/biblica/bible-swap/scripts/portuguese-boundary-diag.debug.test.ts (1 test) 147ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:59:15
+   Duration  3.60s (transform 242ms, setup 33ms, collect 495ms, tests 147ms, environment 1.66s, prepare 241ms)
+

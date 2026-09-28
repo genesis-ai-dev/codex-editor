@@ -1,0 +1,19 @@
+﻿
+ RUN  v2.1.9 C:/Users/marti/Desktop/FrontierRnD/Codex/codex-editor/webviews/codex-webviews
+
+node.exe : [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline 
+data, please update: `npm i baseline-browser-mapping@latest -D`
+At C:\Users\marti\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([baseline-brows...ping@latest -D`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+ Ô£ô src/NewSourceUploader/importers/biblica/bible-swap/scripts/russian-chapter-inserts.test.ts (7 tests) 47ms
+ Ô£ô src/NewSourceUploader/importers/biblica/bible-swap/scripts/structureSwap.test.ts (27 tests) 61ms
+
+ Test Files  2 passed (2)
+      Tests  34 passed (34)
+   Start at  12:59:36
+   Duration  3.29s (transform 340ms, setup 78ms, collect 673ms, tests 109ms, environment 3.08s, prepare 562ms)
+

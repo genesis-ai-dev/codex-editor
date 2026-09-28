@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-27T05:43:03.609Z",
+  "language": "portuguese",
+  "languageLabel": "Portuguese",
+  "volumeCount": 6,
+  "volumes": [
+    {
+      "studyVolume": "ACT-REV",
+      "studyFile": "ACT-REV.idml",
+      "bibleFile": "44ACT-66REV_portuguese.idml",
+      "projectedMatchPercent": 99.86,
+      "versesMapped": 4146,
+      "versesRemoved": 6,
+      "versesInserted": 28,
+      "totalRedirected": 36,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 29,
+      "mappingFile": "ACT-REV.mapping.json",
+      "elapsedSeconds": 53.1
+    },
+    {
+      "studyVolume": "GEN-DEU",
+      "studyFile": "GEN-DEU.idml",
+      "bibleFile": "01GEN-05DEU_portuguese.idml",
+      "projectedMatchPercent": 100,
+      "versesMapped": 5848,
+      "versesRemoved": 0,
+      "versesInserted": 4,
+      "totalRedirected": 0,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 4,
+      "mappingFile": "GEN-DEU.mapping.json",
+      "elapsedSeconds": 79.1
+    },
+    {
+      "studyVolume": "ISA-MAL",
+      "studyFile": "ISA-MAL.idml",
+      "bibleFile": "23ISA-39MAL_portuguese.idml",
+      "projectedMatchPercent": 100,
+      "versesMapped": 5464,
+      "versesRemoved": 0,
+      "versesInserted": 24,
+      "totalRedirected": 20,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 25,
+      "mappingFile": "ISA-MAL.mapping.json",
+      "elapsedSeconds": 145.1
+    },
+    {
+      "studyVolume": "JOB-SNG",
+      "studyFile": "JOB-SNG.idml",
+      "bibleFile": "18JOB-22SNG_portuguese.idml",
+      "projectedMatchPercent": 99.98,
+      "versesMapped": 4771,
+      "versesRemoved": 1,
+      "versesInserted": 14,
+      "totalRedirected": 0,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 15,
+      "mappingFile": "JOB-SNG.mapping.json",
+      "elapsedSeconds": 96.3
+    },
+    {
+      "studyVolume": "JOS-EST",
+      "studyFile": "JOS-EST.idml",
+      "bibleFile": "06JOS-17EST_portuguese.idml",
+      "projectedMatchPercent": 100,
+      "versesMapped": 7007,
+      "versesRemoved": 0,
+      "versesInserted": 11,
+      "totalRedirected": 0,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 11,
+      "mappingFile": "JOS-EST.mapping.json",
+      "elapsedSeconds": 129.7
+    },
+    {
+      "studyVolume": "MAT-JOHN",
+      "studyFile": "MAT-JOHN.idml",
+      "bibleFile": "40MAT-43JHN_portuguese.idml",
+      "projectedMatchPercent": 99.73,
+      "versesMapped": 3754,
+      "versesRemoved": 10,
+      "versesInserted": 14,
+      "totalRedirected": 0,
+      "totalStructureInserts": 0,
+      "chaptersWithDeltas": 13,
+      "mappingFile": "MAT-JOHN.mapping.json",
+      "elapsedSeconds": 29.1
+    }
+  ]
+}
