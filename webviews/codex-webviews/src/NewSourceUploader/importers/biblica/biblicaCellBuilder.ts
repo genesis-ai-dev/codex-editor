@@ -26,6 +26,7 @@ import {
     isBiblicaMajorSectionHeadingStyle,
     isBiblicaNoteSectionStyle,
     isBiblicaRunningHeadStyle,
+    isBiblicaScriptureHeadingStyle,
     isStructuralOnlyContent,
     splitSegmentsAtLineBreaks,
     getStructuralApostropheSegmentIndexes,
@@ -230,14 +231,18 @@ export async function createCellsFromStories(
 
             // --- From here on, this is a non-verse paragraph ---
 
-            // Only intro/* note styles become editable cells; skip meta running headers, TOC, etc.
-            // Front/back matter has no note styles to speak of, so it takes any paragraph that
-            // carries text and only drops the auto-generated running heads.
+            // Only intro/* notes and head/* scripture headings become editable cells; skip
+            // meta running headers, TOC, and the poetry/prose lines that the Bible text
+            // itself supplies. Front/back matter has no note styles to speak of, so it takes
+            // any paragraph that carries text and only drops the auto-generated running heads.
             if (includeAllTextStyles) {
                 if (isBiblicaRunningHeadStyle(paragraphStyle)) {
                     continue;
                 }
-            } else if (!isBiblicaNoteSectionStyle(paragraphStyle)) {
+            } else if (
+                !isBiblicaNoteSectionStyle(paragraphStyle) &&
+                !isBiblicaScriptureHeadingStyle(paragraphStyle)
+            ) {
                 continue;
             }
 

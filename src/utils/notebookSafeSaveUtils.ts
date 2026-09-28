@@ -94,10 +94,11 @@ async function atomicWriteLocalFileText(fsPath: string, text: string): Promise<v
 
         // POSIX rename atomically replaces the target. On Windows this maps to
         // MoveFileEx(MOVEFILE_REPLACE_EXISTING), which can transiently fail with
-        // EPERM/EACCES if another process (e.g. antivirus) holds the target, so
-        // retry briefly before giving up.
+        // EPERM/EACCES if another process (e.g. antivirus or the search indexer
+        // scanning the previous write) holds the target, so retry with backoff
+        // before giving up. Those scans can take over a second on large notebooks.
         let lastRenameError: unknown;
-        for (const delayMs of [0, 10, 50, 250]) {
+        for (const delayMs of [0, 10, 50, 250, 500, 1000, 2000]) {
             if (delayMs > 0) {
                 await new Promise((resolve) => setTimeout(resolve, delayMs));
             }

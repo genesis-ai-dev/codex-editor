@@ -269,6 +269,65 @@ describe("createCellsFromStories — chapter/verse marker bleed-through", () => 
     });
 });
 
+describe("createCellsFromStories — scripture headings", () => {
+    // Mirrors the Psalter in JOB-SNG.idml. The verses themselves come from the Bible
+    // translation, but everything the layout sets around them — the five-book headings,
+    // the chapter labels and the superscriptions — is translated here.
+    const psalter = [
+        bookMarker("PSA"),
+        paragraph("intro%3aimt1", "Psalms"),
+        paragraph("head%3ams", "Book I"),
+        paragraph("head%3amr_h", "Psalms 1\u201441"),
+        paragraph("head%3acl", "Psalm 1"),
+        verse("PSA", "1", "1"),
+        paragraph("head%3acl", "Psalm 3"),
+        paragraph("head%3ad_h", "A psalm of David."),
+        paragraph("text%3aq1", "Lord, I have so many enemies!"),
+        verse("PSA", "3", "1"),
+        paragraph("intro%3aimi", "3:1-8 Note about Psalm 3."),
+    ];
+
+    it("imports the headings but leaves the verse lines to the Bible text", async () => {
+        expect((await build(psalter)).map(cellText)).toEqual([
+            "Psalms",
+            "Book I",
+            "Psalms 1\u201441",
+            "Psalm 1",
+            "Psalm 3",
+            "A psalm of David.",
+            "3:1-8 Note about Psalm 3.",
+        ]);
+    });
+
+    it("opens a milestone per psalm and groups the superscription with it", async () => {
+        const cells = await build(psalter);
+
+        expect(cellByText(cells, (text) => text === "Psalm 3").chapterNumber).toBe("3");
+        expect(cellByText(cells, (text) => text === "A psalm of David.").chapterNumber).toBe("3");
+        expect(milestoneTitles(cells)).toEqual(["Psalms Preface", "Psalms 1", "Psalms 3"]);
+    });
+
+    it("keeps headings attached to their book", async () => {
+        const cells = await build(psalter);
+
+        expect(cellByText(cells, (text) => text === "Psalm 1").globalReferences).toEqual(["PSA"]);
+    });
+
+    it("imports speaker lines and acrostic letters", async () => {
+        const cells = await build([
+            bookMarker("PSA"),
+            paragraph("head%3acl", "Psalm 119"),
+            paragraph("head%3aqa", "Aleph"),
+            verse("PSA", "119", "1"),
+            bookMarker("SNG"),
+            paragraph("head%3asp", "She says"),
+            verse("SNG", "1", "2"),
+        ]);
+
+        expect(cells.map(cellText)).toEqual(["Psalm 119", "Aleph", "She says"]);
+    });
+});
+
 describe("createCellsFromStories — front/back matter volumes", () => {
     it("imports layout styles that the study-notes pass skips", async () => {
         const paragraphs = [

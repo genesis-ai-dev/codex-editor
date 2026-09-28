@@ -5,6 +5,10 @@ import {
     tryDeterministicStructureFix,
     type HtmlStructureOptions,
 } from "../../../../sharedUtils/htmlStructureUtils";
+import {
+    fillSourceTemplateWithTranslation,
+    isSafeForcedRewrite,
+} from "../../../../sharedUtils/htmlStructureTemplateFill";
 import type { CompletionConfig } from "../../../utils/llmUtils";
 import type { CodexCellDocument } from "../codexDocument";
 
@@ -87,14 +91,111 @@ export const verifyResolvedContent = (
 };
 
 export type StructureResolveOutcome =
-    | { status: "resolved"; content: string; method: "deterministic" | "llm" }
+    | { status: "resolved"; content: string; method: "deterministic" | "llm" | "templateFill" }
     | { status: "already-matched" }
     | { status: "missing-content" }
     | { status: "unresolved" };
 
 /**
- * Resolve a cell's structure mismatch. Tries a deterministic fix first (no
- * LLM); falls back to the LLM and verifies the result before returning it.
+ * Resolve a source/translation HTML pair. Tries a deterministic fix first
+ * (no LLM); falls back to the LLM and verifies the result before returning it.
+ */
+export const resolveHtmlStructurePair = async (
+    sourceHtml: string,
+    targetHtml: string,
+    config?: CompletionConfig,
+    callLLMOverride?: (
+        prompt: Array<{ role: "system" | "user"; content: string }>,
+        config: CompletionConfig,
+    ) => Promise<{ content: string }>,
+    options?: HtmlStructureOptions,
+): Promise<StructureResolveOutcome> => {
+    if (!sourceHtml?.trim() || !targetHtml?.trim()) {
+        return { status: "missing-content" };
+    }
+
+    // Deterministic first: DOCX attribute-only repairs can succeed even when
+    // the tag skeleton already compares as a match.
+    const deterministicFix = tryDeterministicStructureFix(sourceHtml, targetHtml, options);
+    if (deterministicFix !== null) {
+        return { status: "resolved", content: deterministicFix, method: "deterministic" };
+    }
+
+    if (compareHtmlStructure(sourceHtml, targetHtml, options).isMatch) {
+        return { status: "already-matched" };
+    }
+
+    try {
+        const { fetchCompletionConfig } = await import("../../../utils/llmUtils");
+        const completionConfig = config ?? (await fetchCompletionConfig());
+        const llmResult = await resolveHtmlStructureWithLLM(
+            sourceHtml,
+            targetHtml,
+            completionConfig,
+            callLLMOverride,
+        );
+        const verified = verifyResolvedContent(sourceHtml, targetHtml, llmResult, options);
+        if (verified !== null) {
+            return { status: "resolved", content: verified, method: "llm" };
+        }
+    } catch (error) {
+        console.error("[resolveHtmlStructurePair] LLM resolve failed:", error);
+    }
+
+    return { status: "unresolved" };
+};
+
+/**
+ * IDML-based notebooks, whose source paragraphs are a fixed skeleton of styled
+ * runs. Rebuilding the translation inside that skeleton is reliable enough to
+ * replace the LLM there; other formats carry inline emphasis and footnotes
+ * whose placement needs the model's judgement.
+ */
+const usesParagraphTemplates = (options?: HtmlStructureOptions): boolean => {
+    const kind = options?.importerType || options?.corpusMarker;
+    return kind === "biblica" || kind === "indesign";
+};
+
+/**
+ * Rebuild the translation's text inside the source's own tags. Returns null
+ * unless the result matches the source and keeps every translated word.
+ */
+export const rebuildInSourceTemplate = (
+    sourceHtml: string,
+    targetHtml: string,
+    options?: HtmlStructureOptions,
+): string | null => {
+    const filled = fillSourceTemplateWithTranslation(sourceHtml, targetHtml);
+    if (!filled || !isSafeForcedRewrite(sourceHtml, targetHtml, filled.html, options)) {
+        return null;
+    }
+    return filled.html;
+};
+
+/** The offline path: deterministic fix, then template rebuild. Null when neither applies. */
+const resolveWithoutLLM = (
+    sourceHtml: string,
+    targetHtml: string,
+    options?: HtmlStructureOptions,
+): StructureResolveOutcome | null => {
+    const deterministicFix = tryDeterministicStructureFix(sourceHtml, targetHtml, options);
+    if (deterministicFix !== null) {
+        return { status: "resolved", content: deterministicFix, method: "deterministic" };
+    }
+    if (compareHtmlStructure(sourceHtml, targetHtml, options).isMatch) {
+        return { status: "already-matched" };
+    }
+    const rebuilt = rebuildInSourceTemplate(sourceHtml, targetHtml, options);
+    return rebuilt === null ? null : { status: "resolved", content: rebuilt, method: "templateFill" };
+};
+
+/**
+ * Resolve a cell's structure mismatch for the editor's Resolve buttons.
+ *
+ * IDML-based notebooks are resolved offline by rebuilding the translation in
+ * the source's tags. Other notebooks try a deterministic fix, then the LLM,
+ * and only fall back to the rebuild when the LLM's output fails verification,
+ * so Resolve rarely ends unresolved.
  */
 export const resolveCellHtmlStructure = async (
     cellId: string,
@@ -110,34 +211,20 @@ export const resolveCellHtmlStructure = async (
     if (!targetCell?.cellContent) {
         return { status: "missing-content" };
     }
+
     const targetHtml = targetCell.cellContent;
     const metadata = document.getNotebookMetadata();
-    const deterministicFix = tryDeterministicStructureFix(sourceHtml, targetHtml, metadata);
-    if (deterministicFix !== null) {
-        return { status: "resolved", content: deterministicFix, method: "deterministic" };
+
+    if (usesParagraphTemplates(metadata)) {
+        const offline = resolveWithoutLLM(sourceHtml, targetHtml, metadata);
+        if (offline) return offline;
     }
 
-    if (compareHtmlStructure(sourceHtml, targetHtml, metadata).isMatch) {
-        return { status: "already-matched" };
-    }
+    const outcome = await resolveHtmlStructurePair(sourceHtml, targetHtml, config, undefined, metadata);
+    if (outcome.status !== "unresolved") return outcome;
 
-    try {
-        const { fetchCompletionConfig } = await import("../../../utils/llmUtils");
-        const completionConfig = config ?? (await fetchCompletionConfig());
-        const llmResult = await resolveHtmlStructureWithLLM(
-            sourceHtml,
-            targetHtml,
-            completionConfig,
-        );
-        const verified = verifyResolvedContent(sourceHtml, targetHtml, llmResult, metadata);
-        if (verified !== null) {
-            return { status: "resolved", content: verified, method: "llm" };
-        }
-    } catch (error) {
-        console.error("[resolveCellHtmlStructure] LLM resolve failed:", error);
-    }
-
-    return { status: "unresolved" };
+    const rebuilt = rebuildInSourceTemplate(sourceHtml, targetHtml, metadata);
+    return rebuilt === null ? outcome : { status: "resolved", content: rebuilt, method: "templateFill" };
 };
 
 export const getSourceCellContent = async (cellId: string): Promise<string | null> => {
