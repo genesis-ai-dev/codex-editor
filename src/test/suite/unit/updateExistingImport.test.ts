@@ -7,7 +7,7 @@ import type { ReimportNotebook } from "../../../providers/NewSourceUploader/reim
 
 suite("DOCX update-existing safety", () => {
     const pair = {
-        notebookBaseName: "lesson", displayName: "Lesson",
+        notebookBaseName: "lesson", displayName: "Lesson", translationCount: 0,
         sourceUri: vscode.Uri.parse("docx-update-safety-test:/lesson.source"),
         codexUri: vscode.Uri.parse("docx-update-safety-test:/lesson.codex"),
     };

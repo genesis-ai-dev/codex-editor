@@ -135,6 +135,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const cellIds = cell.cellMarkers;
         // Lock state is ONLY honored from top-level metadata.isLocked
         const isCellLocked = !!cell.metadata?.isLocked;
+        // Set by an update import when this cell's source content changed
+        // under an existing translation; cleared when the user edits or validates the cell.
+        const needsResolution = cell.data?.needsResolution === true;
         const [fadingOut, setFadingOut] = useState(false);
         const [showSparkleButton, setShowSparkleButton] = useState(false);
         const [showAuthModal, setShowAuthModal] = useState(false);
@@ -459,6 +462,17 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     animation: "htmlStructureErrorGlowFade 1.5s ease-out forwards",
                 };
             }
+            // Flagged by an update import: the source changed under an
+            // existing translation, so the pairing needs a human check. A left
+            // bar rather than a full border, so it reads as "needs attention"
+            // instead of "error" and does not fight the translation-state
+            // borders once the user starts working on the cell.
+            if (needsResolution) {
+                return {
+                    borderColor: "transparent",
+                    borderLeft: "3px solid var(--vscode-editorWarning-foreground)",
+                };
+            }
 
             // Explicitly reset border properties when no translation state
             if (!translationState) {
@@ -674,6 +688,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             <div
                 ref={cellRef}
                 data-cell-id={cellIds[0]}
+                title={
+                    needsResolution
+                        ? "This cell's source changed during an update import. Check the translation still fits, then edit it to clear the flag."
+                        : undefined
+                }
                 className={`cell-content-display my-4 group ${getAnimationClassName()} ${
                     isScrollHighlighted ? "cell-scroll-highlight" : ""
                 }`}

@@ -679,6 +679,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     public readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
 
+    private sourceFlagResolution: Promise<void> = Promise.resolve();
+
     public async openCustomDocument(
         uri: vscode.Uri,
         openContext: { backupId?: string; },
@@ -1666,6 +1668,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 });
             })
         );
+
+        if (!this.isSourceText(document.uri)) {
+            listeners.push(
+                document.onDidResolveCell((cellId) => {
+                    // Chained so a batch validation saves the source file one cell at a time.
+                    this.sourceFlagResolution = this.sourceFlagResolution
+                        .then(() => this.resolveFlaggedSourceCell(document, cellId))
+                        .catch((error) => {
+                            console.warn("[CodexCellEditorProvider] Could not clear the source cell's update-import flag:", error);
+                        });
+                })
+            );
+        }
 
         listeners.push(
             document.onDidChangeForVsCodeAndWebview((e) => {
@@ -3737,6 +3752,26 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             vscode.window.showErrorMessage(
                 `Failed to merge target cells: ${error instanceof Error ? error.message : String(error)}`
             );
+        }
+    }
+
+    /**
+     * An update import flags both halves of a changed cell. Once the translator has validated or
+     * rewritten the target, the source half has nothing left to point at, so clear it too — in the
+     * open source editor if there is one, or on disk otherwise.
+     */
+    private async resolveFlaggedSourceCell(targetDocument: CodexCellDocument, cellId: string): Promise<void> {
+        const sourceUri = getCorrespondingSourceUri(targetDocument.uri);
+        if (!sourceUri) return;
+
+        const token = new vscode.CancellationTokenSource().token;
+        const sourceDocument = await this.openCustomDocument(sourceUri, {}, token);
+        if (!sourceDocument.resolveFlaggedCell(cellId)) return;
+
+        await sourceDocument.save(token);
+        const sourcePanel = this.findLiveEditorForUri(sourceDocument.uri).panel;
+        if (sourcePanel) {
+            await sendMilestoneRefreshToWebview(sourceDocument, sourcePanel, this);
         }
     }
 

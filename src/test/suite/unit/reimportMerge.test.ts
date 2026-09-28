@@ -77,16 +77,23 @@ suite("reimportMerge", () => {
         });
 
         test("does not apply DOCX inline matching to other importer types", () => {
-            for (const importerType of ["markdown", "obs", "usfm", "biblica", "indesign", "spreadsheet-csv", "spreadsheet-tsv"]) {
-                const metadata = { importerType };
-                const result = mergeReimportedNotebookPair(
+            const inlineSplit = (metadata: Record<string, unknown>) =>
+                mergeReimportedNotebookPair(
                     notebook([textCell("old", "<p>Le<span>sson</span></p>")], metadata),
                     notebook([textCell("old", "Translation")], metadata),
                     notebook([textCell("new", "<p>Lesson</p>")], metadata),
                     notebook([textCell("new", "")], metadata),
                 );
-                assert.strictEqual(result.stats.matchedCells, 0, importerType);
+
+            for (const importerType of ["markdown", "obs", "usfm", "indesign", "spreadsheet-csv", "spreadsheet-tsv"]) {
+                assert.strictEqual(inlineSplit({ importerType }).stats.matchedCells, 0, importerType);
             }
+
+            // Biblica does not match this on text either, but its positional
+            // alignment pass pairs the cells anyway and flags them for review.
+            const biblicaResult = inlineSplit({ importerType: "biblica" });
+            assert.strictEqual(biblicaResult.stats.matchedCells, 1);
+            assert.strictEqual(biblicaResult.stats.flaggedCells, 1);
         });
 
         test("carries translations over for cells with identical source text", () => {
@@ -274,6 +281,66 @@ suite("reimportMerge", () => {
 
             assert.strictEqual(stats.matchedCells, 1);
             assert.strictEqual(stats.droppedOldCells, 1);
+        });
+
+        const validatedTarget = (id: string, value: string): ReimportCell =>
+            textCell(id, value, {
+                edits: [{
+                    editMap: ["value"],
+                    value,
+                    timestamp: 1,
+                    type: EditType.USER_EDIT,
+                    validatedBy: [
+                        { username: "anna", creationTimestamp: 1, updatedTimestamp: 1, isDeleted: false },
+                        "legacy-reviewer",
+                    ],
+                }],
+            });
+
+        const validatorEntries = (cell: ReimportCell) =>
+            edits(cell).flatMap((edit) => (edit.validatedBy ?? []) as Array<Record<string, unknown>>);
+
+        test("withdraws the validation of a translation whose source changed, and flags it", () => {
+            const oldTarget = validatedTarget("old-1", "<p>Hola mundo.</p>");
+            const { mergedCodex, stats } = mergeReimportedNotebookPair(
+                notebook([textCell("old-1", "<p>Hello world.</p>")]),
+                notebook([oldTarget]),
+                notebook([textCell("new-1", "<p>Hello world. Goodbye.</p>")]),
+                notebook([textCell("new-1", "")]),
+            );
+
+            const target = findCell(mergedCodex, "old-1")!;
+            assert.strictEqual(target.value, "<p>Hola mundo.</p>");
+            assert.strictEqual(target.metadata?.data?.needsResolution, true);
+            const entries = validatorEntries(target);
+            assert.strictEqual(entries.length, 2);
+            for (const entry of entries) {
+                assert.strictEqual(entry.isDeleted, true);
+                assert.ok((entry.updatedTimestamp as number) > 1);
+            }
+            assert.deepStrictEqual(entries.map((entry) => entry.username), ["anna", "legacy-reviewer"]);
+            assert.strictEqual(stats.flaggedCells, 1);
+            assert.strictEqual(stats.unvalidatedCells, 1);
+            // The existing notebook is left as it was.
+            assert.strictEqual(
+                (edits(oldTarget)[0].validatedBy?.[0] as { isDeleted: boolean }).isDeleted,
+                false,
+            );
+        });
+
+        test("keeps the validation of a translation whose source is unchanged", () => {
+            const { mergedCodex, stats } = mergeReimportedNotebookPair(
+                notebook([textCell("old-1", "<p>Hello world.</p>")]),
+                notebook([validatedTarget("old-1", "<p>Hola mundo.</p>")]),
+                notebook([textCell("new-1", "<p>Hello world.</p>")]),
+                notebook([textCell("new-1", "")]),
+            );
+
+            const entries = validatorEntries(findCell(mergedCodex, "old-1")!);
+            assert.strictEqual(entries[0].isDeleted, false);
+            assert.strictEqual(entries[1], "legacy-reviewer");
+            assert.strictEqual(stats.flaggedCells, 0);
+            assert.strictEqual(stats.unvalidatedCells, 0);
         });
 
         test("preserves target attachments and records top-level and nested locator changes as edits", () => {
@@ -518,6 +585,770 @@ suite("reimportMerge", () => {
             // Import-related metadata comes from the new parse.
             assert.strictEqual(mergedSource.metadata?.originalFileHash, "new-hash");
             assert.strictEqual(mergedCodex.metadata?.id, "existing-id");
+        });
+    });
+
+    suite("Biblica structural matching", () => {
+        const biblica = { importerType: "biblica" };
+
+        /**
+         * Biblica source cell carrying the IDML locators the matcher keys on.
+         * `paragraphOrder` is derived from the paragraph id so that distinct
+         * paragraphs get distinct orders, as they do in a real document.
+         */
+        const idmlCell = (
+            id: string,
+            value: string,
+            locator: { story: string; paragraph: string; segment?: number; chapter?: string; },
+        ): ReimportCell =>
+            textCell(id, value, {
+                storyId: locator.story,
+                paragraphId: locator.paragraph,
+                chapterNumber: locator.chapter,
+                data: {
+                    relationships: {
+                        parentStory: locator.story,
+                        paragraphOrder: Number(locator.paragraph.replace(/\D/g, "")) || 0,
+                        segmentIndex: locator.segment ?? 0,
+                    },
+                },
+            });
+
+        const needsResolution = (cell: ReimportCell): boolean =>
+            cell.metadata?.data?.needsResolution === true;
+
+        test("keeps the translation when the importer changes a cell's style runs", () => {
+            // The regression this whole pass exists for: the fixed parser emits
+            // different markup AND different text for the same IDML paragraph,
+            // so text matching would tombstone the cell and lose the link to
+            // its translation.
+            const existingSource = notebook(
+                [idmlCell("old-1", "<p>Jacob\u02bcs sons</p>", { story: "u1a", paragraph: "p10" })],
+                biblica,
+            );
+            const existingCodex = notebook(
+                [textCell("old-1", "<p>Los hijos de Jacob</p>")],
+                biblica,
+            );
+            const newSource = notebook(
+                [idmlCell("fresh-1", "<p>Jacob's sons and daughters</p>", { story: "u1a", paragraph: "p10" })],
+                biblica,
+            );
+            const newCodex = notebook([textCell("fresh-1", "")], biblica);
+
+            const { mergedSource, mergedCodex, stats, changes } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex,
+            );
+
+            assert.strictEqual(stats.matchedCells, 1);
+            assert.strictEqual(stats.translationsCarried, 1);
+            assert.strictEqual(stats.droppedTranslations, 0);
+            assert.strictEqual(stats.insertedCells, 0);
+
+            // Old id kept, fresh source content applied, translation intact.
+            const source = findCell(mergedSource, "old-1")!;
+            const target = findCell(mergedCodex, "old-1")!;
+            assert.strictEqual(source.value, "<p>Jacob's sons and daughters</p>");
+            assert.strictEqual(target.value, "<p>Los hijos de Jacob</p>");
+
+            // Flagged on both sides, each with a recorded edit so the flag
+            // survives a sync merge.
+            assert.strictEqual(stats.flaggedCells, 1);
+            assert.ok(needsResolution(source), "source cell flagged");
+            assert.ok(needsResolution(target), "target cell flagged");
+            for (const cell of [source, target]) {
+                const flagEdits = edits(cell).filter(
+                    (e) => e.editMap.join(".") === "metadata.data.needsResolution",
+                );
+                assert.strictEqual(flagEdits.length, 1);
+                assert.strictEqual(flagEdits[0].value, true);
+                assert.strictEqual(flagEdits[0].type, EditType.MIGRATION);
+            }
+
+            assert.deepStrictEqual(
+                changes.map((change) => [change.kind, change.needsResolution]),
+                [["updated", true]],
+            );
+        });
+
+        test("does not flag a structurally matched cell whose text is unchanged", () => {
+            const existingSource = notebook(
+                [idmlCell("old-1", "<p>Unchanged text</p>", { story: "u1a", paragraph: "p10" })],
+                biblica,
+            );
+            const existingCodex = notebook([textCell("old-1", "<p>Sin cambios</p>")], biblica);
+            // Same text, different markup (a wrapper the fixed parser emits).
+            const newSource = notebook(
+                [idmlCell("fresh-1", "<p><span>Unchanged text</span></p>", { story: "u1a", paragraph: "p10" })],
+                biblica,
+            );
+            const newCodex = notebook([textCell("fresh-1", "")], biblica);
+
+            const { mergedCodex, stats, changes } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex,
+            );
+
+            assert.strictEqual(stats.matchedCells, 1);
+            assert.strictEqual(stats.flaggedCells, 0);
+            assert.strictEqual(needsResolution(findCell(mergedCodex, "old-1")!), false);
+            assert.deepStrictEqual(changes, []);
+        });
+
+        test("inserts cells for a new paragraph without disturbing existing translations", () => {
+            // Case 1: the document gained a paragraph between two translated
+            // ones. Everything else keeps its id and translation and simply
+            // shifts to make room.
+            const existingSource = notebook(
+                [
+                    idmlCell("old-1", "<p>First note</p>", { story: "u1a", paragraph: "p10" }),
+                    idmlCell("old-2", "<p>Third note</p>", { story: "u1a", paragraph: "p30" }),
+                ],
+                biblica,
+            );
+            const existingCodex = notebook(
+                [
+                    textCell("old-1", "<p>Primera nota</p>"),
+                    textCell("old-2", "<p>Tercera nota</p>"),
+                ],
+                biblica,
+            );
+            const newSource = notebook(
+                [
+                    idmlCell("fresh-1", "<p>First note</p>", { story: "u1a", paragraph: "p10" }),
+                    idmlCell("fresh-2", "<p>Second note</p>", { story: "u1a", paragraph: "p20" }),
+                    idmlCell("fresh-3", "<p>Third note</p>", { story: "u1a", paragraph: "p30" }),
+                ],
+                biblica,
+            );
+            const newCodex = notebook(
+                [textCell("fresh-1", ""), textCell("fresh-2", ""), textCell("fresh-3", "")],
+                biblica,
+            );
+
+            const { mergedSource, mergedCodex, stats, changes } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex,
+            );
+
+            // The new cell sits between the two existing ones, in order.
+            assert.deepStrictEqual(
+                mergedSource.cells.map((cell) => cell.metadata?.id),
+                ["old-1", "fresh-2", "old-2"],
+            );
+            assert.deepStrictEqual(
+                mergedCodex.cells.map((cell) => cell.value),
+                ["<p>Primera nota</p>", "", "<p>Tercera nota</p>"],
+            );
+            assert.strictEqual(stats.insertedCells, 1);
+            assert.strictEqual(stats.translationsCarried, 2);
+            assert.strictEqual(stats.droppedOldCells, 0);
+            // A genuinely new cell is not a re-resolution problem.
+            assert.strictEqual(stats.flaggedCells, 0);
+            assert.deepStrictEqual(
+                changes.map((change) => change.kind),
+                ["inserted"],
+            );
+        });
+
+        test("re-split paragraph keeps every translation and flags the whole group", () => {
+            // Case 2 at its worst: one paragraph that used to yield two cells
+            // now yields three. Nothing may be lost, and the translator has to
+            // redistribute the text, so all three cells are flagged.
+            const existingSource = notebook(
+                [
+                    idmlCell("old-a", "<p>Line one</p>", { story: "u1a", paragraph: "p10", segment: 0 }),
+                    idmlCell("old-b", "<p>Line two</p>", { story: "u1a", paragraph: "p10", segment: 1 }),
+                ],
+                biblica,
+            );
+            const existingCodex = notebook(
+                [textCell("old-a", "<p>Linea uno</p>"), textCell("old-b", "<p>Linea dos</p>")],
+                biblica,
+            );
+            const newSource = notebook(
+                [
+                    idmlCell("fresh-a", "<p>Line</p>", { story: "u1a", paragraph: "p10", segment: 0 }),
+                    idmlCell("fresh-b", "<p>one</p>", { story: "u1a", paragraph: "p10", segment: 1 }),
+                    idmlCell("fresh-c", "<p>Line two</p>", { story: "u1a", paragraph: "p10", segment: 2 }),
+                ],
+                biblica,
+            );
+            const newCodex = notebook(
+                [textCell("fresh-a", ""), textCell("fresh-b", ""), textCell("fresh-c", "")],
+                biblica,
+            );
+
+            const { mergedSource, mergedCodex, stats } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex,
+            );
+
+            // Two old cells adopted by the first two new slices; the third is
+            // new. No translation is dropped.
+            assert.deepStrictEqual(
+                mergedSource.cells.map((cell) => cell.metadata?.id),
+                ["old-a", "old-b", "fresh-c"],
+            );
+            assert.strictEqual(findCell(mergedCodex, "old-a")!.value, "<p>Linea uno</p>");
+            assert.strictEqual(findCell(mergedCodex, "old-b")!.value, "<p>Linea dos</p>");
+            assert.strictEqual(stats.droppedTranslations, 0);
+            // Every cell of the re-split paragraph needs re-resolving.
+            assert.strictEqual(stats.flaggedCells, 3);
+            for (const id of ["old-a", "old-b", "fresh-c"]) {
+                assert.ok(needsResolution(findCell(mergedSource, id)!), `${id} source flagged`);
+                assert.ok(needsResolution(findCell(mergedCodex, id)!), `${id} target flagged`);
+            }
+        });
+
+        test("collapsing paragraph folds surplus translations into the last slice", () => {
+            // The reverse re-split: three old cells, two new ones. The third
+            // translation has nowhere of its own to go, so it is appended
+            // rather than dropped.
+            const existingSource = notebook(
+                [
+                    idmlCell("old-a", "<p>A</p>", { story: "u1a", paragraph: "p10", segment: 0 }),
+                    idmlCell("old-b", "<p>B</p>", { story: "u1a", paragraph: "p10", segment: 1 }),
+                    idmlCell("old-c", "<p>C</p>", { story: "u1a", paragraph: "p10", segment: 2 }),
+                ],
+                biblica,
+            );
+            const existingCodex = notebook(
+                [
+                    textCell("old-a", "<p>alfa</p>"),
+                    textCell("old-b", "<p>beta</p>"),
+                    textCell("old-c", "<p>gamma</p>"),
+                ],
+                biblica,
+            );
+            const newSource = notebook(
+                [
+                    idmlCell("fresh-a", "<p>A</p>", { story: "u1a", paragraph: "p10", segment: 0 }),
+                    idmlCell("fresh-b", "<p>B C</p>", { story: "u1a", paragraph: "p10", segment: 1 }),
+                ],
+                biblica,
+            );
+            const newCodex = notebook(
+                [textCell("fresh-a", ""), textCell("fresh-b", "")],
+                biblica,
+            );
+
+            const { mergedCodex, stats } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex,
+            );
+
+            assert.strictEqual(findCell(mergedCodex, "old-a")!.value, "<p>alfa</p>");
+            assert.strictEqual(findCell(mergedCodex, "old-b")!.value, "<p>beta</p> <p>gamma</p>");
+            assert.strictEqual(stats.droppedTranslations, 0);
+            assert.strictEqual(isTombstoned(findCell(mergedCodex, "old-c")!), true);
+            assert.strictEqual(stats.flaggedCells, 2);
+        });
+
+        test("falls back to text matching for non-Biblica imports and for missing locators", () => {
+            // Same shape as the style-run test, but the importer type is not
+            // Biblica: the changed text must NOT be structurally matched.
+            const existingSource = notebook(
+                [idmlCell("old-1", "<p>Original text</p>", { story: "u1a", paragraph: "p10" })],
+                { importerType: "indesign" },
+            );
+            const existingCodex = notebook([textCell("old-1", "<p>Translated</p>")], {
+                importerType: "indesign",
+            });
+            const newSource = notebook(
+                [idmlCell("fresh-1", "<p>Different text</p>", { story: "u1a", paragraph: "p10" })],
+                { importerType: "indesign" },
+            );
+            const newCodex = notebook([textCell("fresh-1", "")], { importerType: "indesign" });
+
+            const { stats } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex,
+            );
+            assert.strictEqual(stats.matchedCells, 0);
+            assert.strictEqual(stats.flaggedCells, 0);
+
+            // Biblica cells that predate the locator metadata still match by text.
+            const legacy = mergeReimportedNotebookPair(
+                notebook([textCell("legacy", "<p>Same text</p>")], biblica),
+                notebook([textCell("legacy", "<p>Traducido</p>")], biblica),
+                notebook([idmlCell("fresh", "<p>Same text</p>", { story: "u1a", paragraph: "p10" })], biblica),
+                notebook([textCell("fresh", "")], biblica),
+            );
+            assert.strictEqual(legacy.stats.matchedCells, 1);
+            assert.strictEqual(legacy.stats.translationsCarried, 1);
+        });
+
+        /**
+         * IDML `ParagraphStyleRange` elements carry no `Self` attribute, so
+         * real Biblica cells have no `paragraphId` at all and the matcher has
+         * to fall back to `relationships.paragraphOrder`. These cases mirror
+         * what is actually on disk.
+         */
+        const orderedCell = (
+            id: string,
+            value: string,
+            locator: { story: string; order: number; segment?: number; },
+        ): ReimportCell =>
+            textCell(id, value, {
+                storyId: locator.story,
+                data: {
+                    relationships: {
+                        parentStory: locator.story,
+                        paragraphOrder: locator.order,
+                        segmentIndex: locator.segment ?? 0,
+                    },
+                },
+            });
+
+        test("matches on paragraphOrder when the IDML has no paragraph ids", () => {
+            const existingSource = notebook(
+                [
+                    orderedCell("old-1", "<p>Alpha beta gamma</p>", { story: "u1a", order: 3 }),
+                    orderedCell("old-2", "<p>Delta epsilon zeta</p>", { story: "u1a", order: 7 }),
+                ],
+                biblica,
+            );
+            const existingCodex = notebook(
+                [textCell("old-1", "<p>Primera</p>"), textCell("old-2", "<p>Segunda</p>")],
+                biblica,
+            );
+            // Text that neither equals nor contains the old text, so only the
+            // structural pass can possibly link these to their translations.
+            const newSource = notebook(
+                [
+                    orderedCell("fresh-1", "<p>Eta theta iota</p>", { story: "u1a", order: 3 }),
+                    orderedCell("fresh-2", "<p>Kappa lambda mu</p>", { story: "u1a", order: 7 }),
+                ],
+                biblica,
+            );
+            const newCodex = notebook(
+                [textCell("fresh-1", ""), textCell("fresh-2", "")],
+                biblica,
+            );
+
+            const { mergedCodex, stats } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex,
+            );
+
+            assert.strictEqual(stats.translationsCarried, 2);
+            assert.strictEqual(findCell(mergedCodex, "old-1")!.value, "<p>Primera</p>");
+            assert.strictEqual(findCell(mergedCodex, "old-2")!.value, "<p>Segunda</p>");
+        });
+
+        test("matches when only one side of the import recorded paragraph ids", () => {
+            // The pair on disk was written by an importer build that emitted no
+            // paragraph id; the fresh parse emits one (or the reverse). Keying
+            // strictly on the richer locator would intersect on nothing and
+            // blank out every translation in the file.
+            const existingSource = notebook(
+                [orderedCell("old-1", "<p>Alpha beta gamma</p>", { story: "u1a", order: 3 })],
+                biblica,
+            );
+            const existingCodex = notebook([textCell("old-1", "<p>Primera</p>")], biblica);
+            const newSource = notebook(
+                [
+                    textCell("fresh-1", "<p>Eta theta iota</p>", {
+                        storyId: "u1a",
+                        paragraphId: "pid-99",
+                        data: {
+                            relationships: {
+                                parentStory: "u1a",
+                                paragraphOrder: 3,
+                                segmentIndex: 0,
+                            },
+                        },
+                    }),
+                ],
+                biblica,
+            );
+            const newCodex = notebook([textCell("fresh-1", "")], biblica);
+
+            const { mergedCodex, stats } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex,
+            );
+
+            assert.strictEqual(stats.translationsCarried, 1);
+            assert.strictEqual(findCell(mergedCodex, "old-1")!.value, "<p>Primera</p>");
+        });
+
+        test("ignores a positional key shared by several paragraphs", () => {
+            // A build that stamped every paragraph with the same order must not
+            // collapse them into one group and cross-wire their translations.
+            const existingSource = notebook(
+                [
+                    textCell("old-1", "<p>Alpha</p>", {
+                        storyId: "u1a",
+                        paragraphId: "pA",
+                        data: { relationships: { parentStory: "u1a", paragraphOrder: 0 } },
+                    }),
+                    textCell("old-2", "<p>Beta</p>", {
+                        storyId: "u1a",
+                        paragraphId: "pB",
+                        data: { relationships: { parentStory: "u1a", paragraphOrder: 0 } },
+                    }),
+                ],
+                biblica,
+            );
+            const existingCodex = notebook(
+                [textCell("old-1", "<p>Uno</p>"), textCell("old-2", "<p>Dos</p>")],
+                biblica,
+            );
+            const newSource = notebook(
+                [
+                    textCell("fresh-1", "<p>Alpha revised</p>", {
+                        storyId: "u1a",
+                        paragraphId: "pA",
+                        data: { relationships: { parentStory: "u1a", paragraphOrder: 0 } },
+                    }),
+                    textCell("fresh-2", "<p>Beta revised</p>", {
+                        storyId: "u1a",
+                        paragraphId: "pB",
+                        data: { relationships: { parentStory: "u1a", paragraphOrder: 0 } },
+                    }),
+                ],
+                biblica,
+            );
+            const newCodex = notebook(
+                [textCell("fresh-1", ""), textCell("fresh-2", "")],
+                biblica,
+            );
+
+            const { mergedCodex } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex,
+            );
+
+            // Each translation stays with its own paragraph.
+            assert.strictEqual(findCell(mergedCodex, "old-1")!.value, "<p>Uno</p>");
+            assert.strictEqual(findCell(mergedCodex, "old-2")!.value, "<p>Dos</p>");
+        });
+
+        test("inserting cells shifts later cells and keeps their translations aligned", () => {
+            // The reported scenario: two translated cells with four new
+            // paragraphs appearing between them. The first keeps its position,
+            // the second shifts down by four, and both keep their translations
+            // while the inserted cells arrive empty.
+            const existingSource = notebook(
+                [
+                    idmlCell("old-first", "<p>First note</p>", { story: "u1a", paragraph: "p1" }),
+                    idmlCell("old-last", "<p>Last note</p>", { story: "u1a", paragraph: "p20" }),
+                ],
+                biblica,
+            );
+            const existingCodex = notebook(
+                [
+                    textCell("old-first", "<p>Primera</p>"),
+                    textCell("old-last", "<p>Ultima</p>"),
+                ],
+                biblica,
+            );
+            const inserted = [5, 6, 7, 8].map((n) =>
+                idmlCell(`fresh-${n}`, `<p>Added ${n}</p>`, { story: "u1a", paragraph: `p${n}` }),
+            );
+            const newSource = notebook(
+                [
+                    idmlCell("fresh-first", "<p>First note</p>", { story: "u1a", paragraph: "p1" }),
+                    ...inserted,
+                    idmlCell("fresh-last", "<p>Last note</p>", { story: "u1a", paragraph: "p20" }),
+                ],
+                biblica,
+            );
+            const newCodex = notebook(
+                [
+                    textCell("fresh-first", ""),
+                    ...inserted.map((cell) => textCell(cell.metadata!.id as string, "")),
+                    textCell("fresh-last", ""),
+                ],
+                biblica,
+            );
+
+            const { mergedSource, mergedCodex, stats } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex,
+            );
+
+            const ids = mergedSource.cells.map((cell) => cell.metadata?.id);
+            assert.deepStrictEqual(ids, [
+                "old-first",
+                "fresh-5",
+                "fresh-6",
+                "fresh-7",
+                "fresh-8",
+                "old-last",
+            ]);
+            assert.deepStrictEqual(
+                mergedCodex.cells.map((cell) => cell.value),
+                ["<p>Primera</p>", "", "", "", "", "<p>Ultima</p>"],
+            );
+            assert.strictEqual(stats.insertedCells, 4);
+            assert.strictEqual(stats.translationsCarried, 2);
+            assert.strictEqual(stats.droppedTranslations, 0);
+            // Nothing changed about the surviving cells, so nothing to review.
+            assert.strictEqual(stats.flaggedCells, 0);
+        });
+
+        test("keeps translations when neither locators nor text line up", () => {
+            // The worst case, and the one that produced a blank target: the
+            // importer rewrote the text AND the locators do not correspond, so
+            // every pass except positional alignment comes up empty.
+            const existingSource = notebook(
+                [
+                    idmlCell("old-1", "<p>Alpha beta</p>", { story: "s1", paragraph: "p1" }),
+                    idmlCell("old-2", "<p>Gamma delta</p>", { story: "s1", paragraph: "p2" }),
+                    idmlCell("old-3", "<p>Epsilon zeta</p>", { story: "s1", paragraph: "p3" }),
+                ],
+                biblica,
+            );
+            const existingCodex = notebook(
+                [
+                    textCell("old-1", "<p>Uno</p>"),
+                    textCell("old-2", "<p>Dos</p>"),
+                    textCell("old-3", "<p>Tres</p>"),
+                ],
+                biblica,
+            );
+            // Different story id and different paragraph ids: no structural
+            // key in common. Different words: no text or containment match.
+            const newSource = notebook(
+                [
+                    idmlCell("fresh-1", "<p>Eta theta</p>", { story: "s9", paragraph: "p71" }),
+                    idmlCell("fresh-2", "<p>Iota kappa</p>", { story: "s9", paragraph: "p72" }),
+                    idmlCell("fresh-3", "<p>Lambda mu</p>", { story: "s9", paragraph: "p73" }),
+                ],
+                biblica,
+            );
+            const newCodex = notebook(
+                [textCell("fresh-1", ""), textCell("fresh-2", ""), textCell("fresh-3", "")],
+                biblica,
+            );
+
+            const { mergedSource, mergedCodex, stats } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex,
+            );
+
+            assert.strictEqual(stats.translationsCarried, 3);
+            assert.strictEqual(stats.droppedTranslations, 0);
+            assert.deepStrictEqual(
+                mergedCodex.cells.map((cell) => cell.value),
+                ["<p>Uno</p>", "<p>Dos</p>", "<p>Tres</p>"],
+            );
+            // The fresh source text is what is kept, on the old cells' ids.
+            assert.deepStrictEqual(
+                mergedSource.cells.map((cell) => cell.value),
+                ["<p>Eta theta</p>", "<p>Iota kappa</p>", "<p>Lambda mu</p>"],
+            );
+            // Positional pairing is a guess, so every one needs verifying.
+            assert.strictEqual(stats.flaggedCells, 3);
+            assert.ok(mergedCodex.cells.every(needsResolution), "targets flagged");
+        });
+
+        test("positional alignment inserts rather than mispairs when cells were added", () => {
+            // Two anchors that still match by text, with one changed cell and
+            // two brand-new cells between them. The changed cell must take the
+            // old translation; the extra cells must arrive empty.
+            const existingSource = notebook(
+                [
+                    idmlCell("old-a", "<p>Stable opening</p>", { story: "s1", paragraph: "p1" }),
+                    idmlCell("old-b", "<p>Alpha beta</p>", { story: "s1", paragraph: "p2" }),
+                    idmlCell("old-c", "<p>Stable ending</p>", { story: "s1", paragraph: "p9" }),
+                ],
+                biblica,
+            );
+            const existingCodex = notebook(
+                [
+                    textCell("old-a", "<p>Apertura</p>"),
+                    textCell("old-b", "<p>Dos</p>"),
+                    textCell("old-c", "<p>Cierre</p>"),
+                ],
+                biblica,
+            );
+            const newSource = notebook(
+                [
+                    idmlCell("fresh-a", "<p>Stable opening</p>", { story: "s9", paragraph: "p31" }),
+                    idmlCell("fresh-b", "<p>Gamma delta</p>", { story: "s9", paragraph: "p32" }),
+                    idmlCell("fresh-x", "<p>Brand new one</p>", { story: "s9", paragraph: "p33" }),
+                    idmlCell("fresh-y", "<p>Brand new two</p>", { story: "s9", paragraph: "p34" }),
+                    idmlCell("fresh-c", "<p>Stable ending</p>", { story: "s9", paragraph: "p39" }),
+                ],
+                biblica,
+            );
+            const newCodex = notebook(
+                [
+                    textCell("fresh-a", ""),
+                    textCell("fresh-b", ""),
+                    textCell("fresh-x", ""),
+                    textCell("fresh-y", ""),
+                    textCell("fresh-c", ""),
+                ],
+                biblica,
+            );
+
+            const { mergedSource, mergedCodex, stats } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex,
+            );
+
+            assert.deepStrictEqual(
+                mergedSource.cells.map((cell) => cell.metadata?.id),
+                ["old-a", "old-b", "fresh-x", "fresh-y", "old-c"],
+            );
+            assert.deepStrictEqual(
+                mergedCodex.cells.map((cell) => cell.value),
+                ["<p>Apertura</p>", "<p>Dos</p>", "", "", "<p>Cierre</p>"],
+            );
+            assert.strictEqual(stats.insertedCells, 2);
+            assert.strictEqual(stats.droppedTranslations, 0);
+            // Only the changed cell needs review; the anchors are unchanged.
+            assert.strictEqual(stats.flaggedCells, 1);
+        });
+    });
+
+    suite("source/codex id drift", () => {
+        test("recovers translations when the codex uses different ids than the source", () => {
+            // Cell-id migrations run over .source and .codex files
+            // independently, so a pair can end up describing the same document
+            // under different ids. The id join then finds nothing and the
+            // update writes an empty target — the failure this guards.
+            const existingSource = notebook([
+                textCell("src-1", "<p>First</p>"),
+                textCell("src-2", "<p>Second</p>"),
+            ]);
+            const existingCodex = notebook([
+                textCell("codex-1", "<p>Primera</p>"),
+                textCell("codex-2", "<p>Segunda</p>"),
+            ]);
+            const newSource = notebook([
+                textCell("fresh-1", "<p>First</p>"),
+                textCell("fresh-2", "<p>Second</p>"),
+            ]);
+            const newCodex = notebook([textCell("fresh-1", ""), textCell("fresh-2", "")]);
+
+            const { mergedCodex, stats } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex,
+            );
+
+            assert.strictEqual(stats.translationsCarried, 2);
+            // The merged pair is re-keyed to the source ids, repairing the drift.
+            assert.strictEqual(findCell(mergedCodex, "src-1")!.value, "<p>Primera</p>");
+            assert.strictEqual(findCell(mergedCodex, "src-2")!.value, "<p>Segunda</p>");
+        });
+
+        test("keeps using ids when only some of them drifted", () => {
+            // A partially drifted pair must not be shuffled: the cells that
+            // still join by id keep their own translation, and only the
+            // leftover cell is resolved by position.
+            const existingSource = notebook([
+                textCell("shared", "<p>First</p>"),
+                textCell("src-2", "<p>Second</p>"),
+            ]);
+            const existingCodex = notebook([
+                textCell("shared", "<p>Primera</p>"),
+                textCell("codex-2", "<p>Segunda</p>"),
+            ]);
+            const newSource = notebook([
+                textCell("fresh-1", "<p>First</p>"),
+                textCell("fresh-2", "<p>Second</p>"),
+            ]);
+            const newCodex = notebook([textCell("fresh-1", ""), textCell("fresh-2", "")]);
+
+            const { mergedCodex, stats } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex,
+            );
+
+            assert.strictEqual(stats.translationsCarried, 2);
+            assert.strictEqual(findCell(mergedCodex, "shared")!.value, "<p>Primera</p>");
+            assert.strictEqual(findCell(mergedCodex, "src-2")!.value, "<p>Segunda</p>");
+        });
+
+        test("zips leftover translations by order when the two sides have different cell counts", () => {
+            // Extra source cells become inserts; the translations we do have
+            // still have to land on the cells that line up by position.
+            const existingSource = notebook([
+                textCell("src-1", "<p>First</p>"),
+                textCell("src-2", "<p>Second</p>"),
+            ]);
+            const existingCodex = notebook([textCell("codex-1", "<p>Primera</p>")]);
+            const newSource = notebook([
+                textCell("fresh-1", "<p>First</p>"),
+                textCell("fresh-2", "<p>Second</p>"),
+            ]);
+            const newCodex = notebook([textCell("fresh-1", ""), textCell("fresh-2", "")]);
+
+            const { mergedCodex, stats } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex,
+            );
+
+            assert.strictEqual(stats.translationsCarried, 1);
+            assert.strictEqual(findCell(mergedCodex, "src-1")!.value, "<p>Primera</p>");
+            assert.strictEqual(findCell(mergedCodex, "src-2")!.value, "");
+        });
+
+        test("ignores codex-only paratext when pairing by position", () => {
+            // Translation imports append paratext cells to the codex that the
+            // source never has; counting them would make the two sides look
+            // mismatched and disable the fallback.
+            const existingSource = notebook([
+                textCell("src-1", "<p>First</p>"),
+                textCell("src-2", "<p>Second</p>"),
+            ]);
+            const existingCodex = notebook([
+                textCell("codex-1", "<p>Primera</p>"),
+                textCell("note", "<p>A note</p>", { type: CodexCellTypes.PARATEXT }),
+                textCell("codex-2", "<p>Segunda</p>"),
+            ]);
+            const newSource = notebook([
+                textCell("fresh-1", "<p>First</p>"),
+                textCell("fresh-2", "<p>Second</p>"),
+            ]);
+            const newCodex = notebook([textCell("fresh-1", ""), textCell("fresh-2", "")]);
+
+            const { mergedCodex, stats } = mergeReimportedNotebookPair(
+                existingSource,
+                existingCodex,
+                newSource,
+                newCodex,
+            );
+
+            assert.strictEqual(stats.translationsCarried, 2);
+            assert.strictEqual(findCell(mergedCodex, "src-2")!.value, "<p>Segunda</p>");
         });
     });
 });
