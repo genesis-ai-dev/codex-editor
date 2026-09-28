@@ -7,8 +7,22 @@ import type { FfmpegBuild } from "./ffmpegBuilds";
 import { ffmpegExecutableName } from "./ffmpegBuilds";
 
 // tar 6 is already bundled by the extension, but does not ship TypeScript types.
+// Only its streaming parser is used; it never writes to disk, so archive paths are never trusted.
+interface TarEntry {
+    type: string;
+    pipe(destination: NodeJS.WritableStream): void;
+    unpipe(destination: NodeJS.WritableStream): void;
+    resume(): void;
+}
+interface TarListOptions {
+    file: string;
+    strict: boolean;
+    noResume: boolean;
+    filter: (name: string, entry: TarEntry) => boolean;
+    onentry: (entry: TarEntry) => void;
+}
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const tar: { x(options: { file: string; cwd: string; strip: number; strict: boolean; filter: (name: string, entry: { type: string }) => boolean }): Promise<void> } = require("tar");
+const tar: { t(options: TarListOptions): Promise<void> } = require("tar");
 
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 const MAX_ARCHIVE_BYTES = 150 * 1024 * 1024;
@@ -46,16 +60,59 @@ export async function downloadFfmpegArchive(url: string, destination: string, si
 /** Extract only the expected executable; never trust archive paths or symlinks. */
 export async function extractFfmpegArchive(archive: string, build: FfmpegBuild, destination: string): Promise<void> {
     const executable = ffmpegExecutableName(build);
+    const target = path.join(destination, executable);
     if (build.download?.format === "gzip") {
-        await pipeline(fs.createReadStream(archive), createGunzip(), fs.createWriteStream(path.join(destination, executable), { flags: "wx" }));
+        await pipeline(fs.createReadStream(archive), createGunzip(), fs.createWriteStream(target, { flags: "wx" }));
     } else if (build.download?.format === "tgz") {
-        await tar.x({
-            file: archive, cwd: destination, strip: 1, strict: true,
-            filter: (name, entry) => name === `package/${executable}` && entry.type === "File",
-        });
+        await extractTarEntry(archive, `package/${executable}`, target);
     } else {
         throw new Error(`No supported download format for ${build.id}`);
     }
+}
+
+/**
+ * Stream exactly one regular file out of a gzipped tarball into `target`.
+ *
+ * `tar.x` is deliberately avoided. It resolves entry paths against `cwd` itself and
+ * refuses anything not prefixed by `cwd + "/"`, and its backslash normalization is keyed
+ * off `process.platform`. The webpack test bundle replaces `process` with a browser
+ * polyfill that has no `platform`, so on Windows Node's real `path` produced backslashes
+ * and a legitimate `package/ffmpeg` entry failed with "path escaped extraction target".
+ * Letting tar only parse, and writing the bytes ourselves, behaves the same everywhere.
+ */
+function extractTarEntry(archive: string, entryPath: string, target: string): Promise<void> {
+    let written: Promise<void> | undefined;
+    let failure: Error | undefined;
+    const fail = (error: Error) => { failure = failure ?? error; };
+    const listed = tar.t({
+        file: archive, strict: true, noResume: true,
+        filter: (name, entry) => name === entryPath && entry.type === "File",
+        onentry: (entry) => {
+            if (written) {
+                fail(new Error(`FFmpeg archive contains ${entryPath} more than once`));
+                entry.resume();
+                return;
+            }
+            const output = fs.createWriteStream(target, { flags: "wx" });
+            // "close" follows both "finish" and "error", so this always settles.
+            written = new Promise<void>((done) => output.once("close", () => done()));
+            output.once("error", (error) => {
+                fail(error);
+                entry.unpipe(output); // stop waiting for a drain that will never come
+                entry.resume(); // discard the rest so the parser still reaches its end
+            });
+            entry.pipe(output);
+        },
+    });
+    return listed.then(async () => {
+        if (!written) {
+            throw new Error(`FFmpeg archive does not contain ${entryPath}`);
+        }
+        await written;
+        if (failure) {
+            throw failure;
+        }
+    });
 }
 
 /** The caller supplies a private staging directory and verifies the binary hash. */
