@@ -1,3 +1,5 @@
+import { EXTENSION_PIN_POLICY } from "../sharedUtils/extensionPinFeatureFlag";
+import { prepareProjectPinsForActivation } from "./utils/extensionPins";
 import * as vscode from "vscode";
 import { registerProviders } from "./providers/registerProviders";
 import { GlobalProvider } from "./globalProvider";
@@ -479,6 +481,15 @@ async function restoreTabLayout(context: vscode.ExtensionContext) {
 }
 
 export async function activate(context: vscode.ExtensionContext) {
+    context.subscriptions.push(vscode.commands.registerCommand(
+        "codex.openProjectFolder",
+        (uri: string) => MetadataManager.safeOpenFolder(vscode.Uri.parse(uri))
+    ));
+    context.subscriptions.push(vscode.commands.registerCommand(
+        "codex.clearProjectExtensionPins",
+        (uri: string) => MetadataManager.clearExtensionPins(vscode.Uri.parse(uri))
+    ));
+    if (!await prepareProjectPinsForActivation(context)) { return; }
     const activationStart = globalThis.performance.now();
 
     // Ensure OS temp directory exists in test/web environments (mock FS may not have /tmp)
@@ -611,9 +622,7 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     }
 
-    // Pin-match gate: before heavy initialization, halt if our running version
-    // doesn't match the project's pin so the Conductor can switch profiles.
-    if (metadataExists && await failsPinMatchGate(activationStart)) {
+    if (!EXTENSION_PIN_POLICY.ignoreProjectPins && metadataExists && await failsPinMatchGate(activationStart)) {
         updateSplashScreenSync(0, "Applying extension version pins...");
         return;
     }

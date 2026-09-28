@@ -1,3 +1,4 @@
+import { EXTENSION_PIN_POLICY } from "../../../sharedUtils/extensionPinFeatureFlag";
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as path from 'path';
@@ -215,7 +216,170 @@ suite('MetadataManager Tests', () => {
         });
     });
 
-    suite('Pin-aware ratchet', () => {
+    suite('Temporarily disabled extension pins', () => {
+        test('disabled cleanup bypasses file reads and Conductor commands', async () => {
+            EXTENSION_PIN_POLICY.ignoreProjectPins = false;
+            const originalExecute = vscode.commands.executeCommand;
+            try {
+                // Invalid JSON would throw if disabled cleanup attempted to parse it.
+                await vscode.workspace.fs.writeFile(metadataPath, Buffer.from('{broken'));
+                vscode.commands.executeCommand = async () => { throw new Error('Unexpected command'); };
+                assert.strictEqual(await MetadataManager.clearExtensionPins(testWorkspaceUri), false);
+                const { clearCurrentProjectPins, clearConductorPinState } = await import('../../utils/extensionPins');
+                await clearCurrentProjectPins();
+                await clearConductorPinState();
+            } finally {
+                vscode.commands.executeCommand = originalExecute;
+                EXTENSION_PIN_POLICY.ignoreProjectPins = true;
+            }
+        });
+
+        test('clears pins while preserving unrelated metadata and minimum requirements', async () => {
+            const metadata = {
+                projectName: 'Preserve this',
+                users: [{ userName: 'alice' }],
+                meta: {
+                    requiredExtensions: { codexEditor: '0.22.90', frontierAuthentication: '0.4.0' },
+                    pinnedExtensions: {
+                        'project-accelerate.codex-editor-extension': { version: '0.22.90', url: 'https://example.invalid/editor.vsix' },
+                        'frontier-rnd.frontier-authentication': { version: '0.4.0', url: '' }
+                    }
+                }
+            };
+            await vscode.workspace.fs.writeFile(metadataPath, Buffer.from(JSON.stringify(metadata)));
+            assert.strictEqual(await MetadataManager.clearExtensionPins(testWorkspaceUri), true);
+            const actual = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(metadataPath)).toString());
+            assert.deepStrictEqual(actual, { ...metadata, meta: { ...metadata.meta, pinnedExtensions: {} } });
+            assert.strictEqual(await MetadataManager.clearExtensionPins(testWorkspaceUri), false);
+        });
+
+        test('version requirements advance even when disk or Conductor has pins', async () => {
+            const original = vscode.commands.executeCommand;
+            (vscode.commands as any).executeCommand = async () => ({
+                'project-accelerate.codex-editor-extension': { version: '0.22.90', url: '' }
+            });
+            try {
+                await vscode.workspace.fs.writeFile(metadataPath, Buffer.from(JSON.stringify({ meta: {
+                    requiredExtensions: { codexEditor: '0.22.90', frontierAuthentication: '0.4.0' },
+                    pinnedExtensions: { 'frontier-rnd.frontier-authentication': { version: '0.4.0', url: '' } }
+                } })));
+                const result = await MetadataManager.updateExtensionVersions(testWorkspaceUri, {
+                    codexEditor: '0.22.91', frontierAuthentication: '0.4.25'
+                });
+                assert.strictEqual(result.success, true);
+                const actual = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(metadataPath)).toString());
+                assert.deepStrictEqual(actual.meta.requiredExtensions, { codexEditor: '0.22.91', frontierAuthentication: '0.4.25' });
+                assert.deepStrictEqual(actual.meta.pinnedExtensions, {});
+            } finally {
+                (vscode.commands as any).executeCommand = original;
+            }
+        });
+
+        test('opens only after pin removal has been saved', async () => {
+            await vscode.workspace.fs.writeFile(metadataPath, Buffer.from(JSON.stringify({ meta: {
+                pinnedExtensions: { extension: { version: '1', url: 'url' } }
+            } })));
+            const original = vscode.commands.executeCommand;
+            let opened = false;
+            (vscode.commands as any).executeCommand = async (command: string) => {
+                assert.strictEqual(command, 'vscode.openFolder');
+                const actual = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(metadataPath)).toString());
+                assert.deepStrictEqual(actual.meta.pinnedExtensions, {});
+                opened = true;
+            };
+            try {
+                await MetadataManager.safeOpenFolder(testWorkspaceUri);
+                assert.strictEqual(opened, true);
+            } finally {
+                (vscode.commands as any).executeCommand = original;
+            }
+        });
+
+        test('invalid metadata or failed save prevents opening and preserves the original', async () => {
+            const originalCommand = vscode.commands.executeCommand;
+            const originalWrite = vscode.workspace.fs.writeFile;
+            const events = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
+            const pinned = JSON.stringify({ meta: { pinnedExtensions: { ext: { version: '1', url: '' } } } });
+            const provider = vscode.workspace.registerFileSystemProvider('pin-save-failure', {
+                onDidChangeFile: events.event,
+                watch: () => new vscode.Disposable(() => {}),
+                stat: uri => ({ type: uri.path.endsWith('/metadata.json') ? vscode.FileType.File : vscode.FileType.Directory, ctime: 0, mtime: 0, size: pinned.length }),
+                readDirectory: () => [],
+                createDirectory: () => {},
+                readFile: () => Buffer.from(pinned),
+                writeFile: () => { throw vscode.FileSystemError.NoPermissions('write denied'); },
+                delete: () => {},
+                rename: () => {},
+            });
+            let opened = false;
+            (vscode.commands as any).executeCommand = async () => { opened = true; };
+            try {
+                await originalWrite(metadataPath, Buffer.from('{broken'));
+                await assert.rejects(MetadataManager.safeOpenFolder(testWorkspaceUri));
+                assert.strictEqual(Buffer.from(await vscode.workspace.fs.readFile(metadataPath)).toString(), '{broken');
+                const deniedFolder = vscode.Uri.parse('pin-save-failure:/project');
+                await assert.rejects(MetadataManager.safeOpenFolder(deniedFolder), /write denied/);
+                assert.strictEqual(Buffer.from(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(deniedFolder, 'metadata.json'))).toString(), pinned);
+                assert.strictEqual(opened, false);
+            } finally {
+                (vscode.commands as any).executeCommand = originalCommand;
+                provider.dispose();
+                events.dispose();
+            }
+        });
+
+        test('ordinary metadata writes cannot reintroduce pins', async () => {
+            const result = await MetadataManager.safeUpdateMetadata(testWorkspaceUri, () => ({
+                meta: { pinnedExtensions: { ext: { version: '1', url: '' } } }
+            }));
+            assert.strictEqual(result.success, true);
+            assert.deepStrictEqual(result.metadata?.meta.pinnedExtensions, {});
+        });
+
+        test('pin cleanup preserves file formatting and unrelated numeric values', async () => {
+            const input = '{\n "number": 1.2300e+9, "meta" : { "pinnedExtensions": {"ext":{}}, "keep":true }\n}\n';
+            await vscode.workspace.fs.writeFile(metadataPath, Buffer.from(input));
+            assert.strictEqual(await MetadataManager.clearExtensionPins(testWorkspaceUri), true);
+            assert.strictEqual(Buffer.from(await vscode.workspace.fs.readFile(metadataPath)).toString(), input.replace('{"ext":{}}', '{}'));
+        });
+
+        test('a no-op metadata update applies only the pin-value edit', async () => {
+            const input = '{ "meta": { "pinnedExtensions": {"ext":{}}, "number": 1.230e+9 } }\n';
+            await vscode.workspace.fs.writeFile(metadataPath, Buffer.from(input));
+            assert.strictEqual((await MetadataManager.safeUpdateMetadata(testWorkspaceUri, value => value)).success, true);
+            assert.strictEqual(Buffer.from(await vscode.workspace.fs.readFile(metadataPath)).toString(), input.replace('{"ext":{}}', '{}'));
+        });
+
+        test('pin cleanup waits for the metadata writer and preserves its updates', async () => {
+            await vscode.workspace.fs.writeFile(metadataPath, Buffer.from('{"projectName":"old","meta":{"pinnedExtensions":{"ext":{}}}}'));
+            let release!: () => void;
+            let started!: () => void;
+            const startedPromise = new Promise<void>(resolve => { started = resolve; });
+            const gate = new Promise<void>(resolve => { release = resolve; });
+            const update = MetadataManager.safeUpdateMetadata(testWorkspaceUri, async metadata => {
+                started();
+                await gate;
+                return { ...metadata, projectName: 'new user edit' };
+            });
+            await startedPromise;
+            const cleanup = MetadataManager.clearExtensionPins(testWorkspaceUri);
+            release();
+            assert.strictEqual((await update).success, true);
+            await cleanup;
+            const actual = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(metadataPath)).toString());
+            assert.strictEqual(actual.projectName, 'new user edit');
+            assert.deepStrictEqual(actual.meta.pinnedExtensions, {});
+        });
+
+        test('missing metadata is not created just to clear pins', async () => {
+            assert.strictEqual(await MetadataManager.clearExtensionPins(testWorkspaceUri), false);
+            await assert.rejects(async () => { await vscode.workspace.fs.stat(metadataPath); });
+        });
+    });
+
+    suite('Pin-aware ratchet with temporary policy disabled', () => {
+        setup(() => { EXTENSION_PIN_POLICY.ignoreProjectPins = false; });
+        teardown(() => { EXTENSION_PIN_POLICY.ignoreProjectPins = true; });
         test('ratchet works normally when no pin is active', async () => {
             const initial = {
                 meta: { requiredExtensions: { codexEditor: '0.22.0' } }

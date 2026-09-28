@@ -148,6 +148,23 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         } | null>(null);
         const [isLockButtonGlowing, setIsLockButtonGlowing] = useState(false);
         const [isLockButtonFlashing, setIsLockButtonFlashing] = useState(false);
+        const lockFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+        const flashLockButton = () => {
+            if (lockFlashTimerRef.current !== null) {
+                clearTimeout(lockFlashTimerRef.current);
+            }
+            setIsLockButtonFlashing(true);
+            lockFlashTimerRef.current = setTimeout(() => {
+                lockFlashTimerRef.current = null;
+                setIsLockButtonFlashing(false);
+            }, 500);
+        };
+        useEffect(() => () => {
+            if (lockFlashTimerRef.current !== null) {
+                clearTimeout(lockFlashTimerRef.current);
+            }
+        }, []);
+
         const [isResolvingStructure, setIsResolvingStructure] = useState(false);
         const isResolving = isResolvingStructure || isResolvingStructureExternally;
         const { showTooltip, hideTooltip } = useTooltip();
@@ -538,10 +555,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 handleCellClick(cellIds[0]);
             } else {
                 // Flash red around lock icon when clicking a locked cell
-                setIsLockButtonFlashing(true);
-                setTimeout(() => {
-                    setIsLockButtonFlashing(false);
-                }, 500);
+                flashLockButton();
             }
         };
 
@@ -760,10 +774,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     e.stopPropagation();
                                                     if (isCellLocked) {
                                                         // Flash red around lock icon when clicking disabled sparkle
-                                                        setIsLockButtonFlashing(true);
-                                                        setTimeout(() => {
-                                                            setIsLockButtonFlashing(false);
-                                                        }, 500);
+                                                        flashLockButton();
                                                         return;
                                                     }
                                                     handleSparkleButtonClick(e);
@@ -904,10 +915,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     isCellLocked={isCellLocked}
                                                     onLockedClick={() => {
                                                         // Flash red around lock icon when trying to record on a locked cell
-                                                        setIsLockButtonFlashing(true);
-                                                        setTimeout(() => {
-                                                            setIsLockButtonFlashing(false);
-                                                        }, 500);
+                                                        flashLockButton();
                                                     }}
                                                     onOpenCell={(id) => {
                                                         // Use force variant to ensure editor opens even with unsaved state

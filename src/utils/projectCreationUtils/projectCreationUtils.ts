@@ -1,3 +1,4 @@
+import { MetadataManager } from "../metadataManager";
 import * as vscode from "vscode";
 import * as path from "path";
 import * as semver from "semver";
@@ -155,7 +156,7 @@ async function createProjectInNewFolder(folderNameOrProjectName: string, project
     const newFolderUri = vscode.Uri.joinPath(parentFolderUri[0], folderName);
     try {
         await vscode.workspace.fs.createDirectory(newFolderUri);
-        await vscode.commands.executeCommand("vscode.openFolder", newFolderUri);
+        await MetadataManager.safeOpenFolder(newFolderUri);
 
         // NOTE: Do NOT call createNewProject here!
         // When the new window opens, the pending state mechanism in extension.ts
@@ -204,7 +205,7 @@ async function createProjectInExistingFolder() {
             return;
         }
 
-        await vscode.commands.executeCommand("vscode.openFolder", folderUri[0]);
+        await MetadataManager.safeOpenFolder(folderUri[0]);
         await new Promise((resolve) => setTimeout(resolve, 1000));
         // Generate projectId for this flow (creating in existing folder)
         const projectId = generateProjectId();
@@ -284,7 +285,7 @@ export async function openProject(projectPath: string) {
             );
 
             // Open folder and wait for it to open
-            await vscode.commands.executeCommand("vscode.openFolder", uri);
+            await MetadataManager.safeOpenFolder(uri);
 
             // Sync metadata values to configuration after folder is open
             // Note: This doesn't execute immediately as the above command opens a new window

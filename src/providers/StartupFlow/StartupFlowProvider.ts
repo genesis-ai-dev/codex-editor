@@ -1183,7 +1183,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     title: "Select Project Folder",
                 });
                 if (result && result[0]) {
-                    await vscode.commands.executeCommand("vscode.openFolder", result[0]);
+                    await MetadataManager.safeOpenFolder(result[0]);
                 }
                 break;
             }
@@ -1205,7 +1205,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     if (folderName) {
                         const projectPath = vscode.Uri.joinPath(result[0], folderName);
                         await vscode.workspace.fs.createDirectory(projectPath);
-                        await vscode.commands.executeCommand("vscode.openFolder", projectPath);
+                        await MetadataManager.safeOpenFolder(projectPath);
                     }
                 }
                 break;
@@ -2016,10 +2016,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                             `✅ Project updated to ${newProjectName}\n\nOpening new project...`
                                         );
                                         if (swappedProjectPath) {
-                                            await vscode.commands.executeCommand(
-                                                "vscode.openFolder",
-                                                vscode.Uri.file(swappedProjectPath)
-                                            );
+                                            await MetadataManager.safeOpenFolder(vscode.Uri.file(swappedProjectPath));
                                             return; // Stop the old open flow
                                         }
                                     }
@@ -2135,7 +2132,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                     // Open the project directly
                     const projectUri = vscode.Uri.file(projectPath);
-                    await vscode.commands.executeCommand("vscode.openFolder", projectUri);
+                    await MetadataManager.safeOpenFolder(projectUri);
 
                 } catch (error) {
                     console.error("Error opening project:", error);
@@ -3704,7 +3701,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     debugLog(`Successfully changed media strategy to "${mediaStrategy}"`);
                     // Open the project after applying strategy
                     try {
-                        await vscode.commands.executeCommand("vscode.openFolder", projectUri);
+                        await MetadataManager.safeOpenFolder(projectUri);
                     } catch (openErr) {
                         debugLog("Failed to open project after strategy change", openErr);
                     }
@@ -4037,7 +4034,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                         // 8. Open the project
                         progress.report({ message: "Opening project..." });
-                        await vscode.commands.executeCommand("vscode.openFolder", newProjectUri);
+                        await MetadataManager.safeOpenFolder(newProjectUri);
                     });
 
                 } catch (error) {
@@ -5243,7 +5240,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 console.error("Failed to set update flags:", flagErr);
             }
         }
-        await vscode.commands.executeCommand("vscode.openFolder", updatedUri, false);
+        await MetadataManager.safeOpenFolder(updatedUri);
         return;
     }
 

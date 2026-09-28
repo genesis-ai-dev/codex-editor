@@ -122,6 +122,47 @@ describe("CellContentDisplay - Lock/Unlock UI Behavior", () => {
         });
     });
 
+    it("cancels the lock flash timer on unmount and replaces it on repeated clicks", () => {
+        vi.useFakeTimers();
+        try {
+            const mockCell = createMockCell("cell-1", "<p>Test content</p>", true);
+            const handleCellClick = vi.fn();
+            const { container, unmount } = render(
+                <CellContentDisplay
+                    cell={mockCell}
+                    vscode={mockVscode as any}
+                    textDirection="ltr"
+                    isSourceText={false}
+                    hasDuplicateId={false}
+                    highlightedCellId={null}
+                    scrollSyncEnabled={true}
+                    lineNumber="1"
+                    label="Test Label"
+                    lineNumbersEnabled={true}
+                    isInTranslationProcess={false}
+                    translationState={null as any}
+                    allTranslationsComplete={false}
+                    handleCellClick={handleCellClick}
+                    audioAttachments={{}}
+                    currentUsername="test-user"
+                    requiredValidations={1}
+                    requiredAudioValidations={1}
+                    userAccessLevel={40}
+                />
+            );
+            const content = container.querySelector('div[title="Cell is locked"]')!;
+            const baseline = vi.getTimerCount();
+            fireEvent.click(content);
+            expect(vi.getTimerCount()).toBe(baseline + 1);
+            fireEvent.click(content);
+            expect(vi.getTimerCount()).toBe(baseline + 1);
+            unmount();
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("should render lock icon when cell is locked", () => {
         const mockCell = createMockCell("cell-1", "<p>Test content</p>", true);
         const handleCellClick = vi.fn();
