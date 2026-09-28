@@ -283,6 +283,66 @@ suite("reimportMerge", () => {
             assert.strictEqual(stats.droppedOldCells, 1);
         });
 
+        const validatedTarget = (id: string, value: string): ReimportCell =>
+            textCell(id, value, {
+                edits: [{
+                    editMap: ["value"],
+                    value,
+                    timestamp: 1,
+                    type: EditType.USER_EDIT,
+                    validatedBy: [
+                        { username: "anna", creationTimestamp: 1, updatedTimestamp: 1, isDeleted: false },
+                        "legacy-reviewer",
+                    ],
+                }],
+            });
+
+        const validatorEntries = (cell: ReimportCell) =>
+            edits(cell).flatMap((edit) => (edit.validatedBy ?? []) as Array<Record<string, unknown>>);
+
+        test("withdraws the validation of a translation whose source changed, and flags it", () => {
+            const oldTarget = validatedTarget("old-1", "<p>Hola mundo.</p>");
+            const { mergedCodex, stats } = mergeReimportedNotebookPair(
+                notebook([textCell("old-1", "<p>Hello world.</p>")]),
+                notebook([oldTarget]),
+                notebook([textCell("new-1", "<p>Hello world. Goodbye.</p>")]),
+                notebook([textCell("new-1", "")]),
+            );
+
+            const target = findCell(mergedCodex, "old-1")!;
+            assert.strictEqual(target.value, "<p>Hola mundo.</p>");
+            assert.strictEqual(target.metadata?.data?.needsResolution, true);
+            const entries = validatorEntries(target);
+            assert.strictEqual(entries.length, 2);
+            for (const entry of entries) {
+                assert.strictEqual(entry.isDeleted, true);
+                assert.ok((entry.updatedTimestamp as number) > 1);
+            }
+            assert.deepStrictEqual(entries.map((entry) => entry.username), ["anna", "legacy-reviewer"]);
+            assert.strictEqual(stats.flaggedCells, 1);
+            assert.strictEqual(stats.unvalidatedCells, 1);
+            // The existing notebook is left as it was.
+            assert.strictEqual(
+                (edits(oldTarget)[0].validatedBy?.[0] as { isDeleted: boolean }).isDeleted,
+                false,
+            );
+        });
+
+        test("keeps the validation of a translation whose source is unchanged", () => {
+            const { mergedCodex, stats } = mergeReimportedNotebookPair(
+                notebook([textCell("old-1", "<p>Hello world.</p>")]),
+                notebook([validatedTarget("old-1", "<p>Hola mundo.</p>")]),
+                notebook([textCell("new-1", "<p>Hello world.</p>")]),
+                notebook([textCell("new-1", "")]),
+            );
+
+            const entries = validatorEntries(findCell(mergedCodex, "old-1")!);
+            assert.strictEqual(entries[0].isDeleted, false);
+            assert.strictEqual(entries[1], "legacy-reviewer");
+            assert.strictEqual(stats.flaggedCells, 0);
+            assert.strictEqual(stats.unvalidatedCells, 0);
+        });
+
         test("preserves target attachments and records top-level and nested locator changes as edits", () => {
             const existingSource = notebook([
                 textCell("old-1", "<p>Hello</p>", {

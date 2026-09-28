@@ -119,6 +119,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
     private _onDidDispose = new vscode.EventEmitter<void>();
     public readonly onDidDispose = this._onDidDispose.event;
 
+    /** Fires with the cell id when a person resolves a cell an update import flagged. */
+    private readonly _onDidResolveCell = new vscode.EventEmitter<string>();
+    public readonly onDidResolveCell = this._onDidResolveCell.event;
+
     private readonly _onDidChangeForVsCodeAndWebview = new vscode.EventEmitter<{
         readonly content?: string;
         readonly edits: any[];
@@ -233,6 +237,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     dispose(): void {
         this._onDidDispose.fire();
         this._onDidDispose.dispose();
+        this._onDidResolveCell.dispose();
         this._onDidChangeForVsCodeAndWebview.dispose();
         this._onDidChangeForWebview.dispose();
     }
@@ -362,6 +367,23 @@ export class CodexCellDocument implements vscode.CustomDocument {
             validatedBy: [],
         });
         this.invalidateMilestoneIndexCache();
+        this._onDidResolveCell.fire(cell.metadata.id);
+    }
+
+    /**
+     * Clear a cell's update-import flag on behalf of its paired cell in the other file, once
+     * the translator has resolved that one. Returns whether there was a flag to clear, so the
+     * caller only saves a document that actually changed.
+     */
+    public resolveFlaggedCell(cellId: string): boolean {
+        const cell = this._documentData.cells.find((candidate) => candidate.metadata?.id === cellId);
+        const data = cell?.metadata?.data as { needsResolution?: boolean; } | undefined;
+        if (!cell || data?.needsResolution !== true) return false;
+
+        this.clearNeedsResolution(cell, Date.now());
+        this._isDirty = true;
+        this.markCellMutated(cellId);
+        return true;
     }
 
     public async updateCellContent(
@@ -3088,6 +3110,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
             this.isValidValidationEntry(entry)
         );
 
+        // Signing off on the translation is the check an update import asked
+        // for, as much as rewriting it is.
+        if (validate) {
+            this.clearNeedsResolution(cellToUpdate, currentTimestamp);
+        }
+
         // Invalidate milestone index cache since validation changes affect progress calculations
         // The milestone structure doesn't change, but progress needs to be recalculated
         this.invalidateMilestoneIndexCache();
@@ -3359,22 +3387,24 @@ export class CodexCellDocument implements vscode.CustomDocument {
      * @param cellId The ID of the cell to check
      * @returns True if fixes were applied, false otherwise
      */
+    /**
+     * Validators on the value edit behind the cell's current text, the same edit the progress
+     * and the validation badge read. Metadata edits (labels, import flags) are appended after it
+     * and never carry a sign-off, so the last entry of the history is not a reliable place to look.
+     */
+    private getCurrentValueValidatedBy(cell: CustomNotebookCellData | undefined): unknown[] {
+        if (!cell?.metadata?.edits?.length) {
+            return [];
+        }
+        return getCellValueData(convertCellToQuillContent(cell)).validatedBy;
+    }
+
     private checkAndFixValidationArray(cellId: string): boolean {
         const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
-
-        if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
-            return false;
-        }
-
-        // Get the latest edit
-        const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
-
-        if (!latestEdit.validatedBy) {
-            return false;
-        }
+        const validatedBy = this.getCurrentValueValidatedBy(cell);
 
         // Check if there are any string entries in the validatedBy array
-        const hasStringEntries = latestEdit.validatedBy.some((entry) => typeof entry === "string");
+        const hasStringEntries = validatedBy.some((entry) => typeof entry === "string");
 
         if (hasStringEntries) {
             debug(
@@ -3397,19 +3427,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
 
-        if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
-            return 0;
-        }
-
-        // Get the latest edit
-        const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
-
-        if (!latestEdit.validatedBy) {
-            return 0;
-        }
-
         // Only count ValidationEntry objects with isDeleted: false
-        return latestEdit.validatedBy.filter(
+        return this.getCurrentValueValidatedBy(cell).filter(
             (entry) => this.isValidValidationEntry(entry) && !entry.isDeleted
         ).length;
     }
@@ -3426,19 +3445,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
 
-        if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
-            return false;
-        }
-
-        // Get the latest edit
-        const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
-
-        if (!latestEdit.validatedBy) {
-            return false;
-        }
-
         // Check for a ValidationEntry object with the username and isDeleted: false
-        return latestEdit.validatedBy.some(
+        return this.getCurrentValueValidatedBy(cell).some(
             (entry) =>
                 this.isValidValidationEntry(entry) &&
                 entry.username === username &&
@@ -3458,19 +3466,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
 
-        if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
-            return [];
-        }
-
-        // Get the latest edit
-        const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
-
-        if (!latestEdit.validatedBy) {
-            return [];
-        }
-
         // Filter to only include proper ValidationEntry objects
-        return latestEdit.validatedBy.filter((entry) => this.isValidValidationEntry(entry));
+        return this.getCurrentValueValidatedBy(cell).filter(
+            (entry): entry is ValidationEntry => this.isValidValidationEntry(entry)
+        );
     }
 
     public getCellAudioValidatedBy(cellId: string): ValidationEntry[] {

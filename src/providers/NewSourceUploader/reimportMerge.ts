@@ -27,7 +27,7 @@
  * This module is pure (no vscode imports) so the merge is unit-testable.
  */
 
-import type { ReimportCellChange, ReimportMergeStats } from "../../../types";
+import type { ReimportCellChange, ReimportMergeStats, ValidationEntry } from "../../../types";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { EditMapUtils } from "../../utils/editMapUtils";
 import { isDocxFormattingContext } from "../../../sharedUtils/docxHtmlFormatting";
@@ -229,6 +229,40 @@ const flagNeedsResolution = (cell: ReimportCell, timestamp: number): ReimportCel
     return cell;
 };
 
+/** Legacy histories store a validator as a bare username; the sync merge revives those as live. */
+const isActiveValidation = (entry: unknown): boolean =>
+    typeof entry === "string" ||
+    (typeof entry === "object" && entry !== null && (entry as ValidationEntry).isDeleted !== true);
+
+/**
+ * Withdraw every live sign-off on a cell, returning whether there was one.
+ *
+ * Each entry is marked deleted under a fresh `updatedTimestamp`, the same shape the editor's
+ * un-validate writes: the sync merge keeps whichever entry per user was updated last, so a
+ * validation that is simply dropped would come back from any remote copy of the file. Edits are
+ * copied rather than mutated because they are still shared with the existing notebook.
+ */
+const revokeValidations = (cell: ReimportCell, timestamp: number): boolean => {
+    const cellEdits = cell.metadata?.edits;
+    if (!cell.metadata || !cellEdits) return false;
+    let revoked = false;
+    cell.metadata.edits = cellEdits.map((edit) => {
+        if (!edit.validatedBy?.some(isActiveValidation)) return edit;
+        revoked = true;
+        return {
+            ...edit,
+            validatedBy: edit.validatedBy.map((entry): unknown => {
+                if (!isActiveValidation(entry)) return entry;
+                if (typeof entry === "string") {
+                    return { username: entry, creationTimestamp: timestamp, updatedTimestamp: timestamp, isDeleted: true };
+                }
+                return { ...(entry as ValidationEntry), isDeleted: true, updatedTimestamp: timestamp };
+            }),
+        };
+    });
+    return revoked;
+};
+
 /**
  * Merge a freshly parsed notebook pair into an existing pair.
  *
@@ -321,6 +355,7 @@ export const mergeReimportedNotebookPair = (
         droppedTranslations: 0,
         insertedCells: 0,
         flaggedCells: 0,
+        unvalidatedCells: 0,
     };
 
     type PendingCell = {
@@ -606,6 +641,19 @@ export const mergeReimportedNotebookPair = (
                 adoptOldCell(cell, entry, entry.targetCell?.value ?? "");
                 markNeedsResolution(cell);
             });
+        }
+    }
+
+    // A sign-off was given against the old source. Wherever that source changed, or the cell was
+    // flagged for any other reason, the translation has to be checked again, so the flag goes on
+    // (containment matches change the source without being flagged above) and the sign-off comes off.
+    for (const cell of adopted) {
+        const entry = matchedEntry.get(cell);
+        if (entry && sourceText(cell.sourceCell) !== sourceText(entry.sourceCell)) {
+            markNeedsResolution(cell);
+        }
+        if (flaggedPending.has(cell) && revokeValidations(cell.codexCell, now)) {
+            stats.unvalidatedCells++;
         }
     }
 

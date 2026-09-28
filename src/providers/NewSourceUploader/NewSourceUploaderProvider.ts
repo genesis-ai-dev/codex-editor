@@ -1492,8 +1492,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 const removedNote = stats.droppedOldCells > 0
                     ? ` ${stats.droppedOldCells} cell(s) no longer in the document were removed${stats.droppedTranslations > 0 ? ` (${stats.droppedTranslations} had translations)` : ""}.`
                     : "";
+                const unvalidatedNote = stats.unvalidatedCells > 0
+                    ? ` ${stats.unvalidatedCells} of them were validated and need validating again.`
+                    : "";
                 const flaggedNote = stats.flaggedCells > 0
-                    ? ` ${stats.flaggedCells} cell(s) changed and need review.`
+                    ? ` ${stats.flaggedCells} cell(s) changed and need review.${unvalidatedNote}`
                     : "";
                 const insertedNote = stats.insertedCells > 0
                     ? ` ${stats.insertedCells} new cell(s) added.`

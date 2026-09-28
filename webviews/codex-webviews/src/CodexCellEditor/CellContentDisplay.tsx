@@ -136,7 +136,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // Lock state is ONLY honored from top-level metadata.isLocked
         const isCellLocked = !!cell.metadata?.isLocked;
         // Set by an update import when this cell's source content changed
-        // under an existing translation; cleared when the user edits the cell.
+        // under an existing translation; cleared when the user edits or validates the cell.
         const needsResolution = cell.data?.needsResolution === true;
         const [fadingOut, setFadingOut] = useState(false);
         const [showSparkleButton, setShowSparkleButton] = useState(false);

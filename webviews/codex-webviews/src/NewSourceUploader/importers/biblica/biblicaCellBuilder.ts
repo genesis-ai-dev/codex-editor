@@ -14,7 +14,7 @@ import type { ProcessedCell } from "../../types/common";
 import { createProcessedCell } from "../../utils/workflowHelpers";
 import { extractImagesFromHtml } from "../../utils/imageProcessor";
 import { createNoteCellMetadata } from "./cellMetadata";
-import type { IDMLStory } from "./types";
+import type { IDMLParagraph, IDMLStory } from "./types";
 import {
     buildSegmentedParagraphHtml,
     extractContentSegmentStructureFromParagraph,

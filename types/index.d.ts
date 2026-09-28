@@ -1229,6 +1229,8 @@ export interface ReimportMergeStats {
     insertedCells: number;
     /** Matched cells whose source content changed, flagged for re-resolution. */
     flaggedCells: number;
+    /** Flagged cells whose translation was validated; the validation is withdrawn. */
+    unvalidatedCells: number;
 }
 
 /** One row in the pre-import change report shown to the user. */

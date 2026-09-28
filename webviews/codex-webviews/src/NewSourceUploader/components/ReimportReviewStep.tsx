@@ -299,6 +299,16 @@ const CandidateCard: React.FC<{
                             </span>
                         </p>
                     )}
+                    {stats.unvalidatedCells > 0 && (
+                        <p className="text-sm text-[var(--vscode-editorWarning-foreground)] flex items-start gap-2">
+                            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                            <span>
+                                {pluralizeCells(stats.unvalidatedCells)} with a validated translation
+                                changed in the source. Their validation is removed, so they have to
+                                be checked and validated again.
+                            </span>
+                        </p>
+                    )}
                 </div>
 
                 <div className="space-y-2">
