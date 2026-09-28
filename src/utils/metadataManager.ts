@@ -1,3 +1,7 @@
+import { prepareProjectPinPolicy } from "./projectPinPolicy";
+import { EXTENSION_PIN_POLICY } from "../../sharedUtils/extensionPinFeatureFlag";
+import { clearMetadataPinsInText } from "../../sharedUtils/metadataPinTextEdit";
+import { clearMetadataPins } from "../../sharedUtils/extensionPinPolicy";
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
@@ -82,12 +86,13 @@ export class MetadataManager {
         const writes = this.pendingWrites.get(workspacePath)!;
         writes.add(writePromise);
 
-        writePromise.finally(() => {
+        const cleanup = () => {
             writes.delete(writePromise);
             if (writes.size === 0) {
                 this.pendingWrites.delete(workspacePath);
             }
-        });
+        };
+        void writePromise.then(cleanup, cleanup);
     }
 
     /**
@@ -151,25 +156,29 @@ export class MetadataManager {
         updateFunction: (metadata: T) => T | Promise<T>,
         options: MetadataUpdateOptions = {}
     ): Promise<{ success: boolean; metadata?: T; error?: string; }> {
+        return this.withMetadataWrite(workspaceUri,
+            () => this.safeUpdateMetadataInternal<T>(workspaceUri, updateFunction, options));
+    }
+
+    /** Shared by metadata updates, targeted pin cleanup and merge writes. */
+    static withMetadataWrite<T>(workspaceUri: vscode.Uri, operation: () => Promise<T>): Promise<T> {
         const key = workspaceUri.fsPath;
         const previousWrite = this.writeQueue.get(key) ?? Promise.resolve();
+        const promise = previousWrite.catch(() => {}).then(operation);
+        this.writeQueue.set(key, promise);
+        this.registerPendingWrite(key, promise);
+        const cleanup = () => {
+            if (this.writeQueue.get(key) === promise) { this.writeQueue.delete(key); }
+        };
+        void promise.then(cleanup, cleanup);
+        return promise;
+    }
 
-        const updatePromise = previousWrite
-            .catch(() => {
-                // Don't let a failed previous write block the queue
-            })
-            .then(() => this.safeUpdateMetadataInternal<T>(workspaceUri, updateFunction, options));
-
-        this.writeQueue.set(key, updatePromise);
-        this.registerPendingWrite(key, updatePromise);
-
-        updatePromise.finally(() => {
-            if (this.writeQueue.get(key) === updatePromise) {
-                this.writeQueue.delete(key);
-            }
-        });
-
-        return updatePromise;
+    static assertMetadataSaved(workspaceUri: vscode.Uri): void {
+        const uri = vscode.Uri.joinPath(workspaceUri, "metadata.json");
+        if (vscode.workspace.textDocuments.some(doc => doc.uri.toString() === uri.toString() && doc.isDirty)) {
+            throw new Error("Save metadata.json before opening or syncing this project.");
+        }
     }
 
     /**
@@ -191,6 +200,7 @@ export class MetadataManager {
 
             // Step 2: Apply updates
             const originalMetadata = readResult.metadata!;
+            const originalContent = JSON.stringify(originalMetadata);
             if (options.author && originalMetadata && typeof originalMetadata === 'object') {
                 const metadataObj = originalMetadata as any;
                 if (!metadataObj.edits) {
@@ -198,11 +208,17 @@ export class MetadataManager {
                 }
             }
             const updatedMetadata = await updateFunction(originalMetadata);
+            const onlyPinsChange = JSON.stringify(updatedMetadata) === originalContent;
+
+            // Enforce the temporary no-pins policy on every metadata write.
+            clearMetadataPins(updatedMetadata);
 
             // Step 3: Validate JSON before writing
-            const jsonContent = JSON.stringify(updatedMetadata, null, 4);
+            const jsonContent = onlyPinsChange && readResult.source !== undefined
+                ? clearMetadataPinsInText(readResult.source)
+                : JSON.stringify(updatedMetadata, null, 4);
             try {
-                JSON.parse(jsonContent);
+                JSON.parse(jsonContent.charCodeAt(0) === 0xFEFF ? jsonContent.slice(1) : jsonContent);
             } catch (parseError) {
                 return {
                     success: false,
@@ -213,7 +229,7 @@ export class MetadataManager {
             // Avoid rewriting metadata.json when an update function detects
             // no semantic change. This is important for status snapshots,
             // which are checked on every project open.
-            if (JSON.stringify(originalMetadata) === jsonContent) {
+            if (originalContent === JSON.stringify(updatedMetadata)) {
                 return { success: true, metadata: updatedMetadata };
             }
 
@@ -257,7 +273,7 @@ export class MetadataManager {
      */
     private static async readMetadataFromDisk<T = ProjectMetadata>(
         workspaceUri: vscode.Uri
-    ): Promise<{ success: boolean; metadata?: T; error?: string; }> {
+    ): Promise<{ success: boolean; metadata?: T; error?: string; source?: string; }> {
         const metadataPath = vscode.Uri.joinPath(workspaceUri, "metadata.json");
 
         try {
@@ -281,7 +297,7 @@ export class MetadataManager {
                 };
             }
 
-            return { success: true, metadata };
+            return { success: true, metadata, source: new TextDecoder("utf-8", { ignoreBOM: true }).decode(content) };
 
         } catch (error) {
             if ((error as any).code === 'FileNotFound') {
@@ -314,7 +330,10 @@ export class MetadataManager {
             await this.waitForPendingWrites(undefined, 10000);
         }
 
-        await vscode.commands.executeCommand("vscode.openFolder", targetUri, newWindow);
+        await this.clearExtensionPins(targetUri);
+        const profileOptions = await prepareProjectPinPolicy(targetUri);
+        await vscode.commands.executeCommand("vscode.openFolder", targetUri,
+            profileOptions.forceProfile ? { forceNewWindow: newWindow, ...profileOptions } : newWindow);
     }
 
     /**
@@ -332,6 +351,7 @@ export class MetadataManager {
     private static async getEffectivePinnedExtensions(
         fallbackPins?: PinMap
     ): Promise<PinMap> {
+        if (EXTENSION_PIN_POLICY.ignoreProjectPins) { return {}; }
         try {
             const pins = await vscode.commands.executeCommand<PinMap | undefined>(
                 "codex.conductor.getEffectivePinnedExtensions"
@@ -343,6 +363,27 @@ export class MetadataManager {
             // Conductor command not registered (older Codex shell or non-Codex host) — fall back.
         }
         return fallbackPins ?? {};
+    }
+
+    /** Clear pins before opening a folder. Missing metadata means a non-project folder. */
+    static async clearExtensionPins(workspaceUri: vscode.Uri): Promise<boolean> {
+        if (!EXTENSION_PIN_POLICY.ignoreProjectPins) { return false; }
+        return this.withMetadataWrite(workspaceUri, async () => {
+            const uri = vscode.Uri.joinPath(workspaceUri, "metadata.json");
+            this.assertMetadataSaved(workspaceUri);
+            let bytes: Uint8Array;
+            try {
+                bytes = await vscode.workspace.fs.readFile(uri);
+            } catch (error) {
+                if ((error as { code?: string }).code === "FileNotFound") { return false; }
+                throw error;
+            }
+            const original = new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes);
+            const updated = clearMetadataPinsInText(original);
+            if (updated === original) { return false; }
+            await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(updated));
+            return true;
+        });
     }
 
     /**

@@ -10,6 +10,7 @@
     },
     "license": "MIT",
     "version": "0.34.0",
+    "codexProjectPinPolicyVersion": 1,
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"

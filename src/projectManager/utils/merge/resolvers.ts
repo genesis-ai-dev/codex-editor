@@ -1,3 +1,6 @@
+import { EXTENSION_PIN_POLICY } from "../../../../sharedUtils/extensionPinFeatureFlag";
+import { MetadataManager } from "../../../utils/metadataManager";
+import { clearMetadataPinsInText } from "../../../../sharedUtils/metadataPinTextEdit";
 import { CodexCellDocument } from './../../../providers/codexCellEditorProvider/codexDocument';
 import * as vscode from "vscode";
 import * as path from "path";
@@ -553,6 +556,27 @@ export async function resolveConflictFile(
     workspaceDir: string,
     options?: ResolveConflictOptions
 ): Promise<string | undefined> {
+    if (!EXTENSION_PIN_POLICY.ignoreProjectPins || path.resolve(workspaceDir, conflict.filepath) !== path.resolve(workspaceDir, "metadata.json")) {
+        return resolveConflictFileInternal(conflict, workspaceDir, options);
+    }
+    try {
+        return await MetadataManager.withMetadataWrite(vscode.Uri.file(workspaceDir), async () => {
+            MetadataManager.assertMetadataSaved(vscode.Uri.file(workspaceDir));
+            // Refresh ours and compute the merge only after earlier writes finish.
+            return resolveConflictFileInternal(conflict, workspaceDir, options);
+        });
+    } catch (error) {
+        console.error("Failed to write merged metadata:", error);
+        vscode.window.showErrorMessage("Save metadata.json and retry the merge.");
+        return undefined;
+    }
+}
+
+async function resolveConflictFileInternal(
+    conflict: ConflictFile,
+    workspaceDir: string,
+    options?: ResolveConflictOptions
+): Promise<string | undefined> {
     try {
         // Guard against path-traversal: resolved path must stay inside the workspace
         const resolvedTarget = path.resolve(workspaceDir, conflict.filepath);
@@ -634,6 +658,9 @@ export async function resolveConflictFile(
 
         const targetPath = vscode.Uri.file(resolvedTarget);
         debugLog("Writing resolved content to:", targetPath.fsPath);
+        if (resolvedTarget === path.resolve(workspaceDir, "metadata.json")) {
+            resolvedContent = clearMetadataPinsInText(resolvedContent);
+        }
         await vscode.workspace.fs.writeFile(targetPath, Buffer.from(resolvedContent));
         debugLog("Successfully wrote content for:", conflict.filepath);
 
@@ -2845,7 +2872,27 @@ export async function resolveConflictFiles(
                                 });
                                 return;
                             }
-                            await vscode.workspace.fs.writeFile(filePath, Buffer.from(content));
+                            if (EXTENSION_PIN_POLICY.ignoreProjectPins && normalizedFilepath === "metadata.json") {
+                                await MetadataManager.withMetadataWrite(vscode.Uri.file(workspaceDir), async () => {
+                                    MetadataManager.assertMetadataSaved(vscode.Uri.file(workspaceDir));
+                                    let latest: string | undefined;
+                                    try {
+                                        latest = Buffer.from(await vscode.workspace.fs.readFile(filePath)).toString("utf8");
+                                    } catch (error) {
+                                        if ((error as { code?: string }).code !== "FileNotFound") { throw error; }
+                                    }
+                                    if (latest !== undefined && latest !== content) {
+                                        // A queued editor update may have created/changed this file
+                                        // since the conflict list was prepared. Merge that fresh copy.
+                                        const resolved = await resolveConflictFileInternal(conflict, workspaceDir);
+                                        if (!resolved) { throw new Error("Could not merge newly created metadata"); }
+                                    } else {
+                                        await vscode.workspace.fs.writeFile(filePath, Buffer.from(clearMetadataPinsInText(content)));
+                                    }
+                                });
+                            } else {
+                                await vscode.workspace.fs.writeFile(filePath, Buffer.from(content));
+                            }
                             resolvedFiles.push({
                                 filepath: conflict.filepath,
                                 resolution: "created",
