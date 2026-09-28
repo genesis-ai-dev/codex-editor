@@ -1,5 +1,5 @@
 import { QuillCellContent, ValidationEntry } from "../../../../types";
-import { getCellValueData } from "@sharedUtils";
+import { getCellValueData } from "../../../../sharedUtils";
 
 // Helper function to check if an entry is a valid ValidationEntry object
 export function isValidValidationEntry(entry: any): entry is ValidationEntry {
