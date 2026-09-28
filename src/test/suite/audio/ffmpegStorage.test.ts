@@ -7,7 +7,7 @@ import { gzipSync } from "zlib";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const tar: { c(options: { gzip: boolean; file: string; cwd: string }, files: string[]): Promise<void> } = require("tar");
 import { FFMPEG_BUILDS, ffmpegExecutableName, identifyFfmpegBuild, resolveFfmpegBuilds } from "../../../utils/ffmpegBuilds";
-import type { FfmpegPlatformBuilds } from "../../../utils/ffmpegBuilds";
+import type { FfmpegBuild, FfmpegPlatformBuilds } from "../../../utils/ffmpegBuilds";
 import { ensureFfmpegBuild, ffmpegBuildPath, migrateFfmpegStorage } from "../../../utils/ffmpegStorage";
 import { extractFfmpegArchive, downloadFfmpegArchive } from "../../../utils/ffmpegDownload";
 
@@ -279,8 +279,14 @@ suite("FFmpeg build identity and migration", () => {
         await put(path.join(root, "package", "ffmpeg"), "new");
         await put(path.join(root, "package", "unrelated.txt"), "skip");
         await tar.c({ gzip: true, file: archive, cwd: root }, ["package"]);
-        await extractFfmpegArchive(archive, { ...build, download: { url: "https://example.invalid", format: "tgz" } }, output);
+        const tgz: FfmpegBuild = { ...build, download: { url: "https://example.invalid", format: "tgz" } };
+        await extractFfmpegArchive(archive, tgz, output);
         assert.deepStrictEqual(await fs.readdir(output), ["ffmpeg"]);
+        await fs.unlink(path.join(output, "ffmpeg"));
+        await fs.unlink(path.join(root, "package", "ffmpeg"));
+        await tar.c({ gzip: true, file: archive, cwd: root }, ["package"]);
+        await assert.rejects(extractFfmpegArchive(archive, tgz, output), /does not contain package\/ffmpeg/);
+        assert.deepStrictEqual(await fs.readdir(output), []);
         await assert.rejects(downloadFfmpegArchive("http://example.invalid", archive, new AbortController().signal), /HTTPS/);
     });
 });
