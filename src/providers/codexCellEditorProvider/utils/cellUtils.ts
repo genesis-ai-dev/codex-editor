@@ -62,6 +62,79 @@ export function isQuillCellHidden(cell: Pick<QuillCellContent, "hidden" | "data"
     return Boolean(cell.hidden || (cell.data as { hidden?: boolean; } | undefined)?.hidden);
 }
 
+type NotebookLineNumberCell = {
+    metadata?: {
+        id?: string;
+        type?: string;
+        parentId?: string;
+        data?: {
+            parentId?: string;
+            merged?: boolean;
+            hidden?: boolean;
+            deleted?: boolean;
+        };
+    };
+};
+
+/**
+ * Cells that do not take a milestone line number: milestone headers, headings
+ * and notes (paratext), child cells, and merged, hidden, or deleted cells.
+ * Numbering of the cells that remain restarts at each milestone.
+ */
+export function isUnnumberedNotebookCell(cell: NotebookLineNumberCell): boolean {
+    const type = cell.metadata?.type;
+    if (type === CodexCellTypes.MILESTONE || type === CodexCellTypes.PARATEXT) {
+        return true;
+    }
+    const parentId = cell.metadata?.parentId ?? cell.metadata?.data?.parentId;
+    if (parentId !== undefined) {
+        return true;
+    }
+    const data = cell.metadata?.data;
+    return data?.merged === true || data?.hidden === true || data?.deleted === true;
+}
+
+/**
+ * Index of the first cell that belongs to the milestone content. When
+ * `milestoneCellIndex` points at a milestone header, content starts on the
+ * next cell. A virtual milestone (no header cell) starts at that index.
+ */
+export function milestoneContentStartIndex(
+    cells: NotebookLineNumberCell[],
+    milestoneCellIndex: number
+): number {
+    const boundary = cells[milestoneCellIndex];
+    if (boundary?.metadata?.type === CodexCellTypes.MILESTONE) {
+        return milestoneCellIndex + 1;
+    }
+    return Math.max(0, milestoneCellIndex);
+}
+
+/**
+ * 1-based line number of `cellId` among numbered cells in
+ * `[startIndex, endIndex)`. The range is one milestone. Returns undefined when
+ * the cell is unnumbered or not in the range.
+ */
+export function lineNumberWithinCellRange(
+    cells: NotebookLineNumberCell[],
+    cellId: string,
+    startIndex: number,
+    endIndex: number
+): number | undefined {
+    let lineNumber = 0;
+    for (let i = startIndex; i < endIndex; i++) {
+        const currentCell = cells[i];
+        if (!currentCell || isUnnumberedNotebookCell(currentCell)) {
+            continue;
+        }
+        lineNumber++;
+        if (currentCell.metadata?.id === cellId) {
+            return lineNumber;
+        }
+    }
+    return undefined;
+}
+
 /**
  * Converts a CustomNotebookCellData cell to QuillCellContent format.
  * 

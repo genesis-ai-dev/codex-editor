@@ -36,7 +36,7 @@ import type { AudioAvailability } from "./utils/audioViewMode";
 
 export interface CellListProps {
     translationUnits: QuillCellContent[];
-    fullDocumentTranslationUnits: QuillCellContent[]; // Full document for global line numbering
+    fullDocumentTranslationUnits: QuillCellContent[]; // All cells in the current milestone (line numbers and footnotes)
     contentBeingUpdated: EditorCellContent;
     setContentBeingUpdated: (content: EditorCellContent) => void;
     handleCloseEditor: () => void;
@@ -75,7 +75,7 @@ export interface CellListProps {
     backtranslationsMap?: Map<string, any>;
     enforceHtmlStructure?: boolean;
     currentStructureResolveCellId?: string;
-    // Milestone-based pagination props for global line numbering
+    // Milestone pagination. Line numbers count within the current milestone.
     milestoneIndex?: MilestoneIndex | null;
     currentMilestoneIndex?: number;
     currentSubsectionIndex?: number;
@@ -529,25 +529,29 @@ const CellList: React.FC<CellListProps> = ({
         return cell.metadata?.parentId !== undefined || cell.data?.parentId !== undefined;
     }, []);
 
-    // Offset from previous milestones only. Subsection offset is applied separately when using fallback (current page).
-    const calculateLineNumberOffset = useCallback((): number => {
-        if (!milestoneIndex || milestoneIndex.milestones.length === 0) {
-            return 0;
-        }
-
-        let offset = 0;
-        for (let i = 0; i < currentMilestoneIndex && i < milestoneIndex.milestones.length; i++) {
-            offset += milestoneIndex.milestones[i].cellCount;
-        }
-        return offset;
-    }, [milestoneIndex, currentMilestoneIndex]);
+    // Numbered cells are content cells. Milestone headers, headings and notes,
+    // child cells, and merged, hidden, or deleted cells do not take a number.
+    const isNumberedRootCell = useCallback(
+        (unit: QuillCellContent): boolean => {
+            return (
+                unit.cellType !== CodexCellTypes.PARATEXT &&
+                unit.cellType !== CodexCellTypes.MILESTONE &&
+                !isChildCell(unit) &&
+                !unit.merged &&
+                !unit.hidden &&
+                !unit.deleted
+            );
+        },
+        [isChildCell]
+    );
 
     // Offset from previous subsections (pages) in the current milestone. Used
-    // when line numbers are computed from current page only (fallback). Prefers
-    // the resolver-provided subdivision's `startRootIndex` so user-added breaks
-    // (which produce uneven page sizes) get the correct starting cell number;
-    // falls back to arithmetic `currentSubsectionIndex * cellsPerPage` only when
-    // resolved subdivisions are not yet available.
+    // when line numbers are computed from the current page only (the milestone
+    // cell list is not loaded yet). Prefers the resolver-provided subdivision's
+    // `startRootIndex` so user-added breaks (which produce uneven page sizes)
+    // get the correct starting cell number; falls back to arithmetic
+    // `currentSubsectionIndex * cellsPerPage` only when resolved subdivisions
+    // are not yet available.
     const subsectionLineNumberOffset = useCallback((): number => {
         if (!milestoneIndex) return 0;
         const milestone = milestoneIndex.milestones[currentMilestoneIndex];
@@ -559,10 +563,55 @@ const CellList: React.FC<CellListProps> = ({
         return currentSubsectionIndex * effectiveCellsPerPage;
     }, [milestoneIndex, currentMilestoneIndex, currentSubsectionIndex, cellsPerPage]);
 
-    // Helper function to get the chapter-based verse number (skipping paratext cells)
-    // Now uses globalReferences and includes offset for pagination.
-    // When the cell is not found in allCells (e.g. fullDocumentTranslationUnits out of sync after cell click),
-    // falls back to visible list so line numbers stay correct.
+    // The cell list sometimes holds the whole milestone and sometimes only the
+    // current page. A page offset is needed only for the page-only list, so
+    // page "B (51-100)" still starts at 51. Custom breaks on a short milestone
+    // must not add that offset twice.
+    const listIncludesEarlierPages = useCallback(
+        (cells: QuillCellContent[]): boolean => {
+            if (currentSubsectionIndex <= 0) {
+                return true;
+            }
+            const milestone = milestoneIndex?.milestones[currentMilestoneIndex];
+            const subdivision = milestone?.subdivisions?.[currentSubsectionIndex];
+            const startCellId = subdivision?.startCellId;
+            if (startCellId) {
+                const startIdx = cells.findIndex((unit) => unit.cellMarkers?.[0] === startCellId);
+                if (startIdx > 0) {
+                    return cells.slice(0, startIdx).some((unit) => isNumberedRootCell(unit));
+                }
+                if (startIdx === 0) {
+                    return false;
+                }
+            }
+            const pageSpan = subdivision
+                ? Math.max(0, subdivision.endRootIndex - subdivision.startRootIndex)
+                : (milestoneIndex?.cellsPerPage ?? cellsPerPage ?? 50);
+            let rootCount = 0;
+            for (const unit of cells) {
+                if (!isNumberedRootCell(unit)) {
+                    continue;
+                }
+                rootCount++;
+                if (rootCount > pageSpan) {
+                    return true;
+                }
+            }
+            return false;
+        },
+        [
+            currentSubsectionIndex,
+            milestoneIndex,
+            currentMilestoneIndex,
+            cellsPerPage,
+            isNumberedRootCell,
+        ]
+    );
+
+    // Line number within the current milestone (skipping paratext, milestone,
+    // and child cells). Page labels such as "A (1-50)" use the same count.
+    // When the cell is not found in allCells (e.g. fullDocumentTranslationUnits
+    // out of sync after cell click), falls back to the visible list.
     const getChapterBasedVerseNumber = useCallback(
         (
             cell: QuillCellContent,
@@ -580,7 +629,7 @@ const CellList: React.FC<CellListProps> = ({
                 (unit) => unit.cellMarkers?.[0] === cellUuid
             );
 
-            // If not found in full document (e.g. state out of sync after opening a cell), use visible list
+            // If not found in the milestone list (e.g. state out of sync after opening a cell), use the visible page
             const usingFallback =
                 cellIndex === -1 && fallbackCells && fallbackCells.length > 0;
             const cellsToUse = cellIndex >= 0 ? allCells : usingFallback ? fallbackCells! : allCells;
@@ -593,38 +642,25 @@ const CellList: React.FC<CellListProps> = ({
 
             if (indexInUse === -1) return 1; // Fallback if not found in either list
 
-            // Count non-paratext, non-milestone, non-child cells up to and including this one
+            // Count numbered cells up to and including this one, from the start of
+            // the current milestone (or from the start of this page, plus the page offset).
             let visibleCellCount = 0;
             for (let i = 0; i <= indexInUse; i++) {
-                const unit = cellsToUse[i];
-                if (
-                    unit.cellType !== CodexCellTypes.PARATEXT &&
-                    unit.cellType !== CodexCellTypes.MILESTONE &&
-                    !isChildCell(unit) &&
-                    !unit.merged &&
-                    !unit.hidden
-                ) {
+                if (isNumberedRootCell(cellsToUse[i])) {
                     visibleCellCount++;
                 }
             }
 
-            // Add offset: previous milestones always; add subsection (page) offset when counting from current page only
-            const effectiveCellsPerPage = milestoneIndex?.cellsPerPage ?? cellsPerPage ?? 50;
-            const isSinglePage =
-                allCells.length <= effectiveCellsPerPage && currentSubsectionIndex > 0;
-            const offset = calculateLineNumberOffset();
-            const subsectionOffset =
-                usingFallback || isSinglePage ? subsectionLineNumberOffset() : 0;
-            return visibleCellCount + offset + subsectionOffset;
+            const subsectionOffset = listIncludesEarlierPages(cellsToUse)
+                ? 0
+                : subsectionLineNumberOffset();
+            return visibleCellCount + subsectionOffset;
         },
         [
             getCellIdentifier,
-            isChildCell,
-            calculateLineNumberOffset,
+            isNumberedRootCell,
+            listIncludesEarlierPages,
             subsectionLineNumberOffset,
-            milestoneIndex,
-            cellsPerPage,
-            currentSubsectionIndex,
         ]
     );
 
@@ -695,9 +731,14 @@ const CellList: React.FC<CellListProps> = ({
                                   )
                                 : "";
 
-                        // Find all siblings (cells with the same parent)
+                        // Siblings are the other content cells split from this parent.
+                        // Paratext notes created from the same cell share parentId but
+                        // do not take a sub-number.
                         const siblings = fullDocumentTranslationUnits.filter(
                             (unit: QuillCellContent) => {
+                                if (unit.cellType === CodexCellTypes.PARATEXT) {
+                                    return false;
+                                }
                                 // Check both metadata and data for parentId (same as isChildCell)
                                 const unitParentId = unit.metadata?.parentId || unit.data?.parentId;
                                 if (unitParentId) {
@@ -1104,7 +1145,7 @@ const CellList: React.FC<CellListProps> = ({
                     currentGroup = [];
                 }
                 const cellIsChild = checkIfCurrentCellIsChild();
-                // Use global line numbering
+                // Line number within the current milestone
                 const generatedLineNumber = generateLineNumber(
                     workingTranslationUnits[i],
                     workingTranslationUnits
@@ -1173,7 +1214,7 @@ const CellList: React.FC<CellListProps> = ({
                     !isCellContentEmpty(workingTranslationUnits[i - 1]?.cellContent) ||
                     i === 0
                 ) {
-                    // Use global line numbering
+                    // Line number within the current milestone
                     const generatedLineNumber = generateLineNumber(
                         workingTranslationUnits[i],
                         workingTranslationUnits

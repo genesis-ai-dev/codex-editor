@@ -8,6 +8,10 @@ import { BaseWebviewProvider, GlobalProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { getAuthApi } from "../../extension";
 import { CodexCellTypes } from "../../../types/enums";
+import {
+    lineNumberWithinCellRange,
+    milestoneContentStartIndex,
+} from "../codexCellEditorProvider/utils/cellUtils";
 
 const DEBUG_COMMENTS_WEBVIEW_PROVIDER = false;
 function debug(message: string, ...args: any[]): void {
@@ -917,25 +921,15 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     const milestone = milestones[milestoneIndex];
                     milestoneValue = milestone.value;
 
-                    const startCellIndex = milestone.cellIndex + 1;
+                    const startCellIndex = milestoneContentStartIndex(cells, milestone.cellIndex);
                     const nextMilestone = milestones[milestoneIndex + 1];
                     const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
-
-                    let lineNumber = 0;
-                    for (let j = startCellIndex; j < endCellIndex; j++) {
-                        const c = cells[j];
-                        if (
-                            c.metadata?.type === CodexCellTypes.MILESTONE ||
-                            c.metadata?.type === CodexCellTypes.PARATEXT
-                        ) continue;
-                        if (c.metadata?.parentId !== undefined) continue;
-
-                        lineNumber++;
-                        if (c.metadata?.id === cellId) {
-                            cellLineNumber = lineNumber;
-                            break;
-                        }
-                    }
+                    cellLineNumber = lineNumberWithinCellRange(
+                        cells,
+                        cellId,
+                        startCellIndex,
+                        endCellIndex
+                    );
                 }
 
                 cellMap.set(cellId, { fileDisplayName, milestoneValue, cellLineNumber, cellLabel });
