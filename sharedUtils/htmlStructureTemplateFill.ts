@@ -11,8 +11,13 @@
  *
  * Two invariants hold for every value this returns:
  * - the tag skeleton equals the source's, and
- * - the translation's text is preserved in full and in order (slots are filled by
- *   slicing the translation, never by rewriting it).
+ * - the translation's text is preserved in full and in order, spaces included
+ *   (slots are filled by slicing the translation, never by rewriting it).
+ *
+ * "Text" here is what the reader sees: inline tags join their neighbours directly.
+ * A translation often has a run boundary inside a word (an earlier resolve that
+ * mirrored the source's "Paul|ʼ|s" runs leaves Arabic "بُولُ|س"), so reading a tag as
+ * a space would split the word, and trimming each run would glue words together.
  *
  * Where the translation is split across slots is best-effort. Slots are aligned by
  * IDML segment index when the translation still carries them, then by anchors that
@@ -20,11 +25,7 @@
  * slot ends with), and only then by proportional length.
  */
 
-import {
-    compareHtmlStructure,
-    extractPlainTextFromHtml,
-    type HtmlStructureOptions,
-} from "./htmlStructureUtils";
+import { compareHtmlStructure, type HtmlStructureOptions } from "./htmlStructureUtils";
 
 type Token =
     | { kind: "tag"; raw: string; }
@@ -76,12 +77,60 @@ const escapeHtmlText = (text: string): string =>
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
 
+const decodeCodePoint = (entity: string, codePoint: number): string =>
+    Number.isInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : entity;
+
+/** `&amp;` is decoded last so an escaped entity such as `&amp;lt;` stays literal text. */
+const decodeHtmlEntities = (text: string): string =>
+    text
+        .replace(/&nbsp;/g, " ")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&#(\d+);/g, (entity, code) => decodeCodePoint(entity, Number(code)))
+        .replace(/&#x([0-9a-f]+);/gi, (entity, code) => decodeCodePoint(entity, parseInt(code, 16)))
+        .replace(/&amp;/g, "&");
+
+/** Tags that start a new line or block when rendered, and so separate words. */
+const BLOCK_BOUNDARY_TAG = /^<\/?(?:p|div|br|hr|h[1-6]|li|ul|ol|blockquote|table|tr|td|th)\b/i;
+
+const VOID_ELEMENT_TAG = /^<(?:br|hr|img|wbr|input|meta|link|col|area|base|embed|source|track)\b/i;
+
+/** Only real HTML elements nest; USFM markers such as `<\f + \fr 1:7. \ft>` never close. */
+const ELEMENT_TAG = /^<\/?[a-z][a-z0-9-]*\b/i;
+
+/**
+ * The text a reader sees. Inline tags (spans, emphasis, IDML segment and EOC
+ * markers) join their neighbours with nothing in between; only block boundaries
+ * and line breaks separate words. Whitespace collapses as it does on screen.
+ */
+export const extractRenderedText = (html: string): string =>
+    decodeHtmlEntities(
+        (html || "").replace(/<[^>]*>/g, (tag) => (BLOCK_BOUNDARY_TAG.test(tag) ? " " : ""))
+    )
+        .replace(/\s+/g, " ")
+        .trim();
+
 const readSegmentIndex = (tag: string): number | null => {
     const match = tag.match(/\bdata-segment-index="(\d+)"/);
     return match ? Number(match[1]) : null;
 };
 
-const isClosingTag = (tag: string): boolean => tag.startsWith("</");
+/** Track the segment index of every open element as a tag is passed. */
+const updateOpenSegmentIndexes = (openSegmentIndexes: Array<number | null>, tag: string): void => {
+    if (!ELEMENT_TAG.test(tag)) return;
+    if (tag.startsWith("</")) {
+        openSegmentIndexes.pop();
+    } else if (!tag.endsWith("/>") && !VOID_ELEMENT_TAG.test(tag)) {
+        openSegmentIndexes.push(readSegmentIndex(tag));
+    }
+};
+
+const innermostSegmentIndex = (openSegmentIndexes: Array<number | null>): number | null =>
+    [...openSegmentIndexes].reverse().find((value) => value !== null) ?? null;
 
 /**
  * Text tokens that carry actual content. Whitespace-only tokens are layout and
@@ -94,37 +143,99 @@ const collectSlots = (tokens: Token[]): TemplateSlot[] => {
     for (let i = 0; i < tokens.length; i++) {
         const token = tokens[i];
         if (token.kind === "tag") {
-            if (isClosingTag(token.raw)) {
-                openSegmentIndexes.pop();
-            } else if (!token.raw.endsWith("/>")) {
-                openSegmentIndexes.push(readSegmentIndex(token.raw));
-            }
+            updateOpenSegmentIndexes(openSegmentIndexes, token.raw);
             continue;
         }
         if (!token.raw.trim()) continue;
-        const enclosing = [...openSegmentIndexes].reverse().find((value) => value !== null);
         slots.push({
             tokenIndex: i,
             sourceText: token.raw,
-            segmentIndex: enclosing ?? null,
+            segmentIndex: innermostSegmentIndex(openSegmentIndexes),
         });
     }
 
     return slots;
 };
 
-/** Plain text of each `data-segment-index` span in a translation, by index. */
-const collectTargetSegmentTexts = (html: string): Map<number, string> => {
-    const byIndex = new Map<number, string>();
-    const spanPattern = /<span\b[^>]*\bdata-segment-index="(\d+)"[^>]*>([\s\S]*?)<\/span>/g;
-    let match: RegExpExecArray | null;
-    while ((match = spanPattern.exec(html)) !== null) {
-        const index = Number(match[1]);
-        const text = extractPlainTextFromHtml(match[2]);
-        const existing = byIndex.get(index);
-        byIndex.set(index, existing ? `${existing} ${text}`.trim() : text);
+/** A stretch of the translation's rendered text and the IDML segment holding it. */
+interface TargetRun {
+    segmentIndex: number | null;
+    text: string;
+}
+
+/**
+ * The translation's rendered text in document order, split wherever the
+ * enclosing IDML segment changes. Spaces at the edge of a segment and
+ * whitespace-only segments are kept: across a run boundary they are often the
+ * only thing separating two words.
+ */
+const collectTargetRuns = (html: string): TargetRun[] => {
+    const runs: TargetRun[] = [];
+    const openSegmentIndexes: Array<number | null> = [];
+    const append = (text: string): void => {
+        if (!text) return;
+        const segmentIndex = innermostSegmentIndex(openSegmentIndexes);
+        const last = runs[runs.length - 1];
+        if (last && last.segmentIndex === segmentIndex) {
+            last.text += text;
+        } else {
+            runs.push({ segmentIndex, text });
+        }
+    };
+
+    for (const token of tokenizeHtml(html)) {
+        if (token.kind === "text") {
+            append(decodeHtmlEntities(token.raw));
+            continue;
+        }
+        if (BLOCK_BOUNDARY_TAG.test(token.raw)) append(" ");
+        updateOpenSegmentIndexes(openSegmentIndexes, token.raw);
     }
-    return byIndex;
+
+    return runs.map((run) => ({ ...run, text: run.text.replace(/\s+/g, " ") }));
+};
+
+/**
+ * Give each run to the slot of its own segment. Text with no slot of its own (a
+ * whitespace-only segment the source no longer has, or text between spans) stays
+ * with the slot before it, so a space it carries is not lost.
+ */
+const assignRunsToSegmentSlots = (slots: TemplateSlot[], runs: TargetRun[]): Map<number, string> => {
+    const assigned = new Map<number, string>(slots.map((slot) => [slot.tokenIndex, ""]));
+    const append = (slotTokenIndex: number, text: string): void => {
+        assigned.set(slotTokenIndex, assigned.get(slotTokenIndex)! + text);
+    };
+    const slotBySegment = new Map<number, number>();
+    for (const slot of slots) {
+        if (slot.segmentIndex !== null && !slotBySegment.has(slot.segmentIndex)) {
+            slotBySegment.set(slot.segmentIndex, slot.tokenIndex);
+        }
+    }
+
+    let currentSlot: number | null = null;
+    let leading = "";
+    for (const run of runs) {
+        const home = run.segmentIndex === null ? undefined : slotBySegment.get(run.segmentIndex);
+        if (home !== undefined) {
+            append(home, leading + run.text);
+            leading = "";
+            currentSlot = home;
+        } else if (currentSlot !== null) {
+            append(currentSlot, run.text);
+        } else {
+            leading += run.text;
+        }
+    }
+
+    // Space before the first word or after the last one is not text.
+    const filled = slots.filter((slot) => assigned.get(slot.tokenIndex)!.trim());
+    if (filled.length > 0) {
+        const first = filled[0].tokenIndex;
+        const last = filled[filled.length - 1].tokenIndex;
+        assigned.set(first, assigned.get(first)!.trimStart());
+        assigned.set(last, assigned.get(last)!.trimEnd());
+    }
+    return assigned;
 };
 
 interface NormalizedText {
@@ -286,36 +397,33 @@ export const fillSourceTemplateWithTranslation = (
     const slots = collectSlots(tokens);
     if (slots.length === 0) return null;
 
-    const targetText = extractPlainTextFromHtml(targetHtml);
+    const targetText = extractRenderedText(targetHtml);
     if (!targetText) return null;
 
-    const assigned = new Map<number, string>();
+    let assigned = new Map<number, string>();
     let strategy: TemplateFillStrategy;
 
     // Preferred: the translation still carries IDML segment indexes, so each slot
     // keeps exactly the text the translator put in it. Only safe when every
     // translated segment has a home in the source, otherwise text would be lost.
-    const targetSegments = collectTargetSegmentTexts(targetHtml);
+    const targetRuns = collectTargetRuns(targetHtml);
     const sourceSegmentIndexes = new Set(
         slots.map((slot) => slot.segmentIndex).filter((value): value is number => value !== null)
     );
-    // Whitespace-only segments are not slots, so they are excluded from the check;
-    // they carry no translated text that could be lost.
-    const translatedTargetSegments = [...targetSegments.entries()].filter(
-        ([, text]) => text.trim().length > 0
+    // A whitespace-only segment may have no slot: its space is kept with the slot
+    // before it rather than counted as translated text.
+    const translatedTargetSegments = new Set(
+        targetRuns
+            .filter((run) => run.segmentIndex !== null && run.text.trim().length > 0)
+            .map((run) => run.segmentIndex as number)
     );
     const everyTargetSegmentHasSlot =
-        translatedTargetSegments.length > 0 &&
-        translatedTargetSegments.every(([index]) => sourceSegmentIndexes.has(index));
+        translatedTargetSegments.size > 0 &&
+        [...translatedTargetSegments].every((index) => sourceSegmentIndexes.has(index));
 
     if (everyTargetSegmentHasSlot) {
         strategy = "segmentIndex";
-        for (const slot of slots) {
-            const text = slot.segmentIndex === null
-                ? ""
-                : targetSegments.get(slot.segmentIndex) ?? "";
-            assigned.set(slot.tokenIndex, text);
-        }
+        assigned = assignRunsToSegmentSlots(slots, targetRuns);
     } else if (slots.length === 1) {
         strategy = "singleSlot";
         assigned.set(slots[0].tokenIndex, targetText);
@@ -342,9 +450,9 @@ export const fillSourceTemplateWithTranslation = (
 
 /**
  * The gate a forced rewrite has to pass before it is written to a cell: the tags
- * must match the source and the translation's words must all still be there.
- * Whitespace is ignored because a slot boundary can move a single space from one
- * run to the next.
+ * must match the source and the reader must see the same text, spaces included.
+ * Moving a space from one run to the next leaves the rendered text unchanged, but
+ * a space added inside a word or dropped between two words does not.
  */
 export const isSafeForcedRewrite = (
     sourceHtml: string,
@@ -353,6 +461,5 @@ export const isSafeForcedRewrite = (
     options?: HtmlStructureOptions
 ): boolean => {
     if (!compareHtmlStructure(sourceHtml, rewrittenHtml, options).isMatch) return false;
-    const squash = (html: string) => extractPlainTextFromHtml(html).replace(/\s+/g, "");
-    return squash(originalHtml) === squash(rewrittenHtml);
+    return extractRenderedText(originalHtml) === extractRenderedText(rewrittenHtml);
 };
