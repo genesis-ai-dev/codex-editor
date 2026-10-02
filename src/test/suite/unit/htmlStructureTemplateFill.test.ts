@@ -4,6 +4,7 @@ import {
     extractPlainTextFromHtml,
 } from "../../../../sharedUtils/htmlStructureUtils";
 import {
+    extractRenderedText,
     fillSourceTemplateWithTranslation,
     isSafeForcedRewrite,
     splitTranslationAcrossSlots,
@@ -118,8 +119,90 @@ suite("htmlStructureTemplateFill", () => {
             assert.deepStrictEqual(slotTexts(result!.html), [
                 "Termo:",
                 "",
-                "primeira e segunda metade",
+                " primeira e segunda metade",
             ]);
+        });
+
+        test("keeps the spaces at segment edges and in whitespace-only segments", () => {
+            // Acts 21:1–16 (#1184): trimming each segment and dropping the
+            // whitespace-only segment 3 glued "في صُور وقَيْصَرِيَّة بُولُس" into one word.
+            const source = segmented([
+                { index: 0, style: "bd", text: "21:1–16" },
+                { index: 1, style: "$ID/[No character style]", text: " Believers in " },
+                { index: 4, style: "k_xt", text: "Tyre" },
+                { index: 5, style: "$ID/[No character style]", text: " and " },
+                { index: 6, style: "k_xt", text: "Caesarea" },
+                { index: 7, style: "$ID/[No character style]", text: " warned Paul." },
+            ]);
+            const target = segmented([
+                { index: 0, style: "bd", text: "21: 1 - 16" },
+                { index: 1, style: "$ID/[No character style]", text: " وحذَّر المؤمنون في" },
+                { index: 3, style: "$ID/[No character style]", text: " " },
+                { index: 4, style: "k_xt", text: "صُور" },
+                { index: 5, style: "$ID/[No character style]", text: " و" },
+                { index: 6, style: "k_xt", text: "قَيْصَرِيَّة" },
+                { index: 7, style: "$ID/[No character style]", text: " بُولُس." },
+            ]);
+
+            const result = fillSourceTemplateWithTranslation(source, target);
+
+            assert.ok(result);
+            assert.strictEqual(result!.strategy, "segmentIndex");
+            assert.ok(compareHtmlStructure(source, result!.html).isMatch);
+            assert.strictEqual(
+                extractRenderedText(result!.html),
+                "21: 1 - 16 وحذَّر المؤمنون في صُور وقَيْصَرِيَّة بُولُس."
+            );
+            assert.ok(isSafeForcedRewrite(source, target, result!.html));
+        });
+
+        test("does not split a word the translation carries across two runs", () => {
+            // Iconium (#1184): an earlier resolve mirrored "Itʼs" and "Paulʼs" as
+            // separate runs, leaving "ويُ|عتقد" and "بُولُ|س". Reading those run
+            // boundaries as spaces showed the reader "ويُ عتقد" and "بُولُ س".
+            const source = segmented([
+                { index: 0, style: "k", text: "Iconium:" },
+                { index: 1, style: "$ID/[No character style]", text: " Itʼs thought that Paulʼs let­ter was read there." },
+            ]);
+            const target = segmented([
+                { index: 0, style: "k", text: "أَيْقُونِيَة:" },
+                { index: 1, style: "$ID/[No character style]", text: " ويُ" },
+                { index: 3, style: "$ID/[No character style]", text: "عتقد أنَّ رسالة بُولُ" },
+                { index: 5, style: "$ID/[No character style]", text: "س قُرئت هناك." },
+            ]);
+
+            const result = fillSourceTemplateWithTranslation(source, target);
+
+            assert.ok(result);
+            assert.strictEqual(result!.strategy, "anchored");
+            assert.ok(compareHtmlStructure(source, result!.html).isMatch);
+            assert.strictEqual(
+                extractRenderedText(result!.html),
+                "أَيْقُونِيَة: ويُعتقد أنَّ رسالة بُولُس قُرئت هناك."
+            );
+            assert.ok(isSafeForcedRewrite(source, target, result!.html));
+        });
+
+        test("does not put a space before punctuation that starts a run", () => {
+            // Acts 12:18–24 (#1184): "بُطْرُس|. ولم" became "بُطْرُس . ولم".
+            const source = segmented([
+                { index: 0, style: "bd", text: "12:18–24" },
+                { index: 1, style: "$ID/[No character style]", text: " Peterʼs guards died. Herod didnʼt honour God, but let people praise him." },
+            ]);
+            const target = segmented([
+                { index: 0, style: "bd", text: "12: 18 - 24" },
+                { index: 1, style: "$ID/[No character style]", text: " ومع حُرَّاس سجن بُطْرُس" },
+                { index: 3, style: "$ID/[No character style]", text: ". ولم يُعطِ هِيرُودُس المجد الله" },
+                { index: 5, style: "$ID/[No character style]", text: "، بل سمح للناس." },
+            ]);
+
+            const result = fillSourceTemplateWithTranslation(source, target);
+
+            assert.ok(result);
+            const text = extractRenderedText(result!.html);
+            assert.ok(text.includes("بُطْرُس. ولم"), text);
+            assert.ok(text.includes("الله، بل"), text);
+            assert.ok(isSafeForcedRewrite(source, target, result!.html));
         });
 
         test("drops inline formatting the source does not have", () => {
@@ -189,6 +272,65 @@ suite("htmlStructureTemplateFill", () => {
             assert.strictEqual(
                 isSafeForcedRewrite(source, "<span>Olá (1 – 3)</span>", "<span>Olá (1 – 3)</span>"),
                 false
+            );
+        });
+
+        test("accepts a space that moved from one run to the next", () => {
+            const original = segmented([
+                { index: 0, style: "$ID/[No character style]", text: "Olá " },
+                { index: 1, style: "ior", text: "(1 – 3)" },
+            ]);
+            const moved = segmented([
+                { index: 0, style: "$ID/[No character style]", text: "Olá" },
+                { index: 1, style: "ior", text: " (1 – 3)" },
+            ]);
+            assert.ok(isSafeForcedRewrite(source, original, moved));
+        });
+
+        test("rejects a rewrite that adds a space inside a word", () => {
+            const original = segmented([
+                { index: 0, style: "$ID/[No character style]", text: "رسالة بُولُ" },
+                { index: 1, style: "ior", text: "س (1 – 3)" },
+            ]);
+            const split = segmented([
+                { index: 0, style: "$ID/[No character style]", text: "رسالة بُولُ " },
+                { index: 1, style: "ior", text: "س (1 – 3)" },
+            ]);
+            assert.strictEqual(isSafeForcedRewrite(source, original, split), false);
+        });
+
+        test("rejects a rewrite that drops the space between two words", () => {
+            const original = segmented([
+                { index: 0, style: "$ID/[No character style]", text: "في " },
+                { index: 1, style: "ior", text: "صُور (1 – 3)" },
+            ]);
+            const glued = segmented([
+                { index: 0, style: "$ID/[No character style]", text: "في" },
+                { index: 1, style: "ior", text: "صُور (1 – 3)" },
+            ]);
+            assert.strictEqual(isSafeForcedRewrite(source, original, glued), false);
+        });
+    });
+
+    suite("extractRenderedText", () => {
+        test("joins text across inline tags without adding a space", () => {
+            assert.strictEqual(
+                extractRenderedText(
+                    '<p><span class="idml-segment">بُولُ</span><span class="idml-eoc" aria-hidden="true"></span><span class="idml-segment">س</span></p>'
+                ),
+                "بُولُس"
+            );
+        });
+
+        test("separates words at block boundaries and line breaks", () => {
+            assert.strictEqual(extractRenderedText("<p>One</p><p>Two</p>"), "One Two");
+            assert.strictEqual(extractRenderedText("One<br>Two<br/>Three"), "One Two Three");
+        });
+
+        test("decodes entities once and collapses whitespace", () => {
+            assert.strictEqual(
+                extractRenderedText("<span> a &amp;lt; b&nbsp;&#1576;&#x062A;  c </span>"),
+                "a &lt; b بت c"
             );
         });
     });
