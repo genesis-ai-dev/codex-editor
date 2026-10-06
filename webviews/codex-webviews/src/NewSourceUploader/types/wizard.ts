@@ -1,4 +1,5 @@
-import { ExistingFile } from './plugin';
+import { ExistingFile, WriteNotebooksMessage } from './plugin';
+import type { ReimportCandidate } from 'types';
 
 /**
  * Basic file info (name and path only, no detailed metadata)
@@ -44,6 +45,7 @@ export type WizardStep =
     | 'source-import'        // Import source files
     | 'target-selection'     // Select source file for target
     | 'target-import'        // Import target files
+    | 'reimport-review'      // Decide what to do with already-imported files
     | 'system-message'       // Edit system message for AI translation
     | 'importing'            // Import in progress (shown while backend processes)
     | 'success';             // Success screen
@@ -74,6 +76,17 @@ export interface WizardState {
         count: number;
         importName: string;
     };
+    /**
+     * Files in the pending batch that already exist in the project, with the
+     * change report behind each one. Set when the provider asks for a decision
+     * during `reimport-review`.
+     */
+    reimportCandidates?: ReimportCandidate[];
+    /**
+     * The `writeNotebooks` message awaiting a re-import decision. Echoed back
+     * to the provider with the decisions so it resumes from pristine data.
+     */
+    pendingWriteMessage?: WriteNotebooksMessage;
 }
 
 /**

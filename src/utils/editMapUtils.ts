@@ -3,6 +3,7 @@ type ValueEditMap = ["value"];
 type CellLabelEditMap = ["metadata", "cellLabel"];
 type DataEditMap = ["metadata", "data"];
 type DataDeletedEditMap = ["metadata", "data", "deleted"];
+type DataNeedsResolutionEditMap = ["metadata", "data", "needsResolution"];
 type DataStartTimeEditMap = ["metadata", "data", "startTime"];
 type DataEndTimeEditMap = ["metadata", "data", "endTime"];
 type DataAudioStartTimeEditMap = ["metadata", "data", "audioStartTime"];
@@ -61,6 +62,10 @@ export const EditMapUtils = {
 
     dataDeleted(): DataDeletedEditMap {
         return ["metadata", "data", "deleted"];
+    },
+
+    dataNeedsResolution(): DataNeedsResolutionEditMap {
+        return ["metadata", "data", "needsResolution"];
     },
 
     dataStartTime(): DataStartTimeEditMap {

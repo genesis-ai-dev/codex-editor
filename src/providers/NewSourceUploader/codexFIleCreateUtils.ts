@@ -95,7 +95,7 @@ async function collectExistingCorpusMarkers(workspaceFolder: vscode.WorkspaceFol
  * Collects existing fileDisplayName values from source notebooks in the workspace.
  * Returns an array of display names (including any with number suffixes like "Sample (1)").
  */
-async function collectExistingDisplayNames(workspaceFolder: vscode.WorkspaceFolder): Promise<string[]> {
+export async function collectExistingDisplayNames(workspaceFolder: vscode.WorkspaceFolder): Promise<string[]> {
     const existingDisplayNames: string[] = [];
 
     try {
@@ -134,7 +134,7 @@ async function collectExistingDisplayNames(workspaceFolder: vscode.WorkspaceFold
  * Generates a unique display name by adding a number suffix if needed.
  * Example: If "ACT-REV" exists, returns "ACT-REV (1)". If "ACT-REV (1)" also exists, returns "ACT-REV (2)".
  */
-function getUniqueDisplayName(baseName: string, existingNames: string[]): string {
+export function getUniqueDisplayName(baseName: string, existingNames: string[]): string {
     // Check if the base name already exists
     if (!existingNames.includes(baseName)) {
         return baseName;

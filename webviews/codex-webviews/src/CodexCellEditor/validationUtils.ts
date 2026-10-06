@@ -1,4 +1,5 @@
-import { ValidationEntry } from "../../../../types";
+import { QuillCellContent, ValidationEntry } from "../../../../types";
+import { getCellValueData } from "../../../../sharedUtils";
 
 // Helper function to check if an entry is a valid ValidationEntry object
 export function isValidValidationEntry(entry: any): entry is ValidationEntry {
@@ -30,6 +31,12 @@ export function getActiveTextValidations(
     return list.filter(
         (entry: ValidationEntry) => isValidValidationEntry(entry) && !entry.isDeleted
     );
+}
+
+// Active text validations on the value edit behind the cell's current text. Metadata edits
+// (labels, import flags) are appended after it and never carry a sign-off.
+export function getActiveCellTextValidations(cell: QuillCellContent): ValidationEntry[] {
+    return getActiveTextValidations(getCellValueData(cell).validatedBy);
 }
 
 // Returns whether the given username has an active validation

@@ -19,6 +19,7 @@ import {
     Plus,
     Trash2,
     Replace,
+    AlertTriangle,
 } from "lucide-react";
 import type { Subsection, ProgressPercentages } from "../../lib/types";
 import type { MilestoneIndex, MilestoneInfo } from "../../../../../types";
@@ -71,6 +72,23 @@ const DemoteMilestoneIcon = ({ className }: { className?: string; }) => (
         {/* Solid square, bottom-right. */}
         <rect width="8" height="8" x="14" y="14" rx="2" />
     </svg>
+);
+
+/**
+ * Warning marker for a milestone or subdivision holding cells an update
+ * import flagged as needing re-resolution. The exclamation mark carries the
+ * meaning; the count lives in the tooltip so the row stays compact next to the
+ * progress icons.
+ */
+const UnresolvedMarker = ({ count }: { count: number; }) => (
+    <span
+        className="flex items-center text-[var(--vscode-editorWarning-foreground)]"
+        title={`${count} cell${count === 1 ? "" : "s"} changed during an update import and need${count === 1 ? "s" : ""} review`}
+        aria-label={`${count} unresolved cells`}
+        data-testid="unresolved-marker"
+    >
+        <AlertTriangle className="h-[14px] w-[14px]" />
+    </span>
 );
 
 interface MilestoneAccordionProps {
@@ -1396,6 +1414,11 @@ export function MilestoneAccordion({
                                                             </>
                                                             )
                                                         )}
+                                                        {!!milestone.unresolvedCellCount && (
+                                                            <UnresolvedMarker
+                                                                count={milestone.unresolvedCellCount}
+                                                            />
+                                                        )}
                                                         <div
                                                             className={`flex items-center ${audioDisplay.colorClass}`}
                                                             style={getIconStyle(
@@ -1648,6 +1671,14 @@ export function MilestoneAccordion({
                                                                             ))}
                                                                     </>
                                                                 )}
+                                                                {!isEditingThisRow &&
+                                                                    !!subsection.unresolvedCellCount && (
+                                                                        <UnresolvedMarker
+                                                                            count={
+                                                                                subsection.unresolvedCellCount
+                                                                            }
+                                                                        />
+                                                                    )}
                                                                 {!isEditingThisRow && (
                                                                     <ProgressDots
                                                                         className="gap-x-[14px]"
