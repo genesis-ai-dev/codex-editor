@@ -119,6 +119,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
     private _onDidDispose = new vscode.EventEmitter<void>();
     public readonly onDidDispose = this._onDidDispose.event;
 
+    /** Fires with the cell id when a person resolves a cell an update import flagged. */
+    private readonly _onDidResolveCell = new vscode.EventEmitter<string>();
+    public readonly onDidResolveCell = this._onDidResolveCell.event;
+
     private readonly _onDidChangeForVsCodeAndWebview = new vscode.EventEmitter<{
         readonly content?: string;
         readonly edits: any[];
@@ -233,6 +237,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     dispose(): void {
         this._onDidDispose.fire();
         this._onDidDispose.dispose();
+        this._onDidResolveCell.dispose();
         this._onDidChangeForVsCodeAndWebview.dispose();
         this._onDidChangeForWebview.dispose();
     }
@@ -334,6 +339,53 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     // Methods to manipulate the document data
+    /**
+     * Clear the `needsResolution` flag an update import set on a cell.
+     *
+     * Recorded as an edit for the same reason the import records setting it:
+     * the sync merge resolves each field from the newest entry in the cell's
+     * edit history, so a silent field change would be reverted from a remote
+     * copy that still has the flag set.
+     *
+     * Invalidates the milestone index cache because the navigation's warning
+     * counts are derived from these flags.
+     */
+    private clearNeedsResolution(
+        cell: CustomNotebookCellData,
+        timestamp: number
+    ): void {
+        const data = cell.metadata?.data as { needsResolution?: boolean; } | undefined;
+        if (data?.needsResolution !== true) return;
+
+        data.needsResolution = false;
+        (cell.metadata.edits ??= []).push({
+            editMap: EditMapUtils.dataNeedsResolution(),
+            value: false,
+            timestamp,
+            type: EditType.USER_EDIT,
+            author: this._author,
+            validatedBy: [],
+        });
+        this.invalidateMilestoneIndexCache();
+        this._onDidResolveCell.fire(cell.metadata.id);
+    }
+
+    /**
+     * Clear a cell's update-import flag on behalf of its paired cell in the other file, once
+     * the translator has resolved that one. Returns whether there was a flag to clear, so the
+     * caller only saves a document that actually changed.
+     */
+    public resolveFlaggedCell(cellId: string): boolean {
+        const cell = this._documentData.cells.find((candidate) => candidate.metadata?.id === cellId);
+        const data = cell?.metadata?.data as { needsResolution?: boolean; } | undefined;
+        if (!cell || data?.needsResolution !== true) return false;
+
+        this.clearNeedsResolution(cell, Date.now());
+        this._isDirty = true;
+        this.markCellMutated(cellId);
+        return true;
+    }
+
     public async updateCellContent(
         cellId: string,
         newContent: string,
@@ -510,6 +562,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
             validatedBy,
             ...(generationId ? { generationId } : {}),
         });
+
+        // Writing the cell by hand IS the resolution for a cell an update
+        // import flagged, so clear the flag and drop it out of the milestone
+        // navigation's warning counts.
+        if (shouldUpdateValue && editType === EditType.USER_EDIT) {
+            this.clearNeedsResolution(cellToUpdate, currentTimestamp);
+        }
 
         // Record the edit 
         // not being used ???
@@ -1713,16 +1772,63 @@ export class CodexCellDocument implements vscode.CustomDocument {
         startCellIndex: number,
         endCellIndex: number
     ): string[] {
+        return this.getRootContentCellsInRange(startCellIndex, endCellIndex)
+            .map((cell) => cell.metadata?.id)
+            .filter((id): id is string => Boolean(id));
+    }
+
+    /**
+     * The cells behind `getRootContentCellIdsInRange`, in the same order. Used
+     * where the cell itself is needed rather than just its id (e.g. counting
+     * cells flagged for re-resolution).
+     */
+    private getRootContentCellsInRange(
+        startCellIndex: number,
+        endCellIndex: number
+    ): CustomNotebookCellData[] {
         const cells = this._documentData.cells || [];
-        const rootIds: string[] = [];
+        const roots: CustomNotebookCellData[] = [];
         for (let i = startCellIndex; i < endCellIndex; i++) {
             const cell = cells[i];
-            if (!isUnnumberedNotebookCell(cell)) {
-                const id = cell.metadata?.id;
-                if (id) rootIds.push(id);
+            if (!isUnnumberedNotebookCell(cell) && cell.metadata?.id) {
+                roots.push(cell);
             }
         }
-        return rootIds;
+        return roots;
+    }
+
+    /**
+     * Fill in `unresolvedCellCount` on each milestone and its subdivisions.
+     *
+     * Cells carry `data.needsResolution` after an update import changed their
+     * source content, so the existing translation may no longer line up. The
+     * milestone navigation renders a warning marker on any section holding
+     * one, which is how the user finds them in a large document.
+     */
+    private annotateUnresolvedCounts(
+        milestones: MilestoneInfo[],
+        endOfLastMilestone: number
+    ): void {
+        const isUnresolved = (cell: CustomNotebookCellData): boolean =>
+            (cell.metadata?.data as { needsResolution?: boolean; } | undefined)?.needsResolution === true;
+
+        milestones.forEach((milestone, index) => {
+            const endCellIndex = milestones[index + 1]?.cellIndex ?? endOfLastMilestone;
+            const roots = this.getRootContentCellsInRange(milestone.cellIndex, endCellIndex);
+            const flags = roots.map(isUnresolved);
+            const total = flags.reduce((count, flagged) => count + (flagged ? 1 : 0), 0);
+            // Keep the field absent when there is nothing to flag, so the
+            // webview's "does this section need attention" check stays a
+            // simple truthiness test.
+            if (total > 0) milestone.unresolvedCellCount = total;
+
+            for (const subdivision of milestone.subdivisions ?? []) {
+                const subdivisionTotal = flags
+                    .slice(subdivision.startRootIndex, subdivision.endRootIndex)
+                    .reduce((count, flagged) => count + (flagged ? 1 : 0), 0);
+                if (subdivisionTotal > 0) subdivision.unresolvedCellCount = subdivisionTotal;
+            }
+        });
     }
 
     /**
@@ -1910,6 +2016,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 cellsPerPage,
                 maxSubdivisionLength,
             });
+            this.annotateUnresolvedCounts([virtualMilestone], cells.length);
 
             const result: MilestoneIndex = {
                 milestones: [virtualMilestone],
@@ -1939,6 +2046,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 maxSubdivisionLength
             );
         }
+        this.annotateUnresolvedCounts(milestones, cells.length);
 
         const result: MilestoneIndex = {
             milestones,
@@ -2997,6 +3105,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
             this.isValidValidationEntry(entry)
         );
 
+        // Signing off on the translation is the check an update import asked
+        // for, as much as rewriting it is.
+        if (validate) {
+            this.clearNeedsResolution(cellToUpdate, currentTimestamp);
+        }
+
         // Invalidate milestone index cache since validation changes affect progress calculations
         // The milestone structure doesn't change, but progress needs to be recalculated
         this.invalidateMilestoneIndexCache();
@@ -3268,22 +3382,24 @@ export class CodexCellDocument implements vscode.CustomDocument {
      * @param cellId The ID of the cell to check
      * @returns True if fixes were applied, false otherwise
      */
+    /**
+     * Validators on the value edit behind the cell's current text, the same edit the progress
+     * and the validation badge read. Metadata edits (labels, import flags) are appended after it
+     * and never carry a sign-off, so the last entry of the history is not a reliable place to look.
+     */
+    private getCurrentValueValidatedBy(cell: CustomNotebookCellData | undefined): unknown[] {
+        if (!cell?.metadata?.edits?.length) {
+            return [];
+        }
+        return getCellValueData(convertCellToQuillContent(cell)).validatedBy;
+    }
+
     private checkAndFixValidationArray(cellId: string): boolean {
         const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
-
-        if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
-            return false;
-        }
-
-        // Get the latest edit
-        const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
-
-        if (!latestEdit.validatedBy) {
-            return false;
-        }
+        const validatedBy = this.getCurrentValueValidatedBy(cell);
 
         // Check if there are any string entries in the validatedBy array
-        const hasStringEntries = latestEdit.validatedBy.some((entry) => typeof entry === "string");
+        const hasStringEntries = validatedBy.some((entry) => typeof entry === "string");
 
         if (hasStringEntries) {
             debug(
@@ -3306,19 +3422,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
 
-        if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
-            return 0;
-        }
-
-        // Get the latest edit
-        const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
-
-        if (!latestEdit.validatedBy) {
-            return 0;
-        }
-
         // Only count ValidationEntry objects with isDeleted: false
-        return latestEdit.validatedBy.filter(
+        return this.getCurrentValueValidatedBy(cell).filter(
             (entry) => this.isValidValidationEntry(entry) && !entry.isDeleted
         ).length;
     }
@@ -3335,19 +3440,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
 
-        if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
-            return false;
-        }
-
-        // Get the latest edit
-        const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
-
-        if (!latestEdit.validatedBy) {
-            return false;
-        }
-
         // Check for a ValidationEntry object with the username and isDeleted: false
-        return latestEdit.validatedBy.some(
+        return this.getCurrentValueValidatedBy(cell).some(
             (entry) =>
                 this.isValidValidationEntry(entry) &&
                 entry.username === username &&
@@ -3367,19 +3461,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
 
-        if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
-            return [];
-        }
-
-        // Get the latest edit
-        const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
-
-        if (!latestEdit.validatedBy) {
-            return [];
-        }
-
         // Filter to only include proper ValidationEntry objects
-        return latestEdit.validatedBy.filter((entry) => this.isValidValidationEntry(entry));
+        return this.getCurrentValueValidatedBy(cell).filter(
+            (entry): entry is ValidationEntry => this.isValidValidationEntry(entry)
+        );
     }
 
     public getCellAudioValidatedBy(cellId: string): ValidationEntry[] {

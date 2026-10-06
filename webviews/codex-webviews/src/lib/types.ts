@@ -82,6 +82,11 @@ export interface Subsection {
     startCellId?: string;
     /** Whether the subdivision boundary was user-authored or auto-calculated. */
     source?: "auto" | "custom";
+    /**
+     * Cells in this subsection flagged `data.needsResolution` by an update
+     * import. Non-zero renders a warning marker on the row.
+     */
+    unresolvedCellCount?: number;
 }
 
 export type FileStatus = "dirty" | "syncing" | "synced" | "none";

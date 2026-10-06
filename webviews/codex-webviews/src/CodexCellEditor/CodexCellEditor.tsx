@@ -24,6 +24,7 @@ import DuplicateCellResolver from "./DuplicateCellResolver";
 import VideoTimelineEditor from "./VideoTimelineEditor";
 import type { AudioAvailability } from "./utils/audioViewMode";
 import { getStructureMismatchCellIds } from "./utils/structureMismatchCells";
+import { getActiveCellTextValidations } from "./validationUtils";
 
 import {
     getCellValueData,
@@ -2913,19 +2914,7 @@ const CodexCellEditor: React.FC = () => {
         const result = translationUnitsForSection.filter((unit) => {
             // Check if the cell is empty
             const hasNoContent = isCellContentEmpty(unit.cellContent);
-
-            // Get the latest edit
-            const latestEdit =
-                unit.editHistory && unit.editHistory.length > 0
-                    ? unit.editHistory[unit.editHistory.length - 1]
-                    : null;
-
-            // Check if the latest edit has no active (non-deleted) validators
-            const hasNoValidators =
-                !latestEdit ||
-                !latestEdit.validatedBy ||
-                latestEdit.validatedBy.filter((v) => v && typeof v === "object" && !v.isDeleted)
-                    .length === 0;
+            const hasNoValidators = getActiveCellTextValidations(unit).length === 0;
 
             return hasNoContent || hasNoValidators;
         });
@@ -2943,17 +2932,7 @@ const CodexCellEditor: React.FC = () => {
             // Check if the cell is empty
             const hasNoContent = isCellContentEmpty(unit.cellContent);
 
-            // Get the latest edit
-            const latestEdit =
-                unit.editHistory && unit.editHistory.length > 0
-                    ? unit.editHistory[unit.editHistory.length - 1]
-                    : null;
-
-            // Check if the latest edit has no active (non-deleted) validators
-            const activeValidators =
-                latestEdit?.validatedBy?.filter(
-                    (v) => v && typeof v === "object" && !v.isDeleted
-                ) || [];
+            const activeValidators = getActiveCellTextValidations(unit);
             const hasNoValidators = activeValidators.length === 0;
 
             // Check if cell is fully validated (exclude from this category)
@@ -2963,7 +2942,7 @@ const CodexCellEditor: React.FC = () => {
             let notValidatedByCurrentUser = false;
 
             // Only check for user validation if we have a valid username and the cell has content
-            if (latestEdit && currentUsername && !hasNoContent) {
+            if (currentUsername && !hasNoContent) {
                 if (activeValidators.length === 0) {
                     // If there are no validators at all, current user hasn't validated it
                     notValidatedByCurrentUser = true;
@@ -2998,20 +2977,7 @@ const CodexCellEditor: React.FC = () => {
                 return false;
             }
 
-            // Get the latest edit
-            const latestEdit =
-                unit.editHistory && unit.editHistory.length > 0
-                    ? unit.editHistory[unit.editHistory.length - 1]
-                    : null;
-
-            if (!latestEdit) {
-                return false;
-            }
-
-            // Count only active (non-deleted) validators
-            const activeValidators =
-                latestEdit.validatedBy?.filter((v) => v && typeof v === "object" && !v.isDeleted) ||
-                [];
+            const activeValidators = getActiveCellTextValidations(unit);
 
             // Check if cell has reached the validation threshold (is fully validated)
             const isFullyValidated = activeValidators.length >= VALIDATION_THRESHOLD;
@@ -3072,18 +3038,7 @@ const CodexCellEditor: React.FC = () => {
 
             const cellId = unit.cellMarkers[0];
             const hasNoContent = isCellContentEmpty(unit.cellContent);
-
-            // Get the latest edit
-            const latestEdit =
-                unit.editHistory && unit.editHistory.length > 0
-                    ? unit.editHistory[unit.editHistory.length - 1]
-                    : null;
-
-            // Get active validators
-            const activeValidators =
-                latestEdit?.validatedBy?.filter(
-                    (v) => v && typeof v === "object" && !v.isDeleted
-                ) || [];
+            const activeValidators = getActiveCellTextValidations(unit);
 
             const hasNoValidators = activeValidators.length === 0;
             const isFullyValidated = activeValidators.length >= VALIDATION_THRESHOLD;

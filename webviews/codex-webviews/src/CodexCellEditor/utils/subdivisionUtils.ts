@@ -50,6 +50,7 @@ export function buildSubsectionsForMilestone(
                 key: sub.key,
                 startCellId: sub.startCellId,
                 source: sub.source,
+                unresolvedCellCount: sub.unresolvedCellCount,
             };
         });
     }

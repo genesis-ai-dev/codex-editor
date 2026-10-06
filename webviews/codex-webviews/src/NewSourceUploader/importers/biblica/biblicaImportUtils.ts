@@ -21,23 +21,6 @@ export function isBiblicaNoteSectionStyle(paragraphStyle: string): boolean {
 }
 
 /**
- * Headings printed inside the scripture flow (the head/* styles).
- *
- * Unlike the verses around them, these are not swapped in from a Bible translation —
- * they are set in the study Bible's own layout and have to be translated here. The
- * Psalter is where they carry the most text: chapter labels ("Psalm 1", head:cl),
- * superscriptions ("A psalm of David", head:d_h), speaker lines (head:sp), the
- * acrostic letters of Psalm 119 (head:qa) and the five-book headings ("Book I",
- * head:ms, with its range "Psalms 1—41", head:mr_h).
- *
- * Auto-generated running heads live in meta:rh, not here, so nothing repeated by the
- * layout is picked up (see isBiblicaRunningHeadStyle).
- */
-export function isBiblicaScriptureHeadingStyle(paragraphStyle: string): boolean {
-    return paragraphStyle.includes("head%3a") || paragraphStyle.includes("head:");
-}
-
-/**
  * Division headings (intro:imt2) introduce a group of books — "Stories about Jesus"
  * before Matthew, "Letters and messages" before Romans. InDesign places them inside the
  * following book's front matter, but they describe the whole group rather than that book.
@@ -91,11 +74,51 @@ export function isBiblicaMajorSectionHeadingStyle(paragraphStyle: string): boole
 }
 
 /**
+ * Headings that sit in the scripture flow rather than the notes.
+ *
+ * head:s* section titles ("Paul serves the Gentiles"), head:cl chapter labels ("Psalm 1"),
+ * head:d* descriptive titles (the psalm superscriptions), head:ms/head:mr division headings
+ * and references ("Book I", "Psalms 1–41"), head:sp speaker labels in Song of Songs and
+ * head:qa acrostic letters in Psalm 119.
+ *
+ * They are the publisher's own words, not scripture, and the Bible swap retains them
+ * instead of overwriting them from the incoming Bible (see isSectionHeadingParagraphStyle
+ * in bible-swap/chapterBlocks.ts), so their text has to come from the translator and they
+ * need cells of their own. The verse paragraphs around them are still skipped, and a
+ * heading that carries chapter/verse markers is handled as a verse paragraph before this
+ * is consulted.
+ *
+ * Anchored so the blank spacer styles that merely end in "head" (b_head, bb_head) and the
+ * meta:rh running heads stay out.
+ */
+const SCRIPTURE_HEADING_STYLE_PATTERN = /(?:^|\/)head(?:%3a|:)/i;
+
+export function isBiblicaScriptureHeadingStyle(paragraphStyle: string): boolean {
+    return SCRIPTURE_HEADING_STYLE_PATTERN.test(paragraphStyle);
+}
+
+/**
  * Running heads (meta:rh) repeat the section marker and page number on every page. InDesign
  * regenerates them from the layout, so they hold no translatable text of their own.
  */
 export function isBiblicaRunningHeadStyle(paragraphStyle: string): boolean {
     return paragraphStyle.includes("meta%3arh") || paragraphStyle.includes("meta:rh");
+}
+
+/**
+ * The book's name, as it is printed outside the text itself.
+ *
+ * Each book opens with a metadata block InDesign draws the page furniture from: meta:h
+ * feeds the running head at the top of every page, and meta:toc1–3 feed the long, short
+ * and abbreviated contents entries. They read "Joshua", "Joshua", "Joshua", "Jos" — real
+ * words that have to be translated, unlike the neighbouring meta:bk ("JOS") and meta:id
+ * ("JOS - New International Readerʼs Version…"), which are identifiers the importer and
+ * USFM tooling match on and which must stay as they are.
+ */
+const BOOK_NAME_STYLE_PATTERN = /(?:^|\/)meta(?:%3a|:)(?:h|toc[123])$/i;
+
+export function isBiblicaBookNameStyle(paragraphStyle: string): boolean {
+    return BOOK_NAME_STYLE_PATTERN.test(paragraphStyle);
 }
 
 /**
@@ -151,6 +174,35 @@ export function getStructuralApostropheSegmentIndexes(
         }
     }
     return indexes;
+}
+
+/**
+ * Apostrophe slots whose two halves can be shown to the translator as one run.
+ *
+ * "Hamanʼs" reaches us as three slots because InDesign sets the apostrophe in its own
+ * font. Offered as three runs, a translator writes the phrase into the first and leaves
+ * the others empty, which strands their English on export and pushes every later run out
+ * of position — the source of the misplaced bold. Joining the halves gives them the word
+ * as a word, and the paragraph then has as many runs as the translation needs.
+ *
+ * Only where both halves carry the same character style. A dozen straddle a style
+ * boundary ("God" as a key term against a plain "s people") and joining those would
+ * decide, wrongly, that the whole phrase is a key term.
+ */
+export function getJoinableApostropheSegmentIndexes(
+    apostropheIndexes: number[],
+    segmentStyles?: string[],
+    breakBefore?: boolean[]
+): number[] {
+    return apostropheIndexes.filter((index) => {
+        const opening = segmentStyles?.[index - 1];
+        const closing = segmentStyles?.[index + 1];
+        if (index < 1 || !opening || !closing || opening !== closing) {
+            return false;
+        }
+        // A line break ends the cell, so the halves belong to different cells.
+        return !breakBefore?.[index] && !breakBefore?.[index + 1];
+    });
 }
 
 export function omitSegmentsAtIndexes(segments: string[], indexes: number[]): string[] {

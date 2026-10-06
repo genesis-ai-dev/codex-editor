@@ -944,6 +944,14 @@ type CodexData = Timestamps & {
     merged?: boolean;
     deleted?: boolean;
     hidden?: boolean;
+    /**
+     * Set by an update import when this cell's source content changed, so the
+     * existing translation may no longer line up and the user has to resolve
+     * it anew. Written to both the source and target cell of the pair, and
+     * recorded as a `metadata.data.needsResolution` edit so it survives sync.
+     * Cleared when the user edits or explicitly resolves the target cell.
+     */
+    needsResolution?: boolean;
     originalText?: string;
     globalReferences?: string[]; // Array of cell IDs in original format (e.g., "GEN 1:1") used for header generation
     milestoneIndex?: number | null; // 0-based milestone index for O(1) lookup (null if no milestone)
@@ -1009,6 +1017,11 @@ export interface SubdivisionInfo {
     name?: string;
     /** "custom" = user-defined; "auto" = arithmetic chunk or auto-tail subdivision. */
     source: "auto" | "custom";
+    /**
+     * Cells in this subdivision flagged `data.needsResolution`. Drives the
+     * warning marker on the subdivision row in the milestone navigation.
+     */
+    unresolvedCellCount?: number;
 }
 
 type BaseCustomCellMetaData = {
@@ -1188,6 +1201,101 @@ export type NotebookImportMetadataCore = Pick<
     isCodex?: boolean;
 };
 
+/**
+ * How the user chose to handle a file that was already imported into this
+ * project. Presented by the NewSourceUploader review step and acted on by
+ * `NewSourceUploaderProvider`.
+ *
+ * - `new`: ignore the existing pair; create a separate, untranslated pair.
+ * - `overwrite`: rebuild the existing pair in place, keeping its translations.
+ * - `copy`: leave the existing pair alone; write the rebuilt result, including
+ *   its translations, to a new pair.
+ */
+export type ReimportMode = "new" | "overwrite" | "copy";
+
+/** Effect an update import would have, from a dry-run merge. */
+export interface ReimportMergeStats {
+    /** TEXT cells in the new parse. */
+    totalNewCells: number;
+    /** New cells that matched an existing cell (existing id preserved). */
+    matchedCells: number;
+    /** Matched cells whose existing target had translated content. */
+    translationsCarried: number;
+    /** Existing TEXT cells with no counterpart in the new parse (soft-deleted). */
+    droppedOldCells: number;
+    /** Soft-deleted cells that had translated content (hidden work). */
+    droppedTranslations: number;
+    /** New TEXT cells with no existing counterpart, inserted in document order. */
+    insertedCells: number;
+    /** Matched cells whose source content changed, flagged for re-resolution. */
+    flaggedCells: number;
+    /** Flagged cells whose translation was validated; the validation is withdrawn. */
+    unvalidatedCells: number;
+}
+
+/** One row in the pre-import change report shown to the user. */
+export interface ReimportCellChange {
+    kind: "inserted" | "updated" | "removed";
+    /** The id the cell will carry after the update. */
+    cellId: string;
+    /** Milestone/chapter label, used to group the report by section. */
+    milestone?: string;
+    /** Plain-text preview of the cell's source content after the update. */
+    preview: string;
+    /** Whether this cell will be flagged as needing re-resolution. */
+    needsResolution: boolean;
+    /** Whether a translation is attached (carried over, or about to be hidden). */
+    hasTranslation: boolean;
+}
+
+/** An existing notebook pair an incoming file could update. */
+export interface ReimportTargetOption {
+    notebookBaseName: string;
+    /** Project display name, e.g. "GEN-DEU (Biblica)" or "NEW GEN-DEU". */
+    displayName: string;
+    /** How many target cells already hold a translation. */
+    translationCount: number;
+    /** What updating this pair would do. */
+    stats: ReimportMergeStats;
+    /** Per-cell detail behind `stats`. */
+    changes: ReimportCellChange[];
+}
+
+/**
+ * A file in the current import batch that already exists in the project, with
+ * everything the review UI needs to explain the choice.
+ */
+export interface ReimportCandidate {
+    /** Index into the batch's `notebookPairs`. */
+    pairIdx: number;
+    /** The file name the user selected. */
+    fileName: string;
+    /**
+     * "content": the exact same bytes were imported before.
+     * "fileName": a file with this name was imported before, but its content
+     * has changed since — the usual update case.
+     */
+    matchedBy: "content" | "fileName";
+    /**
+     * Every existing pair that came from this original file. When there is
+     * more than one (duplicate imports), the user picks by `displayName`.
+     * The first is the default (the pair with the most translations).
+     */
+    options: ReimportTargetOption[];
+    /** What updating the currently default option would do. */
+    stats: ReimportMergeStats;
+    /** Per-cell detail behind `stats`. */
+    changes: ReimportCellChange[];
+}
+
+/** The user's answer for one candidate. */
+export interface ReimportDecision {
+    pairIdx: number;
+    mode: ReimportMode;
+    /** Which option to update. Required unless `mode` is `new`. */
+    notebookBaseName?: string;
+}
+
 export type NotebookImportContext = {
     importerType?: FileImporterType | string;
     fileName?: string;
@@ -1213,6 +1321,13 @@ export interface MilestoneInfo {
     value: string;
     /** Number of content cells in this milestone section (excluding milestone cell itself) */
     cellCount: number;
+    /**
+     * Content cells in this milestone flagged `data.needsResolution` — cells whose
+     * source content changed during an update import, so the existing translation
+     * may no longer line up. Drives the warning marker in the milestone navigation.
+     * Absent or 0 means nothing needs attention.
+     */
+    unresolvedCellCount?: number;
     /**
      * Resolved subdivisions for this milestone, in order. When present, overrides the
      * arithmetic `cellsPerPage` pagination. Computed by
