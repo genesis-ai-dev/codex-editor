@@ -79,7 +79,9 @@ type NotebookLineNumberCell = {
 /**
  * Cells that do not take a milestone line number: milestone headers, headings
  * and notes (paratext), child cells, and merged, hidden, or deleted cells.
- * Numbering of the cells that remain restarts at each milestone.
+ * Numbering of the cells that remain restarts at each milestone. Page labels
+ * (e.g. "1-50") count the same cells, so a cell's number always falls inside
+ * its page's range.
  */
 export function isUnnumberedNotebookCell(cell: NotebookLineNumberCell): boolean {
     const type = cell.metadata?.type;
