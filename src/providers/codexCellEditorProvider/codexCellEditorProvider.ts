@@ -51,7 +51,11 @@ import {
     isMatchingFilePair as isMatchingFilePairUtil,
 } from "../../utils/fileTypeUtils";
 import { getCorrespondingCodexUri, getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
-import { convertCellToQuillContent } from "./utils/cellUtils";
+import {
+    convertCellToQuillContent,
+    lineNumberWithinCellRange,
+    milestoneContentStartIndex,
+} from "./utils/cellUtils";
 import {
     enrichSourceCellMapWithTimestamps,
     type SourceCellMapEntry,
@@ -3490,41 +3494,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             const milestoneValue = milestone.value;
 
-            // Calculate line number within milestone
+            // Line number within this milestone. Matches the number shown next to
+            // the cell in the editor (page labels such as "A (1-50)").
             const cells = (doc as any)._documentData?.cells || [];
             const nextMilestone = milestoneIndexInfo.milestones[milestoneIndex + 1];
-            const startCellIndex = milestone.cellIndex + 1; // +1 to skip the milestone cell itself
+            const startCellIndex = milestoneContentStartIndex(cells, milestone.cellIndex);
             const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
-
-            let cellLineNumber: number | undefined;
-            let lineNumber = 0;
-            for (let i = startCellIndex; i < endCellIndex; i++) {
-                const currentCell = cells[i];
-                const currentCellId = currentCell.metadata?.id;
-
-                // Skip milestone and paratext cells
-                if (
-                    currentCell.metadata?.type === CodexCellTypes.MILESTONE ||
-                    currentCell.metadata?.type === CodexCellTypes.PARATEXT
-                ) {
-                    continue;
-                }
-
-                // Skip child cells (have parentId)
-                const isChildCell = currentCell.metadata?.data?.parentId !== undefined;
-                if (isChildCell) {
-                    continue;
-                }
-
-                // Increment line number for valid content cells
-                lineNumber++;
-
-                // If this is our target cell, we're done
-                if (currentCellId === cellId) {
-                    cellLineNumber = lineNumber;
-                    break;
-                }
-            }
+            const cellLineNumber = lineNumberWithinCellRange(
+                cells,
+                cellId,
+                startCellIndex,
+                endCellIndex
+            );
 
             return {
                 fileDisplayName,

@@ -1585,6 +1585,97 @@ suite("Milestone-Based Pagination Test Suite", () => {
         );
     });
 
+    // Milestone header followed by text cells A..E; cell C was merged into B.
+    function cellsWithMergedThird(): any[] {
+        const milestone = {
+            kind: 2,
+            languageId: "scripture",
+            value: "1",
+            metadata: { type: CodexCellTypes.MILESTONE, id: "milestone-1" },
+        };
+        const textCells = ["A", "B", "C", "D", "E"].map((label, i) => ({
+            kind: 2,
+            languageId: "scripture",
+            value: label,
+            metadata: {
+                type: CodexCellTypes.TEXT,
+                id: `root-${i + 1}`,
+                ...(label === "C" ? { data: { merged: true } } : {}),
+            },
+        }));
+        return [milestone, ...textCells];
+    }
+
+    test("buildMilestoneIndex excludes merged cells so page labels match line numbers", async () => {
+        const document = await createDocumentWithCells(cellsWithMergedThird());
+        const milestone = document.buildMilestoneIndex(2).milestones[0];
+
+        assert.strictEqual(milestone.cellCount, 4, "4 numbered cells, not 5");
+        assert.deepStrictEqual(
+            milestone.subdivisions?.map((s) => [s.startRootIndex, s.endRootIndex]),
+            [
+                [0, 2],
+                [2, 4],
+            ],
+            "Pages should be 1-2 and 3-4, matching the line numbers beside A, B, D, E"
+        );
+    });
+
+    test("merging and unmerging a cell rebuilds the cached milestone index", async () => {
+        const cells = cellsWithMergedThird();
+        delete cells[3].metadata.data;
+        const document = await createDocumentWithCells(cells);
+        assert.strictEqual(document.buildMilestoneIndex(50).milestones[0].cellCount, 5);
+
+        document.updateCellData("root-3", { merged: true });
+        assert.strictEqual(
+            document.buildMilestoneIndex(50).milestones[0].cellCount,
+            4,
+            "Merging must rebuild the cached index so page labels update without reload"
+        );
+
+        document.updateCellData("root-3", { merged: false });
+        assert.strictEqual(document.buildMilestoneIndex(50).milestones[0].cellCount, 5);
+    });
+
+    test("getCellsForMilestone keeps a merged cell on the page of the cell it merged into", async () => {
+        const document = await createDocumentWithCells(cellsWithMergedThird());
+
+        const page1 = document.getCellsForMilestone(0, 0, 2).map((c) => c.cellMarkers[0]);
+        const page2 = document.getCellsForMilestone(0, 1, 2).map((c) => c.cellMarkers[0]);
+
+        assert.deepStrictEqual(page1, ["root-1", "root-2", "root-3"]);
+        assert.deepStrictEqual(page2, ["root-4", "root-5"]);
+    });
+
+    test("findMilestoneAndSubsectionForCell does not count merged cells toward a cell's page", async () => {
+        const document = await createDocumentWithCells(cellsWithMergedThird());
+
+        assert.deepStrictEqual(document.findMilestoneAndSubsectionForCell("root-2", 2), {
+            milestoneIndex: 0,
+            subsectionIndex: 0,
+        });
+        assert.deepStrictEqual(
+            document.findMilestoneAndSubsectionForCell("root-3", 2),
+            { milestoneIndex: 0, subsectionIndex: 0 },
+            "The merged cell sits on the page of the cell it merged into"
+        );
+        assert.deepStrictEqual(
+            document.findMilestoneAndSubsectionForCell("root-5", 2),
+            { milestoneIndex: 0, subsectionIndex: 1 },
+            "E is the 4th numbered cell, so it is on page 2 (3-4), not a third page"
+        );
+    });
+
+    test("calculateSubsectionProgress does not give merged cells a page slot", async () => {
+        const document = await createDocumentWithCells(cellsWithMergedThird());
+        const subsectionProgress = document.calculateSubsectionProgress(0, 2, 1, 1);
+
+        assert.strictEqual(Object.keys(subsectionProgress).length, 2, "4 numbered cells make 2 pages");
+        assert.strictEqual(subsectionProgress[0].percentTranslationsCompleted, 100);
+        assert.strictEqual(subsectionProgress[1].percentTranslationsCompleted, 100);
+    });
+
     test("getCellsForMilestone handles subsection index bounds correctly", async () => {
         const cellsPerPage = 5;
         const cells = [
