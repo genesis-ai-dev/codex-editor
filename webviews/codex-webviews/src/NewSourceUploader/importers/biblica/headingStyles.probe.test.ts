@@ -1,8 +1,8 @@
 /**
  * Local diagnostic: which paragraph styles the study-notes pass turns into cells.
  *
- * Reads the unpublished English study volumes, so it is excluded from CI (see
- * vitest.config.ts) and is only useful when those files are present on disk.
+ * Reads the unpublished English study volumes, so it skips itself when those
+ * files are not present on disk.
  */
 import { describe, it } from "vitest";
 import fs from "fs";
@@ -47,13 +47,12 @@ const countCellsByStyle = async (fileName: string) => {
     const lines = [...byStyle.entries()]
         .sort((a, b) => b[1] - a[1])
         .map(([style, n]) => `   ${String(n).padStart(5)}  ${style}`);
-    // eslint-disable-next-line no-console
     console.log(
         `===== ${fileName}: ${cells.length} cells (frontBackMatter=${includeAllTextStyles}) =====\n${lines.join("\n")}`
     );
 };
 
-describe("biblica study-notes cell styles", () => {
+describe.skipIf(!fs.existsSync(BASE))("biblica study-notes cell styles", () => {
     for (const fileName of ["ACT-REV.idml", "ISA-MAL.idml", "JOB-SNG.idml"]) {
         it(`reports the styles that became cells in ${fileName}`, async () => {
             await countCellsByStyle(fileName);
