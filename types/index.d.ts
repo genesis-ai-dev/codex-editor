@@ -1815,6 +1815,32 @@ interface ImportedContent {
     edits?: EditHistory[];
 }
 
+export interface FootnoteListNote {
+    cellId: string;
+    verseNumber: string;
+    content: string;
+}
+
+export interface FootnoteListMilestone {
+    label: string;
+    notes: FootnoteListNote[];
+}
+
+export interface FootnoteListFile {
+    fileName: string;
+    uri: string;
+    textDirection: "ltr" | "rtl";
+    milestones: FootnoteListMilestone[];
+}
+
+export type FootnotesListMessageFromWebview =
+    | { command: "webviewReady"; }
+    | { command: "openFootnote"; uri: string; cellId: string; };
+
+export type FootnotesListMessageToWebview =
+    | { command: "footnotes"; files: FootnoteListFile[]; }
+    | { command: "footnotesError"; message: string; };
+
 // Add or verify these message types
 type ProjectManagerMessageFromWebview =
     | { command: "sendProjectsList"; data: Project[]; }
@@ -1833,10 +1859,12 @@ type ProjectManagerMessageFromWebview =
     | { command: "setValidationCountAudio"; }
     | { command: "openSourceUpload"; }
     | { command: "openExportView"; }
+    | { command: "openFootnotesList"; }
     | { command: "openAISettings"; }
     | { command: "openInterfaceSettings"; }
     | { command: "openLicenseSettings"; }
     | { command: "openExportView"; }
+    | { command: "openFootnotesList"; }
     | { command: "closeProject"; }
     | { command: "createNewWorkspaceAndProject"; }
     | { command: "openProject"; data: { path: string; }; }

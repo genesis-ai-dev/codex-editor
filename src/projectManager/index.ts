@@ -23,6 +23,7 @@ import {
 import { openSystemMessageEditor, debugValidationSetting } from "../copilotSettings/copilotSettings";
 import { openInterfaceSettings } from "../interfaceSettings/interfaceSettings";
 import { openProjectExportView } from "./projectExportView";
+import { openFootnotesList } from "../providers/footnotesList/footnotesListView";
 import { ensureCodexProjectsDirInWatchedFolders } from "../utils/projectLocationUtils";
 import { MetadataManager } from "../utils/metadataManager";
 import { EditMapUtils, addProjectMetadataEdit } from "../utils/editMapUtils";
@@ -718,6 +719,11 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         () => openProjectExportView(context)
     );
 
+    const openFootnotesListCommand = vscode.commands.registerCommand(
+        "codex-project-manager.openFootnotesList",
+        () => openFootnotesList(context)
+    );
+
     const openLicenseSettingsCommand = vscode.commands.registerCommand(
         "codex-project-manager.openLicenseSettings",
         async () => {
@@ -820,6 +826,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         openInterfaceSettingsCommand,
         debugValidationSettingCommand,
         openExportViewCommand,
+        openFootnotesListCommand,
         openLicenseSettingsCommand,
         importLocalUsfmSourceBibleCommand,
         updateGitignoreCommand,

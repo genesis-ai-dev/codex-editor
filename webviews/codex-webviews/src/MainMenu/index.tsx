@@ -969,6 +969,11 @@ function MainMenu() {
                                                     handleProjectAction("openInterfaceSettings"),
                                             },
                                             {
+                                                icon: "codicon-note",
+                                                label: "Footnotes List",
+                                                action: () => handleProjectAction("openFootnotesList"),
+                                            },
+                                            {
                                                 icon: "codicon-symbol-array",
                                                 label: "Import Labels",
                                                 action: () =>

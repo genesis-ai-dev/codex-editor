@@ -3,6 +3,7 @@ import { getProjectOverview, findAllCodexProjects, checkIfProjectIsInitialized, 
 import { getAuthApi } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
+import { openFootnotesList } from "../footnotesList/footnotesListView";
 import { openInterfaceSettings } from "../../interfaceSettings/interfaceSettings";
 import { applyTextDisplaySettings } from "../../utils/textDisplaySettingsUtils";
 import { BaseWebviewProvider } from "../../globalProvider";
@@ -616,6 +617,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "openAISettings":
             case "openSourceUpload":
             case "openExportView":
+            case "openFootnotesList":
             case "openLicenseSettings":
             case "openInterfaceSettings":
                 await this.executeCommandAndNotify(message.command);
@@ -921,6 +923,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 break;
             case "openExportView":
                 await openProjectExportView(this._context);
+                break;
+            case "openFootnotesList":
+                await openFootnotesList(this._context);
                 break;
             case "publishProject":
                 await this.publishProject();
