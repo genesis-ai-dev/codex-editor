@@ -1,5 +1,6 @@
 {
     "name": "codex-editor-extension",
+    "codexProjectPinPolicyVersion": 2,
     "displayName": "Codex Translation Editor",
     "description": "Support for `.codex` notebooks and translation source files.",
     "publisher": "project-accelerate",
@@ -1104,13 +1105,14 @@
         ]
     },
     "scripts": {
+        "test:pin-policy": "node --test tests/pinPolicy.test.cjs",
         "vscode:prepublish": "npm run build:webviews && npm run test:webviews && npm run test && npm run package",
         "compile": "webpack --config webpack.config.js",
         "watch": "webpack --config webpack.config.js --watch",
         "package": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\" && webpack --config webpack.config.js --config-name extension --mode production",
         "lint": "eslint src --ext ts",
         "pretest": "npm run compile && npm run lint",
-        "test": "node ./out/test/runTest.js",
+        "test": "npm run test:pin-policy && node ./out/test/runTest.js",
         "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
         "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../..",
         "test:webviews": "cd webviews/codex-webviews && pnpm run test",

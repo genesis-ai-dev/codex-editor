@@ -1,3 +1,5 @@
+import { registerPinPolicyCommands, prepareProjectPinsForActivation } from "./utils/extensionPins";
+import { EXTENSION_PIN_POLICY } from "../sharedUtils/extensionPinFeatureFlag";
 import * as vscode from "vscode";
 import { registerProviders } from "./providers/registerProviders";
 import { GlobalProvider } from "./globalProvider";
@@ -479,6 +481,13 @@ async function restoreTabLayout(context: vscode.ExtensionContext) {
 }
 
 export async function activate(context: vscode.ExtensionContext) {
+    registerPinPolicyCommands(context);
+    try {
+        if (!await prepareProjectPinsForActivation()) { return; }
+    } catch (error) {
+        void vscode.window.showErrorMessage(`Project pin preparation failed: ${String(error)}`);
+        return;
+    }
     const activationStart = globalThis.performance.now();
 
     // Ensure OS temp directory exists in test/web environments (mock FS may not have /tmp)
@@ -613,7 +622,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Pin-match gate: before heavy initialization, halt if our running version
     // doesn't match the project's pin so the Conductor can switch profiles.
-    if (metadataExists && await failsPinMatchGate(activationStart)) {
+    if (!EXTENSION_PIN_POLICY.ignoreProjectPins && metadataExists && await failsPinMatchGate(activationStart)) {
         updateSplashScreenSync(0, "Applying extension version pins...");
         return;
     }

@@ -1469,8 +1469,9 @@ type ProjectMetadata = {
         };
         /** Pin specific extension versions for this project */
         pinnedExtensions?: Record<string, {
-            version: string;
-            url: string;
+            timestamp?: number;
+            version?: string;
+            url?: string;
         }>;
         /** List of users that should be forced to restore/update their project when opening */
         initiateRemoteUpdatingFor?: RemoteUpdatingEntry[];

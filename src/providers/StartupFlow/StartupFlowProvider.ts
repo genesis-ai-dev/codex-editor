@@ -1,3 +1,5 @@
+import { applyRemoteUpdatePins } from "../../../sharedUtils/projectUpdatePins";
+import { EXTENSION_PIN_POLICY } from "../../../sharedUtils/extensionPinFeatureFlag";
 import {
     MessagesToStartupFlowProvider,
     MessagesFromStartupFlowProvider,
@@ -1183,7 +1185,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     title: "Select Project Folder",
                 });
                 if (result && result[0]) {
-                    await vscode.commands.executeCommand("vscode.openFolder", result[0]);
+                    await MetadataManager.safeOpenFolder(result[0]);
                 }
                 break;
             }
@@ -1205,7 +1207,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     if (folderName) {
                         const projectPath = vscode.Uri.joinPath(result[0], folderName);
                         await vscode.workspace.fs.createDirectory(projectPath);
-                        await vscode.commands.executeCommand("vscode.openFolder", projectPath);
+                        await MetadataManager.safeOpenFolder(projectPath);
                     }
                 }
                 break;
@@ -2016,10 +2018,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                             `✅ Project updated to ${newProjectName}\n\nOpening new project...`
                                         );
                                         if (swappedProjectPath) {
-                                            await vscode.commands.executeCommand(
-                                                "vscode.openFolder",
-                                                vscode.Uri.file(swappedProjectPath)
-                                            );
+                                            await MetadataManager.safeOpenFolder(vscode.Uri.file(swappedProjectPath));
                                             return; // Stop the old open flow
                                         }
                                     }
@@ -2135,7 +2134,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                     // Open the project directly
                     const projectUri = vscode.Uri.file(projectPath);
-                    await vscode.commands.executeCommand("vscode.openFolder", projectUri);
+                    await MetadataManager.safeOpenFolder(projectUri);
 
                 } catch (error) {
                     console.error("Error opening project:", error);
@@ -3704,7 +3703,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     debugLog(`Successfully changed media strategy to "${mediaStrategy}"`);
                     // Open the project after applying strategy
                     try {
-                        await vscode.commands.executeCommand("vscode.openFolder", projectUri);
+                        await MetadataManager.safeOpenFolder(projectUri);
                     } catch (openErr) {
                         debugLog("Failed to open project after strategy change", openErr);
                     }
@@ -4037,7 +4036,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                         // 8. Open the project
                         progress.report({ message: "Opening project..." });
-                        await vscode.commands.executeCommand("vscode.openFolder", newProjectUri);
+                        await MetadataManager.safeOpenFolder(newProjectUri);
                     });
 
                 } catch (error) {
@@ -5039,6 +5038,15 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 debugLog("All text merges completed");
             }
 
+            // Reconcile each pin timestamp against the exact cloned revision after content merging.
+            // An unavailable server never reaches this step.
+            await MetadataManager.withMetadataWrite(cloningProjectUri, async () => {
+                MetadataManager.assertMetadataSaved(cloningProjectUri);
+                const merged = Buffer.from(await vscode.workspace.fs.readFile(clonedMetadataUri)).toString("utf8");
+                const updated = applyRemoteUpdatePins(merged, Buffer.from(clonedMetadataBytes).toString("utf8"), EXTENSION_PIN_POLICY.ignoreProjectPins);
+                if (updated !== merged) { await vscode.workspace.fs.writeFile(clonedMetadataUri, Buffer.from(updated)); }
+            });
+
             // Copy binary files from snapshot into the freshly-cloned project (no content merge).
             if (binaryCopies.length > 0) {
                 debugLog(`Copying ${binaryCopies.length} binary files from snapshot...`);
@@ -5243,7 +5251,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 console.error("Failed to set update flags:", flagErr);
             }
         }
-        await vscode.commands.executeCommand("vscode.openFolder", updatedUri, false);
+        // Transfer the exact cloned HEAD's policy to the destination workspace before it starts.
+        // This prevents its old workspace cache from overriding a remote unpin after update.
+        if ((await vscode.commands.getCommands(true)).includes("codex.conductor.stageProjectPinSnapshot")) {
+            const commit = await dugiteGit.resolveRef(projectPath, "HEAD");
+            const branch = await (await import("isomorphic-git")).default.currentBranch({ fs, dir: projectPath });
+            const origin = (await dugiteGit.listRemotes(projectPath)).find(remote => remote.remote === "origin")?.url;
+            const remote = JSON.parse(Buffer.from(await dugiteGit.readBlobAtRef(projectPath, commit, "metadata.json")).toString("utf8"));
+            if (!branch || !origin) { throw new Error("Updated project repository identity is unavailable"); }
+            await vscode.commands.executeCommand("codex.conductor.stageProjectPinSnapshot", {
+                workspace: updatedUri.toString(), snapshot: { origin, branch, commit, pins: remote.meta?.pinnedExtensions ?? {} }
+            });
+        }
+        await MetadataManager.safeOpenFolder(updatedUri);
         return;
     }
 

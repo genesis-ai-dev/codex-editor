@@ -1,3 +1,4 @@
+import { EXTENSION_PIN_POLICY } from "../../sharedUtils/extensionPinFeatureFlag";
 import * as vscode from "vscode";
 import { stageAndCommitAllAndSync, SyncResult } from "./utils/merge";
 import { getAuthApi } from "../extension";
@@ -891,7 +892,7 @@ export class SyncManager {
         }
 
         // Block auto-sync when admin pin intent is active — admin is sanity-testing a pinned version
-        if (!isManualSync) {
+        if (!isManualSync && !EXTENSION_PIN_POLICY.ignoreProjectPins) {
             try {
                 const hasAdminPinIntent = await vscode.commands.executeCommand<boolean>('codex.conductor.hasAdminPinIntent');
                 if (hasAdminPinIntent) {
